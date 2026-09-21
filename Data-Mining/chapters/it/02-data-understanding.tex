@@ -106,13 +106,17 @@ Se un modello di rischio creditizio viene addestrato su dati viziati o errati, i
 \subsection{Dimensioni della Qualità del Dato}
 I problemi di qualità si manifestano sotto diverse dimensioni:
 \begin{enumerate}
-    \item \textbf{Accuratezza Sintattica (\textit{Syntactic Accuracy}):} Il valore registrato viola i vincoli formali o non appartiene al dominio prefissato (ad esempio, la stringa \texttt{"fmale"} o la presenza di lettere in un campo numerico). Tali anomalie sono identificabili in modo automatizzato mediante semplici controlli di schema.
-    \item \textbf{Accuratezza Semantica (\textit{Semantic Accuracy}):} Il dato è formalmente corretto rispetto al tipo, ma falso nella realtà di riferimento (ad esempio, associare il nome \texttt{"John Smith"} al genere femminile o registrare un'età di $180$ anni). Rilevare queste discrepanze richiede regole di dominio (\textit{business rules}) o incroci con sorgenti esterne affidabili.
-    \item \textbf{Completezza (\textit{Completeness}):} Mancanza sistematica di valori per determinati attributi o assenza di interi record. Una violazione tipica della completezza è il \textbf{bias di campionamento} (ad esempio, l'analisi del rischio di insolvenza svolta su un archivio storico che include solo clienti già approvati dalla banca, escludendo a priori i profili a basso reddito).
-    \item \textbf{Dati Sbilanciati (\textit{Unbalanced Data}):} Distribuzione fortemente asimmetrica delle classi (ad esempio, transazioni fraudolente pari allo $0.1\%$ del totale o prodotti difettosi su linee di produzione altamente automatizzate).
+    \item \textbf{Accuratezza Sintattica (\textit{Syntactic Accuracy}):} Il valore registrato viola i vincoli formali o non appartiene al dominio prefissato (ad esempio, la stringa \texttt{"fmale"} per il sesso, o la presenza di caratteri testuali in un campo numerico). Tali anomalie sono identificabili in modo immediato ed automatizzato mediante semplici controlli di schema e tipi.
+    \item \textbf{Accuratezza Semantica (\textit{Semantic Accuracy}):} Il dato è formalmente corretto e conforme al tipo previsto, ma falso nella realtà di riferimento (ad esempio, associare il nome anagrafico \texttt{"John Smith"} al genere femminile, o registrare un'età biologica pari a $180$ anni). Rilevare queste discrepanze richiede la definizione di regole di dominio (\textit{business rules}) o incroci con sorgenti esterne certificate.
+    \item \textbf{Completezza (\textit{Completeness}):} Mancanza sistematica di valori per determinati attributi o assenza di interi record. Una violazione insidiosa della completezza è il \textbf{bias di campionamento} (ad esempio, l'analisi del rischio di insolvenza svolta su un archivio storico che include esclusivamente clienti a cui il credito era già stato concesso, escludendo a priori i profili a basso reddito respinti).
+    \item \textbf{Dati Sbilanciati (\textit{Unbalanced Data}):} Distribuzione fortemente asimmetrica delle classi (ad esempio, transazioni fraudolente pari allo $0.1\%$ del totale o prodotti difettosi su linee di produzione ad altissima automazione).
     \item \textbf{Tempestività (\textit{Timeliness}):} Obsoleto grado di aggiornamento dei dati rispetto alla dinamica corrente del fenomeno osservato.
-    \item \textbf{Dati Duplicati (\textit{Duplicate Data}):} Presenza di record identici o quasi-identici relativi alla medesima entità (ad esempio, un medesimo cliente registrato più volte con indirizzi email differenti a seguito della fusione di due database). Tali discrepanze vengono affrontate tramite tecniche di deduplicazione e \textit{record linkage}.
+    \item \textbf{Dati Duplicati (\textit{Duplicate Data}):} Presenza di record identici o quasi-identici relativi alla medesima entità (ad esempio, un medesimo cliente registrato più volte con indirizzi email differenti a seguito della fusione di due banche dati eterogenee). Tali problematiche richiedono processi dedicati di deduplicazione e \textit{record linkage}.
 \end{enumerate}
+
+\begin{noteblock}{Anomalie nei Flussi di Misurazione e Sensori}
+Nei sistemi di monitoraggio industriale e IoT, un sensore guasto o bloccato trasmette tipicamente un valore costante pari a zero. In fase di esplorazione, tali registrazioni non devono essere considerate misurazioni fisiche effettive, bensì interpretate e gestite a tutti gli effetti come \textbf{valori mancanti} (dovuti a malfunzionamento del dispositivo).
+\end{noteblock}
 
 \section{Statistica Descrittiva ed Esplorazione Univariata}
 
@@ -144,8 +148,14 @@ I problemi di qualità si manifestano sotto diverse dimensioni:
     La deviazione standard misura la dispersione attorno alla media; è nulla solo se tutte le osservazioni sono identiche ($s=0$), altrimenti $s > 0$. Risulta anch'essa sensibile agli outlier.
     \item \textbf{Misure Robuste di Dispersione:}
     \begin{itemize}
-        \item \textit{Absolute Average Deviation} (AAD): $\text{AAD} = \frac{1}{m} \sum |x_i - \bar{x}|$.
-        \item \textit{Median Absolute Deviation} (MAD): $\text{MAD} = \text{mediana}(|x_i - \text{mediana}(x)|)$.
+        \item \textit{Absolute Average Deviation} (AAD):
+        \begin{equation}
+        \text{AAD} = \frac{1}{m} \sum_{i=1}^m |x_i - \bar{x}|
+        \end{equation}
+        \item \textit{Median Absolute Deviation} (MAD):
+        \begin{equation}
+        \text{MAD} = \operatorname{mediana}\big(|x_i - \operatorname{mediana}(x)|\big)
+        \end{equation}
         \item \textit{Interquartile Range} (IQR): Distanza tra il terzo quartile $Q_3$ ($75^\circ$ percentile) e il primo quartile $Q_1$ ($25^\circ$ percentile):
         \begin{equation}
         \text{IQR} = Q_3 - Q_1
@@ -158,6 +168,13 @@ Il \textbf{Box Plot} (grafico a scatola e baffi) offre una sintesi visiva non pa
 \[
 \big[\text{Minimo}, \; Q_1, \; \text{Mediana} \, (Q_2), \; Q_3, \; \text{Massimo}\big]
 \]
+La costruzione geometrica si fonda sul concetto di quantile: dato $p \in (0, 100)$, il \textbf{$p\%$-quantile} (o $p$-esimo percentile) \`e la soglia $x_p$ tale per cui il $p\%$ delle osservazioni campionarie assume valori inferiori o uguali a $x_p$, mentre il $(100-p)\%$ assume valori superiori. In particolare:
+\begin{itemize}
+    \item $Q_1$ corrisponde al $25\%$-quantile (primo quartile).
+    \item La mediana $Q_2$ corrisponde al $50\%$-quantile (secondo quartile).
+    \item $Q_3$ corrisponde al $75\%$-quantile (terzo quartile).
+    \item La larghezza della scatola centrale riflette l'intervallo interquartile $\text{IQR} = Q_3 - Q_1$, racchiudendo il $50\%$ centrale della massa dei dati.
+\end{itemize}
 
 \begin{figure}[htbp]
 \centering
@@ -191,9 +208,11 @@ Il \textbf{Box Plot} (grafico a scatola e baffi) offre una sintesi visiva non pa
 
 I limiti dei baffi sono calcolati convenzionalmente estendendosi fino al valore osservato pi\`u estremo entro l'intervallo $[Q_1 - 1.5 \times \text{IQR}, \; Q_3 + 1.5 \times \text{IQR}]$. Le osservazioni che cadono al di fuori di tali soglie sono etichettate visivamente come \textbf{outlier}.
 
+Un'estensione fondamentale per l'analisi bivariata e multivariata \`e costituita dai \textbf{Box Plot Condizionali} (\textit{Conditional Box Plots}): la distribuzione di un attributo numerico continuo viene stratificata e visualizzata affiancando i box plot per ciascuna modalit\`a o categoria di una variabile discreta (tipicamente la classe target o un raggruppamento naturale). In Figura~\ref{fig:conditional-boxplot} \`e illustrata la distribuzione della lunghezza del petalo (\textit{Petal Length}) stratificata sulle tre specie del dataset Iris: il grafico evidenzia visivamente che la specie \textit{Setosa} \`e nettamente separabile dalle restanti due con variabilit\`a molto ridotta, mentre \textit{Versicolor} e \textit{Virginica} presentano una parziale sovrapposizione nei rispettivi intervalli interquartili.
+
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[xscale=1.1, yscale=0.85]
+\begin{tikzpicture}[xscale=0.95, yscale=0.85]
     % Axis
     \draw[thick, -Stealth] (0,0) -- (8.5,0) node[right, font=\small] {Petal Length (cm)};
     \foreach \x in {1,2,3,4,5,6,7,8} \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
@@ -229,7 +248,7 @@ Sebbene il box plot sintetizzi efficacemente posizione e dispersione, \textbf{no
 
 \begin{figure}[htbp]
 \centering
-\begin{minipage}{0.47\textwidth}
+\begin{minipage}{0.46\textwidth}
 \centering
 \begin{tikzpicture}[scale=0.65]
     \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
@@ -242,9 +261,8 @@ Sebbene il box plot sintetizzi efficacemente posizione e dispersione, \textbf{no
     \draw[fill=orange!30, draw=orange!80, thick] (3.7,0) rectangle (4.5, 1.0);
     \node[font=\scriptsize\bfseries] at (2.5, -0.6) {Densit\`a Unimodale};
 \end{tikzpicture}
-\end{minipage}%
-\hfill
-\begin{minipage}{0.47\textwidth}
+\end{minipage}\hfill
+\begin{minipage}{0.46\textwidth}
 \centering
 \begin{tikzpicture}[scale=0.65]
     \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
@@ -333,10 +351,11 @@ Una scelta scorretta del numero di bin altera profondamente la percezione dei da
     \item Un numero eccessivo di bin provoca \textit{undersmoothing}, frammentando il campione in frequenze discontinue ed enfatizzando il rumore campionario.
 \end{itemize}
 
-Per distribuzioni unimodali prossime alla normale e campioni di dimensione moderata $n$, il numero raccomandato di bin \`e fornito dalla \textbf{regola di Sturges}:
+Per distribuzioni unimodali approssimativamente normali e campioni di dimensione moderata $n$, la stima standard del numero ottimale di intervalli \`e fornita dalla \textbf{regola di Sturges}:
 \begin{equation}
-k = 1 + \lceil \log_2(n) \rceil
+k = 1 + \lceil \log_2(n) \rceil = 1 + \lceil 3.322 \log_{10}(n) \rceil
 \end{equation}
+dove $n$ rappresenta la cardinalit\`a campionaria. Tale euristica assume esplicitamente una distribuzione di tipo gaussiano. Quando il volume dei dati cresce notevolmente o la distribuzione sottostante presenta pi\`u modi o forte asimmetria, la regola di Sturges tende a generare un numero insufficiente di classi; in tali casi risulta fondamentale testare sperimentalmente diversi valori di $k$ (ad esempio confrontando partizioni a bassa, media ed elevata risoluzione, come 5, 17 o 50 bin) per verificare la stabilit\`a dei pattern riscontrati.
 
 \section{Tecniche di Visualizzazione Multivariata}
 
@@ -470,6 +489,13 @@ Per esplorare simultaneamente tutte le coppie di attributi numerici, si impiega 
 \caption{Scatter Plot Matrix (SPLOM) del dataset Iris con il confronto a coppie per tutte e tre le specie e le stime di densit\`a univariata lungo la diagonale.}
 \label{fig:splom-example}
 \end{figure}
+
+\subsection{La Visualizzazione come Test ed Euristica Esplorativa}
+L'ispezione visiva rappresenta un primo insostituibile test esplorativo sulla presenza di struttura nei dati, la cui corretta interpretazione richiede una precisa consapevolezza metodologica:
+\begin{itemize}
+    \item \textbf{Presenza di evidenza grafica:} Quando le visualizzazioni evidenziano pattern netti, raggruppamenti separati (\textit{cluster}) o eccezioni isolate (\textit{outlier}), si ha la certezza empirica che vi sia una propriet\`a strutturale reale o un fenomeno oggettivo all'interno del dataset.
+    \item \textbf{Assenza di evidenza grafica non implica assenza di struttura:} Al contrario, quando le visualizzazioni ordinarie non mostrano alcuna configurazione apparente o sembrano puramente casuali, \textbf{non} si pu\`o dedurre che i dati siano privi di relazioni. Relazioni multivariate complesse, deboli associazioni non lineari o dipendenze spaziali che coinvolgono quattro o pi\`u attributi contemporaneamente sfuggono intrinsecamente a proiezioni bidimensionali, richiedendo l'impiego di tecniche analitiche o proiezioni a dimensionalit\`a superiore.
+\end{itemize}
 
 \subsection{Visualizzazione ad Alta Dimensionalità}
 
@@ -605,23 +631,131 @@ Gli \textbf{Star Plot} applicano il medesimo principio disegnando ciascun oggett
 \label{fig:radar-plot-example}
 \end{figure}
 
-\section{Analisi di Correlazione Lineare}
+\section{Analisi di Correlazione e Associazione}
 
-La correlazione quantifica la forza e la direzione della relazione lineare tra due attributi numerici continui $X$ e $Y$.
+L'analisi di correlazione ha lo scopo di identificare, quantificare e interpretare la forza e la direzione della relazione lineare tra coppie di attributi numerici continui.
 
-\begin{definition}[Coefficiente di Correlazione di Pearson]
-Dato un campione di $m$ coppie di osservazioni $(x_i, y_i)$, il coefficiente campionario di correlazione lineare $r_{xy}$ \`e definito come:
+\subsection{Motivazioni e Multicollinearit\`a nei Modelli Predittivi}
+Nel processo di data understanding, valutare la correlazione tra variabili persegue diversi obiettivi metodologici:
+\begin{itemize}
+    \item \textbf{Individuazione di ridondanze informative:} Se due attributi manifestano un andamento pressoch\'e coincidente, uno di essi pu\`o essere scartato senza perdita apprezzabile di potere descrittivo, riducendo la dimensionalit\`a dello spazio di lavoro.
+    \item \textbf{Preparazione per modelli predittivi e clustering:} Molteplici algoritmi di machine learning (quali regressione lineare, logistic regression o clustering basato su distanze) assumono feature indipendenti o beneficiano fortemente della rimozione di attributi collineari.
+    \item \textbf{Rilevamento della multicollinearit\`a:} Si verifica quando due o pi\`u variabili predittive (\textit{feature}) in un modello di regressione risultano fortemente legate da una relazione lineare. Si consideri l'esempio paradigmatico della stima del valore degli immobili impiegando congiuntamente come predittori sia la \textit{superficie in metri quadri} ($m^2$) sia la \textit{superficie in piedi quadri} ($\text{ft}^2$). Le due variabili veicolano esattamente la medesima informazione; di conseguenza, il modello di regressione entra in severa instabilit\`a numerica, non riuscendo ad isolare il contributo marginale di ciascun predittore e gonfiando la varianza degli stimatori.
+\end{itemize}
+
+\subsection{Dalla Varianza alla Covarianza Campionaria}
+Mentre la varianza campionaria quantifica la dispersione delle osservazioni di una singola variabile attorno alla propria media:
 \begin{equation}
-r_{xy} = \frac{\sum_{i=1}^m (x_i - \bar{x})(y_i - \bar{y})}{(m-1) s_x s_y} = \frac{\text{Cov}(X, Y)}{s_x s_y}
+s_x^2 = \operatorname{Var}(X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2
 \end{equation}
-dove $\bar{x}, \bar{y}$ sono le medie campionarie e $s_x, s_y$ le rispettive deviazioni standard.
+nelle applicazioni analitiche l'interesse \`e costantemente rivolto alle interazioni tra coppie di variabili:
+\begin{itemize}
+    \item I clienti con reddito imponibile pi\`u elevato tendono a spendere somme maggiori?
+    \item Il prezzo unitario di un bene determina una contrazione delle quantit\`a vendute?
+    \item Un maggior numero di ore di studio settimanali conduce sistematicamente a voti d'esame superiori?
+    \item Due sensori fisici disposti in parallelo forniscono misure ampiamente ridondanti?
+\end{itemize}
+
+Per misurare come due grandezze numeriche variano simultaneamente, si introduce la \textbf{covarianza campionaria}:
+
+\begin{definition}[Covarianza Campionaria]
+Dato un campione di $n$ coppie di valori $(x_i, y_i)$, la covarianza campionaria tra $X$ e $Y$ \`e definita da:
+\begin{equation}
+\operatorname{Cov}(X, Y) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})
+\end{equation}
+dove $\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i$ e $\bar{y} = \frac{1}{n}\sum_{i=1}^n y_i$ rappresentano le medie campionarie.
 \end{definition}
 
+Una propriet\`a teorica fondamentale sancisce che la varianza \`e semplicemente la covarianza di una variabile con se stessa:
+\begin{equation}
+\operatorname{Cov}(X, X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2 = \operatorname{Var}(X) = s_x^2
+\end{equation}
+
+\subsection{Origine del Segno e Interpretazione Geometrica per Quadranti}
+Il segno algebrico di ciascun termine della sommatoria dipende dal prodotto degli scarti congiunti rispetto alle medie:
 \begin{itemize}
-    \item $r_{xy} \in [-1, \; +1]$.
-    \item Se $|r_{xy}| = 1$, i punti $(x_i, y_i)$ giacciono esattamente su una retta. Se $r_{xy} = +1$ la retta ha pendenza positiva; se $r_{xy} = -1$ ha pendenza negativa.
-    \item Valori vicini a $0$ indicano assenza di associazione \textbf{lineare}.
-    \item \textbf{Avvertenza fondamentale:} $r_{xy} \approx 0$ non implica indipendenza statistica: possono sussistere relazioni non lineari deterministiche (ad esempio paraboliche $Y = X^2$) che il coefficiente di Pearson non \`e in grado di rilevare.
+    \item \textbf{Scarti concordi positivi:} $(x_i - \bar{x}) > 0$ e $(y_i - \bar{y}) > 0 \implies (+)\times(+) = \mathbf{+}$.
+    \item \textbf{Scarti concordi negativi:} $(x_i - \bar{x}) < 0$ e $(y_i - \bar{y}) < 0 \implies (-)\times(-) = \mathbf{+}$.
+    \item \textbf{Scarti discordi:} $(+)\times(-) = \mathbf{-}$ oppure $(-)\times(+) = \mathbf{-}$.
+\end{itemize}
+
+Traslando l'origine cartesiana nel baricentro $(\bar{x}, \bar{y})$, lo spazio viene suddiviso in quattro quadranti (Figura~\ref{fig:covariance-quadrants}):
+\begin{enumerate}
+    \item Se dominano le osservazioni nei quadranti \textbf{I e III} (scarti concordi), i prodotti positivi prevalgono e la covarianza campionaria \`e positiva ($\operatorname{Cov}(X, Y) > 0$).
+    \item Se prevalgono i quadranti \textbf{II e IV} (scarti discordi), dominano i prodotti negativi e la covarianza risulta negativa ($\operatorname{Cov}(X, Y) < 0$).
+    \item Se i punti sono dispersi in modo uniforme o simmetrico tra i quattro quadranti, i termini positivi e negativi si elidono reciprocamente, generando una covarianza prossima a zero ($\operatorname{Cov}(X, Y) \approx 0$).
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Central cross at mean (x_bar, y_bar)
+    \def\xb{3.2}
+    \def\yb{2.8}
+
+    % Shaded quadrants
+    \fill[green!8] (\xb, \yb) rectangle (6.5, 5.3);
+    \fill[green!8] (0.5, 0.5) rectangle (\xb, \yb);
+    \fill[red!8] (0.5, \yb) rectangle (\xb, 5.3);
+    \fill[red!8] (\xb, 0.5) rectangle (6.5, \yb);
+
+    % Axes
+    \draw[thick, -Stealth] (0.5, 0.5) -- (6.8, 0.5) node[right, font=\small] {$X$};
+    \draw[thick, -Stealth] (0.5, 0.5) -- (0.5, 5.6) node[above, font=\small] {$Y$};
+
+    % Mean dashed lines
+    \draw[dashed, thick, gray!70] (\xb, 0.5) -- (\xb, 5.3);
+    \draw[dashed, thick, gray!70] (0.5, \yb) -- (6.5, \yb);
+    \node[below, font=\small\bfseries] at (\xb, 0.5) {$\bar{x}$};
+    \node[left, font=\small\bfseries] at (0.5, \yb) {$\bar{y}$};
+
+    % Quadrant Labels and signs
+    \node[align=center, font=\scriptsize] at (5.0, 4.6) {\textbf{Quadrante I}\\$(x_i > \bar{x}, \; y_i > \bar{y})$\\$(+) \times (+) = \mathbf{+}$};
+    \node[align=center, font=\scriptsize] at (1.8, 4.6) {\textbf{Quadrante II}\\$(x_i < \bar{x}, \; y_i > \bar{y})$\\$(-) \times (+) = \mathbf{-}$};
+    \node[align=center, font=\scriptsize] at (1.8, 1.4) {\textbf{Quadrante III}\\$(x_i < \bar{x}, \; y_i < \bar{y})$\\$(-) \times (-) = \mathbf{+}$};
+    \node[align=center, font=\scriptsize] at (5.0, 1.4) {\textbf{Quadrante IV}\\$(x_i > \bar{x}, \; y_i < \bar{y})$\\$(+) \times (-) = \mathbf{-}$};
+
+    % Sample points illustrating positive covariance
+    \foreach \p in {(1.2, 1.1), (1.6, 1.8), (2.1, 1.5), (2.5, 2.2), (2.8, 2.4),
+                    (3.6, 3.2), (4.0, 3.8), (4.5, 3.5), (5.1, 4.2), (5.8, 4.7), (6.1, 4.9)} {
+        \fill[blue!80!black] \p circle (2.5pt);
+    }
+    \fill[blue!80!black] (2.2, 3.3) circle (2.5pt);
+    \fill[blue!80!black] (4.2, 2.0) circle (2.5pt);
+
+    \node[font=\footnotesize\itshape, blue!80!black] at (3.5, -0.2) {Prevalenza nei Quadranti I e III $\implies \operatorname{Cov}(X, Y) > 0$};
+\end{tikzpicture}
+\caption{Interpretazione geometrica della covarianza per quadranti centrati in $(\bar{x}, \bar{y})$. I punti nei quadranti concordi I e III producono contributi positivi, mentre i quadranti discordi II e IV producono contributi negativi.}
+\label{fig:covariance-quadrants}
+\end{figure}
+
+\subsection{Limite della Covarianza: Dipendenza dalla Scala Metrica}
+Nonostante la covarianza indichi chiaramente il segno della concordanza lineare, essa presenta un limite critico: \textbf{dipende strettamente dalle unit\`a di misura delle variabili}.
+Si consideri ad esempio la relazione tra reddito annuo e spesa:
+\begin{itemize}
+    \item Se entrambe le variabili sono espresse in euro, l'unit\`a di misura della covarianza \`e pari a $\text{euro}^2$.
+    \item Se si converte il reddito in \textit{migliaia di euro}, il valore numerico della covarianza subisce un ridimensionamento di un fattore $1000$, sebbene la relazione sostanziale sottostante tra le grandezze rimanga rigorosamente immutata.
+\end{itemize}
+Di conseguenza, la covarianza descrive la direzione della dipendenza lineare, ma la sua magnitudo assoluta non \`e comparabile tra coppie di variabili eterogenee n\'e quantifica l'intensit\`a intrinseca del legame.
+
+\subsection{Coefficiente di Correlazione Lineare di Pearson}
+Per ottenere una misura standardizzata e priva di unit\`a di misura, si divide la covarianza campionaria per il prodotto delle rispettive deviazioni standard:
+
+\begin{definition}[Coefficiente di Correlazione di Pearson]
+Dato un campione di $n$ coppie $(x_i, y_i)$, il coefficiente campionario di correlazione lineare $r_{xy}$ \`e definito come:
+\begin{equation}
+r_{xy} = \frac{\operatorname{Cov}(X, Y)}{s_x s_y} = \frac{\sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^n (x_i - \bar{x})^2 \sum_{i=1}^n (y_i - \bar{y})^2}}
+\end{equation}
+dove $s_x, s_y$ sono le deviazioni standard campionarie di $X$ e $Y$.
+\end{definition}
+
+Propriet\`a cardine del coefficiente di Pearson:
+\begin{itemize}
+    \item \textbf{Adimensionalit\`a e invarianza di scala:} $r_{xy}$ \`e un numero puro, invariante rispetto a qualunque riscalamento lineare affine positivo ($X' = aX + b$, con $a > 0$).
+    \item \textbf{Delimitazione:} Risulta sempre $-1 \le r_{xy} \le +1$.
+    \item \textbf{Perfetta collinearit\`a ($|r_{xy}| = 1$):} I punti giacciono esattamente su una linea retta; con pendenza positiva se $r_{xy} = +1$, negativa se $r_{xy} = -1$.
+    \item \textbf{Assenza di relazione lineare ($r_{xy} \approx 0$):} Segnala l'assenza di un legame lineare.
+    \item \textbf{Cecit\`a alle relazioni non lineari:} Come illustrato in Figura~\ref{fig:pearson-cases}(d), un coefficiente nullo ($r_{xy} \approx 0$) non dimostra affatto indipendenza: relazioni deterministiche paraboliche o quadratiche possono avere correlazione lineare esattamente pari a zero.
 \end{itemize}
 
 \begin{figure}[htbp]
@@ -681,41 +815,95 @@ dove $\bar{x}, \bar{y}$ sono le medie campionarie e $s_x, s_y$ le rispettive dev
 \label{fig:pearson-cases}
 \end{figure}
 
+\subsection{Associazione Statistica vs Causalit\`a e Fattori di Confondimento}
+Un principio fondamentale nella data science \`e la distinzione epistemologica tra associazione e causazione:
+\begin{equation}
+\textbf{Correlazione} \;\neq\; \textbf{Causalit\`a}
+\end{equation}
+Si consideri un dataset accademico in cui il numero di ore settimanali dedicate allo studio e i voti d'esame mostrano un'elevata correlazione positiva ($r_{xy} = +0.98$). Gli studenti con meno ore di studio tendono a trovarsi sotto la media, mentre chi studia pi\`u ore si colloca sopra la media. Tale dato riflette una fortissima associazione statistica, ma \textbf{non autorizza a concludere che 2 ore aggiuntive di studio causino direttamente e determiniscamente un incremento prefissato del voto}. Molteplici altre variabili (preparazione pregressa, frequenza alle lezioni, attenzione in aula) possono influenzare congiuntamente entrambi gli aspetti.
+
+La correlazione lineare:
+\begin{enumerate}
+    \item Non identifica la direzione della causalit\`a ($X \to Y$ oppure $Y \to X$).
+    \item Pu\`o essere generata da un \textbf{fattore di confondimento} (\textit{confounding variable}).
+\end{enumerate}
+
+\begin{example}[La Variabile Confondente: Gelati e Annegamenti]
+Nelle statistiche estive si osserva una correlazione positiva molto forte tra il volume di vendite di gelati e il numero di incidenti da annegamento. Chiaramente mangiare gelati non provoca annegamenti. Esiste una terza variabile latente non inclusa nella coppia, la \textbf{temperatura esterna elevata}, che aumenta simultaneamente sia la domanda di gelati sia il numero di bagnanti in acqua, inducendo una correlazione spuria tra le due grandezze.
+\end{example}
+
+\subsection{Correlazione di Rango di Spearman per Relazioni Monotone}
+Nei contesti in cui la dipendenza tra due grandezze non \`e strettamente lineare, oppure in presenza di outlier marcati che distorcono la media e la deviazione standard, si ricorre al \textbf{coefficiente di correlazione di rango di Spearman} ($\rho_s$).
+
+Spearman non confronta direttamente i valori numerici grezzi, ma li sostituisce con la loro posizione ordinale o \textbf{rango} (\textit{rank}) nell'ordinamento crescente del campione:
+
+\begin{definition}[Coefficiente di Correlazione di Rango di Spearman]
+Siano $\operatorname{rank}(x_i)$ e $\operatorname{rank}(y_i)$ i ranghi di $x_i$ e $y_i$. Se non vi sono ex aequo (\textit{ties}), il coefficiente \`e formulato come:
+\begin{equation}
+\rho_s = 1 - \frac{6 \sum_{i=1}^n d_i^2}{n(n^2 - 1)}, \quad \text{con } d_i = \operatorname{rank}(x_i) - \operatorname{rank}(y_i)
+\end{equation}
+In presenza di ranghi parimerito, $\rho_s$ equivale al coefficiente di Pearson calcolato direttamente sulle sequenze dei ranghi.
+\end{definition}
+
+Propriet\`a essenziali:
+\begin{itemize}
+    \item $\rho_s = +1$ quando l'ordinamento delle due variabili coincide perfettamente (relazione \textbf{monotona crescente}).
+    \item $\rho_s = -1$ quando l'ordinamento \`e esattamente invertito (relazione \textbf{monotona decrescente}).
+    \item Misura se due grandezze tendono a variare nella stessa direzione o in direzione opposta, senza vincoli di linearit\`a (ad esempio per $Y = X^3$ o $Y = \log(X)$ si ha $\rho_s = 1$).
+    \item Gode di elevata robustezza rispetto a valori estremi o outlier isolati.
+\end{itemize}
+
+\subsection{Matrice di Correlazione e Selezione delle Feature}
+In dataset con molteplici attributi continui, si calcolano tutte le correlazioni bivariate a coppie organizzandole in una \textbf{matrice di correlazione} simmetrica $p \times p$.
+Nell'analisi del dataset Iris, ad esempio, la matrice evidenzia una fortissima correlazione tra \textit{Petal Length} e \textit{Petal Width} ($r \approx 0.96$), segnalando un'immediata ridondanza che suggerisce la possibilit\`a di fondere o selezionare solo uno dei due attributi per l'addestramento di classificatori.
+
 \section{Gestione di Outlier e Valori Mancanti}
 
-\subsection{Outlier: Rumore vs Conoscenza}
-Un \textbf{outlier} è un'istanza con caratteristiche che deviano marcatamente dalla maggior parte delle osservazioni:
+\subsection{Outlier: Rumore vs Obiettivo Analitico}
+Un \textbf{outlier} (anomalia o valore aberrante) \`e un'istanza con caratteristiche che deviano in modo marcato dalla maggior parte delle osservazioni del campione:
 \begin{itemize}
-    \item \textbf{Outlier come rumore:} Originati da guasti di sensori, errori di battitura o incongruenze di trasmissione. Tali anomalie falsano le misure di tendenza centrale (come la media) e i modelli predittivi, e devono pertanto essere rimossi.
-    \item \textbf{Outlier come obiettivo analitico:} Casi eccezionali che costituiscono il vero target applicativo (transazioni bancarie fraudolente, accessi abusivi nei server, focolai di patologie rare).
+    \item \textbf{Outlier come rumore (\textit{noise}):} Generati da errori materiali di digitazione, malfunzionamenti transitori di sensori fisici o problemi nella conversione dei formati. Tali osservazioni falsano drasticamente medie, varianze e modelli di regressione, e devono essere identificate e rimosse (o corrette) nel pre-processing.
+    \item \textbf{Outlier come obiettivo analitico (\textit{target}):} Situazioni insolite o eccezionali reali, che rappresentano il primario scopo applicativo dell'analisi. Casi tipici comprendono la rilevazione di \textbf{frodi con carte di credito}, l'individuazione di \textbf{intrusioni informatiche di rete} (\textit{intrusion detection}) e la diagnosi precoce di \textbf{patologie mediche rare}.
 \end{itemize}
 
-\textbf{Metodologie di rilevamento:}
+Anche qualora gli outlier derivino da misurazioni corrette di eventi rari, pu\`o risultare opportuno escluderli temporaneamente dal calcolo di parametri aggregati qualora l'obiettivo sia caratterizzare il comportamento della popolazione tipica.
+
+\subsection{Metodologie di Rilevamento degli Outlier}
+L'identificazione delle anomalie si articola su differenti livelli di dimensionalit\`a:
 \begin{itemize}
-    \item \textit{Singolo attributo:} Analisi delle frequenze estreme per variabili categoriche; Box Plot ($1.5 \times \text{IQR}$) e calcolo dello $z$-score ($z = \frac{x - \mu}{\sigma}$) per variabili numeriche.
-    \item \textit{Multivariato:} Scatter Plot bivariati e trivariati, proiezioni su componenti principali (\textit{Principal Component Analysis} - PCA) e algoritmi di clustering (gli outlier sono i punti che ricadono in cluster residuali o che rimangono non assegnati).
+    \item \textbf{Attributo Singolo (Univariato):}
+    \begin{itemize}
+        \item \textit{Attributi categorici:} Un outlier corrisponde a un valore che si presenta con una frequenza sensibilmente inferiore rispetto a tutte le altre modalit\`a del dominio.
+        \item \textit{Attributi numerici:} Ispezione visiva e analitica mediante Box Plot (valori esterni all'intervallo $[Q_1 - 1.5 \times \text{IQR}, \; Q_3 + 1.5 \times \text{IQR}]$) e calcolo dello $z$-score standardizzato ($z = \frac{x - \mu}{\sigma}$).
+    \end{itemize}
+    \item \textbf{Attributi Multipli (Multivariato):}
+    \begin{itemize}
+        \item \textit{Scatter Plot 2D e 3D:} Permettono di cogliere outlier sia globali (estremi rispetto all'intera nuvola di punti) sia locali (anomali rispetto al cluster o alla classe specifica a cui appartengono, come illustrato in Figura~\ref{fig:scatterplot-outlier}).
+        \item \textit{Grafici PCA (\textit{Principal Component Analysis}):} Proiettano lo spazio multidimensionale sui piani di massima varianza per individuare punti isolati.
+        \item \textit{Algoritmi di Clustering:} Negli algoritmi basati sulla densit\`a o su distanze (come DBSCAN o k-means con soglie di distanza), gli outlier emergono naturalmente come i punti che non possono essere assegnati ad alcun cluster principale o che rimangono completamente isolati.
+    \end{itemize}
 \end{itemize}
 
-\subsection{Valori Mancanti (Missing Values)}
-Le cause della mancata registrazione di valori includono:
+\subsection{Valori Mancanti (Missing Values) e Camuffamento}
+L'assenza di valori per singoli attributi in determinate istanze pu\`o derivare da diverse cause:
 \begin{itemize}
-    \item Rifiuto del soggetto a rispondere (es. informazioni sul reddito o sul peso).
-    \item Non applicabilità dell'attributo (es. reddito da lavoro dipendente per minori o disoccupati).
-    \item Malfunzionamento temporaneo dei dispositivi di rilevamento.
+    \item \textbf{Informazione non raccolta o rifiutata:} Rifiuto esplicito dell'intervistato di condividere dati riservati (ad esempio reddito, peso corporeo o et\`a).
+    \item \textbf{Non applicabilit\`a logica dell'attributo:} L'attributo non possiede significato logico per una specifica classe di istanze (ad esempio il reddito annuo per bambini o minori in et\`a scolare).
+    \item \textbf{Malfunzionamento o blocco di sensori:} Interruzioni momentanee di connettivit\`a o dispositivi fisici danneggiati.
 \end{itemize}
 
-\begin{alertblock}{Insidia dei Valori di Default Fittizi}
-In molti sistemi di registrazione, un valore mancante non viene salvato come \texttt{NULL} o \texttt{NaN}, bensì codificato con un valore numerico sentinella come \texttt{0}, \texttt{-1} o \texttt{999}. Se non intercettati nella fase di Data Understanding, tali codifiche vengono trattate erroneamente come valori reali, distorcendo gravemente medie, deviazioni standard e modelli di classificazione.
+\begin{alertblock}{Insidia del Camuffamento: Zeri e Valori di Default Fittizi}
+Spesso un valore mancante non viene salvato con codifica esplicita (\texttt{NULL} o \texttt{NaN}), bens\`i registrato con valori convenzionali o di default (ad esempio \texttt{0}, \texttt{-1} o \texttt{999}). Un sensore bloccato, ad esempio, invia ripetutamente il valore \texttt{0}.
+Se non intercettati nella fase di Data Understanding, tali numeri vengono trattati acriticamente dai software come misurazioni reali, distorcendo gravemente medie, deviazioni standard e modelli di classificazione.
 \end{alertblock}
 
 \section{Checklist Operativa di Data Understanding}
-Al termine della fase di esplorazione, l'analista deve aver completato le seguenti verifiche:
+Al termine della fase di esplorazione, l'analista deve aver completato sistematicamente le seguenti verifiche:
 \begin{enumerate}
-    \item Identificazione formale della scala di misura di ogni attributo.
-    \item Verifica dell'accuratezza sintattica (valori fuori dominio) e semantica.
-    \item Ispezione e rimozione dei record duplicati.
-    \item Trattamento dei valori mancanti ed eliminazione di zeri fittizi o codifiche di default.
-    \item Rilevamento degli outlier univariati e multivariati e decisione sul loro trattamento (rumore da eliminare vs anomalia da analizzare).
-    \item Esame delle distribuzioni (asimmetrie, multimodalità) tramite istogrammi dimensionati secondo la regola di Sturges.
-    \item Calcolo della matrice di correlazione per rilevare attributi ridondanti o predittori correlati al target.
+    \item \textbf{Valutazione della Qualit\`a dei Dati:} Verificare la presenza di errori di accuratezza sintattica (valori fuori dominio) e semantica, grado di completezza, tempestivit\`a, duplicati e grado di sbilanciamento delle classi.
+    \item \textbf{Individuazione degli Outlier:} Rilevare anomalie univariati e multivariati mediante tecniche di visualizzazione (box plot, scatter plot, PCA, coordinate parallele) e decidere la politica di trattamento (rumore da rimuovere vs target primario di indagine).
+    \item \textbf{Rilevamento ed Esame dei Valori Mancanti:} Identificare i campi nulli e smascherare valori mancanti nascosti o camuffati sotto forma di zeri fittizi o codifiche di default.
+    \item \textbf{Scoperta e Conferma di Correlazioni e Dipendenze:} Calcolare matrici di correlazione lineare (Pearson) e di rango (Spearman) per confermare relazioni attese, rilevare dipendenze inattese e scongiurare la multicollinearit\`a e le ridondanze tra feature.
+    \item \textbf{Verifica di Ipotesi e Assunzioni Specifiche del Dominio:} Controllare assunzioni applicative e distributive (ad esempio verificare se un attributo segue una distribuzione approssimativamente normale per l'uso della regola di Sturges o di stimatori parametrici).
+    \item \textbf{Confronto delle Statistiche con il Comportamento Atteso:} Verificare che medie, mediane, asimmetrie e dispersione riflettano coerentemente la conoscenza di dominio e i pattern attesi nel contesto applicativo.
 \end{enumerate}

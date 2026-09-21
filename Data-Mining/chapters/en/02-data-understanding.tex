@@ -106,13 +106,17 @@ If a credit risk model is trained on flawed or erroneous data, the system will r
 \subsection{Dimensions of Data Quality}
 Quality problems manifest themselves under various dimensions:
 \begin{enumerate}
-    \item \textbf{Syntactic Accuracy:} The recorded value violates formal constraints or does not belong to the predetermined domain (for example, the string \texttt{"fmale"} or the presence of letters in a numeric field). Such anomalies can be identified automatically through simple schema checks.
-    \item \textbf{Semantic Accuracy:} The data is formally correct with respect to the type, but false in the reference reality (for example, associating the name \texttt{"John Smith"} with the female gender or recording an age of $180$ years). Detecting these discrepancies requires domain rules (\textit{business rules}) or cross-referencing with reliable external sources.
-    \item \textbf{Completeness:} Systematic lack of values for certain attributes or absence of entire records. A typical violation of completeness is \textbf{sampling bias} (for example, the analysis of insolvency risk carried out on a historical archive that only includes customers already approved by the bank, excluding a priori low-income profiles).
+    \item \textbf{Syntactic Accuracy:} The recorded value violates formal constraints or does not belong to the predetermined domain (for example, the string \texttt{"fmale"} for gender, or the presence of letters in a numeric field). Such anomalies can be identified immediately and automatically through simple schema and type checks.
+    \item \textbf{Semantic Accuracy:} The data is formally correct and conforms to the expected type, but false in the reference reality (for example, associating the name \texttt{"John Smith"} with the female gender or recording a biological age of $180$ years). Detecting these discrepancies requires domain rules (\textit{business rules}) or cross-referencing with certified external sources.
+    \item \textbf{Completeness:} Systematic lack of values for certain attributes or absence of entire records. An insidious violation of completeness is \textbf{sampling bias} (for example, the analysis of insolvency risk carried out on a historical archive that only includes customers already approved by the bank, excluding a priori rejected low-income profiles).
     \item \textbf{Unbalanced Data:} Strongly asymmetric distribution of classes (for example, fraudulent transactions equal to $0.1\%$ of the total or defective products on highly automated production lines).
     \item \textbf{Timeliness:} Obsolete degree of data updating compared to the current dynamics of the observed phenomenon.
-    \item \textbf{Duplicate Data:} Presence of identical or nearly identical records relating to the same entity (for example, the same customer registered multiple times with different email addresses following the merger of two databases). Such discrepancies are addressed through deduplication and \textit{record linkage} techniques.
+    \item \textbf{Duplicate Data:} Presence of identical or nearly identical records relating to the same entity (for example, the same customer registered multiple times with different email addresses following the merger of two heterogeneous databases). Such issues require dedicated deduplication and \textit{record linkage} processes.
 \end{enumerate}
+
+\begin{noteblock}{Anomalies in Measurement Streams and Sensors}
+In industrial monitoring and IoT systems, a broken or blocked sensor typically transmits a flat, constant value of zero. During the exploratory phase, such readings must not be treated as genuine physical measurements, but rather interpreted and handled in all respects as \textbf{missing values} (caused by hardware malfunction).
+\end{noteblock}
 
 \section{Descriptive Statistics and Univariate Exploration}
 
@@ -144,8 +148,14 @@ Quality problems manifest themselves under various dimensions:
     The standard deviation measures the dispersion around the mean; it is zero only if all observations are identical ($s=0$), otherwise $s > 0$. It is also sensitive to outliers.
     \item \textbf{Robust Measures of Dispersion:}
     \begin{itemize}
-        \item \textit{Absolute Average Deviation} (AAD): $\text{AAD} = \frac{1}{m} \sum |x_i - \bar{x}|$.
-        \item \textit{Median Absolute Deviation} (MAD): $\text{MAD} = \text{median}(|x_i - \text{median}(x)|)$.
+        \item \textit{Absolute Average Deviation} (AAD):
+        \begin{equation}
+        \text{AAD} = \frac{1}{m} \sum_{i=1}^m |x_i - \bar{x}|
+        \end{equation}
+        \item \textit{Median Absolute Deviation} (MAD):
+        \begin{equation}
+        \text{MAD} = \operatorname{median}\big(|x_i - \operatorname{median}(x)|\big)
+        \end{equation}
         \item \textit{Interquartile Range} (IQR): Distance between the third quartile $Q_3$ ($75^{\text{th}}$ percentile) and the first quartile $Q_1$ ($25^{\text{th}}$ percentile):
         \begin{equation}
         \text{IQR} = Q_3 - Q_1
@@ -158,6 +168,13 @@ The \textbf{Box Plot} (box and whisker plot) offers a non-parametric visual summ
 \[
 \big[\text{Minimum}, \; Q_1, \; \text{Median} \, (Q_2), \; Q_3, \; \text{Maximum}\big]
 \]
+Its geometric structure relies on the concept of quantile: given $p \in (0, 100)$, the \textbf{$p\%$-quantile} (or $p^{\text{th}}$ percentile) is the cutoff value $x_p$ such that $p\%$ of sample observations are smaller than or equal to $x_p$, while $(100-p)\%$ are greater. Specifically:
+\begin{itemize}
+    \item $Q_1$ corresponds to the $25\%$-quantile (first quartile).
+    \item The median $Q_2$ corresponds to the $50\%$-quantile (second quartile).
+    \item $Q_3$ corresponds to the $75\%$-quantile (third quartile).
+    \item The width of the central box represents the interquartile range $\text{IQR} = Q_3 - Q_1$, encompassing the central $50\%$ of the data mass.
+\end{itemize}
 
 \begin{figure}[htbp]
 \centering
@@ -191,9 +208,11 @@ The \textbf{Box Plot} (box and whisker plot) offers a non-parametric visual summ
 
 The limits of the whiskers are conventionally calculated by extending up to the most extreme observed value within the interval $[Q_1 - 1.5 \times \text{IQR}, \; Q_3 + 1.5 \times \text{IQR}]$. The observations that fall outside such thresholds are visually labeled as \textbf{outliers}.
 
+A key extension for bivariate and multivariate exploration is given by \textbf{Conditional Box Plots}: the distribution of a continuous numerical attribute is stratified and displayed by placing box plots side by side for each category of a discrete attribute (typically the target class or a natural clustering). Figure~\ref{fig:conditional-boxplot} illustrates the distribution of \textit{Petal Length} stratified across the three flower species of the Iris dataset, highlighting that \textit{Setosa} is distinctly separable with very low dispersion, whereas \textit{Versicolor} and \textit{Virginica} exhibit a slight overlap in their interquartile ranges.
+
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[xscale=1.1, yscale=0.85]
+\begin{tikzpicture}[xscale=0.95, yscale=0.85]
     % Axis
     \draw[thick, -Stealth] (0,0) -- (8.5,0) node[right, font=\small] {Petal Length (cm)};
     \foreach \x in {1,2,3,4,5,6,7,8} \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
@@ -229,7 +248,7 @@ Although the box plot effectively synthesizes position and dispersion, \textbf{i
 
 \begin{figure}[htbp]
 \centering
-\begin{minipage}{0.47\textwidth}
+\begin{minipage}{0.46\textwidth}
 \centering
 \begin{tikzpicture}[scale=0.65]
     \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
@@ -242,9 +261,8 @@ Although the box plot effectively synthesizes position and dispersion, \textbf{i
     \draw[fill=orange!30, draw=orange!80, thick] (3.7,0) rectangle (4.5, 1.0);
     \node[font=\scriptsize\bfseries] at (2.5, -0.6) {Unimodal Density};
 \end{tikzpicture}
-\end{minipage}%
-\hfill
-\begin{minipage}{0.47\textwidth}
+\end{minipage}\hfill
+\begin{minipage}{0.46\textwidth}
 \centering
 \begin{tikzpicture}[scale=0.65]
     \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
@@ -333,10 +351,11 @@ An incorrect choice of the number of bins profoundly alters the perception of th
     \item An excessive number of bins causes \textit{undersmoothing}, fragmenting the sample into discontinuous frequencies and emphasizing sampling noise.
 \end{itemize}
 
-For unimodal distributions close to normal and moderate sample sizes $n$, the recommended number of bins is provided by \textbf{Sturges' rule}:
+For approximately normal unimodal distributions and moderate sample sizes $n$, the standard estimate for the optimal number of intervals is given by \textbf{Sturges' rule}:
 \begin{equation}
-k = 1 + \lceil \log_2(n) \rceil
+k = 1 + \lceil \log_2(n) \rceil = 1 + \lceil 3.322 \log_{10}(n) \rceil
 \end{equation}
+where $n$ represents the sample cardinality. This heuristic explicitly assumes a Gaussian-like distribution. When the sample size grows considerably or the underlying distribution exhibits multiple modes or heavy skewness, Sturges' rule tends to generate an insufficient number of bins; in such cases, it is crucial to test alternative values of $k$ experimentally (e.g., comparing low-, medium-, and high-resolution partitionings such as 5, 17, or 50 bins) to assess the robustness of observed patterns.
 
 \section{Multivariate Visualization Techniques}
 
@@ -470,6 +489,13 @@ To simultaneously explore all pairs of numerical attributes, a \textbf{Scatter P
 \caption{Scatter Plot Matrix (SPLOM) of the Iris dataset with the pairwise comparison for all three species and the univariate density estimations along the diagonal.}
 \label{fig:splom-example}
 \end{figure}
+
+\subsection{Visualization as a Test and Exploratory Heuristic}
+Visual inspection serves as an irreplaceable preliminary test on data structure, whose sound interpretation requires precise epistemological awareness:
+\begin{itemize}
+    \item \textbf{Presence of visual evidence:} When visualizations expose distinct patterns, separated clusters, or isolated exceptions (\textit{outliers}), there is empirical certainty that genuine structural properties or real phenomena exist in the dataset.
+    \item \textbf{Absence of visual evidence does not imply absence of structure:} Conversely, when conventional visualizations display no obvious arrangement or appear purely random, one \textbf{cannot} infer that the data is devoid of relationships. Complex multivariate dependencies, subtle non-linear associations, or high-order interactions involving four or more attributes simultaneously elude two-dimensional projections, requiring higher-dimensional projections or analytical modeling techniques.
+\end{itemize}
 
 \subsection{High-Dimensionality Visualization}
 
@@ -605,23 +631,131 @@ In \textbf{Radar Plots}, the axes start from a common center and radiate out in 
 \label{fig:radar-plot-example}
 \end{figure}
 
-\section{Linear Correlation Analysis}
+\section{Linear Correlation and Association Analysis}
 
-Correlation quantifies the strength and direction of the linear relationship between two continuous numerical attributes $X$ and $Y$.
+Correlation analysis aims to identify, quantify, and interpret the strength and direction of the linear relationship between pairs of continuous numerical attributes.
 
-\begin{definition}[Pearson Correlation Coefficient]
-Given a sample of $m$ pairs of observations $(x_i, y_i)$, the sample linear correlation coefficient $r_{xy}$ is defined as:
+\subsection{Motivations and Multicollinearity in Predictive Models}
+Within the data understanding workflow, assessing correlation between variables serves several methodological goals:
+\begin{itemize}
+    \item \textbf{Identifying informative redundancies:} If two attributes exhibit nearly identical trajectories, one of them can be discarded without appreciable loss of descriptive power, reducing the dimensionality of the feature space.
+    \item \textbf{Preparation for predictive models and clustering:} Many machine learning algorithms (such as linear regression, logistic regression, or distance-based clustering) assume independent features or benefit substantially from the removal of collinear attributes.
+    \item \textbf{Detecting multicollinearity:} Occurs when two or more predictor variables (\textit{features}) in a regression model are strongly linearly related to one another. Consider the paradigmatic example of predicting house prices using simultaneously \textit{surface area in square metres} ($m^2$) and \textit{surface area in square feet} ($\text{ft}^2$). Both variables convey exactly the same information up to a constant conversion factor. Consequently, the regression model experiences severe numerical instability, struggling to disentangle the individual marginal contributions of each predictor and inflating estimator variance.
+\end{itemize}
+
+\subsection{From Variance to Sample Covariance}
+While sample variance quantifies the dispersion of observations for a single variable around its own mean:
 \begin{equation}
-r_{xy} = \frac{\sum_{i=1}^m (x_i - \bar{x})(y_i - \bar{y})}{(m-1) s_x s_y} = \frac{\text{Cov}(X, Y)}{s_x s_y}
+s_x^2 = \operatorname{Var}(X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2
 \end{equation}
-where $\bar{x}, \bar{y}$ are the sample means and $s_x, s_y$ the respective standard deviations.
+in data mining applications interest is constantly focused on pairwise interactions between attributes:
+\begin{itemize}
+    \item Do customers with higher taxable incomes spend larger sums?
+    \item Does a product's unit price lead to a contraction in sales volume?
+    \item Do students who study more weekly hours systematically attain higher exam grades?
+    \item Do two physical sensors arranged in parallel provide largely redundant measurement streams?
+\end{itemize}
+
+To quantify how two numerical quantities vary jointly, we introduce \textbf{sample covariance}:
+
+\begin{definition}[Sample Covariance]
+Given a sample of $n$ observation pairs $(x_i, y_i)$, the sample covariance between $X$ and $Y$ is defined as:
+\begin{equation}
+\operatorname{Cov}(X, Y) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})
+\end{equation}
+where $\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i$ and $\bar{y} = \frac{1}{n}\sum_{i=1}^n y_i$ represent the respective sample means.
 \end{definition}
 
+A fundamental theoretical property dictates that variance is simply the covariance of a variable with itself:
+\begin{equation}
+\operatorname{Cov}(X, X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2 = \operatorname{Var}(X) = s_x^2
+\end{equation}
+
+\subsection{Sign Origin and Geometric Quadrant Interpretation}
+The algebraic sign of each term in the summation stems from the product of paired deviations from their respective means:
 \begin{itemize}
-    \item $r_{xy} \in [-1, \; +1]$.
-    \item If $|r_{xy}| = 1$, the points $(x_i, y_i)$ lie exactly on a line. If $r_{xy} = +1$ the line has a positive slope; if $r_{xy} = -1$ it has a negative slope.
-    \item Values close to $0$ indicate the absence of a \textbf{linear} association.
-    \item \textbf{Fundamental warning:} $r_{xy} \approx 0$ does not imply statistical independence: deterministic non-linear relationships may exist (for example, parabolic $Y = X^2$) that the Pearson coefficient is unable to detect.
+    \item \textbf{Positive concordant deviations:} $(x_i - \bar{x}) > 0$ and $(y_i - \bar{y}) > 0 \implies (+)\times(+) = \mathbf{+}$.
+    \item \textbf{Negative concordant deviations:} $(x_i - \bar{x}) < 0$ and $(y_i - \bar{y}) < 0 \implies (-)\times(-) = \mathbf{+}$.
+    \item \textbf{Discordant deviations:} $(+)\times(-) = \mathbf{-}$ or $(-)\times(+) = \mathbf{-}$.
+\end{itemize}
+
+Translating the Cartesian origin to the sample centroid $(\bar{x}, \bar{y})$, the two-dimensional space is divided into four quadrants (Figure~\ref{fig:covariance-quadrants}):
+\begin{enumerate}
+    \item If observations in quadrants \textbf{I and III} (concordant deviations) dominate, positive products prevail and the sample covariance is strictly positive ($\operatorname{Cov}(X, Y) > 0$).
+    \item If quadrants \textbf{II and IV} (discordant deviations) prevail, negative products dominate and the covariance is strictly negative ($\operatorname{Cov}(X, Y) < 0$).
+    \item If observations are uniformly or symmetrically scattered across all four quadrants, positive and negative terms cancel each other out, resulting in a covariance close to zero ($\operatorname{Cov}(X, Y) \approx 0$).
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Central cross at mean (x_bar, y_bar)
+    \def\xb{3.2}
+    \def\yb{2.8}
+
+    % Shaded quadrants
+    \fill[green!8] (\xb, \yb) rectangle (6.5, 5.3);
+    \fill[green!8] (0.5, 0.5) rectangle (\xb, \yb);
+    \fill[red!8] (0.5, \yb) rectangle (\xb, 5.3);
+    \fill[red!8] (\xb, 0.5) rectangle (6.5, \yb);
+
+    % Axes
+    \draw[thick, -Stealth] (0.5, 0.5) -- (6.8, 0.5) node[right, font=\small] {$X$};
+    \draw[thick, -Stealth] (0.5, 0.5) -- (0.5, 5.6) node[above, font=\small] {$Y$};
+
+    % Mean dashed lines
+    \draw[dashed, thick, gray!70] (\xb, 0.5) -- (\xb, 5.3);
+    \draw[dashed, thick, gray!70] (0.5, \yb) -- (6.5, \yb);
+    \node[below, font=\small\bfseries] at (\xb, 0.5) {$\bar{x}$};
+    \node[left, font=\small\bfseries] at (0.5, \yb) {$\bar{y}$};
+
+    % Quadrant Labels and signs
+    \node[align=center, font=\scriptsize] at (5.0, 4.6) {\textbf{Quadrant I}\\$(x_i > \bar{x}, \; y_i > \bar{y})$\\$(+) \times (+) = \mathbf{+}$};
+    \node[align=center, font=\scriptsize] at (1.8, 4.6) {\textbf{Quadrant II}\\$(x_i < \bar{x}, \; y_i > \bar{y})$\\$(-) \times (+) = \mathbf{-}$};
+    \node[align=center, font=\scriptsize] at (1.8, 1.4) {\textbf{Quadrant III}\\$(x_i < \bar{x}, \; y_i < \bar{y})$\\$(-) \times (-) = \mathbf{+}$};
+    \node[align=center, font=\scriptsize] at (5.0, 1.4) {\textbf{Quadrant IV}\\$(x_i > \bar{x}, \; y_i < \bar{y})$\\$(+) \times (-) = \mathbf{-}$};
+
+    % Sample points illustrating positive covariance
+    \foreach \p in {(1.2, 1.1), (1.6, 1.8), (2.1, 1.5), (2.5, 2.2), (2.8, 2.4),
+                    (3.6, 3.2), (4.0, 3.8), (4.5, 3.5), (5.1, 4.2), (5.8, 4.7), (6.1, 4.9)} {
+        \fill[blue!80!black] \p circle (2.5pt);
+    }
+    \fill[blue!80!black] (2.2, 3.3) circle (2.5pt);
+    \fill[blue!80!black] (4.2, 2.0) circle (2.5pt);
+
+    \node[font=\footnotesize\itshape, blue!80!black] at (3.5, -0.2) {Dominance in Quadrants I and III $\implies \operatorname{Cov}(X, Y) > 0$};
+\end{tikzpicture}
+\caption{Geometric interpretation of covariance across quadrants centered at $(\bar{x}, \bar{y})$. Observations in concordant quadrants I and III yield positive contributions, whereas discordant quadrants II and IV yield negative contributions.}
+\label{fig:covariance-quadrants}
+\end{figure}
+
+\subsection{Limitation of Covariance: Scale and Unit Dependence}
+Although covariance unambiguously reveals the direction of linear agreement, it suffers from a critical drawback: \textbf{it depends strictly on the measurement units of the variables}.
+Consider the relationship between annual income and household expenditure:
+\begin{itemize}
+    \item If both income and expenditure are measured in euros, the unit of $\operatorname{Cov}(\text{Income}, \text{Expenditure})$ is $\text{euro}^2$.
+    \item If income is converted into \textit{thousands of euros}, the numerical covariance drops by a factor of $1000$, even though the substantive economic relationship between both quantities remains strictly unchanged.
+\end{itemize}
+Consequently, covariance indicates whether the linear trend is positive or negative, but its absolute magnitude cannot be compared across different scales or attribute pairs without standardization.
+
+\subsection{Pearson Linear Correlation Coefficient}
+To obtain a unit-free, standardized metric, sample covariance is divided by the product of the respective sample standard deviations:
+
+\begin{definition}[Pearson Correlation Coefficient]
+Given a sample of $n$ pairs $(x_i, y_i)$, the sample linear correlation coefficient $r_{xy}$ is defined as:
+\begin{equation}
+r_{xy} = \frac{\operatorname{Cov}(X, Y)}{s_x s_y} = \frac{\sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^n (x_i - \bar{x})^2 \sum_{i=1}^n (y_i - \bar{y})^2}}
+\end{equation}
+where $s_x, s_y$ are the sample standard deviations of $X$ and $Y$.
+\end{definition}
+
+Core properties of the Pearson correlation coefficient:
+\begin{itemize}
+    \item \textbf{Dimensionless and scale-invariant:} $r_{xy}$ is a pure number, invariant under any positive affine transformation ($X' = aX + b$, with $a > 0$).
+    \item \textbf{Bounded range:} $-1 \le r_{xy} \le +1$.
+    \item \textbf{Perfect collinearity ($|r_{xy}| = 1$):} Points lie precisely on a straight line; with positive slope if $r_{xy} = +1$, and negative slope if $r_{xy} = -1$.
+    \item \textbf{Absence of linear association ($r_{xy} \approx 0$):} Signals little to no linear relationship.
+    \item \textbf{Blindness to non-linear dependencies:} As illustrated in Figure~\ref{fig:pearson-cases}(d), zero correlation ($r_{xy} \approx 0$) does not imply statistical independence: deterministic quadratic or sinusoidal relationships may exhibit exactly zero Pearson correlation.
 \end{itemize}
 
 \begin{figure}[htbp]
@@ -681,41 +815,95 @@ where $\bar{x}, \bar{y}$ are the sample means and $s_x, s_y$ the respective stan
 \label{fig:pearson-cases}
 \end{figure}
 
+\subsection{Statistical Association vs Causation and Confounding Factors}
+A fundamental tenet in data science is the epistemological boundary separating association from causation:
+\begin{equation}
+\textbf{Correlation} \;\neq\; \textbf{Causation}
+\end{equation}
+Consider an academic dataset where weekly study hours and examination marks exhibit a high positive correlation ($r_{xy} = +0.98$). Students with fewer study hours tend to score below the mean, while those studying longer hours score above it. Although this demonstrates an undeniably strong positive linear association, \textbf{it does not warrant the conclusion that 2 additional study hours will deterministically cause an increase in marks}. Multiple confounding variables (such as prior academic background, lecture attendance, or classroom attention) may influence both quantities simultaneously.
+
+Linear correlation:
+\begin{enumerate}
+    \item Does not identify the causal direction ($X \to Y$ or $Y \to X$).
+    \item Can be driven by a \textbf{confounding variable} (omitted variable bias).
+\end{enumerate}
+
+\begin{example}[The Confounding Variable: Ice Cream and Drowning]
+In seasonal regional records, ice cream sales and drowning incidents show a strong positive correlation. Eating ice cream clearly does not cause drowning. The observed relationship is driven entirely by an omitted confounding variable: \textbf{high summer temperatures} (heatwaves), which simultaneously increase demand for chilled desserts and the number of people swimming, producing a spurious association.
+\end{example}
+
+\subsection{Spearman's Rank Correlation for Monotonic Relationships}
+When the relationship between two variables is monotonic but non-linear, or in the presence of severe outliers that distort means and standard deviations, the \textbf{Spearman rank correlation coefficient} ($\rho_s$) is preferred.
+
+Spearman does not evaluate original continuous values directly, but replaces each value with its \textbf{rank} in ascending order:
+
+\begin{definition}[Spearman's Rank Correlation Coefficient]
+Let $\operatorname{rank}(x_i)$ and $\operatorname{rank}(y_i)$ denote the ranks of $x_i$ and $y_i$. If there are no ties, the coefficient is given by:
+\begin{equation}
+\rho_s = 1 - \frac{6 \sum_{i=1}^n d_i^2}{n(n^2 - 1)}, \quad \text{with } d_i = \operatorname{rank}(x_i) - \operatorname{rank}(y_i)
+\end{equation}
+In the presence of tied ranks, $\rho_s$ is formally equivalent to Pearson's correlation computed directly on the rank vectors.
+\end{definition}
+
+Essential properties:
+\begin{itemize}
+    \item $\rho_s = +1$ when the rankings of both variables are in exactly the same order (\textbf{monotonically increasing} relationship).
+    \item $\rho_s = -1$ when the rankings are in reverse order (\textbf{monotonically decreasing} relationship).
+    \item Measures whether variables tend to move in the same or opposite direction regardless of linearity (e.g., for $Y = X^3$ or $Y = \log(X)$, $\rho_s = 1$).
+    \item Highly robust against isolated extreme outliers.
+\end{itemize}
+
+\subsection{Correlation Matrix and Feature Selection}
+In datasets with multiple continuous attributes, all pairwise bivariate correlations are systematically arranged in a symmetric $p \times p$ \textbf{correlation matrix}.
+In the Iris dataset, for example, the matrix reveals an exceptionally strong correlation between \textit{Petal Length} and \textit{Petal Width} ($r \approx 0.96$), signaling feature redundancy and suggesting that dimensionality reduction or feature selection can discard one of the two without sacrificing model performance.
+
 \section{Handling Outliers and Missing Values}
 
-\subsection{Outliers: Noise vs Knowledge}
-An \textbf{outlier} is an instance with characteristics that deviate markedly from the vast majority of observations:
+\subsection{Outliers: Noise vs Analytical Target}
+An \textbf{outlier} is a data object whose characteristics deviate considerably from the vast majority of observations in the dataset:
 \begin{itemize}
-    \item \textbf{Outliers as noise:} Originating from sensor failures, typos, or transmission inconsistencies. Such anomalies distort measures of central tendency (such as the mean) and predictive models, and must therefore be removed.
-    \item \textbf{Outliers as an analytical objective:} Exceptional cases that constitute the true application target (fraudulent bank transactions, unauthorized server access, outbreaks of rare diseases).
+    \item \textbf{Outliers as noise:} Originating from typographic mistakes, sensor failures, or protocol errors. Such instances severely corrupt sample means, variances, and regression fits, and must be detected and removed (or imputed) during data cleaning.
+    \item \textbf{Outliers as the primary analysis target:} Genuine unusual situations that constitute the central analytical goal. Paradigmatic examples include \textbf{credit card fraud detection}, \textbf{network intrusion detection}, and early diagnosis of \textbf{rare medical pathologies}.
 \end{itemize}
 
-\textbf{Detection methodologies:}
+Even when outliers represent valid measurements of rare events, it is often advisable to exclude them temporarily when computing summary metrics aimed at describing the typical population.
+
+\subsection{Outlier Detection Methodologies}
+Anomalies can be discovered across different dimensional settings:
 \begin{itemize}
-    \item \textit{Single attribute:} Extreme frequency analysis for categorical variables; Box Plot ($1.5 \times \text{IQR}$) and calculation of the $z$-score ($z = \frac{x - \mu}{\sigma}$) for numerical variables.
-    \item \textit{Multivariate:} Bivariate and trivariate Scatter Plots, projections on principal components (\textit{Principal Component Analysis} - PCA) and clustering algorithms (outliers are the points that fall into residual clusters or remain unassigned).
+    \item \textbf{Single Attribute (Univariate Analysis):}
+    \begin{itemize}
+        \item \textit{Categorical attributes:} An outlier is a category that occurs with a frequency vastly lower than all other domain classes.
+        \item \textit{Numerical attributes:} Visual and analytical inspection using Box Plots (points beyond $[Q_1 - 1.5 \times \text{IQR}, \; Q_3 + 1.5 \times \text{IQR}]$) and standardized $z$-scores ($z = \frac{x - \mu}{\sigma}$).
+    \end{itemize}
+    \item \textbf{Multiple Attributes (Multivariate Analysis):}
+    \begin{itemize}
+        \item \textit{2D and 3D Scatter Plots:} Reveal both global outliers (isolated with respect to the entire point cloud) and local outliers (deviating from their specific class cluster, as seen in Figure~\ref{fig:scatterplot-outlier}).
+        \item \textit{PCA Projections:} Project high-dimensional data onto maximal-variance planes (Principal Component Analysis) to visually isolate anomalies.
+        \item \textit{Clustering Algorithms:} In density-based or partition algorithms (such as DBSCAN or k-means with distance cutoffs), outliers naturally emerge as points that cannot be assigned to any major cluster or that form isolated micro-clusters.
+    \end{itemize}
 \end{itemize}
 
-\subsection{Missing Values}
-The causes of failure to record values include:
+\subsection{Missing Values and Camouflage}
+The absence of values for attributes across records arises from several root causes:
 \begin{itemize}
-    \item Subject's refusal to answer (e.g., information on income or weight).
-    \item Non-applicability of the attribute (e.g., employment income for minors or the unemployed).
-    \item Temporary malfunction of sensing devices.
+    \item \textbf{Information not collected or withheld:} Survey respondents explicitly refuse to disclose sensitive personal data (e.g., income, weight, or age).
+    \item \textbf{Logical non-applicability:} The attribute has no logical meaning for a subpopulation (e.g., annual employment income for school-age children, or driver's licenses for minors).
+    \item \textbf{Sensor breakdown or network loss:} Physical hardware malfunctions, depleted sensor batteries, or packet dropouts.
 \end{itemize}
 
-\begin{alertblock}{Pitfall of Dummy Default Values}
-In many recording systems, a missing value is not saved as \texttt{NULL} or \texttt{NaN}, but rather encoded with a sentinel numeric value such as \texttt{0}, \texttt{-1}, or \texttt{999}. If not intercepted in the Data Understanding phase, such encodings are erroneously treated as real values, severely distorting means, standard deviations, and classification models.
+\begin{alertblock}{Pitfall of Camouflaged Missing Values: Zeros and Default Sentinels}
+Frequently, a missing value is not explicitly stored as \texttt{NULL} or \texttt{NaN}, but rather recorded using conventional default or sentinel numbers (such as \texttt{0}, \texttt{-1}, or \texttt{999}). A blocked or broken sensor, for instance, often transmits a constant stream of \texttt{0}s.
+Unless intercepted during Data Understanding, analytics software treats these sentinel numbers as true physical measurements, severely biasing means, standard deviations, correlations, and classification models.
 \end{alertblock}
 
 \section{Operational Checklist for Data Understanding}
-At the end of the exploration phase, the analyst must have completed the following checks:
+Upon concluding the exploration stage, the analyst must have methodically executed the following operational verifications:
 \begin{enumerate}
-    \item Formal identification of the measurement scale of each attribute.
-    \item Verification of syntactic accuracy (out-of-domain values) and semantic accuracy.
-    \item Inspection and removal of duplicate records.
-    \item Treatment of missing values and elimination of dummy zeros or default encodings.
-    \item Detection of univariate and multivariate outliers and decision on their treatment (noise to be eliminated vs anomaly to be analyzed).
-    \item Examination of distributions (skewnesses, multimodalities) via histograms sized according to Sturges' rule.
-    \item Calculation of the correlation matrix to detect redundant attributes or predictors correlated to the target.
+    \item \textbf{Assess Overall Data Quality:} Audit syntactic accuracy (out-of-domain entries) and semantic consistency, check completeness, evaluate timeliness, deduplicate records, and quantify class imbalance.
+    \item \textbf{Detect and Analyze Outliers:} Identify univariate and multivariate outliers using visualization tools (box plots, scatter plots, PCA, parallel coordinates) and determine appropriate handling policies (noise exclusion vs target investigation).
+    \item \textbf{Uncover and Examine Missing Values:} Quantify null frequencies and expose camouflaged missing values hidden behind sentinel zeros or default settings.
+    \item \textbf{Discover and Validate Correlations and Dependencies:} Compute linear (Pearson) and monotonic rank (Spearman) correlation matrices to confirm domain hypotheses, discover unexpected linkages, and prevent multicollinearity and feature redundancy.
+    \item \textbf{Verify Domain-Specific Assumptions:} Test distributional premises required by downstream models or heuristics (e.g., verifying whether an attribute follows an approximately normal distribution before applying Sturges' rule or parametric tests).
+    \item \textbf{Compare Statistics with Expected Behavior:} Ensure that empirical means, medians, skewness, and spreads align consistently with domain expertise and business context expectations.
 \end{enumerate}
