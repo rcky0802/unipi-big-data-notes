@@ -1,0 +1,503 @@
+\chapter{Permutation, Sorting, and External Memory Merge Sort}
+\label{cha:lecture-three}
+
+\begin{center}
+  \textbf{Lecture 3}\\
+  \emph{Permutation vs. Sorting and External Memory Merge Sort}\\[0.5em]
+  Date: September 18, 2026
+\end{center}
+
+In this chapter, we examine the fundamental relationship between the permutation problem and the sorting problem in the two-level memory hierarchy. Unlike the classical RAM model, where permuting is asymptotically cheaper than sorting, in hierarchical memory systems the mechanics of block-based transfers impose structural constraints that intimately connect the two problems. Furthermore, we introduce and analyze the external Binary Merge Sort, highlighting its efficiency limitations and establishing the foundation for multiway merging.
+
+\section{The Permutation vs. Sorting Problem}
+\label{sec:permutation-vs-sorting}
+
+\subsection{Problem Formulation}
+\label{subsec:problem-formulation}
+
+We are given two vectors of size $n$:
+\begin{itemize}
+  \item A data array $S[1 \dots n]$.
+  \item A permutation vector $\pi[1 \dots n]$, containing a bijective permutation of the indices $\{1, 2, \dots, n\}$.
+\end{itemize}
+
+The objective is to rearrange the elements of $S$ into a new array $S'$ such that each original element $S[i]$ is placed into the destination position specified by $\pi[i]$:
+\begin{equation}
+  S'[\pi[i]] = S[i], \qquad \forall i \in \{1, \dots, n\}.
+\end{equation}
+
+\begin{example}[Index Permutation]
+\label{ex:permutation-def}
+Consider an array of $4$ elements and its corresponding permutation vector:
+\begin{align*}
+  \text{Indices:} \quad & 1 \quad 2 \quad 3 \quad 4 \\
+  S = \quad & [\, A, \quad B, \quad C, \quad D \,] \\
+  \pi = \quad & [\, 3, \quad 1, \quad 2, \quad 4 \,]
+\end{align*}
+Applying the definition element by element:
+\begin{align*}
+  S'[\pi[1]] &= S'[3] = A, \\
+  S'[\pi[2]] &= S'[1] = B, \\
+  S'[\pi[3]] &= S'[2] = C, \\
+  S'[\pi[4]] &= S'[4] = D.
+\end{align*}
+The resulting permuted array is therefore:
+\[
+  S' = [\, B, \quad C, \quad A, \quad D \,].
+\]
+\end{example}
+
+In \autoref{fig:permutation-example}, the mapping from the source array to the destination array is illustrated visually.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    box/.style={draw, thick, minimum width=1.45cm, minimum height=0.72cm, align=center, font=\small},
+    hdr/.style={font=\small\bfseries, anchor=east},
+    arr/.style={-{Stealth[scale=1.1]}, thick}
+  ]
+    % Row headers on left
+    \node[hdr] at (-0.6, 2.8) {Index $i$:};
+    \node[hdr] at (-0.6, 2.0) {Element $S[i]$:};
+    \node[hdr] at (-0.6, 1.2) {Target $\pi[i]$:};
+
+    % Original array S and permutation vector columns
+    \foreach \x/\i/\val/\dest in {0.5/1/A/3, 2.7/2/B/1, 4.9/3/C/2, 7.1/4/D/4} {
+      \node[box, fill=gray!8] (idx\i) at (\x, 2.8) {$i = \i$};
+      \node[box, fill=blue!12] (S\i) at (\x, 2.0) {\textbf{\val}};
+      \node[box, fill=orange!15] (P\i) at (\x, 1.2) {$\pi[\i] = \dest$};
+    }
+
+    % Row headers for permuted array S'
+    \node[hdr] at (-0.6, -1.8) {Array $S'$:};
+    \node[hdr] at (-0.6, -2.6) {Index $j$:};
+
+    % Permuted array S' cells
+    \foreach \x/\j/\val in {0.5/1/B, 2.7/2/C, 4.9/3/A, 7.1/4/D} {
+      \node[box, fill=green!15] (Sp\j) at (\x, -1.8) {\textbf{\val}};
+      \node[box, fill=gray!8] (tgt\j) at (\x, -2.6) {$j = \j$};
+    }
+
+    % Relocation arrows with white-background labels
+    \draw[arr, color=blue!75!black] (P1.south) to[out=270,in=90] 
+      node[pos=0.45, right=1pt, font=\scriptsize, fill=white, inner sep=1.5pt] {$S[1] \to S'[3]$} (Sp3.north);
+
+    \draw[arr, color=red!75!black] (P2.south) to[out=270,in=90] 
+      node[pos=0.45, left=1pt, font=\scriptsize, fill=white, inner sep=1.5pt] {$S[2] \to S'[1]$} (Sp1.north);
+
+    \draw[arr, color=orange!85!black] (P3.south) to[out=270,in=90] 
+      node[pos=0.55, right=1pt, font=\scriptsize, fill=white, inner sep=1.5pt] {$S[3] \to S'[2]$} (Sp2.north);
+
+    \draw[arr, color=teal!85!black] (P4.south) to[out=270,in=90] 
+      node[pos=0.5, right=1pt, font=\scriptsize, fill=white, inner sep=1.5pt] {$S[4] \to S'[4]$} (Sp4.north);
+  \end{tikzpicture}
+  \caption{Permutation mapping: each element $S[i]$ is relocated to the destination index specified by $\pi[i]$ in array $S'$.}
+  \label{fig:permutation-example}
+\end{figure}
+
+\subsection{Naive Implementation on the RAM Model}
+\label{subsec:naive-ram}
+
+In the standard RAM model, where any read or write access to arbitrary memory locations costs $\mathcal{O}(1)$ time, the permutation is implemented in a single linear pass:
+
+\begin{algorithm}[H]
+  \DontPrintSemicolon
+  \KwInput{Array $S[1 \dots n]$, permutation vector $\pi[1 \dots n]$}
+  \KwOutput{Permuted array $S$ in place}
+  \For{$i \leftarrow 1$ \KwTo $n$}{
+    $S'[\pi[i]] \leftarrow S[i]$\;
+  }
+  $S \leftarrow \mathrm{copy}(S')$\;
+  \caption{Direct Permutation on RAM}
+\end{algorithm}
+
+The time complexity in the RAM model is strictly linear:
+\[
+  T_{\mathrm{RAM}}(n) = \Theta(n).
+\]
+Therefore, in internal memory, permuting is asymptotically faster than sorting by comparisons, which requires $\Omega(n \log n)$ operations.
+
+\subsection{Simulation Principle (RAM to Two-Level Memory)}
+\label{subsec:simulation-principle}
+
+\begin{theorem}[Simulation Theorem]
+\label{thm:simulation}
+Any sequential algorithm formulated for the RAM model with time complexity $T(n)$ incurs at most $\mathcal{O}(T(n))$ block transfers (I/Os) in the two-level memory model with parameters $(M, B)$.
+\end{theorem}
+
+\begin{proof}[Proof Sketch]
+In the worst case, every single RAM operation accessing memory addresses a memory cell that resides in a block not currently resident in internal cache $M$. Each such access triggers a block transfer from disk, resulting in exactly $1$ I/O operation. Multiplying the total step count $T(n)$ by the upper bound of $1$ I/O per step yields the trivial bound of $\mathcal{O}(T(n))$ I/Os.
+\end{proof}
+
+Although the simulation principle guarantees that any RAM algorithm can be ported to external memory, the bound $\mathcal{O}(T(n))$ is often thoroughly sub-optimal because it fails to exploit the block aggregation factor $B$.
+
+\subsection{The Relationship Between Sorting and Permutation}
+\label{subsec:relationship-sort-perm}
+
+In the two-level memory hierarchy, the complexity relationship changes fundamentally, as summarized in \autoref{tab:ram-vs-twlevel}:
+
+\begin{table}[htbp]
+  \centering
+  \renewcommand{\arraystretch}{1.5}
+  \begin{tabular}{lcc}
+    \toprule
+    \textbf{Problem} & \textbf{RAM Model} & \textbf{Two-Level Memory (I/O)} \\
+    \midrule
+    \textbf{Permutation} $\operatorname{Perm}(n)$ & $\Theta(n)$ & $\Theta\big(\min\big\{ n, \, \operatorname{Sort}(n, M, B) \big\}\big)$ \\[0.4em]
+    \textbf{Sorting} $\operatorname{Sort}(n)$ & $\Theta(n \log_2 n)$ & $\displaystyle \Theta\left(\frac{n}{B} \log_{M/B} \frac{n}{B}\right)$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Asymptotic complexity comparison between RAM and External Memory models.}
+  \label{tab:ram-vs-twlevel}
+\end{table}
+
+To understand this equivalence in block-based storage, consider the two reductions:
+
+\begin{enumerate}
+  \item \textbf{Sorting via Permutation:} Given an array $S$, sorting requires computing the permutation $\pi_S$ that puts keys in order, and then applying $\pi_S$ to $S$.
+  \item \textbf{Permuting via Sorting (Pair Reduction Algorithm):}
+  Permuting an array $S$ can be converted into an external sorting problem via the following three-step procedure:
+  \begin{itemize}
+    \item \textbf{Step 1 (Scan and Pair Creation):} Perform parallel linear scans over $S$ and $\pi$ to construct a set of $n$ records containing $\langle S[i], \pi[i] \rangle$. Since this requires only streaming sequential I/O, the cost is:
+    \[
+      \mathrm{I/O}_{\text{Step 1}} = \mathcal{O}\left(\frac{n}{B}\right).
+    \]
+    \item \textbf{Step 2 (Sorting by Destination):} Sort the $n$ records using the second component $\pi[i]$ as the sorting key. The cost is identical to external sorting:
+    \[
+      \mathrm{I/O}_{\text{Step 2}} = \operatorname{Sort}(n, M, B).
+    \]
+    \item \textbf{Step 3 (Scan and Extraction):} Since the records are now sorted by increasing target index, a simple sequential scan extracts the first coordinate $S[i]$ into the destination array $S'$. The cost is:
+    \[
+      \mathrm{I/O}_{\text{Step 3}} = \mathcal{O}\left(\frac{n}{B}\right).
+    \]
+  \end{itemize}
+\end{enumerate}
+
+The overall I/O cost of this reduction is:
+\begin{equation}
+  \mathrm{I/O}_{\text{Sort-based}} = \mathcal{O}\left(\frac{n}{B}\right) + \operatorname{Sort}(n, M, B) + \mathcal{O}\left(\frac{n}{B}\right) = \Theta(\operatorname{Sort}(n, M, B)).
+\end{equation}
+
+\begin{example}[Step-by-Step Pair Reduction Trace on Concrete Arrays]
+\label{ex:pair-reduction-trace}
+To visualize the reduction with concrete values, consider the instance from \autoref{ex:permutation-def}:
+\[
+  S = [A, B, C, D], \qquad \pi = [3, 1, 2, 4].
+\]
+The algorithm executes across three sequential states of the record array:
+\begin{itemize}
+  \item \textbf{Step 1 (Pairing):} Sequentially pair each item with its designated target index:
+  \[
+    P = \big[ \, \langle A, 3 \rangle, \;\; \langle B, 1 \rangle, \;\; \langle C, 2 \rangle, \;\; \langle D, 4 \rangle \, \big].
+  \]
+  \item \textbf{Step 2 (External Sorting on $\pi[i]$):} Sort the record array using the second coordinate (target destination) as the sorting key:
+  \[
+    P_{\text{sorted}} = \big[ \, \langle B, \mathbf{1} \rangle, \;\; \langle C, \mathbf{2} \rangle, \;\; \langle A, \mathbf{3} \rangle, \;\; \langle D, \mathbf{4} \rangle \, \big].
+  \]
+  \item \textbf{Step 3 (Sequential Extraction):} Stream through the sorted records and project their first coordinates to form the destination array:
+  \[
+    S' = [B, C, A, D],
+  \]
+  which correctly fulfills the required permutation since $S'[1]=B$, $S'[2]=C$, $S'[3]=A$, $S'[4]=D$.
+\end{itemize}
+\end{example}
+
+The pair reduction pipeline is illustrated in \autoref{fig:pair-reduction}.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    node distance=0.55cm and 0cm,
+    data/.style={draw=blue!60!black, fill=blue!6, rounded corners=4pt, font=\small, align=center, inner sep=5pt, minimum width=6.2cm},
+    stepnode/.style={draw=orange!80!black, fill=orange!10, rounded corners=4pt, font=\small\bfseries, align=center, inner sep=5pt, minimum width=7.2cm},
+    outdata/.style={draw=teal!70!black, fill=teal!10, rounded corners=4pt, font=\small\bfseries, align=center, inner sep=5pt, minimum width=6.2cm},
+    arr/.style={-{Stealth[scale=1.1]}, thick, draw=gray!70!black}
+  ]
+    \node[data] (in) {Input Data\\Array $S[1\dots n]$ \quad and \quad Vector $\pi[1\dots n]$};
+    \node[stepnode, below=of in] (s1) {Step 1: Sequential Pairing\\{\normalfont\footnotesize Cost: $\mathcal{O}(n/B)$ I/Os (streaming linear scan)}};
+    \node[data, below=of s1] (pairs) {Collection of Unordered Pairs\\$\big\{ \langle S[i], \pi[i] \rangle \;\mid\; i = 1, \dots, n \big\}$};
+    \node[stepnode, below=of pairs] (s2) {Step 2: External Sort on $\pi[i]$\\{\normalfont\footnotesize Cost: $\operatorname{Sort}(n, M, B)$ I/Os (External Merge Sort)}};
+    \node[data, below=of s2] (spairs) {Pairs Sorted by Destination Index\\$\big\{ \langle S[\pi^{-1}[j]], j \rangle \;\mid\; j = 1, \dots, n \big\}$};
+    \node[stepnode, below=of spairs] (s3) {Step 3: Sequential Extraction\\{\normalfont\footnotesize Cost: $\mathcal{O}(n/B)$ I/Os (sequential write)}};
+    \node[outdata, below=of s3] (out) {Final Permuted Array\\$S'[1\dots n]$ \quad with \quad $S'[\pi[i]] = S[i]$};
+
+    \draw[arr] (in) -- (s1);
+    \draw[arr] (s1) -- (pairs);
+    \draw[arr] (pairs) -- (s2);
+    \draw[arr] (s2) -- (spairs);
+    \draw[arr] (spairs) -- (s3);
+    \draw[arr] (s3) -- (out);
+  \end{tikzpicture}
+  \caption{Operational workflow of the pair-reduction permutation algorithm.}
+  \label{fig:pair-reduction}
+\end{figure}
+
+\section[Permutation Complexity in External Memory]{Permutation Complexity\\in External Memory}
+\label{sec:permutation-complexity}
+
+The fundamental lower bound for permutation in the two-level memory model was established by Aggarwal and Vitter~\cite{aggarwal1988}:
+\begin{equation}
+  \operatorname{Perm}(n, M, B) = \Theta\left(\min\left\{ n, \, \frac{n}{B} \log_{M/B}\left(\frac{n}{B}\right) \right\}\right).
+\end{equation}
+Letting $L = \log_{M/B}(n/B)$ denote the number of merge passes required by multiway merge sort:
+\begin{equation}
+  \operatorname{Sort}(n, M, B) = \Theta\left(\frac{n}{B} \cdot L\right).
+\end{equation}
+
+\subsection{Corner Case Analysis}
+\label{subsec:corner-cases}
+
+Comparing the direct naive algorithm with the sorting-based reduction yields two distinct regimes determined by the relationship between block size $B$ and pass count $L$:
+\begin{itemize}
+  \item \textbf{Case 1 ($n \ge \frac{n}{B} \cdot L \iff B \ge L$):}  
+  The block size $B$ is greater than or equal to the depth of the merge tree. In this setting, sorting the pairs requires fewer I/Os than random single-element access:
+  \[
+    \operatorname{Perm}(n, M, B) = \Theta(\operatorname{Sort}(n, M, B)).
+  \]
+  \item \textbf{Case 2 ($n < \frac{n}{B} \cdot L \iff B < L$):}  
+  If the block size were pathologically small compared to the overall dataset ($B < L$), direct element-by-element random writing (at most $n$ I/Os) would be asymptotically cheaper than sorting:
+  \[
+    \operatorname{Perm}(n, M, B) = \Theta(n).
+  \]
+\end{itemize}
+
+\subsection{Numerical Verification on Realistic Architectural Parameters}
+\label{subsec:numerical-check}
+
+To establish which regime governs real-world computing systems, consider extreme yet realistic parameters:
+\begin{itemize}
+  \item Fast internal memory: $M = 16\text{ GB} = 2^4 \cdot 2^{30} = 2^{34}$ elements.
+  \item Disk block size: $B = 32\text{ KB} = 2^5 \cdot 2^{10} = 2^{15}$ elements.
+  \item Input dataset size: $n = 2^{60}$ elements (Exabyte scale).
+\end{itemize}
+
+We calculate the merge depth $L$:
+\[
+  L = \log_{M/B}\left(\frac{n}{M}\right) = \frac{\log_2(n / M)}{\log_2(M / B)}.
+\]
+Substituting the exponential values:
+\begin{align*}
+  \frac{n}{M} &= \frac{2^{60}}{2^{34}} = 2^{26} \implies \log_2\left(\frac{n}{M}\right) = 26, \\
+  \frac{M}{B} &= \frac{2^{34}}{2^{15}} = 2^{19} \implies \log_2\left(\frac{M}{B}\right) = 19.
+\end{align*}
+Hence:
+\[
+  L = \frac{26}{19} \approx 1.36 < 2.
+\]
+Because $B = 2^{15} = 32\,768$ and $L \le 2$, the condition $B \ge L$ holds by more than four orders of magnitude ($32\,768 \gg 2$). Consequently, in all practical systems, permutation is strictly bound by sorting complexity:
+\[
+  \operatorname{Perm}(n) = \Theta(\operatorname{Sort}(n)).
+\]
+
+\section{External Memory Binary Merge Sort}
+\label{sec:binary-merge-sort}
+
+The classical recursive Merge Sort algorithm extends naturally to external memory by recursively dividing arrays, ordering runs, and merging sorted sub-arrays:
+
+\begin{algorithm}[H]
+  \DontPrintSemicolon
+  \KwInput{Array $S$, boundaries $i, j$}
+  \KwOutput{Sorted sub-array $S[i \dots j]$}
+  \If{$i < j$}{
+    $m \leftarrow \lfloor (i + j) / 2 \rfloor$\;
+    $\mathrm{MS}(S, i, m)$\;
+    $\mathrm{MS}(S, m + 1, j)$\;
+    $\mathrm{MERGE}(S, i, m, j)$\;
+  }
+  \caption{Binary Merge Sort}
+\end{algorithm}
+
+\subsection{Buffer Architecture in the Merge Procedure}
+\label{subsec:merge-procedure}
+
+Given two consecutive sorted runs of length $l$, the merge procedure produces a single consolidated run of length $2l$ into an auxiliary array $S'$.
+
+\begin{itemize}
+  \item \textbf{In the RAM Model:} The operation performs at most $2l$ comparisons and $2l$ memory writes, costing $\Theta(l)$ CPU steps.
+  \item \textbf{In the Two-Level Model:} To minimize block transfers, internal memory $M$ is partitioned into $3$ dedicated buffers, each having size exactly equal to one block $B$:
+  \begin{enumerate}
+    \item \textbf{Input Buffer 1:} holds one block (size $B$) of the first sorted run.
+    \item \textbf{Input Buffer 2:} holds one block (size $B$) of the second sorted run.
+    \item \textbf{Output Buffer:} accumulates merged elements in sorted order until full ($B$ elements).
+  \end{enumerate}
+\end{itemize}
+
+\autoref{fig:merge-buffers} illustrates the internal memory allocation and streaming I/O pattern during the binary merge.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    buf/.style={draw, thick, fill=blue!10, minimum width=3.0cm, minimum height=1.1cm, align=center, font=\small},
+    disk/.style={draw, thick, fill=gray!15, minimum width=3.0cm, minimum height=0.9cm, align=center, font=\small},
+    arr/.style={-{Stealth[scale=1.1]}, thick}
+  ]
+    % Internal Memory Container
+    \draw[dashed, thick, color=blue!70!black, fill=blue!2] (-0.5, 1.8) rectangle (10.5, 3.8);
+    \node[anchor=west, font=\bfseries\small, color=blue!70!black] at (-0.3, 3.5) {Internal Memory $M$ (Space used: $3B$)};
+
+    % Internal buffers
+    \node[buf] (b1) at (1.5, 2.6) {Input Buffer 1\\(size $B$)};
+    \node[buf] (b2) at (5.0, 2.6) {Input Buffer 2\\(size $B$)};
+    \node[buf, fill=green!15] (bout) at (8.5, 2.6) {Output Buffer\\(size $B$)};
+
+    % External runs on disk
+    \node[disk] (d1) at (1.5, 0.2) {Run 1 on Disk\\(length $l$)};
+    \node[disk] (d2) at (5.0, 0.2) {Run 2 on Disk\\(length $l$)};
+    \node[disk, fill=green!8] (dout) at (8.5, 0.2) {Merged Run on Disk\\(length $2l$)};
+
+    % Connections
+    \draw[arr, color=blue!80!black] (d1) -- node[right, font=\scriptsize]{Read $B$} (b1);
+    \draw[arr, color=blue!80!black] (d2) -- node[right, font=\scriptsize]{Read $B$} (b2);
+    \draw[arr, color=green!60!black] (bout) -- node[right, font=\scriptsize]{Flush $B$} (dout);
+
+    % Internal logic
+    \draw[thick, dotted, color=gray!80!black] (b1.east) -- (b2.west);
+    \draw[thick, dotted, color=gray!80!black] (b2.east) -- (bout.west);
+  \end{tikzpicture}
+  \caption{Internal memory buffer organization during binary external merge.}
+  \label{fig:merge-buffers}
+\end{figure}
+
+The execution protocol proceeds as follows:
+\begin{enumerate}
+  \item The leading elements of the two input buffers are compared in CPU; the smaller key is appended to the output buffer.
+  \item Whenever an input buffer is exhausted, a disk read loads the next block of that run ($\frac{l}{B}$ I/Os per input run).
+  \item As soon as the output buffer fills up with $B$ items, it is flushed to disk in a single write operation ($\frac{2l}{B}$ write I/Os overall).
+\end{enumerate}
+
+The total I/O cost of merging two runs of length $l$ is:
+\begin{equation}
+  \mathrm{I/O}_{\text{Merge}}(l) = \frac{l}{B} + \frac{l}{B} + \frac{2l}{B} = \frac{4l}{B} = \Theta\left(\frac{l}{B}\right).
+\end{equation}
+
+\subsection{Recursion Tree Complexity}
+\label{subsec:recursion-tree}
+
+Recursion terminates once sub-array sizes fit entirely within internal memory $M$. At this base level, each chunk of size $M$ is read into memory, sorted using an in-memory algorithm (e.g., QuickSort or HeapSort) with zero additional I/O, and written back to disk using $\mathcal{O}(M/B)$ I/Os.
+
+This yields:
+\[
+  N_{\mathrm{run}} = \frac{n}{M} \text{ initial sorted runs of size } M.
+\]
+The binary merge tree has height:
+\begin{equation}
+  h = \log_2\left(\frac{n}{M}\right) \text{ levels}.
+\end{equation}
+
+\autoref{fig:binary-merge-tree} depicts the recursion structure of binary external merge sort.
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.95\linewidth}{!}{%
+  \begin{tikzpicture}[
+    level 1/.style={sibling distance=3.6cm, level distance=1.2cm},
+    level 2/.style={sibling distance=1.8cm, level distance=1.2cm},
+    node/.style={draw=blue!70!black, rounded corners=3pt, fill=blue!8, font=\small, minimum width=1.5cm, minimum height=0.6cm, align=center},
+    leaf/.style={draw=yellow!70!black, rounded corners=3pt, fill=yellow!25, font=\small, minimum width=1.4cm, minimum height=0.6cm, align=center},
+    cost/.style={font=\small, text=blue!80!black, anchor=west},
+    lbl/.style={font=\small\bfseries, text=gray!75!black, anchor=east}
+  ]
+    % Tree (centered at x = -1.2)
+    \node[node] at (-1.2, 0) (root) {Output: $n$}
+      child { node[node] (n1) {Run $n/2$}
+        child { node[leaf] (l1) {Run $M$} }
+        child { node[leaf] (l2) {Run $M$} }
+      }
+      child { node[node] (n2) {Run $n/2$}
+        child { node[leaf] (l3) {Run $M$} }
+        child { node[leaf] (l4) {Run $M$} }
+      };
+
+    % Left labels (anchor=east at x = -4.9: zero tree overlap)
+    \node[lbl] at (-4.9, 0) {Level $h$:};
+    \node[lbl] at (-4.9, -1.2) {Level 1:};
+    \node[lbl] at (-4.9, -2.4) {Base ($n/M$ runs):};
+
+    % Dotted lines to I/O costs
+    \draw[dotted, thick, gray!50] (root.east) -- (2.3, 0);
+    \node[cost] at (2.4, 0) {$\Theta(n/B)$ I/Os};
+
+    \draw[dotted, thick, gray!50] (n2.east) -- (2.3, -1.2);
+    \node[cost] at (2.4, -1.2) {$\Theta(n/B)$ I/Os};
+
+    \draw[dotted, thick, gray!50] (l4.east) -- (2.3, -2.4);
+    \node[cost] at (2.4, -2.4) {$\Theta(n/B)$ I/Os};
+
+    % Height arrow on far right at x = 4.8
+    \draw[thick, Stealth-Stealth, color=red!70!black] (4.8, 0.2) -- 
+      node[right=3pt, font=\small, text=red!80!black, align=left]{$h = \log_2\left(\frac{n}{M}\right)$\\[2pt]levels} 
+      (4.8, -2.6);
+  \end{tikzpicture}%
+  }
+  \caption{Recursion tree of external memory Binary Merge Sort with level I/O costs.}
+  \label{fig:binary-merge-tree}
+\end{figure}
+
+At each level of the tree, all $n$ elements are streamed exactly once, requiring $\Theta(n/B)$ I/Os per level. Multiplying by tree height gives the overall complexity:
+\begin{equation}
+  \mathrm{I/O}_{\text{BinaryMergeSort}} = \mathcal{O}\left(\frac{n}{B} \log_2\left(\frac{n}{M}\right)\right).
+\end{equation}
+
+\subsection{Sub-optimality and Bottlenecks}
+\label{subsec:suboptimality}
+
+Although significantly more efficient than naive approaches, this design suffers from a major structural bottleneck:
+\begin{itemize}
+  \item \textbf{Drastic internal memory underutilization:} During merging, only $3$ blocks ($3B$ elements) are occupied in fast memory $M$. The remaining capacity $(M - 3B)$ sits completely idle.
+  \item \textbf{Fixed logarithm base:} The base of the logarithm is fixed at $2$, whereas memory $M$ could accommodate up to:
+  \[
+    k \approx \frac{M}{B} - 1 \text{ concurrent input streams}.
+  \]
+  \item \textbf{Loss of the $\log_2(M/B)$ convergence factor:} By failing to perform $k$-way merging (\textit{Multiway Merge Sort}), the algorithm executes substantially more passes, falling short of the optimal lower bound:
+  \[
+    \mathcal{O}\left(\frac{n}{B} \log_{M/B}\left(\frac{n}{B}\right)\right).
+  \]
+\end{itemize}
+
+\autoref{fig:memory-utilization-comparison} visually contrasts this internal memory underutilization against full buffer saturation.
+
+\begin{figure}[htbp]
+  \centering
+  \resizebox{0.95\linewidth}{!}{%
+  \begin{tikzpicture}[
+    box/.style={draw, thick, rounded corners=2pt, align=center, font=\footnotesize},
+    title/.style={font=\bfseries\small, align=center}
+  ]
+    % --- LEFT: Binary Merge Sort ---
+    \node[title, color=red!75!black] at (2.8, 3.65) {Binary Merge Sort ($k=2$)};
+    % Internal memory container M
+    \draw[thick, fill=gray!4] (0, 0) rectangle (5.6, 3.0);
+    \node[anchor=south west, font=\scriptsize\bfseries, color=gray!70!black] at (0.1, 3.05) {Internal Memory $M$};
+
+    % Buffer 1, 2, Out
+    \node[box, fill=blue!15, draw=blue!70!black, minimum width=1.5cm, minimum height=0.7cm] at (1.1, 2.2) {In 1 ($B$)};
+    \node[box, fill=blue!15, draw=blue!70!black, minimum width=1.5cm, minimum height=0.7cm] at (2.8, 2.2) {In 2 ($B$)};
+    \node[box, fill=green!20, draw=green!60!black, minimum width=1.5cm, minimum height=0.7cm] at (4.5, 2.2) {Out ($B$)};
+
+    % Wasted space
+    \draw[dashed, red!60!black, fill=red!6] (0.2, 0.2) rectangle (5.4, 1.5);
+    \node[font=\footnotesize\bfseries, color=red!75!black, align=center] at (2.8, 0.85) {Underutilized / Idle Capacity\\[2pt]{\normalfont\scriptsize Wasted memory: $M - 3B$}};
+
+    % --- RIGHT: Multiway Merge Sort ---
+    \node[title, color=teal!80!black] at (9.4, 3.65) {Multiway Merge Sort ($k \approx M/B - 1$)};
+    % Internal memory container M
+    \draw[thick, fill=gray!4] (6.6, 0) rectangle (12.2, 3.0);
+    \node[anchor=south west, font=\scriptsize\bfseries, color=gray!70!black] at (6.7, 3.05) {Internal Memory $M$};
+
+    % Multiple buffers
+    \node[box, fill=blue!15, draw=blue!70!black, minimum width=0.9cm, minimum height=0.7cm] at (7.4, 2.2) {$B_1$};
+    \node[box, fill=blue!15, draw=blue!70!black, minimum width=0.9cm, minimum height=0.7cm] at (8.5, 2.2) {$B_2$};
+    \node[font=\bfseries] at (9.4, 2.2) {$\dots$};
+    \node[box, fill=blue!15, draw=blue!70!black, minimum width=0.9cm, minimum height=0.7cm] at (10.3, 2.2) {$B_k$};
+    \node[box, fill=green!20, draw=green!60!black, minimum width=0.9cm, minimum height=0.7cm] at (11.4, 2.2) {Out};
+
+    % Full saturation
+    \draw[dashed, teal!70!black, fill=teal!6] (6.8, 0.2) rectangle (12.0, 1.5);
+    \node[font=\footnotesize\bfseries, color=teal!80!black, align=center] at (9.4, 0.85) {Full RAM Saturation\\[2pt]{\normalfont\scriptsize $k \approx \frac{M}{B}-1$ input streams}};
+  \end{tikzpicture}%
+  }
+  \caption{Internal memory allocation efficiency: severe underutilization in Binary Merge Sort versus full buffer saturation in Multiway Merge Sort.}
+  \label{fig:memory-utilization-comparison}
+\end{figure}
+
+The study of Multiway Merge Sort and the elimination of this bottleneck form the focus of subsequent lectures.
