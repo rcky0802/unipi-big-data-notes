@@ -1,0 +1,721 @@
+\chapter{Data Understanding and Data Exploration}
+\label{ch:data-understanding}
+
+\section{Objectives of Data Understanding}
+
+The data understanding phase (\textit{Data Understanding}) constitutes an indispensable prerequisite for any Data Mining activity. Before selecting or applying any algorithm, the analyst must acquire an overall view of the structure, distribution, and intrinsic quality of the dataset with respect to the project objectives.
+
+In this preliminary phase, it is necessary to answer crucial methodological questions:
+\begin{itemize}
+    \item What types of attributes compose the dataset?
+    \item What is the overall level of data quality (presence of noise, errors, or duplicates)?
+    \item How are the numerical and categorical variables distributed?
+    \item Are there evident correlations or redundancies among the attributes?
+    \item How are outliers structured and what application meaning do they assume?
+    \item What strategies should be adopted for missing values?
+    \item Is it necessary to derive or transform attributes to make mining more effective?
+\end{itemize}
+
+\section{Types of Datasets}
+
+The collected data present themselves in different logical-geometric structures based on the nature of the application domain:
+
+\begin{enumerate}
+    \item \textbf{Record Data:}
+    \begin{itemize}
+        \item \textbf{Data Matrix:} A set of objects described by the same fixed set of numerical attributes. A dataset of $m$ objects and $n$ attributes is formally represented by an $m \times n$ matrix:
+        \begin{equation}
+        \mathbf{X} = \begin{pmatrix}
+        x_{1,1} & x_{1,2} & \cdots & x_{1,n} \\
+        x_{2,1} & x_{2,2} & \cdots & x_{2,n} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        x_{m,1} & x_{m,2} & \cdots & x_{m,n}
+        \end{pmatrix}
+        \end{equation}
+        In this formalization, each object $x_i$ is a point in an $n$-dimensional vector space $\mathbb{R}^n$.
+        \item \textbf{Document Data (Bag-of-Words):} Each textual document is represented by a term vector (\textit{term vector}). Each component of the vector corresponds to a word in the vocabulary, and the associated value indicates its frequency of occurrence in the text.
+        \item \textbf{Transaction Data:} Each record represents a transaction (identified by a TID) and contains a variable set of purchased items or observed events.
+    \end{itemize}
+
+    \item \textbf{Graph Data:} Structures composed of nodes and edges that model relationships and connectivity. Examples include the network of hypertext links of the World Wide Web, social network graphs, and molecular structures (for example, the planar molecule of benzene $\text{C}_6\text{H}_6$).
+
+    \item \textbf{Ordered Data:}
+    \begin{itemize}
+        \item \textbf{Sequences of transactions:} Temporal successions of purchases or events for each user.
+        \item \textbf{Genomic data:} Discrete biological sequences composed of nucleotide characters $\{\text{A}, \text{C}, \text{G}, \text{T}\}$.
+        \item \textbf{Spatio-Temporal Data:} Continuous or sampled measurements over geographical coordinates and regular time intervals (for example, the monthly average temperature of the land and ocean surface).
+    \end{itemize}
+\end{enumerate}
+
+\section{Objects and Attributes}
+
+A dataset is a collection of \textbf{data objects} and their corresponding \textbf{attributes}.
+\begin{itemize}
+    \item An \textbf{object} (also known as a record, point, case, sample, entity, or instance) represents a single entity of the domain of interest.
+    \item An \textbf{attribute} (also known as a variable, field, characteristic, dimension, or feature) represents a measurable property or characteristic of an object (for example, age, taxable income, or eye color).
+\end{itemize}
+
+\subsection{Measurement Scales of Attributes}
+The type of measurement scale of an attribute is defined by the set of algebraic properties and mathematical operators that preserve the meaning of the measurement:
+\begin{enumerate}
+    \item \textbf{Distinctness} ($=, \neq$): Possibility to distinguish whether two values are equal or different.
+    \item \textbf{Order} ($<, >$): Possibility to establish an order relationship between values.
+    \item \textbf{Meaningful differences} ($+, -$): Presence of a constant unit of measurement that allows quantifying the interval between two values (zero is conventional/arbitrary).
+    \item \textbf{Meaningful ratios} ($*, /$): Presence of an \textbf{intrinsic absolute zero} (indicating the total absence of the measured quantity), which makes the proportional comparison between quantities meaningful.
+\end{enumerate}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{l p{2.2cm} X p{2.6cm} p{3.0cm}}
+\toprule
+\textbf{Scale} & \textbf{Properties} & \textbf{Description} & \textbf{Examples} & \textbf{Statistical Operators} \\
+\midrule
+\textbf{Nominal} & Distinctness ($=, \neq$) & Qualitative values or categorical labels without intrinsic ordering & SSN, ZIP code, eye color, gender & Mode, entropy, $\chi^2$ test, contingency \\
+\addlinespace
+\textbf{Ordinal} & Distinctness and Order ($=, \neq, <, >$) & Values with meaningful ordering but non-constant interval & Educational degree, Likert scale (1--10), mineral hardness & Median, percentiles, rank correlation (Spearman) \\
+\addlinespace
+\textbf{Interval} & Order and Differences ($+, -$) & Quantitative differences with meaning; zero is conventional & Temperature in $^\circ\text{C}$ or $^\circ\text{F}$, calendar dates & Mean, variance, standard deviation, Pearson, $t$ and $F$ tests \\
+\addlinespace
+\textbf{Ratio} & All 4 properties ($=, <, +, *, /$) & Presence of absolute zero; ratios between physically valid measurements & Age, income, mass, counts, Kelvin & Geometric and harmonic mean, percentage variation \\
+\bottomrule
+\end{tabularx}
+\caption{Taxonomy of attribute measurement scales (Stevens).}
+\label{tab:attribute-types}
+\end{table}
+
+\subsection{Further Distinctions of Attributes}
+\begin{itemize}
+    \item \textbf{Binary Attributes:} Nominal attributes that exclusively admit two states ($0$ and $1$). They are distinguished into:
+    \begin{itemize}
+        \item \textit{Symmetric Binary:} Both outcomes have equal informational importance (for example, biological gender).
+        \item \textit{Asymmetric Binary:} One of the two outcomes is rare but of extreme informational relevance (for example, a positive outcome to a diagnostic test for a rare disease). By convention, the value $1$ is associated with the event of greater interest.
+    \end{itemize}
+    \item \textbf{Discrete vs Continuous Attributes:}
+    \begin{itemize}
+        \item \textit{Discrete:} Assume a finite or countably infinite set of values (typically represented by integers, counts, or categories). Binary attributes constitute a special case of discrete attribute.
+        \item \textit{Continuous:} Assume values in a continuous subset of real numbers $\mathbb{R}$ (temperature, weight, coordinates). In computational practice, they are measured and stored using floating-point representations (\textit{floating-point}) with finite precision.
+    \end{itemize}
+\end{itemize}
+
+\section{Data Quality}
+
+Data quality is a critical factor for the success of any analytical initiative. As highlighted in Thomas Redman's studies, problems arising from poor quality data typically cost organizations between $10\%$ and $20\%$ of their overall revenues.
+If a credit risk model is trained on flawed or erroneous data, the system will reject solvent debtors and disburse loans to insolvent individuals.
+
+\subsection{Dimensions of Data Quality}
+Quality problems manifest themselves under various dimensions:
+\begin{enumerate}
+    \item \textbf{Syntactic Accuracy:} The recorded value violates formal constraints or does not belong to the predetermined domain (for example, the string \texttt{"fmale"} or the presence of letters in a numeric field). Such anomalies can be identified automatically through simple schema checks.
+    \item \textbf{Semantic Accuracy:} The data is formally correct with respect to the type, but false in the reference reality (for example, associating the name \texttt{"John Smith"} with the female gender or recording an age of $180$ years). Detecting these discrepancies requires domain rules (\textit{business rules}) or cross-referencing with reliable external sources.
+    \item \textbf{Completeness:} Systematic lack of values for certain attributes or absence of entire records. A typical violation of completeness is \textbf{sampling bias} (for example, the analysis of insolvency risk carried out on a historical archive that only includes customers already approved by the bank, excluding a priori low-income profiles).
+    \item \textbf{Unbalanced Data:} Strongly asymmetric distribution of classes (for example, fraudulent transactions equal to $0.1\%$ of the total or defective products on highly automated production lines).
+    \item \textbf{Timeliness:} Obsolete degree of data updating compared to the current dynamics of the observed phenomenon.
+    \item \textbf{Duplicate Data:} Presence of identical or nearly identical records relating to the same entity (for example, the same customer registered multiple times with different email addresses following the merger of two databases). Such discrepancies are addressed through deduplication and \textit{record linkage} techniques.
+\end{enumerate}
+
+\section{Descriptive Statistics and Univariate Exploration}
+
+\subsection{Measures of Central Tendency}
+\begin{itemize}
+    \item \textbf{Sample Mean ($\bar{x}$):} For a sample of size $m$:
+    \begin{equation}
+    \bar{x} = \frac{1}{m} \sum_{i=1}^m x_i
+    \end{equation}
+    The mean is a distributive measure (it can be calculated by partitioning the dataset into subsets), but it is \textbf{extremely sensitive to the presence of outliers}.
+    \item \textbf{Median:} The value that occupies the central position in the increasing order of the observations (or the mean of the two central values if $m$ is even). It is a robust measure, with a breakdown point (\textit{breakdown point}) of $50\%$.
+    \item \textbf{Trimmed Mean:} Mean calculated by excluding a fixed percentage (for example $5\%$ or $10\%$) of the most extreme values at both ends.
+    \item \textbf{Mode:} The value or category that occurs with the maximum absolute frequency. A distribution can be unimodal, bimodal, multimodal, or modeless if all observations appear only once.
+\end{itemize}
+
+\subsection{Skewness and Multimodality}
+\begin{itemize}
+    \item \textbf{Positively Skewed / Right-skewed:} The right tail of the distribution is elongated. Most observations are concentrated on values lower than the arithmetic mean ($\text{Mode} < \text{Median} < \text{Mean}$). A typical example is the distribution of \textbf{incomes}: the vast majority of citizens earn low or medium incomes, while a small number of individuals earn extremely high incomes, pulling the mean upwards.
+    \item \textbf{Bimodal Distribution:} Presence of two distinct peaks in the frequency density. It typically signals the influence of an unstated binary latent variable (for example, the distribution of human body weight in a mixed population, influenced by the binary variable sex).
+\end{itemize}
+
+\subsection{Measures of Dispersion}
+\begin{itemize}
+    \item \textbf{Range:} Difference between maximum value and minimum value: $\text{Range} = x_{\max} - x_{\min}$.
+    \item \textbf{Sample Variance ($s^2$) and Standard Deviation ($s$):}
+    \begin{equation}
+    s^2 = \frac{1}{m-1} \sum_{i=1}^m (x_i - \bar{x})^2, \quad s = \sqrt{s^2}
+    \end{equation}
+    The standard deviation measures the dispersion around the mean; it is zero only if all observations are identical ($s=0$), otherwise $s > 0$. It is also sensitive to outliers.
+    \item \textbf{Robust Measures of Dispersion:}
+    \begin{itemize}
+        \item \textit{Absolute Average Deviation} (AAD): $\text{AAD} = \frac{1}{m} \sum |x_i - \bar{x}|$.
+        \item \textit{Median Absolute Deviation} (MAD): $\text{MAD} = \text{median}(|x_i - \text{median}(x)|)$.
+        \item \textit{Interquartile Range} (IQR): Distance between the third quartile $Q_3$ ($75^{\text{th}}$ percentile) and the first quartile $Q_1$ ($25^{\text{th}}$ percentile):
+        \begin{equation}
+        \text{IQR} = Q_3 - Q_1
+        \end{equation}
+    \end{itemize}
+\end{itemize}
+
+\subsection{Box Plot and Five-Number Summary}
+The \textbf{Box Plot} (box and whisker plot) offers a non-parametric visual summary of the distribution based on the \textbf{five-number summary}:
+\[
+\big[\text{Minimum}, \; Q_1, \; \text{Median} \, (Q_2), \; Q_3, \; \text{Maximum}\big]
+\]
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[xscale=0.9, yscale=0.85]
+    % Axis
+    \draw[thick, -Stealth] (0,0) -- (12,0) node[right, font=\small] {Values};
+    \foreach \x in {1,3,5,7,9,11} \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
+
+    % Box (Q1=4, Mediana=6, Q3=8)
+    \draw[thick, fill=blue!15] (4,1) rectangle (8,3);
+    \draw[very thick, red!80!black] (6,1) -- (6,3) node[above, font=\scriptsize\bfseries] {Median ($Q_2$)};
+
+    % Whiskers
+    \draw[thick] (4,2) -- (2,2);
+    \draw[thick] (2,1.5) -- (2,2.5) node[above, font=\scriptsize] {Min Whisker};
+    \draw[thick] (8,2) -- (10,2);
+    \draw[thick] (10,1.5) -- (10,2.5) node[above, font=\scriptsize] {Max Whisker};
+
+    % Outliers
+    \fill[red] (11.2, 2) circle (3pt) node[above, font=\scriptsize] {Outlier};
+    \fill[red] (0.8, 2) circle (3pt) node[above, font=\scriptsize] {Outlier};
+
+    % Annotations
+    \draw[Stealth-Stealth, thick] (4,0.5) -- node[below, font=\scriptsize] {$\text{IQR} = Q_3 - Q_1$} (8,0.5);
+    \node[font=\scriptsize] at (4,3.3) {$Q_1$ (25\%)};
+    \node[font=\scriptsize] at (8,3.3) {$Q_3$ (75\%)};
+\end{tikzpicture}
+\caption{Geometric anatomy of a Box Plot with identification of outliers.}
+\label{fig:boxplot-anatomy}
+\end{figure}
+
+The limits of the whiskers are conventionally calculated by extending up to the most extreme observed value within the interval $[Q_1 - 1.5 \times \text{IQR}, \; Q_3 + 1.5 \times \text{IQR}]$. The observations that fall outside such thresholds are visually labeled as \textbf{outliers}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[xscale=1.1, yscale=0.85]
+    % Axis
+    \draw[thick, -Stealth] (0,0) -- (8.5,0) node[right, font=\small] {Petal Length (cm)};
+    \foreach \x in {1,2,3,4,5,6,7,8} \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
+
+    % Class 1: Setosa (around 1.5, narrow)
+    \draw[thick, fill=blue!20] (1.3, 2.7) rectangle (1.7, 3.3);
+    \draw[very thick, blue!90!black] (1.5, 2.7) -- (1.5, 3.3);
+    \draw[thick] (1.3, 3.0) -- (1.0, 3.0); \draw[thick] (1.0, 2.8) -- (1.0, 3.2);
+    \draw[thick] (1.7, 3.0) -- (1.9, 3.0); \draw[thick] (1.9, 2.8) -- (1.9, 3.2);
+    \node[left, font=\small\bfseries, blue!80!black] at (0.8, 3.0) {Setosa};
+
+    % Class 2: Versicolor (around 4.3, medium)
+    \draw[thick, fill=orange!25] (4.0, 1.7) rectangle (4.7, 2.3);
+    \draw[very thick, orange!90!black] (4.35, 1.7) -- (4.35, 2.3);
+    \draw[thick] (4.0, 2.0) -- (3.3, 2.0); \draw[thick] (3.3, 1.8) -- (3.3, 2.2);
+    \draw[thick] (4.7, 2.0) -- (5.1, 2.0); \draw[thick] (5.1, 1.8) -- (5.1, 2.2);
+    \node[left, font=\small\bfseries, orange!80!black] at (0.8, 2.0) {Versicolor};
+
+    % Class 3: Virginica (around 5.6, large)
+    \draw[thick, fill=green!25] (5.1, 0.7) rectangle (6.0, 1.3);
+    \draw[very thick, green!80!black] (5.55, 0.7) -- (5.55, 1.3);
+    \draw[thick] (5.1, 1.0) -- (4.5, 1.0); \draw[thick] (4.5, 0.8) -- (4.5, 1.2);
+    \draw[thick] (6.0, 1.0) -- (6.9, 1.0); \draw[thick] (6.9, 0.8) -- (6.9, 1.2);
+    \node[left, font=\small\bfseries, green!60!black] at (0.8, 1.0) {Virginica};
+\end{tikzpicture}
+\caption{Example of Conditional Box Plot: distribution of the \textit{Petal Length} attribute conditioned on the flower species in the Iris dataset.}
+\label{fig:conditional-boxplot}
+\end{figure}
+
+\begin{alertblock}{Critical Comparison: Box Plot vs Histogram}
+Although the box plot effectively synthesizes position and dispersion, \textbf{it is not able to show the real shape of the distribution}. Two distributions having radically different densities (for example, a uniform unimodal distribution and a strongly bimodal distribution with an empty central valley) can produce identical values of $Q_1$, median, $Q_3$, Minimum, and Maximum, and therefore generate the exact same box plot. The histogram is essential to detect multimodality.
+\end{alertblock}
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.65]
+    \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
+    \draw[thick, -Stealth] (0,0) -- (0,3.5) node[above, font=\tiny] {Frequency};
+    % Uniform / unimodal shape
+    \draw[fill=orange!30, draw=orange!80, thick] (0.5,0) rectangle (1.3, 1.0);
+    \draw[fill=orange!30, draw=orange!80, thick] (1.3,0) rectangle (2.1, 2.2);
+    \draw[fill=orange!30, draw=orange!80, thick] (2.1,0) rectangle (2.9, 3.0);
+    \draw[fill=orange!30, draw=orange!80, thick] (2.9,0) rectangle (3.7, 2.2);
+    \draw[fill=orange!30, draw=orange!80, thick] (3.7,0) rectangle (4.5, 1.0);
+    \node[font=\scriptsize\bfseries] at (2.5, -0.6) {Unimodal Density};
+\end{tikzpicture}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.65]
+    \draw[thick, -Stealth] (0,0) -- (5.5,0) node[right, font=\tiny] {$x$};
+    \draw[thick, -Stealth] (0,0) -- (0,3.5) node[above, font=\tiny] {Frequency};
+    % Bimodal shape with empty center
+    \draw[fill=purple!30, draw=purple!80, thick] (0.5,0) rectangle (1.3, 2.8);
+    \draw[fill=purple!30, draw=purple!80, thick] (1.3,0) rectangle (2.1, 1.2);
+    \draw[fill=purple!30, draw=purple!80, thick] (2.1,0) rectangle (2.9, 0.3);
+    \draw[fill=purple!30, draw=purple!80, thick] (2.9,0) rectangle (3.7, 1.2);
+    \draw[fill=purple!30, draw=purple!80, thick] (3.7,0) rectangle (4.5, 2.8);
+    \node[font=\scriptsize\bfseries] at (2.5, -0.6) {Bimodal Density};
+\end{tikzpicture}
+\end{minipage}
+
+\vspace{0.3cm}
+\begin{tikzpicture}[scale=0.75]
+    \draw[thick, -Stealth] (0,0) -- (8.5,0) node[right, font=\scriptsize] {$x$};
+    \foreach \x/\val in {0.8/Min, 2.4/$Q_1$, 4.0/Median, 5.6/$Q_3$, 7.2/Max} {
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\tiny] {\val};
+    }
+    \draw[thick, fill=gray!25] (2.4,0.4) rectangle (5.6,1.2);
+    \draw[very thick, red!80!black] (4.0,0.4) -- (4.0,1.2);
+    \draw[thick] (2.4,0.8) -- (0.8,0.8); \draw[thick] (0.8,0.5) -- (0.8,1.1);
+    \draw[thick] (5.6,0.8) -- (7.2,0.8); \draw[thick] (7.2,0.5) -- (7.2,1.1);
+    \node[font=\scriptsize, red!80!black] at (4.0, 1.55) {Identical Box Plot for both distributions!};
+\end{tikzpicture}
+\caption{Critical comparison: two distributions with diametrically opposite behaviors (unimodal vs bimodal with empty center) generate the same five-number summary and the same Box Plot.}
+\label{fig:boxplot-vs-hist}
+\end{figure}
+
+\subsection{Bar Chart for Categorical Attributes}
+The \textbf{Bar Chart} visually represents the frequency distribution of a qualitative or categorical attribute. Each discrete category is represented by a vertical (or horizontal) bar, whose height corresponds to the absolute count or relative frequency. Unlike histograms, bars are separated by empty spaces to highlight that the modalities do not constitute a numerical continuum.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[xscale=1.4, yscale=0.07]
+    \draw[thick, -Stealth] (0,0) -- (4.5,0) node[right, font=\small] {Marital Status};
+    \draw[thick, -Stealth] (0,0) -- (0,55) node[above, font=\small] {Frequency};
+    \foreach \y in {10, 20, 30, 40, 50} \draw (0.08, \y) -- (-0.08, \y) node[left, font=\scriptsize] {\y};
+
+    \draw[fill=blue!35, draw=blue!80, thick] (0.6,0) rectangle (1.4,42);
+    \node[above, font=\scriptsize\bfseries] at (1.0, 42) {42};
+    \node[below, font=\small] at (1.0, -2) {Single};
+
+    \draw[fill=blue!35, draw=blue!80, thick] (1.8,0) rectangle (2.6,33);
+    \node[above, font=\scriptsize\bfseries] at (2.2, 33) {33};
+    \node[below, font=\small] at (2.2, -2) {Married};
+
+    \draw[fill=blue!35, draw=blue!80, thick] (3.0,0) rectangle (3.8,18);
+    \node[above, font=\scriptsize\bfseries] at (3.4, 18) {18};
+    \node[below, font=\small] at (3.4, -2) {Divorced};
+\end{tikzpicture}
+\caption{Example of a Bar Chart for a nominal categorical attribute (Marital Status).}
+\label{fig:barchart-example}
+\end{figure}
+
+\subsection{Histograms for Numerical Attributes and Choice of Bins}
+A \textbf{histogram} shows the empirical frequency distribution of a continuous numerical attribute. The domain of variability of the quantity is partitioned (\textit{discretized}) into a predetermined number $k$ of contiguous intervals called \textit{bins} (or class widths). For each bin, the height of the overlying bar is proportional to the number of sample observations that fall within it.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[xscale=0.9, yscale=0.08]
+    \draw[thick, -Stealth] (0,0) -- (11.5,0) node[right, font=\small] {Age};
+    \draw[thick, -Stealth] (0,0) -- (0,50) node[above, font=\small] {Frequency};
+    \foreach \y in {10, 20, 30, 40, 50} \draw (0.1, \y) -- (-0.1, \y) node[left, font=\scriptsize] {\y};
+
+    % 6 contiguous bins: 20-30, 30-40, 40-50, 50-60, 60-70, 70-80
+    \draw[fill=teal!30, draw=teal!80, thick] (1,0) rectangle (2.5, 14);
+    \draw[fill=teal!30, draw=teal!80, thick] (2.5,0) rectangle (4, 44);
+    \draw[fill=teal!30, draw=teal!80, thick] (4,0) rectangle (5.5, 32);
+    \draw[fill=teal!30, draw=teal!80, thick] (5.5,0) rectangle (7, 20);
+    \draw[fill=teal!30, draw=teal!80, thick] (7,0) rectangle (8.5, 11);
+    \draw[fill=teal!30, draw=teal!80, thick] (8.5,0) rectangle (10, 5);
+
+    \foreach \x/\label in {1/20, 2.5/30, 4/40, 5.5/50, 7/60, 8.5/70, 10/80} {
+        \draw (\x, 1.5) -- (\x, -1.5) node[below, font=\scriptsize] {\label};
+    }
+\end{tikzpicture}
+\caption{Example of a Histogram for a continuous numerical attribute with contiguous bins of constant width.}
+\label{fig:histogram-example}
+\end{figure}
+
+An incorrect choice of the number of bins profoundly alters the perception of the data:
+\begin{itemize}
+    \item An insufficient number of bins causes \textit{oversmoothing}, leveling the distribution and masking skewnesses and multimodality.
+    \item An excessive number of bins causes \textit{undersmoothing}, fragmenting the sample into discontinuous frequencies and emphasizing sampling noise.
+\end{itemize}
+
+For unimodal distributions close to normal and moderate sample sizes $n$, the recommended number of bins is provided by \textbf{Sturges' rule}:
+\begin{equation}
+k = 1 + \lceil \log_2(n) \rceil
+\end{equation}
+
+\section{Multivariate Visualization Techniques}
+
+\subsection{Scatter Plot and Multi-Dimensional Visualization}
+The \textbf{Scatter Plot} treats pairs of numerical attributes as Cartesian coordinates $(x_i, y_i)$ in the plane. It is the main visual tool for:
+\begin{itemize}
+    \item Identifying linear correlations or non-linear functional trends.
+    \item Detecting natural clusters of points (\textit{clusters}).
+    \item Finding multivariate outliers not visible in univariate projections.
+\end{itemize}
+
+\begin{example}[Analysis of the Anderson/Fisher Iris Dataset]
+The famous \textit{Iris} dataset (150 samples of flowers belonging to three species: \textit{Setosa}, \textit{Versicolor}, \textit{Virginica}) describes 4 numerical attributes: sepal length and width, petal length and width.
+The bivariate scatter plot shows that the attributes related to the petal (\textit{Petal Length} vs \textit{Petal Width}) guarantee a clear separation among the species, also allowing the isolation of potential anomalies.
+\end{example}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Axes
+    \draw[thick, -Stealth] (0,0) -- (7.5,0) node[right, font=\small] {Petal Length (cm)};
+    \draw[thick, -Stealth] (0,0) -- (0,5.5) node[above, font=\small] {Petal Width (cm)};
+    \foreach \x in {1,2,3,4,5,6,7} \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
+    \foreach \y in {1,2,3,4,5} \draw (0.1, \y) -- (-0.1, \y) node[left, font=\scriptsize] {\y};
+
+    % Setosa points (bottom-left, blue circles)
+    \foreach \p in {(1.2, 0.4), (1.4, 0.3), (1.5, 0.5), (1.6, 0.4), (1.3, 0.6), (1.7, 0.5), (1.4, 0.7)} {
+        \fill[blue!75] \p circle (2.5pt);
+    }
+    \node[blue!80!black, font=\scriptsize\bfseries] at (1.5, 1.0) {Setosa};
+
+    % Outlier for Setosa
+    \draw[red!80!black, thick] (2.5, 1.2) circle (6pt);
+    \fill[blue!75] (2.5, 1.2) circle (2.5pt);
+    \node[red!80!black, font=\tiny, align=center] at (2.7, 1.7) {Local Outlier\\(for Setosa)};
+
+    % Versicolor points (center, orange squares)
+    \foreach \p in {(4.0, 2.2), (4.3, 2.4), (4.5, 2.8), (4.2, 2.6), (4.7, 2.5), (4.4, 2.3)} {
+        \fill[orange!85!black] \p rectangle ++(4.5pt, 4.5pt);
+    }
+    \node[orange!80!black, font=\scriptsize\bfseries] at (4.5, 1.8) {Versicolor};
+
+    % Virginica points (top-right, green triangles)
+    \foreach \p in {(5.5, 3.8), (5.8, 4.2), (6.1, 4.5), (5.9, 4.0), (6.4, 4.4), (6.2, 4.1)} {
+        \fill[green!50!black] \p ++(-2.5pt, -2.5pt) -- ++(5pt, 0pt) -- ++(-2.5pt, 5pt) -- cycle;
+    }
+    \node[green!50!black, font=\scriptsize\bfseries] at (6.0, 3.4) {Virginica};
+
+    % Global Outlier
+    \draw[red, very thick] (6.8, 0.9) circle (6pt);
+    \fill[red] (6.8, 0.9) circle (3pt);
+    \node[red!80!black, font=\tiny, align=center] at (6.8, 0.4) {\textbf{Global Outlier}};
+\end{tikzpicture}
+\caption{Bivariate Scatter Plot with graphical class encoding and visual detection of local and global outliers.}
+\label{fig:scatterplot-outlier}
+\end{figure}
+
+To simultaneously explore all pairs of numerical attributes, a \textbf{Scatter Plot Matrix} (SPLOM) is used, which is an $n \times n$ grid where each off-diagonal cell $(i, j)$ displays the scatter plot between attribute $i$ and attribute $j$, while the main diagonal hosts the histograms or univariate density estimations.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.92]
+    % Cell dimensions for 3x3 SPLOM: Sepal Length (0), Petal Length (1), Petal Width (2)
+    \def\cw{2.5}
+    \def\ch{2.5}
+    \def\gap{0.35}
+
+    % Draw 3x3 Grid
+    \foreach \col in {0, 1, 2} {
+        \foreach \row in {0, 1, 2} {
+            \draw[gray!40, thick, fill=white] (\col*\cw+\col*\gap, \row*\ch+\row*\gap) rectangle ++(\cw, \ch);
+        }
+    }
+
+    % --- Diagonal: Feature Names and Density Approximations ---
+    % Cell (0, 2) Top-Left: Sepal Length
+    \node[font=\footnotesize\bfseries, align=center] at (0*\cw+0*\gap + 0.5*\cw, 2*\ch+2*\gap + 1.8) {Sepal\\Length};
+    \draw[thick, fill=blue!12] (0*\cw+0*\gap + 0.3, 2*\ch+2*\gap + 0.3) to[bend left=35] ++(0.95, 0.95) to[bend left=35] ++(0.95, -0.95) -- cycle;
+
+    % Cell (1, 1) Center: Petal Length
+    \node[font=\footnotesize\bfseries, align=center] at (1*\cw+1*\gap + 0.5*\cw, 1*\ch+1*\gap + 1.8) {Petal\\Length};
+    \draw[thick, fill=blue!12] (1*\cw+1*\gap + 0.3, 1*\ch+1*\gap + 0.3) to[bend left=50] ++(0.65, 0.9) to[bend left=30] ++(0.6, -0.55) to[bend left=35] ++(0.65, -0.35) -- cycle;
+
+    % Cell (2, 0) Bottom-Right: Petal Width
+    \node[font=\footnotesize\bfseries, align=center] at (2*\cw+2*\gap + 0.5*\cw, 0*\ch+0*\gap + 1.8) {Petal\\Width};
+    \draw[thick, fill=blue!12] (2*\cw+2*\gap + 0.3, 0*\ch+0*\gap + 0.3) to[bend left=50] ++(0.6, 0.9) to[bend left=35] ++(0.65, -0.5) to[bend left=40] ++(0.65, -0.4) -- cycle;
+
+    % --- Off-Diagonal Cells: Scatter of all 3 Iris species ---
+    % Col 0, Row 1: X=SL, Y=PL
+    \foreach \x/\y in {0.5/0.4, 0.8/0.5, 1.1/0.4, 0.7/0.6, 1.3/0.5} \fill[blue!75] (0*\cw+0*\gap + \x, 1*\ch+1*\gap + \y) circle (2pt);
+    \foreach \x/\y in {1.2/1.3, 1.4/1.5, 1.6/1.4, 1.8/1.6, 1.5/1.7} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (0*\cw+0*\gap + \x, 1*\ch+1*\gap + \y) {};
+    \foreach \x/\y in {1.7/1.9, 1.9/2.2, 2.1/2.0, 2.3/2.3, 2.0/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (0*\cw+0*\gap + \x, 1*\ch+1*\gap + \y) {};
+
+    % Col 1, Row 2: X=PL, Y=SL
+    \foreach \y/\x in {0.5/0.4, 0.8/0.5, 1.1/0.4, 0.7/0.6, 1.3/0.5} \fill[blue!75] (1*\cw+1*\gap + \x, 2*\ch+2*\gap + \y) circle (2pt);
+    \foreach \y/\x in {1.2/1.3, 1.4/1.5, 1.6/1.4, 1.8/1.6, 1.5/1.7} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (1*\cw+1*\gap + \x, 2*\ch+2*\gap + \y) {};
+    \foreach \y/\x in {1.7/1.9, 1.9/2.2, 2.1/2.0, 2.3/2.3, 2.0/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (1*\cw+1*\gap + \x, 2*\ch+2*\gap + \y) {};
+
+    % Col 0, Row 0: X=SL, Y=PW
+    \foreach \x/\y in {0.5/0.3, 0.8/0.4, 1.1/0.3, 0.7/0.5, 1.3/0.4} \fill[blue!75] (0*\cw+0*\gap + \x, 0*\ch+0*\gap + \y) circle (2pt);
+    \foreach \x/\y in {1.2/1.2, 1.4/1.4, 1.6/1.3, 1.8/1.5, 1.5/1.4} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (0*\cw+0*\gap + \x, 0*\ch+0*\gap + \y) {};
+    \foreach \x/\y in {1.7/1.9, 1.9/2.2, 2.1/2.0, 2.3/2.3, 2.0/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (0*\cw+0*\gap + \x, 0*\ch+0*\gap + \y) {};
+
+    % Col 2, Row 2: X=PW, Y=SL
+    \foreach \y/\x in {0.5/0.3, 0.8/0.4, 1.1/0.3, 0.7/0.5, 1.3/0.4} \fill[blue!75] (2*\cw+2*\gap + \x, 2*\ch+2*\gap + \y) circle (2pt);
+    \foreach \y/\x in {1.2/1.2, 1.4/1.4, 1.6/1.3, 1.8/1.5, 1.5/1.4} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (2*\cw+2*\gap + \x, 2*\ch+2*\gap + \y) {};
+    \foreach \y/\x in {1.7/1.9, 1.9/2.2, 2.1/2.0, 2.3/2.3, 2.0/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (2*\cw+2*\gap + \x, 2*\ch+2*\gap + \y) {};
+
+    % Col 1, Row 0: X=PL, Y=PW (separazione ottimale)
+    \foreach \x/\y in {0.4/0.3, 0.5/0.4, 0.6/0.3, 0.4/0.5, 0.7/0.4} \fill[blue!75] (1*\cw+1*\gap + \x, 0*\ch+0*\gap + \y) circle (2pt);
+    \foreach \x/\y in {1.3/1.1, 1.5/1.3, 1.4/1.2, 1.6/1.4, 1.7/1.3} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (1*\cw+1*\gap + \x, 0*\ch+0*\gap + \y) {};
+    \foreach \x/\y in {1.9/1.8, 2.1/2.1, 2.0/1.9, 2.3/2.3, 2.2/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (1*\cw+1*\gap + \x, 0*\ch+0*\gap + \y) {};
+
+    % Col 2, Row 1: X=PW, Y=PL
+    \foreach \y/\x in {0.4/0.3, 0.5/0.4, 0.6/0.3, 0.4/0.5, 0.7/0.4} \fill[blue!75] (2*\cw+2*\gap + \x, 1*\ch+1*\gap + \y) circle (2pt);
+    \foreach \y/\x in {1.3/1.1, 1.5/1.3, 1.4/1.2, 1.6/1.4, 1.7/1.3} \node[rectangle, fill=orange!85!black, inner sep=1.5pt] at (2*\cw+2*\gap + \x, 1*\ch+1*\gap + \y) {};
+    \foreach \y/\x in {1.9/1.8, 2.1/2.1, 2.0/1.9, 2.3/2.3, 2.2/2.1} \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.3pt] at (2*\cw+2*\gap + \x, 1*\ch+1*\gap + \y) {};
+
+    % --- Centered Legend below Matrix ---
+    \node[anchor=north] at (1*\cw+1*\gap + 0.5*\cw, -0.35) {
+        \begin{tikzpicture}[font=\footnotesize]
+            \fill[blue!75] (0,0) circle (2.5pt);
+            \node[right] at (0.15,0) {Iris-setosa};
+            \node[rectangle, fill=orange!85!black, inner sep=2pt] at (2.4,0) {};
+            \node[right] at (2.6,0) {Iris-versicolor};
+            \node[regular polygon, regular polygon sides=3, fill=green!50!black, inner sep=1.5pt] at (5.2,0) {};
+            \node[right] at (5.45,0) {Iris-virginica};
+        \end{tikzpicture}
+    };
+\end{tikzpicture}
+\caption{Scatter Plot Matrix (SPLOM) of the Iris dataset with the pairwise comparison for all three species and the univariate density estimations along the diagonal.}
+\label{fig:splom-example}
+\end{figure}
+
+\subsection{High-Dimensionality Visualization}
+
+\subsubsection{Parallel Coordinates}
+When the number of dimensions exceeds 3, the conventional Cartesian representation becomes inapplicable. \textbf{Parallel Coordinates} replace the orthogonal axes with a set of equidistant vertical parallel axes, each corresponding to an attribute.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+    % Definizione coordinate orizzontali ben spaziate per evitare qualsiasi sovrapposizione
+    \def\xSL{0.0}
+    \def\xSW{3.3}
+    \def\xPL{6.6}
+    \def\xPW{9.9}
+    \def\h{5.0}
+
+    % 4 vertical axes
+    \draw[thick] (\xSL, 0) -- (\xSL, \h) node[above=8pt, font=\small\bfseries, align=center] {Sepal\\Length};
+    \draw[thick] (\xSW, 0) -- (\xSW, \h) node[above=8pt, font=\small\bfseries, align=center] {Sepal\\Width};
+    \draw[thick] (\xPL, 0) -- (\xPL, \h) node[above=8pt, font=\small\bfseries, align=center] {Petal\\Length};
+    \draw[thick] (\xPW, 0) -- (\xPW, \h) node[above=8pt, font=\small\bfseries, align=center] {Petal\\Width};
+
+    % Ticks and normalized dimensions (0 - 1)
+    \foreach \x in {\xSL, \xSW, \xPL, \xPW} {
+        \foreach \y in {0.0, 1.25, 2.5, 3.75, 5.0} {
+            \draw (\x-0.08, \y) -- (\x+0.08, \y);
+        }
+    }
+    \node[left, font=\tiny, gray] at (\xSL, 0.0) {min};
+    \node[left, font=\tiny, gray] at (\xSL, \h) {max};
+
+    % --- Species 1: Setosa (Blue) ---
+    % Characteristics: Sepal L medium-low, Sepal W high, Petal L minimum, Petal W minimum
+    \draw[blue!80, thick] (\xSL, 1.4) -- (\xSW, 3.9) -- (\xPL, 0.8) -- (\xPW, 0.6);
+    \draw[blue!80, thick] (\xSL, 1.8) -- (\xSW, 4.3) -- (\xPL, 1.0) -- (\xPW, 0.8);
+    \foreach \x/\y in {\xSL/1.4, \xSW/3.9, \xPL/0.8, \xPW/0.6, \xSL/1.8, \xSW/4.3, \xPL/1.0, \xPW/0.8} \fill[blue!80] (\x, \y) circle (2.5pt);
+
+    % --- Species 2: Versicolor (Orange) ---
+    % Characteristics: Sepal L medium, Sepal W medium-low, Petal L intermediate, Petal W intermediate
+    \draw[orange!90!black, thick] (\xSL, 2.7) -- (\xSW, 1.9) -- (\xPL, 2.8) -- (\xPW, 2.5);
+    \draw[orange!90!black, thick] (\xSL, 3.0) -- (\xSW, 2.3) -- (\xPL, 3.1) -- (\xPW, 2.8);
+    \foreach \x/\y in {\xSL/2.7, \xSW/1.9, \xPL/2.8, \xPW/2.5, \xSL/3.0, \xSW/2.3, \xPL/3.1, \xPW/2.8} \node[rectangle, fill=orange!90!black, inner sep=2pt] at (\x, \y) {};
+
+    % --- Species 3: Virginica (Green) ---
+    % Characteristics: Sepal L medium-high, Sepal W medium, Petal L high, Petal W high
+    \draw[green!60!black, thick] (\xSL, 4.2) -- (\xSW, 2.6) -- (\xPL, 4.4) -- (\xPW, 4.1);
+    \draw[green!60!black, thick] (\xSL, 4.6) -- (\xSW, 2.9) -- (\xPL, 4.8) -- (\xPW, 4.5);
+    \foreach \x/\y in {\xSL/4.2, \xSW/2.6, \xPL/4.4, \xPW/4.1, \xSL/4.6, \xSW/2.9, \xPL/4.8, \xPW/4.5} \node[regular polygon, regular polygon sides=3, fill=green!60!black, inner sep=1.8pt] at (\x, \y) {};
+
+    % --- Well-spaced legend below ---
+    \node[anchor=north] at (5.0, -0.5) {
+        \begin{tikzpicture}[font=\footnotesize\bfseries]
+            \draw[blue!80, very thick] (0,0) -- (0.6,0); \fill[blue!80] (0.3,0) circle (2.5pt);
+            \node[right, blue!80] at (0.65,0) {Iris-setosa};
+
+            \draw[orange!90!black, very thick] (3.3,0) -- (3.9,0); \node[rectangle, fill=orange!90!black, inner sep=2pt] at (3.6,0) {};
+            \node[right, orange!90!black] at (3.95,0) {Iris-versicolor};
+
+            \draw[green!60!black, very thick] (6.8,0) -- (7.4,0); \node[regular polygon, regular polygon sides=3, fill=green!60!black, inner sep=1.8pt] at (7.1,0) {};
+            \node[right, green!60!black] at (7.45,0) {Iris-virginica};
+        \end{tikzpicture}
+    };
+\end{tikzpicture}
+\caption{Representation of 4-dimensional data using Parallel Coordinates for all three species of the Iris dataset.}
+\label{fig:parallel-coordinates}
+\end{figure}
+
+\begin{itemize}
+    \item Each multidimensional object is represented by a \textbf{polygonal broken line} that connects the respective scaled values along the vertical axes.
+    \item Objects belonging to the same class tend to form bundles of parallel lines or with coordinated trends.
+    \item \textbf{Sensitivity to the ordering of the axes:} The visibility of clusters and correlations depends critically on the sequential arrangement of the axes. Two strongly correlated attributes show regular geometric patterns only if positioned as adjacent axes.
+\end{itemize}
+
+\subsubsection{Radar Plot and Star Plot}
+In \textbf{Radar Plots}, the axes start from a common center and radiate out in a star shape at constant angular intervals. The value of each attribute defines a vertex along its own radius; joining the vertices yields a polygon for each instance.
+\textbf{Star Plots} apply the same principle by drawing each object in a separate graph, facilitating comparison for individual profiles.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.9]
+    % Central origin
+    \coordinate (O) at (0,0);
+    % 4 axes at 90 degrees: North, East, South, West
+    \draw[gray!60, -Stealth, thick] (0,0) -- (0,3.6) node[above=4pt, font=\scriptsize\bfseries] {Sepal Length};
+    \draw[gray!60, -Stealth, thick] (0,0) -- (3.6,0) node[right=4pt, font=\scriptsize\bfseries] {Sepal Width};
+    \draw[gray!60, -Stealth, thick] (0,0) -- (0,-3.6) node[below=4pt, font=\scriptsize\bfseries] {Petal Length};
+    \draw[gray!60, -Stealth, thick] (0,0) -- (-3.6,0) node[left=4pt, font=\scriptsize\bfseries] {Petal Width};
+
+    % Concentric reference circles
+    \foreach \r in {1, 2, 3} {
+        \draw[gray!25, dashed] (0,0) circle (\r cm);
+    }
+
+    % 1. Setosa (Blue): minimum petals, wide sepal width
+    \coordinate (S1) at (0, 1.5);
+    \coordinate (S2) at (2.9, 0);
+    \coordinate (S3) at (0, -0.8);
+    \coordinate (S4) at (-0.6, 0);
+    \draw[blue!80, very thick, fill=blue!12, fill opacity=0.4] (S1) -- (S2) -- (S3) -- (S4) -- cycle;
+    \foreach \p in {S1, S2, S3, S4} \fill[blue!80] (\p) circle (2.5pt);
+
+    % 2. Versicolor (Orange): intermediate balanced values
+    \coordinate (C1) at (0, 2.3);
+    \coordinate (C2) at (1.4, 0);
+    \coordinate (C3) at (0, -2.1);
+    \coordinate (C4) at (-1.7, 0);
+    \draw[orange!90!black, very thick, fill=orange!15, fill opacity=0.4] (C1) -- (C2) -- (C3) -- (C4) -- cycle;
+    \foreach \p in {C1, C2, C3, C4} \fill[orange!90!black] (\p) ++(-2pt,-2pt) rectangle ++(4pt,4pt);
+
+    % 3. Virginica (Green): maximum petals and high sepal length
+    \coordinate (V1) at (0, 3.2);
+    \coordinate (V2) at (1.8, 0);
+    \coordinate (V3) at (0, -3.1);
+    \coordinate (V4) at (-2.8, 0);
+    \draw[green!60!black, very thick, fill=green!15, fill opacity=0.4] (V1) -- (V2) -- (V3) -- (V4) -- cycle;
+    \foreach \p in {V1, V2, V3, V4} \fill[green!60!black] (\p) ++(-2.5pt, -2pt) -- ++(5pt, 0pt) -- ++(-2.5pt, 4.5pt) -- cycle;
+
+    % Legend for all three species
+    \node[anchor=north] at (0, -4.1) {
+        \begin{tikzpicture}[font=\footnotesize\bfseries]
+            \fill[blue!80] (0,0) circle (2.5pt);
+            \node[right, blue!80] at (0.2,0) {Iris-setosa};
+
+            \node[rectangle, fill=orange!90!black, inner sep=2pt] at (2.8,0) {};
+            \node[right, orange!90!black] at (3.05,0) {Iris-versicolor};
+
+            \node[regular polygon, regular polygon sides=3, fill=green!60!black, inner sep=1.8pt] at (5.9,0) {};
+            \node[right, green!60!black] at (6.2,0) {Iris-virginica};
+        \end{tikzpicture}
+    };
+\end{tikzpicture}
+\caption{Example of a Radar Plot with visual comparison of multivariate profiles for all three Iris species.}
+\label{fig:radar-plot-example}
+\end{figure}
+
+\section{Linear Correlation Analysis}
+
+Correlation quantifies the strength and direction of the linear relationship between two continuous numerical attributes $X$ and $Y$.
+
+\begin{definition}[Pearson Correlation Coefficient]
+Given a sample of $m$ pairs of observations $(x_i, y_i)$, the sample linear correlation coefficient $r_{xy}$ is defined as:
+\begin{equation}
+r_{xy} = \frac{\sum_{i=1}^m (x_i - \bar{x})(y_i - \bar{y})}{(m-1) s_x s_y} = \frac{\text{Cov}(X, Y)}{s_x s_y}
+\end{equation}
+where $\bar{x}, \bar{y}$ are the sample means and $s_x, s_y$ the respective standard deviations.
+\end{definition}
+
+\begin{itemize}
+    \item $r_{xy} \in [-1, \; +1]$.
+    \item If $|r_{xy}| = 1$, the points $(x_i, y_i)$ lie exactly on a line. If $r_{xy} = +1$ the line has a positive slope; if $r_{xy} = -1$ it has a negative slope.
+    \item Values close to $0$ indicate the absence of a \textbf{linear} association.
+    \item \textbf{Fundamental warning:} $r_{xy} \approx 0$ does not imply statistical independence: deterministic non-linear relationships may exist (for example, parabolic $Y = X^2$) that the Pearson coefficient is unable to detect.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.55]
+    \draw[thick, -Stealth] (0,0) -- (5,0) node[right, font=\tiny] {$X$};
+    \draw[thick, -Stealth] (0,0) -- (0,5) node[above, font=\tiny] {$Y$};
+    \foreach \p in {(0.5,0.7), (1,1.2), (1.5,1.4), (2,2.2), (2.5,2.6), (3,3.1), (3.5,3.7), (4,4.1), (4.5,4.6)} {
+        \fill[blue!70] \p circle (2.5pt);
+    }
+    \draw[red, thick, dashed] (0.3,0.4) -- (4.7,4.8);
+    \node[font=\scriptsize\bfseries] at (2.5,-0.8) {(a) $r_{xy} \approx +0.98$};
+\end{tikzpicture}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.55]
+    \draw[thick, -Stealth] (0,0) -- (5,0) node[right, font=\tiny] {$X$};
+    \draw[thick, -Stealth] (0,0) -- (0,5) node[above, font=\tiny] {$Y$};
+    \foreach \p in {(0.5,4.5), (1,4.0), (1.5,3.6), (2,2.8), (2.5,2.5), (3,1.9), (3.5,1.4), (4,1.1), (4.5,0.5)} {
+        \fill[blue!70] \p circle (2.5pt);
+    }
+    \draw[red, thick, dashed] (0.3,4.7) -- (4.7,0.3);
+    \node[font=\scriptsize\bfseries] at (2.5,-0.8) {(b) $r_{xy} \approx -0.98$};
+\end{tikzpicture}
+\end{minipage}
+
+\vspace{0.4cm}
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.55]
+    \draw[thick, -Stealth] (0,0) -- (5,0) node[right, font=\tiny] {$X$};
+    \draw[thick, -Stealth] (0,0) -- (0,5) node[above, font=\tiny] {$Y$};
+    \foreach \p in {(1.2,3.5), (2.5,4.2), (3.8,3.2), (1.5,1.8), (2.8,2.2), (3.5,1.5), (2.0,2.8), (4.2,2.5), (1.0,2.5)} {
+        \fill[blue!70] \p circle (2.5pt);
+    }
+    \node[font=\scriptsize\bfseries] at (2.5,-0.8) {(c) $r_{xy} \approx 0.0$ (No correlation)};
+\end{tikzpicture}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.47\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.55]
+    \draw[thick, -Stealth] (0,0) -- (5,0) node[right, font=\tiny] {$X$};
+    \draw[thick, -Stealth] (0,0) -- (0,5) node[above, font=\tiny] {$Y$};
+    \foreach \p in {(0.5,4.0), (1.0,2.25), (1.5,1.0), (2.0,0.25), (2.5,0.05), (3.0,0.25), (3.5,1.0), (4.0,2.25), (4.5,4.0)} {
+        \fill[red!80!black] \p circle (2.5pt);
+    }
+    \draw[red!80!black, thick] (0.5,4.0) parabola bend (2.5,0.05) (4.5,4.0);
+    \node[font=\scriptsize\bfseries, align=center] at (2.5,-0.8) {(d) $r_{xy} \approx 0.0$ (Quadratic relation!)};
+\end{tikzpicture}
+\end{minipage}
+\caption{Visual interpretation of the Pearson correlation coefficient: (a) positive correlation; (b) negative correlation; (c) absence of linear relation; (d) non-linear deterministic dependence missed by Pearson.}
+\label{fig:pearson-cases}
+\end{figure}
+
+\section{Handling Outliers and Missing Values}
+
+\subsection{Outliers: Noise vs Knowledge}
+An \textbf{outlier} is an instance with characteristics that deviate markedly from the vast majority of observations:
+\begin{itemize}
+    \item \textbf{Outliers as noise:} Originating from sensor failures, typos, or transmission inconsistencies. Such anomalies distort measures of central tendency (such as the mean) and predictive models, and must therefore be removed.
+    \item \textbf{Outliers as an analytical objective:} Exceptional cases that constitute the true application target (fraudulent bank transactions, unauthorized server access, outbreaks of rare diseases).
+\end{itemize}
+
+\textbf{Detection methodologies:}
+\begin{itemize}
+    \item \textit{Single attribute:} Extreme frequency analysis for categorical variables; Box Plot ($1.5 \times \text{IQR}$) and calculation of the $z$-score ($z = \frac{x - \mu}{\sigma}$) for numerical variables.
+    \item \textit{Multivariate:} Bivariate and trivariate Scatter Plots, projections on principal components (\textit{Principal Component Analysis} - PCA) and clustering algorithms (outliers are the points that fall into residual clusters or remain unassigned).
+\end{itemize}
+
+\subsection{Missing Values}
+The causes of failure to record values include:
+\begin{itemize}
+    \item Subject's refusal to answer (e.g., information on income or weight).
+    \item Non-applicability of the attribute (e.g., employment income for minors or the unemployed).
+    \item Temporary malfunction of sensing devices.
+\end{itemize}
+
+\begin{alertblock}{Pitfall of Dummy Default Values}
+In many recording systems, a missing value is not saved as \texttt{NULL} or \texttt{NaN}, but rather encoded with a sentinel numeric value such as \texttt{0}, \texttt{-1}, or \texttt{999}. If not intercepted in the Data Understanding phase, such encodings are erroneously treated as real values, severely distorting means, standard deviations, and classification models.
+\end{alertblock}
+
+\section{Operational Checklist for Data Understanding}
+At the end of the exploration phase, the analyst must have completed the following checks:
+\begin{enumerate}
+    \item Formal identification of the measurement scale of each attribute.
+    \item Verification of syntactic accuracy (out-of-domain values) and semantic accuracy.
+    \item Inspection and removal of duplicate records.
+    \item Treatment of missing values and elimination of dummy zeros or default encodings.
+    \item Detection of univariate and multivariate outliers and decision on their treatment (noise to be eliminated vs anomaly to be analyzed).
+    \item Examination of distributions (skewnesses, multimodalities) via histograms sized according to Sturges' rule.
+    \item Calculation of the correlation matrix to detect redundant attributes or predictors correlated to the target.
+\end{enumerate}
