@@ -1,0 +1,423 @@
+\chapter{Evaluation of Information Retrieval Systems}
+\label{chap:evaluation}
+
+\section{Evaluating Search Engine Quality}
+
+Rigorous performance evaluation is essential for designing, fine-tuning, and deploying Information Retrieval systems~\cite{manning2008,buttcher2010}. Search engine quality is evaluated across two complementary dimensions:
+\begin{enumerate}
+    \item \textbf{Efficiency Metrics:}
+    \begin{itemize}
+        \item \textit{Indexing throughput:} Number of documents processed and incorporated per hour.
+        \item \textit{Incremental indexing:} Ingesting new document streams (e.g., $+10\,000$ products daily) without downtime.
+        \item \textit{Search latency and throughput:} Query processing response time (demanding 95th/99th percentile latencies within $10$--$50$ ms) and CPU/memory utilization under workloads of thousands of queries per second over multi-million or multi-billion document collections.
+    \end{itemize}
+    \item \textbf{Effectiveness Metrics and Auxiliary Services:}
+    \begin{itemize}
+        \item Quality of related product recommendations, query spell-checking accuracy, and snippet generation readability.
+        \item \textbf{Intrinsic ranking effectiveness:} Measures the engine's core capability to satisfy users by ranking relevant documents at the top of the Search Engine Results Page (SERP).
+    \end{itemize}
+\end{enumerate}
+
+\section{Measuring User Happiness}
+
+In commercial Web search engines, the overarching objective is maximizing \textbf{User Happiness}. Because happiness is an internal cognitive state that cannot be directly queried, production environments rely on observable online behavioral proxies:
+
+\begin{itemize}
+    \item \textbf{Clicks and Click-Through Rate (CTR):} The volume and proportion of clicks received by returned results.
+    \begin{itemize}
+        \item \textit{Caveat:} Misleading titles and clickbait summaries artificially inflate clicks without truly satisfying the user.
+        \item \textit{Zero-Click Searches:} When is "no clicks" good news? For factual queries (e.g., weather forecasts, flight schedules, currency conversions, or dictionary definitions), answers rendered directly via \textit{Featured Snippets} or \textit{Knowledge Panels} satisfy the user immediately without requiring any downstream click.
+    \end{itemize}
+    \item \textbf{Purchases and Economic Conversions:} In e-commerce, the percentage of search sessions resulting in transactions and total monetary spend serve as key indicators.
+    \item \textbf{Retention and Repeat Visits:} The fraction of users returning to the search engine within a week or month.
+    \item \textbf{Dwell Time:} The duration an attendee spends exploring a clicked page before navigating back to the SERP (\textit{bouncing back}). Extended dwell time indicates genuine engagement, whereas near-instant returns signal dissatisfaction.
+\end{itemize}
+
+\begin{alertblock}{Evaluation in the Era of Generative AI and LLMs}
+The rise of generative conversational engines (such as ChatGPT, SearchGPT, and Perplexity) alters traditional CTR and Dwell Time dynamics: users consume direct synthesized summaries rather than navigating outgoing links. Consequently, factual grounding, hallucination minimization, and citation fidelity supplant traditional link click telemetry.
+\end{alertblock}
+
+\section{The Cranfield Paradigm and Offline Test Collections}
+
+While online signals offer valuable telemetry, they are noisy, subject to position bias, and unsuitable for comparing algorithmic improvements offline prior to production deployment.
+To establish reproducible, controlled evaluation, IR research adheres to the \textbf{Cranfield Paradigm}, pioneered by Cyril Cleverdon in the 1960s~\cite{cleverdon1967}.
+
+\begin{definition}[Test Collection]
+A standard Information Retrieval test collection is a formal triplet $\mathcal{T} = (\mathcal{D}, \mathcal{Q}, \mathcal{J})$ consisting of:
+\begin{enumerate}
+    \item A benchmark document collection $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$;
+    \item A benchmark suite of queries $\mathcal{Q} = \{q_1, q_2, \dots, q_M\}$;
+    \item A set of relevance judgments (\textit{qrels}) $\mathcal{J} = \{ (q, d) \mapsto r_{q, d} \}$, assigning a ground-truth relevance assessment (binary or graded) to each query-document pair.
+\end{enumerate}
+\end{definition}
+
+\subsection{Combinatorial Scale Bottlenecks}
+Exhaustively assessing all query-document pairs is physically infeasible for realistic corpus sizes.
+Consider a representative benchmark with:
+\[
+|\mathcal{D}| = 5 \times 10^6 \text{ documents}, \quad |\mathcal{Q}| = 50\,000 \text{ queries}
+\]
+The full Cartesian product comprises:
+\[
+|\mathcal{D}| \times |\mathcal{Q}| = 5 \times 10^6 \times 50\,000 = 2.5 \times 10^{11} \text{ pairs} \quad (0.25 \text{ trillion judgments})
+\]
+Assuming an experienced human assessor evaluates one document in $2.5$ seconds:
+\begin{align*}
+\text{Total Time} &= 2.5 \times 10^{11} \times 2.5\text{ s} = 6.25 \times 10^{11}\text{ seconds} \\
+&\approx 173\,611\,111 \text{ person-hours}
+\end{align*}
+This would require tens of thousands of human working years!
+Consequently, benchmark datasets must restrict assessment to a sampled subset of candidate documents.
+
+\subsection{Crowdsourcing: Opportunities and Pitfalls}
+One cost-effective alternative delegates judging to online micro-task platforms (e.g., Amazon Mechanical Turk). However, empirical literature indicates that crowdsourced annotations suffer from:
+\begin{itemize}
+    \item Substantially higher variance compared to domain experts;
+    \item Inconsistent quality and exposure to adversarial spamming;
+    \item A requirement for robust filtering mechanisms (majority voting, worker reputation scoring, Cohen's $\kappa$ inter-rater reliability thresholds).
+\end{itemize}
+
+\subsection{The TREC Infrastructure}
+Organized by the National Institute of Standards and Technology (NIST), the \textbf{Text REtrieval Conference (TREC)} provides the foundational infrastructure for large-scale IR experimentation.
+TREC is organized into specialized thematic \textit{tracks} reflecting distinct information access tasks (Web search, biomedical IR, conversational search, deep learning retrieval).
+The output produced by a participant system executing a retrieval task on a test collection is termed a \textbf{Run}.
+
+\subsection{The Pooling Technique}
+To select which documents human assessors should judge without evaluating the entire corpus, TREC standardizes the \textbf{Pooling} methodology (Figure~\ref{fig:pooling-process-en}):
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    box/.style={rectangle, rounded corners=3pt, draw=blue!80!black, fill=blue!6, thick, minimum width=2.4cm, minimum height=0.75cm, text width=2.2cm, align=center, font=\small},
+    pool/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8, thick, minimum width=3.6cm, minimum height=1.3cm, text width=3.5cm, align=center, font=\small},
+    eval/.style={rectangle, rounded corners=3pt, draw=teal!80!black, fill=teal!6, thick, minimum width=3.2cm, minimum height=1.3cm, text width=3.1cm, align=center, font=\small}
+]
+    \node[box] (sys1) at (-0.8, 2.9) {System $S_1$\\(Run 1)};
+    \node[box] (sys2) at (-0.8, 1.45) {System $S_2$\\(Run 2)};
+    \node[box] (sysk) at (-0.8, 0.0) {System $S_m$\\(Run $m$)};
+
+    \node[pool] (poolbox) at (3.8, 1.45) {\textbf{Candidate Pool}\\Union of top-$k$ outputs\\$\mathcal{P} = \bigcup_{i=1}^m \text{Top-}k(S_i)$};
+
+    \node[eval] (assess) at (11.8, 1.45) {\textbf{Human Assessors}\\Relevance Judgments\\(Relevant / Non-rel)};
+
+    \draw[-Stealth, thick, blue!80!black] (sys1.east) -- node[above, sloped, font=\scriptsize] {Top-$k$} (poolbox.160);
+    \draw[-Stealth, thick, blue!80!black] (sys2.east) -- node[above, font=\scriptsize] {Top-$k$} (poolbox.west);
+    \draw[-Stealth, thick, blue!80!black] (sysk.east) -- node[below, sloped, font=\scriptsize] {Top-$k$} (poolbox.200);
+    \draw[-Stealth, very thick, orange!80!black] (poolbox.east) -- node[above=4pt, font=\scriptsize\bfseries, text=orange!90!black] {Pooled documents only} (assess.west);
+\end{tikzpicture}
+\caption{The Pooling technique for selecting candidate documents for human judgment.}
+\label{fig:pooling-process-en}
+\end{figure}
+
+\begin{enumerate}
+    \item Collect ranked result lists from $m$ diverse retrieval systems for a given topic.
+    \item Extract the top-$k$ ranked documents from each run (typically $k = 50$ or $k = 100$).
+    \item Take the \textbf{union} of these candidate sets, deduplicating documents to build pool $\mathcal{P}$.
+    \item Human judges assess relevance strictly for documents inside $\mathcal{P}$.
+\end{enumerate}
+
+\begin{alertblock}{The Unjudged Document Assumption}
+All documents in the corpus not present in the pool (\textit{unpooled}) are formally assumed to be \textbf{non-relevant} ($r = 0$).
+While this assumption may theoretically penalize innovative systems surfacing relevant documents overlooked by historical pool contributors, NIST experiments confirm that sufficiently diverse pools maintain stable, fair, and reliable system rankings.
+\end{alertblock}
+
+\section{Information Need vs. Query}
+
+A crucial principle in evaluation separates the underlying need from its textual expression:
+\begin{itemize}
+    \item \textbf{Information Need:} The user's actual cognitive desire. Example: \textit{"My swimming pool bottom is becoming black and needs to be cleaned"}.
+    \item \textbf{Query:} The keyword shorthand submitted to the system. Example: \texttt{"pool cleaner"}.
+\end{itemize}
+\begin{property}[Evaluation Principle]
+Document relevance must always be assessed with respect to the user's underlying \textbf{Information Need}, never purely against the superficial keywords of the query string.
+\end{property}
+
+\section{Unranked Retrieval Measures}
+
+In unranked evaluation contexts (e.g., Boolean retrieval), the engine returns an unordered set of documents. Performance is derived from the standard contingency table (Table~\ref{tab:contingency-evaluation-en}):
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l >{\centering\arraybackslash}X >{\centering\arraybackslash}X}
+\toprule
+& \textbf{Document Relevant} & \textbf{Document Non-Relevant} \\
+\midrule
+\textbf{Document Retrieved} & True Positive ($TP$) & False Positive ($FP$) \\
+\addlinespace
+\textbf{Document Not Retrieved} & False Negative ($FN$) & True Negative ($TN$) \\
+\bottomrule
+\end{tabularx}
+\caption{Contingency matrix for binary query-document classification.}
+\label{tab:contingency-evaluation-en}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+    % Document Collection Rectangle (Universe)
+    \draw[thick, fill=gray!4, draw=gray!45, rounded corners=6pt] (-5.8, -3.3) rectangle (5.8, 3.7);
+    \node[anchor=north west, font=\bfseries\small, text=gray!75!black] at (-5.5, 3.48) {Universe $\mathcal{D}$ (Document Collection)};
+
+    % Circles (Relevant and Retrieved)
+    \draw[thick, fill=blue!15, draw=blue!75!black, fill opacity=0.55] (-1.35, -0.15) circle (2.25cm);
+    \draw[thick, fill=orange!20, draw=orange!80!black, fill opacity=0.55] (1.35, -0.15) circle (2.25cm);
+
+    % Circle Set Titles (Above the circles with ample margin)
+    \node[font=\bfseries\normalsize, blue!85!black] at (-2.2, 2.42) {Relevant ($\mathcal{R}$)};
+    \node[font=\bfseries\normalsize, orange!90!black] at (2.2, 2.42) {Retrieved ($\mathcal{A}$)};
+
+    % Region Labels (Centered and well-spaced)
+    \node[align=center] at (-2.2, -0.15) {\textbf{\Large FN}\\[3pt]\footnotesize Relevant\\[1.5pt]\footnotesize not retrieved};
+    \node[align=center] at (0, -0.15) {\textbf{\Large TP}\\[3pt]\normalsize $\mathcal{R} \cap \mathcal{A}$};
+    \node[align=center] at (2.2, -0.15) {\textbf{\Large FP}\\[3pt]\footnotesize Retrieved\\[1.5pt]\footnotesize non-relevant};
+    
+    % True Negative label (Spacious bottom-left corner with ample clearance)
+    \node[anchor=south west, font=\footnotesize, text=gray!75!black] at (-5.5, -3.05) {\textbf{TN} (True Negative): Non-relevant and not retrieved documents};
+\end{tikzpicture}
+\caption{Set-theoretic Venn diagram of document retrieval and confusion regions.}
+\label{fig:venn-retrieval-en}
+\end{figure}
+
+\subsection{Precision, Recall, and the Precision-Recall Trade-off}
+\begin{definition}[Precision ($P$)]
+The fraction of retrieved documents that are relevant:
+\begin{equation}
+P = \frac{TP}{TP + FP} = P(\text{relevant} \mid \text{retrieved})
+\end{equation}
+\end{definition}
+
+\begin{definition}[Recall ($R$)]
+The fraction of relevant documents in the collection that were successfully retrieved:
+\begin{equation}
+R = \frac{TP}{TP + FN} = P(\text{retrieved} \mid \text{relevant})
+\end{equation}
+\end{definition}
+
+An inherent \textbf{trade-off} governs Precision and Recall:
+\begin{itemize}
+    \item Returning the entire document repository ($\text{Retrieved} = \mathcal{D}$) guarantees $R = 100\%$, but drops precision near zero ($P \approx 0$).
+    \item Conversely, returning only the single most confident document can yield $P = 100\%$, at the expense of dismal recall.
+\end{itemize}
+
+\subsection{\texorpdfstring{The Harmonic Mean: F-Measure ($F_1$-Score)}{The Harmonic Mean: F-Measure (F1-Score)}}
+To balance Precision and Recall into a single scalar metric that penalizes extreme disparity, the \textbf{F-Measure} calculates their \textbf{harmonic mean}:
+\begin{equation}
+F_1 = \frac{2}{\frac{1}{P} + \frac{1}{R}} = \frac{2 \cdot P \cdot R}{P + R} = \frac{2 \cdot TP}{2 \cdot TP + FP + FN}
+\end{equation}
+
+\begin{property}[Harmonic Mean Properties]
+The harmonic mean exhibits key mathematical properties for evaluation:
+\begin{enumerate}
+    \item It is always upper-bounded by both the geometric and arithmetic means:
+    \[
+    \frac{2}{\frac{1}{a} + \frac{1}{b}} \le \sqrt{a \cdot b} \le \frac{a + b}{2}
+    \]
+    \item When the two operands diverge significantly, the harmonic mean is heavily drawn toward the \textbf{minimum} rather than the arithmetic average.
+\end{enumerate}
+\end{property}
+
+\begin{example}[Edge Behavior of F-Measure]
+Consider a degenerate retrieval system returning all documents: $R = 1.0$ and $P = 0.0001$.
+\begin{itemize}
+    \item The arithmetic mean yields an artificially inflated score:
+    \[
+    \frac{1.0 + 0.0001}{2} \approx 0.50 \quad (50\%)
+    \]
+    \item The harmonic mean ($F_1$) penalizes the system:
+    \[
+    F_1 = \frac{2 \cdot 1.0 \cdot 0.0001}{1.0 + 0.0001} \approx 0.0002 \quad (0.02\%)
+    \]
+\end{itemize}
+This illustrates why the harmonic mean is mathematically favored over the arithmetic mean.
+\end{example}
+
+\subsection{\texorpdfstring{The Weighted $F_\beta$-Measure}{The Weighted F-beta Measure}}
+When asymmetric priority is given to Precision versus Recall, a weighting parameter $\alpha \in [0, 1]$ is introduced:
+\begin{equation}
+F = \frac{1}{\alpha \frac{1}{P} + (1 - \alpha) \frac{1}{R}}
+\end{equation}
+Setting $\alpha = \frac{1}{1 + \beta^2}$ leads to the standard \textbf{$F_\beta$} formulation:
+\begin{equation}
+F_\beta = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R}
+\end{equation}
+\begin{itemize}
+    \item Values of $\beta < 1$ (e.g., $\beta = 0.5$) emphasize \textbf{Precision} over Recall (favored in Web search).
+    \item Values of $\beta > 1$ (e.g., $\beta = 2.0$) emphasize \textbf{Recall} over Precision (crucial in legal discovery, patent search, and clinical meta-analyses).
+\end{itemize}
+
+\section{Rank-Based Measures (Binary Relevance)}
+
+Modern search engines return ranked lists ordered by descending relevance scores. Furthermore, Web users rarely look beyond the first page of results ($k = 10$ or $k = 30$).
+
+\subsection{\texorpdfstring{Precision@k ($P@k$) and Recall@k ($R@k$)}{Precision@k and Recall@k}}
+\begin{definition}[Precision@k]
+Given a fixed rank cutoff $k \in \mathbb{N}^+$, Precision@k is the fraction of relevant documents within the top $k$ positions:
+\begin{equation}
+P@k = \frac{1}{k} \sum_{i=1}^k \mathrm{rel}_i
+\end{equation}
+where $\mathrm{rel}_i \in \{0, 1\}$ represents the binary relevance of the document at rank $i$.
+\end{definition}
+
+\begin{example}[Computing Precision@k]
+Consider a ranked list with binary relevance sequence for the top 5 positions $\langle 1, 1, 0, 0, 1 \rangle$:
+\begin{itemize}
+    \item $P@1 = \frac{1}{1} = 1.00$
+    \item $P@2 = \frac{2}{2} = 1.00$
+    \item $P@3 = \frac{2}{3} \approx 0.66$
+    \item $P@4 = \frac{2}{4} = 0.50$ (note that $P@4 < P@3$)
+    \item $P@5 = \frac{3}{5} = 0.60$
+\end{itemize}
+\end{example}
+
+\textbf{Limitations of $P@k$:} It does not reward placing relevant documents higher within the top-$k$ window, and it does not average cleanly across queries with fewer than $k$ total relevant documents. Similarly, $Recall@k$ ($R@k$) evaluates the fraction of all relevant documents recovered within the top $k$.
+
+\subsection{Average Precision (AP)}
+\textbf{Average Precision} computes precision at each rank position where a relevant document appears, rewarding systems that place relevant documents earlier in the ranking:
+
+\begin{definition}[Average Precision]
+For a ranking of $N$ documents corresponding to a query with $R$ total relevant documents in the collection:
+\begin{equation}
+AP = \frac{1}{R} \sum_{k=1}^N P@k \cdot \mathrm{rel}_k
+\end{equation}
+\end{definition}
+
+\begin{example}[Step-by-Step Calculation from Slides]
+Consider a query with $R = 3$ total relevant documents. The search engine returns relevant documents at ranks $k_1 = 1$, $k_2 = 3$, and $k_3 = 5$.
+The corresponding precisions are:
+\[
+P@1 = \frac{1}{1} = 1.00, \quad P@3 = \frac{2}{3} \approx 0.667, \quad P@5 = \frac{3}{5} = 0.60
+\]
+The resulting Average Precision is:
+\begin{equation}
+AP = \frac{1}{3} \left( 1 + \frac{2}{3} + \frac{3}{5} \right) = \frac{1}{3} \left( 1.00 + 0.667 + 0.600 \right) = \frac{2.267}{3} \approx 0.756
+\end{equation}
+\end{example}
+
+\subsection{Mean Average Precision (MAP)}
+To quantify overall effectiveness across a suite of $|\mathcal{Q}|$ benchmark queries, we compute the arithmetic mean of their respective AP scores:
+
+\begin{definition}[Mean Average Precision]
+\begin{equation}
+MAP = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} AP(q)
+\end{equation}
+\end{definition}
+
+\begin{property}[Macro-Averaging in MAP]
+MAP implements a \textbf{macro-averaging} scheme: each query contributes equally ($1/|\mathcal{Q}|$) regardless of whether it has 2 or 200 relevant documents. It remains the gold standard in academic IR benchmarking for binary relevance.
+\end{property}
+
+\subsection{Mean Reciprocal Rank (MRR)}
+In tasks such as known-item search, navigational queries (e.g., locating an institutional homepage), or factoid retrieval, the user is interested solely in finding the \textbf{first correct document}. User effort is inversely proportional to the rank of that first hit:
+
+\begin{definition}[Reciprocal Rank and MRR]
+Let $\mathrm{rank}_1(q)$ denote the rank position of the first relevant document returned for query $q$. The \textbf{Reciprocal Rank} (RR) is:
+\begin{equation}
+RR(q) = \frac{1}{\mathrm{rank}_1(q)}
+\end{equation}
+The \textbf{Mean Reciprocal Rank} (MRR) across all queries is:
+\begin{equation}
+MRR = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} \frac{1}{\mathrm{rank}_1(q)}
+\end{equation}
+\end{definition}
+If the first relevant hit appears at rank 1, the score is $1.0$; if at rank 2, it drops to $0.5$; if delayed to rank 10, it falls to $0.1$.
+
+\section{Beyond Binary Relevance: Graded Relevance and NDCG}
+
+In practical Web and commercial applications, binary judgments prove inadequate. Documents exhibit varying degrees of utility, typically evaluated on discrete integer scales (e.g., $0 = \text{Non-Relevant}$, $1 = \text{Marginal}$, $2 = \text{Relevant}$, $3 = \text{Highly Relevant}$).
+
+The \textbf{Discounted Cumulative Gain} (DCG) framework, introduced by J\"arvelin and Kek\"al\"ainen~\cite{jarvelin2002}, rests on two assumptions:
+\begin{enumerate}
+    \item Highly relevant documents are much more useful than marginally relevant ones.
+    \item The lower a document appears in the ranking, the less likely the user is to examine it; hence, gain must be discounted with descending rank.
+\end{enumerate}
+
+\subsection{Cumulative Gain (CG) and Discounted Cumulative Gain (DCG)}
+\begin{definition}[Cumulative Gain at Rank $p$]
+Given a vector of graded relevance values $\mathbf{r} = [r_1, r_2, \dots, r_p]$, the Cumulative Gain is the unweighted sum:
+\begin{equation}
+CG_p = \sum_{i=1}^p r_i
+\end{equation}
+$CG_p$ is position-insensitive: swapping a highly relevant document at rank 1 with one at rank 10 leaves $CG_p$ unchanged.
+\end{definition}
+
+\begin{definition}[Discounted Cumulative Gain (Standard Formulation)]
+Standard DCG applies a logarithmic discount based on rank $i$:
+\begin{equation}
+DCG_p = r_1 + \sum_{i=2}^p \frac{r_i}{\log_2(i)}
+\end{equation}
+\end{definition}
+
+Commercial search engines (Google, Bing) frequently utilize the \textbf{exponential formulation}:
+\begin{equation}
+DCG_p^{\text{exp}} = \sum_{i=1}^p \frac{2^{r_i} - 1}{\log_2(i + 1)}
+\end{equation}
+This formulation places heavy emphasis on surfacing top-tier relevance ($r=3 \implies 2^3 - 1 = 7$, compared to $r=1 \implies 2^1 - 1 = 1$).
+
+\subsection{Normalized Discounted Cumulative Gain}
+Because different queries have varying numbers of relevant documents, raw $DCG_p$ scores cannot be compared across queries. We normalize by the \textbf{Ideal DCG} ($IDCG_p$), obtained by computing the DCG of the ideal ranking sorted by relevance descending:
+\begin{equation}
+NDCG_p = \frac{DCG_p}{IDCG_p} \quad \in [0, 1]
+\end{equation}
+
+\subsection{Complete Numerical Walkthrough from Slides}
+Consider the 10-document ranking from the course lecture slides, judged on a scale of $0$--$3$:
+\[
+\mathbf{r} = [3, \, 2, \, 3, \, 0, \, 0, \, 1, \, 2, \, 2, \, 3, \, 0]
+\]
+The ideal sorted ranking is:
+\[
+\mathbf{r}^* = [3, \, 3, \, 3, \, 2, \, 2, \, 2, \, 1, \, 0, \, 0, \, 0]
+\]
+Table~\ref{tab:ndcg-step-by-step-en} summarizes the step-by-step progression across all 10 ranks.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{c c l c >{\bfseries}c c c >{\bfseries}c >{\bfseries}c}
+\toprule
+$i$ & $r_i$ & Discount & Discounted Gain & $DCG@i$ & $r_i^*$ & Ideal Gain & $IDCG@i$ & $NDCG@i$ \\
+\midrule
+1 & 3 & 1.000 & 3.00 & 3.00 & 3 & 3.00 & 3.00 & 1.00 \\
+2 & 2 & $\log_2(2) = 1.000$ & 2.00 & 5.00 & 3 & 3.00 & 6.00 & 0.83 \\
+3 & 3 & $\log_2(3) = 1.585$ & 1.89 & 6.89 & 3 & 1.89 & 7.89 & 0.87 \\
+4 & 0 & $\log_2(4) = 2.000$ & 0.00 & 6.89 & 2 & 1.00 & 8.89 & 0.76 \\
+5 & 0 & $\log_2(5) = 2.322$ & 0.00 & 6.89 & 2 & 0.86 & 9.75 & 0.71 \\
+6 & 1 & $\log_2(6) = 2.585$ & 0.39 & 7.28 & 2 & 0.77 & 10.52 & 0.69 \\
+7 & 2 & $\log_2(7) = 2.807$ & 0.71 & 7.99 & 1 & 0.36 & 10.88 & 0.73 \\
+8 & 2 & $\log_2(8) = 3.000$ & 0.67 & 8.66 & 0 & 0.00 & 10.88 & 0.80 \\
+9 & 3 & $\log_2(9) = 3.170$ & 0.95 & 9.61 & 0 & 0.00 & 10.88 & 0.88 \\
+10 & 0 & $\log_2(10) = 3.322$ & 0.00 & 9.61 & 0 & 0.00 & 10.88 & 0.88 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Detailed trace of $DCG@i$, $IDCG@i$, and $NDCG@i$ computation for ranks $1$ through $10$.}
+\label{tab:ndcg-step-by-step-en}
+\end{table}
+
+\subsection{Comparing Alternative Ranking Functions}
+Consider 4 documents $\{d_1, d_2, d_3, d_4\}$ with graded assessments:
+\[
+r(d_1) = 0, \quad r(d_2) = 1, \quad r(d_3) = 2, \quad r(d_4) = 2
+\]
+\begin{itemize}
+    \item \textbf{Ground Truth ($GT$):} Ordering $\langle d_4, d_3, d_2, d_1 \rangle$ with relevance vector $[2, 2, 1, 0]$:
+    \begin{align*}
+    IDCG_4 &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} + 0 = 2 + 2 + 0.6309 = 4.6309 \\
+    NDCG_{GT} &= 1.00
+    \end{align*}
+    \item \textbf{Ranking Function 1 ($RF_1$):} Ordering $\langle d_3, d_4, d_2, d_1 \rangle$ with relevance $[2, 2, 1, 0]$.
+    Because the first two documents share identical relevance ($r=2$), their permutation incurs no positional penalty:
+    \begin{align*}
+    DCG_{RF_1} &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} = 4.6309 \\
+    NDCG_{RF_1} &= \frac{4.6309}{4.6309} = 1.00
+    \end{align*}
+    \item \textbf{Ranking Function 2 ($RF_2$):} Ordering $\langle d_3, d_2, d_4, d_1 \rangle$ with relevance $[2, 1, 2, 0]$.
+    Here, $d_2$ ($r=1$) erroneously outranks $d_4$ ($r=2$):
+    \begin{align*}
+    DCG_{RF_2} &= 2 + \frac{1}{\log_2(2)} + \frac{2}{\log_2(3)} + 0 = 2 + 1 + 1.2619 = 4.2619 \\
+    NDCG_{RF_2} &= \frac{DCG_{RF_2}}{IDCG_4} = \frac{4.2619}{4.6309} \approx 0.9203
+    \end{align*}
+\end{itemize}
+This illustrates how NDCG mathematically penalizes rank inversions in direct proportion to the relevance difference.

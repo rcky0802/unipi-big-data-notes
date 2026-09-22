@@ -6,6 +6,7 @@ Appunti in LaTeX per la **Laurea Magistrale in Informatica**, corso **Big Data T
 
 - **Algorithm Engineering:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Algorithm-Engineering-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Algorithm-Engineering-EN.pdf)
 - **Data Mining:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Data-Mining-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Data-Mining-EN.pdf)
+- **Information Retrieval:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Information-Retrieval-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Information-Retrieval-EN.pdf)
 
 ---
 

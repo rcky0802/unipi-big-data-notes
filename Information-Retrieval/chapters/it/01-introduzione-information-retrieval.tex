@@ -1,0 +1,416 @@
+\chapter{Introduzione e Architettura dell'Information Retrieval}
+
+\section{Definizione e Motivazioni}
+
+L'\textbf{Information Retrieval} (IR, \textit{Reperimento delle Informazioni}) \`e la disciplina scientifica e ingegneristica che studia la rappresentazione, la memorizzazione, l'organizzazione e l'accesso a collezioni di dati prevalentemente non strutturati o semi-strutturati, al fine di soddisfare un \textbf{bisogno informativo} (\textit{information need}) espresso da un utente~\cite{manning2008,buttcher2010}.
+
+\begin{definition}[Information Retrieval (Manning et al.)]
+L'Information Retrieval consiste nel reperire materiale di natura prevalentemente non strutturata (solitamente documenti testuali) che soddisfa un bisogno informativo all'interno di collezioni di grandi dimensioni memorizzate su calcolatori elettronici.
+\end{definition}
+
+Nell'ecosistema tecnologico contemporaneo, l'Information Retrieval non si limita ai soli motori di ricerca Web generalisti (come Google o Bing), ma costituisce l'infrastruttura abilitante di:
+\begin{itemize}
+    \item \textbf{E-commerce e marketplace:} reperimento di prodotti basato su descrizioni testuali, attributi e recensioni degli acquirenti.
+    \item \textbf{Enterprise e Desktop Search:} indicizzazione e ricerca semantica su repository aziendali (documenti, email, codebase sorgente).
+    \item \textbf{Sistemi RAG (\textit{Retrieval-Augmented Generation}):} alimentazione di modelli linguistici di grandi dimensioni (LLM) con documenti esterni contestualmente rilevanti per azzerare le allucinazioni e garantire informazioni aggiornate.
+    \item \textbf{Agenti autonomi e motori di raccomandazione:} filtraggio collaborativo e basato su contenuto per la scoperta personalizzata di contenuti.
+\end{itemize}
+
+\subsection{Information Retrieval vs. Data Retrieval (Basi di Dati)}
+Una distinzione metodologica basilare risiede nella contrapposizione tra il modello convenzionale dei database relazionali (\textit{Data Retrieval}) e l'Information Retrieval:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{3.2cm} X X}
+\toprule
+\textbf{Dimensione} & \textbf{Data Retrieval (Database SQL)} & \textbf{Information Retrieval} \\
+\midrule
+\textbf{Struttura dei Dati} & Dati altamente strutturati con schema relazionale rigido (tabelle, tipi, vincoli di integrit\`a) & Dati non strutturati o semi-strutturati (testo libero, HTML, PDF, metadati) \\
+\addlinespace
+\textbf{Linguaggio di Query} & Query formali e deterministiche (ad es. SQL) con semantica algebrica esatta & Query in linguaggio naturale o parole chiave (spesso ambigue, brevi e incomplete) \\
+\addlinespace
+\textbf{Criterio di Matching} & Corrispondenza booleana esatta: un record appartiene o non appartiene al risultato & Corrispondenza parziale e probabilistica: i documenti presentano gradi variabili di rilevanza \\
+\addlinespace
+\textbf{Ordinamento Risultati} & Nessun ordinamento intrinseco (se non specificato con \texttt{ORDER BY}) & Ordinamento fondamentale basato sulla stima di rilevanza (\textit{Relevance Ranking}) \\
+\addlinespace
+\textbf{Tolleranza all'Errore} & Nulla: errori di sintassi o valori inattesi generano errori o insiemi vuoti & Elevata: tolleranza a refusi, sinonimia, polisemia e variabilit\`a morfologica \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto analitico tra Data Retrieval tradizionale e Information Retrieval.}
+\label{tab:ir-vs-dr}
+\end{table}
+
+\begin{alertblock}{La Rilevanza: Il Cardine dell'IR}
+Mentre in una base di dati un record soddisfa o viola in modo booleano un predicato logico, nell'Information Retrieval il fulcro \`e la stima del grado di \textbf{rilevanza} rispetto al bisogno informativo cognitivo dell'utente. La rilevanza \`e soggettiva, situata nel contesto operativo ed evolutiva nel tempo.
+\end{alertblock}
+
+\section{I Due Macro-Obiettivi: Efficacia ed Efficienza}
+
+Un sistema di reperimento dell'informazione su larga scala deve simultaneamente perseguire due obiettivi spesso in contrasto:
+\begin{enumerate}
+    \item \textbf{Efficacia (\textit{Effectiveness}):} Quantifica la qualit\`a intrinseca dei risultati restituiti, misurando quanto accuratamente il ranking soddisfa il bisogno informativo dell'utente (argomento approfondito nel Capitolo~\ref{chap:evaluation}).
+    \item \textbf{Efficienza (\textit{Efficiency}):} Quantifica il costo computazionale, il throughput (query al secondo) e la latenza di risposta (generalmente richiesta nell'ordine dei $10$--$50$ millisecondi per query su archivi di decine di miliardi di documenti).
+\end{enumerate}
+
+\subsection{Efficienza e Architettura Hardware del Calcolatore}
+L'efficienza di un motore di ricerca moderno non dipende unicamente dalla complessit\`a asintotica degli algoritmi, ma dall'interazione profonda con l'architettura dei processori e della memoria:
+\begin{itemize}
+    \item \textbf{Pipelining e Processori Superscalari:} I moderni processori suddividono l'esecuzione delle istruzioni in stadi sequenziali (Instruction Fetch, Decode, Execute, Memory Access, Write Back) ed eseguono molteplici istruzioni per ciclo di clock.
+    \item \textbf{Pipeline Hazards (Rischi di Pipeline):}
+    \begin{itemize}
+        \item \textit{Structural Hazards:} Conflitti nell'uso simultaneo di risorse hardware limitate (ad es. unit\`a di memoria o registri).
+        \item \textit{Data Hazards:} Dipendenze logiche tra istruzioni consecutive (RAW: Read-After-Write), che costringono il processore a inserire cicli di stallo (\textit{pipeline bubble}) se i dati non sono pronti.
+        \item \textit{Control Hazards:} Salto condizionale non previsto. Nella scansione e nell'intersezione delle posting list, un'istruzione condizionale errata (\textit{branch misprediction}) svuota la pipeline, comportando una penalit\`a di $15$--$20$ cicli di clock per ogni errore di predizione.
+    \end{itemize}
+    \item \textbf{Gerarchia di Memoria (\textit{Memory Hierarchy}):} Il tempo di accesso ai registri della CPU \`e sub-nanosecondo, alle cache L1/L2/L3 \`e di pochi cicli, mentre l'accesso alla RAM DDR richiede $50$--$100$ ns e lo storage secondario (NVMe/SSD) richiede decine di microsecondi. La progettazione delle posting list privilegia layout ad accessi sequenziali contigui per massimizzare il riuso delle linee di cache e sfruttare l'hardware prefetcher.
+    \item \textbf{Vettorizzazione SIMD (\textit{Single Instruction Multiple Data}):} L'impiego di registri vettoriali a 128, 256 o 512 bit (AVX-2, AVX-512, ARM NEON) consente di confrontare 8 o 16 identificatori di documento con una singola istruzione macchina, accelerando drasticamente gli algoritmi di intersezione.
+    \item \textbf{Calcolo Parallelo e Sharding Distribuito:} Gli indici che superano la capacit\`a di un singolo nodo vengono frammentati (\textit{sharded}), tipicamente per partizionamento documentale (\textit{Document Sharding}), consentendo a cluster di servire migliaia di query parallele aggregando le risposte mediante broker centrali.
+\end{itemize}
+
+\section{Architettura di un Sistema di Information Retrieval}
+
+Come illustrato nello schema di Figura~\ref{fig:ir-architecture-detailed}, un sistema IR adotta una rigorosa separazione tra la \textbf{Pipeline Offline} (indicizzazione e addestramento) e la \textbf{Pipeline Online} (interrogazione a bassa latenza).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    box/.style={rectangle, rounded corners=3pt, draw=blue!75!black, fill=blue!8, thick, minimum width=2.5cm, minimum height=0.75cm, text width=2.4cm, align=center, font=\scriptsize},
+    qbox/.style={rectangle, rounded corners=3pt, draw=blue!75!black, fill=blue!15, thick, minimum width=2.1cm, minimum height=0.65cm, text width=2.0cm, align=center, font=\scriptsize},
+    db/.style={cylinder, shape border rotate=90, aspect=0.22, draw=cyan!75!black, fill=cyan!10, thick, minimum width=2.3cm, minimum height=0.9cm, text width=2.2cm, inner sep=2pt, align=center, font=\scriptsize\bfseries},
+    serpbox/.style={rectangle, rounded corners=3pt, draw=teal!80!black, fill=teal!12, thick, minimum width=2.1cm, minimum height=0.75cm, text width=2.0cm, align=center, font=\scriptsize},
+    arr/.style={-Stealth, thick, blue!80!black}
+]
+    % Dotted Boundary Line (Online / Offline)
+    \draw[blue!40!black, dashed, thick] (-3.6, 2.8) -- (11.6, 2.8);
+    \node[draw=blue!50!black, fill=blue!5, rounded corners=2pt, font=\bfseries\scriptsize, text=blue!80!black, inner sep=3pt, anchor=east] at (-2.0, 3.4) {ONLINE};
+    \node[draw=blue!50!black, fill=blue!5, rounded corners=2pt, font=\bfseries\scriptsize, text=blue!80!black, inner sep=3pt, anchor=east] at (-2.0, 2.2) {OFFLINE};
+
+    % ONLINE LAYER
+    % Column 1: Query Pipeline
+    \node[qbox] (query) at (0, 7.6) {Query};
+    \node[qbox] (expquery) at (0, 6.3) {Expanded Query};
+    \node[box] (qproc) at (0, 5.0) {Query Processing};
+
+    % Column 2: Feature Lookup
+    \node[box] (featlook) at (3.6, 5.0) {Feature Lookup\\and Computation};
+
+    % Column 3: Learned Ranking
+    \node[box] (rankfunc) at (7.2, 5.0) {Learned Ranking\\Function};
+    \node[serpbox] (serp) at (10.4, 5.0) {\textbf{Ranked SERP}\\(Risultati)};
+
+    % SHARED / BOUNDARY STORAGE (Cylinders)
+    \node[db] (invidx) at (0, 2.8) {Inverted\\Index};
+    \node[db] (docfeat) at (3.6, 2.8) {Document Features\\Repository};
+    \node[db] (ltrmodel) at (7.2, 2.8) {Learning-to-Rank\\Model};
+
+    % OFFLINE LAYER
+    % Middle tier: Processors
+    \node[box] (indexing) at (0, 0.8) {Indexing};
+    \node[box] (featproc) at (3.6, 0.8) {Feature Processor};
+    \node[box] (training) at (7.2, 0.8) {Training};
+
+    % Bottom tier: Sources (Cylinders)
+    \node[db] (doccoll) at (0, -1.2) {Document\\Collection};
+    \node[db] (traindata) at (7.2, -1.2) {Training\\Data};
+
+    % ARROWS - ONLINE
+    \draw[arr] (query) -- (expquery);
+    \draw[arr] (expquery) -- (qproc);
+    \draw[arr] (invidx) -- (qproc);
+    \draw[arr] (qproc) -- (featlook);
+    \draw[arr] (docfeat) -- (featlook);
+    \draw[arr] (featlook) -- (rankfunc);
+    \draw[arr] (ltrmodel) -- (rankfunc);
+    \draw[arr] (rankfunc) -- (serp);
+
+    % ARROWS - OFFLINE
+    \draw[arr] (doccoll) -- (indexing);
+    \draw[arr] (indexing) -- (invidx);
+    \draw[arr] (doccoll.north east) -- (featproc.south west);
+    \draw[arr] (featproc) -- (docfeat);
+    \draw[arr] (traindata) -- (training);
+    \draw[arr] (training) -- (ltrmodel);
+\end{tikzpicture}
+\caption{Architettura a griglia di un moderno motore di ricerca (pipeline Online vs. Offline).}
+\label{fig:ir-architecture-detailed}
+\end{figure}
+
+\subsection{Pipeline di Text Processing}
+Prima dell'indicizzazione, ogni flusso testuale attraversa quattro fasi sequenziali:
+\begin{enumerate}
+    \item \textbf{Tokenizzazione (\textit{Tokenization}):} Segmentazione della stringa di caratteri in sequenze di token lessicali, gestendo separatori, acronimi e punteggiatura.
+    \item \textbf{Normalizzazione e Case Folding:} Conversione a caratteri minuscoli e rimozione o armonizzazione di diacritici (es. accenti) per garantire la coerenza tra query e documenti.
+    \item \textbf{Filtraggio delle Stop Words:} Eliminazione di vocaboli ad altissima frequenza ma privi di valore semantico discriminante (articoli, preposizioni, congiunzioni).
+    \item \textbf{Stemming e Lemmatizzazione:}
+    \begin{itemize}
+        \item \textit{Stemming:} Procedura algoritmica basata su regole euristiche (ad es. l'algoritmo di Porter~\cite{manning2008}) che tronca suffissi morfologici per estrarre la radice (\textit{stem}). Esempio: \texttt{"searching"}, \texttt{"searched"} $\to$ \texttt{"search"}.
+        \item \textit{Lemmatizzazione:} Analisi linguistica formale che si avvale di dizionari morfologici per mappare ogni forma flessa al suo lemma canonico. Esempio: forme verbali \texttt{"sono"}, \texttt{"fui"} $\to$ lemma \texttt{"essere"}.
+    \end{itemize}
+\end{enumerate}
+
+\section{Propriet\`a del Linguaggio e Modelli di Reperimento}
+
+La distribuzione delle parole nei testi naturali segue leggi empiriche che condizionano sia la progettazione degli indici sia le formule di ranking:
+\begin{itemize}
+    \item \textbf{Legge di Zipf:} La frequenza $f(r)$ di un termine \`e inversamente proporzionale al suo rango $r$ nella graduatoria di frequenza:
+    \begin{equation}
+    f(r) \propto \frac{1}{r}
+    \end{equation}
+    Poche parole frequentissime occupano la maggioranza delle occorrenze, mentre la stragrande maggioranza dei termini compare pochissime volte (\textit{long tail}).
+    \item \textbf{Legge di Heaps:} La dimensione del vocabolario $|V|$ cresce come legge di potenza rispetto al numero totale di parole $N$ della collezione:
+    \begin{equation}
+    |V| = k \cdot N^\beta \quad (\text{con } 0.4 \le \beta \le 0.6)
+    \end{equation}
+    Il vocabolario non si satura mai completamente all'aumentare dei documenti.
+\end{itemize}
+
+I principali modelli di reperimento includono:
+\begin{enumerate}
+    \item \textbf{Modello Booleano:} Match deterministico basato su operatori logici ($\land, \lor, \neg$), privo di punteggio intrinseco di rilevanza.
+    \item \textbf{Vector Space Model (TF-IDF):} Rappresentazione di query e documenti come vettori in uno spazio dimensionale $|V|$, pesati con frequenza del termine ($TF$) e frequenza inversa nei documenti ($IDF$). La rilevanza \`e calcolata tramite la similitudine del coseno.
+    \item \textbf{Modello Probabilistico (BM25):} Standard de facto del reperimento lessicale basato sul principio del 2-Poisson, che include saturazione non lineare del TF e normalizzazione della lunghezza del documento~\cite{buttcher2010}.
+\end{enumerate}
+
+\section{L'Inverted Index (Indice Invertito)}
+
+L'\textbf{Inverted Index} inverte l'orientamento logico della memorizzazione documentale, realizzando una mappatura $t \mapsto \mathcal{P}_t$, dove $\mathcal{P}_t$ \`e la lista ordinata dei documenti contenenti il termine $t$~\cite{manning2008}.
+
+\begin{definition}[Inverted Index]
+Un Inverted Index \`e costituito da due componenti:
+\begin{enumerate}
+    \item \textbf{Dizionario (\textit{Dictionary} o \textit{Vocabulary}):} Contiene l'insieme ordinato di tutti i termini unici presenti nella collezione, memorizzato con strutture di lookup rapido (B-Tree o Hash Table), insieme alla frequenza documentale $df_t$ e al puntatore all'inizio della lista.
+    \item \textbf{Posting List:} Per ogni termine $t$, un array ordinato per identificatore di documento crescente ($\text{DocID}_1 < \text{DocID}_2 < \dots$). Ciascun elemento (posting) pu\`o includere metadati accessori quali frequenza locale del termine ($tf$) e offset posizionali all'interno del documento.
+\end{enumerate}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.95,
+    term/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=0.68cm, font=\small\ttfamily, align=left},
+    df/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=0.9cm, minimum height=0.68cm, font=\small, align=center},
+    post/.style={rectangle, draw=purple!80!black, fill=purple!8, thick, minimum width=0.85cm, minimum height=0.68cm, font=\small\bfseries},
+    ptr/.style={-Stealth, thick, blue!80!black},
+    link/.style={-Stealth, thick, purple!80!black},
+    header/.style={font=\bfseries\small, align=center}
+]
+    % Main Headers
+    \node[header, blue!80!black] at (0.825, 4.0) {DIZIONARIO};
+    \node[header, purple!80!black] at (5.3, 4.0) {POSTING LISTS};
+
+    % Sub-headers
+    \node[font=\footnotesize\itshape, blue!60!black] at (0, 3.4) {Termine};
+    \node[font=\footnotesize\itshape, blue!60!black] at (1.65, 3.4) {$df_t$};
+    \node[font=\footnotesize\itshape, purple!70!black] at (5.3, 3.4) {$\mathrm{DocID}_1 < \mathrm{DocID}_2 < \dots$};
+
+    % Dictionary column (Terms + Doc Frequency df_t)
+    \node[term] (t1) at (0, 2.7) {an};
+    \node[df]   (df1) at (1.65, 2.7) {2};
+
+    \node[term] (t2) at (0, 1.8) {inverted};
+    \node[df]   (df2) at (1.65, 1.8) {3};
+
+    \node[term] (t3) at (0, 0.9) {index};
+    \node[df]   (df3) at (1.65, 0.9) {3};
+
+    \node[term] (t4) at (0, 0.0) {query};
+    \node[df]   (df4) at (1.65, 0.0) {1};
+
+    % Postings
+    \node[post] (p11) at (4.2, 2.7) {1};
+    \node[post] (p12) at (5.3, 2.7) {2};
+
+    % Row 2
+    \node[post] (p21) at (4.2, 1.8) {1};
+    \node[post] (p22) at (5.3, 1.8) {2};
+    \node[post] (p23) at (6.4, 1.8) {3};
+
+    % Row 3
+    \node[post] (p31) at (4.2, 0.9) {1};
+    \node[post] (p32) at (5.3, 0.9) {2};
+    \node[post] (p33) at (6.4, 0.9) {3};
+
+    % Row 4
+    \node[post] (p41) at (4.2, 0.0) {3};
+
+    % Arrows from Dictionary to Posting Lists
+    \draw[ptr] (df1.east) -- (p11.west);
+    \draw[ptr] (df2.east) -- (p21.west);
+    \draw[ptr] (df3.east) -- (p31.west);
+    \draw[ptr] (df4.east) -- (p41.west);
+
+    % Links between postings
+    \draw[link] (p11) -- (p12);
+    \draw[link] (p21) -- (p22);
+    \draw[link] (p22) -- (p23);
+    \draw[link] (p31) -- (p32);
+    \draw[link] (p32) -- (p33);
+\end{tikzpicture}
+\caption{Struttura di un Inverted Index: Dizionario dei termini con frequenza documentale $df_t$ e Posting Lists concatenate per DocID crescente.}
+\label{fig:inverted-index-structure}
+\end{figure}
+
+\subsection{Elaborazione delle Query e Algoritmo di Merge}
+L'ordinamento intrinseco dei DocID consente di risolvere le query congiuntive (\textbf{AND}) mediante una scansione lineare sincronizzata a due puntatori (Algoritmo~\ref{alg:merge-intersection-it}).
+
+\begin{algorithm}[H]
+\caption{Merge Intersection per Query Congiuntive ($P_1 \land P_2$)}
+\label{alg:merge-intersection-it}
+\KwInput{Due posting list ordinate $P_1$ e $P_2$}
+\KwOutput{Lista ordinata $R$ dei documenti presenti in entrambe le liste}
+$R \leftarrow \emptyset$\;
+$i \leftarrow 1$; $j \leftarrow 1$\;
+\While{$i \le |P_1|$ \textbf{e} $j \le |P_2|$}{
+    \If{$P_1[i] == P_2[j]$}{
+        $R.\text{append}(P_1[i])$\;
+        $i \leftarrow i + 1$\;
+        $j \leftarrow j + 1$\;
+    }
+    \ElseIf{$P_1[i] < P_2[j]$}{
+        $i \leftarrow i + 1$\;
+    }
+    \Else{
+        $j \leftarrow j + 1$\;
+    }
+}
+\Return{$R$}\;
+\end{algorithm}
+
+La complessit\`a temporale nel caso peggiore \`e $\BigO{|P_1| + |P_2|}$. Nelle interrogazioni disgiuntive (\textbf{OR}), il merge include l'unione dei DocID preservando l'ordinamento. Nelle ricerche per frase (\textit{Phrase Search}), l'algoritmo verifica che la differenza tra gli offset posizionali corrisponda esattamente alla distanza tra le parole nella query.
+
+\section{Tecniche di Compressione dell'Indice}
+
+La compressione dell'Inverted Index risponde a una duplice esigenza: ridurre drasticamente l'occupazione di memoria secondaria e RAM, e convertire un collo di bottiglia di trasferimento I/O (lento) in un carico computazionale di decompressione da parte della CPU (estremamente veloce).
+
+\subsection{Binary Interpolative Coding}
+Il \textbf{Binary Interpolative Coding} (proposto da Moffat e Stuiver~\cite{moffat2000}) \`e una tecnica di compressione specificamente concepita per sequenze strettamente crescenti di interi (come i DocID nelle posting list).
+
+\begin{definition}[Principio di Interpolazione]
+Data una sottolista ordinata di $n$ interi $L = [x_1, x_2, \dots, x_n]$ nota per essere compresa nell'intervallo $[l, h]$ (ovvero $l \le x_1 < x_2 < \dots < x_n \le h$), si seleziona l'elemento centrale $m = \lfloor (n+1)/2 \rfloor$.
+Poich\'e devono esistere almeno $m - 1$ valori distinti prima di $x_m$ e almeno $n - m$ valori distinti dopo $x_m$, il valore $x_m$ \`e strettamente vincolato nell'intervallo ristretto:
+\begin{equation}
+l + m - 1 \le x_m \le h - n + m
+\end{equation}
+Il numero di possibili valori distinti per $x_m$ \`e dato da:
+\begin{equation}
+R = (h - n + m) - (l + m - 1) + 1 = h - l - n + 1
+\end{equation}
+Il valore $(x_m - (l + m - 1))$ viene quindi codificato in binario utilizzando esattamente $\lceil \log_2 R \rceil$ bit. Successivamente, l'algoritmo si applica ricorsivamente alla met\`a sinistra rispetto a $[l, x_m - 1]$ e alla met\`a destra rispetto a $[x_m + 1, h]$.
+\end{definition}
+
+\begin{example}[Esempio di Decomposizione Ricorsiva dalle Slide]
+Si consideri la lista di $n = 12$ identificatori compresi nell'intervallo $[0, 62]$:
+\[
+L = [3, 4, 7, 13, 14, 15, 21, 25, 36, 38, 54, 62] \quad (n=12, m=6, l=0, h=62)
+\]
+L'albero di decomposizione partiziona ricorsivamente la sequenza:
+\begin{itemize}
+    \item L'elemento centrale divide la sequenza nelle sottoliste $[3, 4, 7, 13, 14]$ con vincolo $(n=5, m=3, l=0, h=14)$ e $[21, 25, 36, 38, 54]$ con vincolo $(n=5, m=3, l=16, h=62)$.
+    \item A livello inferiore, la prima sottolista si divide in $[3, 4]$ con parametri $(n=2, m=1, l=0, h=6)$ e $[13, 14]$ con parametri $(n=2, m=1, l=8, h=14)$.
+    \item Le foglie codificano i singoli elementi: ad esempio $[14]$ con parametri $(n=1, m=1, l=14, h=14)$, per cui $R = 14 - 14 - 1 + 1 = 1$, richiedendo esattamente $\lceil \log_2 1 \rceil = 0$ bit!
+\end{itemize}
+Quando i documenti sono densamente aggregati (\textit{clusterizzati}), il numero di valori ammissibili $R$ crolla verso $1$, portando il costo di memorizzazione a zero bit per molti elementi.
+\end{example}
+
+\subsection{Compressione Basata su Dizionario: LZ77}
+Per testi generali o stream di token, l'algoritmo \textbf{Lempel-Ziv '77} (LZ77) comprime la sequenza tramite una finestra scorrevole divisa in un buffer di ricerca (\textit{Search Buffer}) e un buffer di anteprima (\textit{Lookahead Buffer}), emettendo triple formattate come:
+\begin{equation}
+(\text{offset}, \text{length}, \text{next\_char})
+\end{equation}
+Ad esempio, data la sequenza testuale:
+\[
+T = \text{\texttt{a b a b a a a a b a b a a a a b}}
+\]
+La codifica LZ77 emette la successione di puntatori:
+\[
+(0, \text{\texttt{'a'}}), \; (0, \text{\texttt{'b'}}), \; (2, 3), \; (1, 3), \; (7, 8)
+\]
+sostituendo lunghe ripetizioni lessicali con riferimenti compatti all'indietro nella finestra.
+
+\section{Evoluzione verso il Neural Information Retrieval}
+
+A partire dal 2018, l'avvento dei modelli basati su architettura Transformer e di BERT ha rivoluzionato il panorama dell'Information Retrieval~\cite{khattab2020,formal2021}. I moderni approcci neurali si suddividono in due famiglie architetturali fondamentali:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=blue!80!black, fill=blue!8, thick, minimum width=2.4cm, minimum height=0.8cm, inner sep=4pt, align=center, font=\small},
+    proc/.style={rectangle, rounded corners=4pt, draw=teal!80!black, fill=teal!8, thick, minimum width=2.5cm, minimum height=1.15cm, inner sep=6pt, align=center, font=\small},
+    score/.style={rectangle, rounded corners=4pt, draw=purple!80!black, fill=purple!10, thick, minimum width=2.8cm, minimum height=0.85cm, inner sep=5pt, align=center, font=\small\bfseries},
+    arr/.style={-Stealth, thick, blue!80!black},
+    title/.style={font=\bfseries\normalsize, align=center}
+]
+    % Divider
+    \draw[gray!35, dashed, thick] (6.6, 5.0) -- (6.6, -0.5);
+
+    % --- INTERACTION-BASED (CROSS-ENCODER) ---
+    \node[title, blue!80!black] at (3.0, 4.4) {Cross-Encoder\\[2pt]\footnotesize (Interazione)};
+
+    \node[box] (q1) at (1.6, 3.2) {Query $q$};
+    \node[box] (d1) at (4.4, 3.2) {Document $d$};
+    \node[proc, minimum width=5.2cm] (cross) at (3.0, 1.7) {Cross-Encoder (BERT)\\[3pt]\footnotesize Full Cross-Attention su tutti i token};
+    \node[score] (s1) at (3.0, 0.1) {Score $s(q, d)$};
+
+    \draw[arr] (q1.south) -- (cross.140);
+    \draw[arr] (d1.south) -- (cross.40);
+    \draw[arr] (cross.south) -- (s1.north);
+
+    % --- REPRESENTATION-BASED (BI-ENCODER) ---
+    \node[title, teal!80!black] at (10.2, 4.4) {Bi-Encoder\\[2pt]\footnotesize (Rappresentazione)};
+
+    \node[box] (q2) at (8.8, 3.2) {Query $q$};
+    \node[box] (d2) at (11.6, 3.2) {Document $d$};
+    \node[proc, minimum width=2.5cm] (encq) at (8.8, 1.7) {Query Encoder\\[3pt]\footnotesize $\vec{e}_q = f_\theta(q)$};
+    \node[proc, minimum width=2.5cm] (encd) at (11.6, 1.7) {Doc Encoder\\[3pt]\footnotesize $\vec{e}_d = g_\theta(d)$};
+    \node[score] (s2) at (10.2, 0.1) {Similarity $\vec{e}_q \cdot \vec{e}_d$};
+
+    \draw[arr] (q2.south) -- (encq.north);
+    \draw[arr] (d2.south) -- (encd.north);
+    \draw[arr] (encq.south) -- (s2.140);
+    \draw[arr] (encd.south) -- (s2.40);
+\end{tikzpicture}
+\caption{Confronto strutturale tra Cross-Encoder (Interazione) e Bi-Encoder (Rappresentazione).}
+\label{fig:cross-vs-bi-encoder}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Modelli Basati sull'Interazione (\textit{Cross-Encoders}):} La query e il documento vengono concatenati in un unico input:
+    \[
+    \text{Input} = \texttt{[CLS]} \circ q \circ \texttt{[SEP]} \circ d
+    \]
+    ed elaborati congiuntamente attraverso tutti i livelli di self-attention del Transformer. Catturano interazioni contestuali profonde tra ciascuna coppia di token, offrendo la massima efficacia predittiva. Tuttavia, il costo computazionale proibitivo ($\BigO{|\mathcal{D}| \times \text{Transformer}}$) ne preclude l'uso su larga scala; vengono impiegati esclusivamente come re-ranker di secondo livello sui top-100 candidati.
+    \item \textbf{Modelli Basati sulla Rappresentazione (\textit{Bi-Encoders}):} La query e il documento vengono proiettati in modo disaccoppiato in uno spazio vettoriale mediante due encoder distinti. I vettori dei documenti possono essere pre-calcolati offline e indicizzati, riducendo il matching online a un prodotto scalare o a una ricerca di vicini approssimati.
+\end{enumerate}
+
+\subsection{Le Tre Famiglie di Rappresentazioni Vettoriali}
+Nel contesto dei modelli a rappresentazione, si distinguono tre tipologie di embedding:
+\begin{enumerate}
+    \item \textbf{Dense Single-Vector (es. DPR, Contriever):} Ogni documento e ogni query sono sintetizzati in un unico vettore denso a $d$ dimensioni (ad es. $d = 768$). L'interrogazione richiede indici vettoriali k-ANN su grafi (come HNSW).
+    \item \textbf{Dense Multi-Vector (es. ColBERT~\cite{khattab2020}):} Viene generato un vettore denso per ciascun token del documento e della query. La rilevanza \`e determinata tramite il meccanismo di \textbf{Late Interaction} con operatore \textit{MaxSim}:
+    \begin{equation}
+    S(q, d) = \sum_{t_q \in q} \max_{t_d \in d} \left( \vec{E}_{t_q} \cdot \vec{E}_{t_d}^T \right)
+    \end{equation}
+    Preserva l'identit\`a dei singoli termini offrendo un'eccellente generalizzazione, a fronte di un costo di memorizzazione pi\`u consistente.
+    \item \textbf{Sparse Single-Vector (es. SPLADE~\cite{formal2021}):} I documenti e le query sono codificati in vettori sparsi ad altissima dimensione mappati direttamente sui token del vocabolario $|V|$ ($|V| \approx 30\,000$). I coefficienti numerici indicano il peso d'importanza appreso e includono l'espansione automatica di sinonimi.
+    \begin{itemize}
+        \item \textbf{Vantaggi:} Altissima efficacia sia nelle collezioni di dominio (\textit{in-domain}) sia nei test a trasferimento zero-shot (\textit{out-of-domain}).
+        \item \textbf{Efficienza:} Pi\`u compatti e rapidi rispetto ai modelli multi-vettore, possono essere memorizzati direttamente all'interno delle posting list di un classico Inverted Index.
+        \item \textbf{Interpretabilit\`a:} I pesi non nulli corrispondono a parole comprensibili dall'uomo, facilitando il debug e la spiegabilit\`a.
+    \end{itemize}
+\end{enumerate}
+
+\section{\texorpdfstring{Ricerca dei Vicini Approssimati ($k$-ANN)}{Ricerca dei Vicini Approssimati (k-ANN)}}
+
+Nei sistemi vettoriali ad alta dimensionalit\`a, il problema fondamentale consiste nel reperire i primi $k$ documenti con il massimo prodotto scalare rispetto alla query (\textit{Maximum Inner Product Search}, MIPS):
+\begin{equation}
+\operatorname{argmax}_{v \in \mathcal{D}}^{(k)} \; \vec{q}^{\,T} \cdot \vec{v}
+\end{equation}
+In una tipica collezione Web su larga scala:
+\begin{itemize}
+    \item Il numero complessivo di documenti supera gli $8.8$ milioni (ad es. benchmark MS MARCO).
+    \item Lo spazio vettoriale comprende circa $30\,000$ componenti lessicali distinte.
+    \item Ciascun documento contiene in media solo circa $150$ componenti con valore non nullo.
+\end{itemize}
+Per eseguire ricerche a frequenze di migliaia di query per secondo senza scansione esaustiva lineare, vengono utilizzate strutture dati specializzate che combinano indici diretti (\textit{Forward Index}) e indici invertiti sparsi ottimizzati, quali la libreria ad alte prestazioni \textbf{TusKANNy} sviluppata in linguaggio Rust presso l'Universit\`a di Pisa.
