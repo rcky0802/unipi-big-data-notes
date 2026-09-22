@@ -2,9 +2,91 @@
 \label{chap:evaluation}
 
 \FloatBarrier
+\section{Search Engine Architecture}
+\label{sec:architecture}
+
+Before diving into evaluation methodology, it is instructive to understand the high-level block diagram of a modern search engine, since each architectural component introduces measurable quality dimensions.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=1.1cm and 2.2cm,
+    offline/.style={rectangle, rounded corners=4pt, draw=blue!70!black, fill=blue!8,
+                    thick, minimum width=3.5cm, minimum height=0.9cm,
+                    text width=3.4cm, align=center, font=\small},
+    online/.style={rectangle, rounded corners=4pt, draw=teal!70!black, fill=teal!6,
+                   thick, minimum width=3.5cm, minimum height=0.9cm,
+                   text width=3.4cm, align=center, font=\small},
+    index/.style={rectangle, rounded corners=4pt, draw=orange!80!black, fill=orange!9,
+                  thick, minimum width=3.5cm, minimum height=0.9cm,
+                  text width=3.4cm, align=center, font=\small},
+    output/.style={rectangle, rounded corners=4pt, draw=green!60!black, fill=green!7,
+                   thick, minimum width=3.5cm, minimum height=0.9cm,
+                   text width=3.4cm, align=center, font=\small},
+    arr/.style={-Stealth, thick},
+    offcol/.style={arr, blue!70!black},
+    oncol/.style={arr, teal!70!black},
+    lbl/.style={font=\scriptsize\itshape, text=gray!70!black}
+]
+    %--- OFFLINE column (left) ---
+    \node[offline] (dc)  at (0, 0)    {\textbf{Document Collection}\\{\scriptsize Web Crawler}};
+    \node[offline, below=of dc]  (idx) {\textbf{Indexing}\\{\scriptsize Parsing · Tokeniz. · Stemming}};
+    \node[index,   below=of idx] (ii)  {\textbf{Inverted Index}};
+
+    %--- ONLINE column (right) ---
+    \node[online, right=3.8cm of dc]  (q)    {\textbf{Query}\\{\scriptsize User input}};
+    \node[online, below=of q]         (qp)   {\textbf{Query Processing}\\{\scriptsize Query Expansion}};
+    \node[online, below=of qp]        (fe)   {\textbf{Feature Extraction}\\{\scriptsize BM25 · PageRank · CTR}};
+    \node[online, below=of fe]        (lr)   {\textbf{Learned Ranking (LtR)}\\{\scriptsize LambdaMART · Neural}};
+    \node[output, below=of lr]        (serp) {\textbf{SERP}\\{\scriptsize Top-10 results to user}};
+
+    %--- Column labels ---
+    \node[lbl, above=0.25cm of dc] {\textsc{Offline Phase}};
+    \node[lbl, above=0.25cm of q]  {\textsc{Online Phase}};
+
+    %--- Offline arrows ---
+    \draw[offcol] (dc.south)  -- (idx.north);
+    \draw[offcol] (idx.south) -- (ii.north);
+
+    %--- Online arrows ---
+    \draw[oncol] (q.south)   -- (qp.north);
+    \draw[oncol] (qp.south)  -- (fe.north);
+    \draw[oncol] (fe.south)  -- (lr.north);
+    \draw[oncol] (lr.south)  -- (serp.north);
+
+    %--- Inverted Index → Query Processing bridge ---
+    \draw[arr, orange!80!black, dashed, thick]
+        (ii.east) -- ++(0.9,0) |- (qp.west)
+        node[pos=0.28, above, lbl] {candidate docs};
+
+\end{tikzpicture}
+\caption{High-level block diagram of a modern search engine: offline indexing pipeline (left) and online query processing and ranking pipeline (right).}
+\label{fig:arch-en}
+\end{figure}
+
+The main components are:
+
+\begin{itemize}
+    \item \textbf{Web Crawler / Document Collection:} An automated agent that continuously discovers and downloads documents from the Web (or a closed corpus), feeding the indexing pipeline.
+    \item \textbf{Parsing \& Tokenization:} Documents are linguistically analyzed: HTML is stripped, text is tokenized into terms, stop-words may be removed, and stems or lemmas are computed.
+    \item \textbf{Inverted Index:} The core data structure mapping each term to the list of documents containing it (posting list), together with positional and frequency information.
+    \item \textbf{Query Processing \& Query Expansion:} An incoming user query is tokenized with the same pipeline, possibly enriched with synonyms, related terms, or session context to improve recall.
+    \item \textbf{Feature Extraction:} For each candidate document, a rich feature vector is assembled (BM25 score, PageRank, freshness, anchor text signals, click history, \dots).
+    \item \textbf{Learned Ranking Function (Learning to Rank):} A machine-learned model (e.g., LambdaMART, neural ranker) combines the features to produce a final relevance score used to sort the SERP.
+    \item \textbf{SERP (Search Engine Results Page):} The final ordered list of results displayed to the user, possibly augmented with featured snippets, knowledge panels, and ads.
+\end{itemize}
+
+\FloatBarrier
 \section{Evaluating Search Engine Quality}
 
-Rigorous performance evaluation is essential for designing, fine-tuning, and deploying Information Retrieval systems~\cite{manning2008,buttcher2010}. Search engine quality is evaluated across two complementary dimensions:
+How do we evaluate such a complex, multi-component system? The answer lies in separating two complementary dimensions—\textbf{efficiency} and \textbf{effectiveness}—each requiring distinct measurement methodologies~\cite{manning2008,buttcher2010}.
+
+\begin{itemize}
+    \item \textbf{Efficiency} concerns the \emph{speed and resource cost} of processing: how fast can we index documents, and how quickly can we answer queries at scale?
+    \item \textbf{Effectiveness} concerns the \emph{quality of the answers}: are the returned documents genuinely useful to the user?
+\end{itemize}
+
+Rigorous performance evaluation is essential for designing, fine-tuning, and deploying Information Retrieval systems~\cite{manning2008,buttcher2010}. Search engine quality is thus evaluated across these two complementary dimensions:
 \begin{enumerate}
     \item \textbf{Efficiency Metrics:}
     \begin{itemize}
@@ -28,7 +110,7 @@ In commercial Web search engines, the overarching objective is maximizing \textb
     \item \textbf{Clicks and Click-Through Rate (CTR):} The volume and proportion of clicks received by returned results.
     \begin{itemize}
         \item \textit{Caveat:} Misleading titles and clickbait summaries artificially inflate clicks without truly satisfying the user.
-        \item \textit{Zero-Click Searches:} When is "no clicks" good news? For factual queries (e.g., weather forecasts, flight schedules, currency conversions, or dictionary definitions), answers rendered directly via \textit{Featured Snippets} or \textit{Knowledge Panels} satisfy the user immediately without requiring any downstream click.
+        \item \textit{Zero-Click Searches:} When is ``no clicks'' good news? For factual queries (e.g., weather forecasts, flight schedules, currency conversions, or dictionary definitions), answers rendered directly via \textit{Featured Snippets} or \textit{Knowledge Panels} satisfy the user immediately without requiring any downstream click.
     \end{itemize}
     \item \textbf{Purchases and Economic Conversions:} In e-commerce, the percentage of search sessions resulting in transactions and total monetary spend serve as key indicators.
     \item \textbf{Retention and Repeat Visits:} The fraction of users returning to the search engine within a week or month.
@@ -37,12 +119,24 @@ In commercial Web search engines, the overarching objective is maximizing \textb
 
 \begin{alertblock}{Evaluation in the Era of Generative AI and LLMs}
 The rise of generative conversational engines (such as ChatGPT, SearchGPT, and Perplexity) alters traditional CTR and Dwell Time dynamics: users consume direct synthesized summaries rather than navigating outgoing links. Consequently, factual grounding, hallucination minimization, and citation fidelity supplant traditional link click telemetry.
+
+Several important debates have emerged in the research community regarding how to evaluate these new systems:
+
+\begin{itemize}
+    \item \textbf{Number of conversational turns as a failure proxy (raised by student Dino):} In a generative dialogue system, a high number of follow-up turns might indicate that the initial response was unsatisfactory—the user is forced to re-ask or clarify. Conversely, resolving the need in a single turn could signal high effectiveness. This is an emerging behavioral proxy with no settled consensus.
+    \item \textbf{Prompting variance issue (raised by student Gabriele):} Unlike a keyword query submitted to a classical IR engine, the phrasing of a prompt to a generative LLM can dramatically change the output quality. This makes reproducible evaluation extremely difficult: the same underlying information need can be expressed in thousands of ways, each yielding a different response.
+    \item \textbf{Ontological difference from classic IR (raised by student Bruno):} Traditional IR retrieves \emph{existing} documents; generative LLMs \emph{synthesize} new text. This is a fundamentally different epistemic act—the system is no longer a retrieval engine but a generator, making relevance judgments harder to ground in objective fact.
+    \item \textbf{Retrieval-Augmented Generation (RAG):} One prominent engineering paradigm to mitigate hallucinations is RAG, in which a generative model is provided with retrieved documents as grounding context before generating its response. RAG partially bridges the gap between classical IR and LLMs, but introduces new evaluation challenges: both the retrieval step and the generation step must be assessed independently and jointly.
+\end{itemize}
 \end{alertblock}
 
 \FloatBarrier
 \section{The Cranfield Paradigm and Offline Test Collections}
 
 While online signals offer valuable telemetry, they are noisy, subject to position bias, and unsuitable for comparing algorithmic improvements offline prior to production deployment.
+
+To situate the Cranfield approach historically: Cyril Cleverdon conducted his seminal experiments in the \textbf{1960s}, working with \emph{physical} library systems—card catalogues and aeronautical engineering records at the Cranfield Institute of Technology—long before digital text retrieval was computationally feasible. His insight was to construct a controlled experimental collection with exhaustive relevance judgments, providing the first rigorous laboratory for IR comparison. This setting, humble by today's standards, established a scientific template still followed six decades later.
+
 To establish reproducible, controlled evaluation, IR research adheres to the \textbf{Cranfield Paradigm}, pioneered by Cyril Cleverdon in the 1960s~\cite{cleverdon1967}.
 
 \begin{definition}[Test Collection]
@@ -72,12 +166,28 @@ Assuming an experienced human assessor evaluates one document in $2.5$ seconds:
 This would require tens of thousands of human working years!
 Consequently, benchmark datasets must restrict assessment to a sampled subset of candidate documents.
 
+\subsection{Origins of Test Queries}
+\label{subsec:query-origins}
+
+A natural question is: \emph{where do the queries in a benchmark test suite come from?} The answer differs significantly depending on the evaluation context:
+
+\begin{itemize}
+    \item \textbf{Web search engines — Query Logs:} Large-scale industrial benchmarks (such as those used in Microsoft TREC tracks or the AOL query log dataset) sample queries directly from \emph{real user query logs}. This ensures that the test suite faithfully reflects the actual distribution of user information needs, including rare and long-tail queries.
+    \item \textbf{Classic laboratory scenarios — Expert-drafted lists:} In pre-Web IR benchmarks (Cranfield, TREC ad hoc tracks), domain experts \emph{manually composed} a set of information need statements (called \emph{topics}). Each topic is a verbose narrative describing the underlying information need, which is then abbreviated into a short keyword query for system input.
+    \item \textbf{What is \emph{not} done — Random queries from documents:} One might naively suggest generating queries by sampling random terms from documents in the collection. This approach is \textbf{explicitly avoided} in IR evaluation: randomly sampled terms do not resemble real user intents, would introduce severe artificial biases, and would not generalize to the retrieval scenarios that actually matter to end users.
+\end{itemize}
+
 \subsection{Crowdsourcing: Opportunities and Pitfalls}
 One cost-effective alternative delegates judging to online micro-task platforms (e.g., Amazon Mechanical Turk). However, empirical literature indicates that crowdsourced annotations suffer from:
 \begin{itemize}
     \item Substantially higher variance compared to domain experts;
     \item Inconsistent quality and exposure to adversarial spamming;
     \item A requirement for robust filtering mechanisms (majority voting, worker reputation scoring, Cohen's $\kappa$ inter-rater reliability thresholds).
+\end{itemize}
+
+A more recent and increasingly adopted alternative is \textbf{LLM-as-a-Judge}:
+\begin{itemize}
+    \item \textbf{LLM-as-a-Judge:} State-of-the-art language models (such as GPT-4-class models) are prompted with structured evaluation rubrics to assign relevance grades to query-document pairs. This approach offers substantial \emph{economic scalability}—millions of judgments can be obtained at a fraction of the cost of human crowdworkers. However, it introduces well-documented \emph{intrinsic biases}: \textbf{length bias} (longer, more verbose responses tend to receive higher scores regardless of content quality), \textbf{self-preference bias} (a model tends to rate its own outputs more favorably), and \textbf{position bias} (the order in which candidates are presented influences the judgment). Active research is ongoing to quantify and mitigate these distortions.
 \end{itemize}
 
 \subsection{The TREC Infrastructure}
@@ -121,7 +231,7 @@ To select which documents human assessors should judge without evaluating the en
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
-    scale=0.85,
+    scale=0.72,
     box/.style={rectangle, rounded corners=3pt, draw=blue!80!black, fill=blue!6, thick, minimum width=2.4cm, minimum height=0.75cm, text width=2.2cm, align=center, font=\small},
     pool/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8, thick, minimum width=3.6cm, minimum height=1.3cm, text width=3.5cm, align=center, font=\small},
     eval/.style={rectangle, rounded corners=3pt, draw=teal!80!black, fill=teal!6, thick, minimum width=3.2cm, minimum height=1.3cm, text width=3.1cm, align=center, font=\small}
@@ -132,12 +242,12 @@ To select which documents human assessors should judge without evaluating the en
 
     \node[pool] (poolbox) at (3.8, 1.45) {\textbf{Candidate Pool}\\Union of top-$k$ outputs\\$\mathcal{P} = \bigcup_{i=1}^m \text{Top-}k(S_i)$};
 
-    \node[eval] (assess) at (11.8, 1.45) {\textbf{Human Assessors}\\Relevance Judgments\\(Relevant / Non-rel)};
+    \node[eval] (assess) at (9.5, 1.45) {\textbf{Human Assessors}\\Relevance Judgments\\(Relevant / Non-rel)};
 
     \draw[-Stealth, thick, blue!80!black] (sys1.east) -- node[above, sloped, font=\scriptsize] {Top-$k$} (poolbox.160);
     \draw[-Stealth, thick, blue!80!black] (sys2.east) -- node[above, font=\scriptsize] {Top-$k$} (poolbox.west);
     \draw[-Stealth, thick, blue!80!black] (sysk.east) -- node[below, sloped, font=\scriptsize] {Top-$k$} (poolbox.200);
-    \draw[-Stealth, very thick, orange!80!black] (poolbox.east) -- node[above=4pt, font=\scriptsize\bfseries, text=orange!90!black] {Pooled documents only} (assess.west);
+    \draw[-Stealth, very thick, orange!80!black] (poolbox.east) -- node[above=3pt, font=\tiny\bfseries, text=orange!90!black] {Pooled documents only} (assess.west);
 \end{tikzpicture}
 \caption{The Pooling technique for selecting candidate documents for human judgment.}
 \label{fig:pooling-process-en}
@@ -160,8 +270,8 @@ While this assumption may theoretically penalize innovative systems surfacing re
 
 A crucial principle in evaluation separates the underlying need from its textual expression:
 \begin{itemize}
-    \item \textbf{Information Need:} The user's actual cognitive desire. Example: \textit{"My swimming pool bottom is becoming black and needs to be cleaned"}.
-    \item \textbf{Query:} The keyword shorthand submitted to the system. Example: \texttt{"pool cleaner"}.
+    \item \textbf{Information Need:} The user's actual cognitive desire. Example: \textit{``My swimming pool bottom is becoming black and needs to be cleaned''}.
+    \item \textbf{Query:} The keyword shorthand submitted to the system. Example: \texttt{``pool cleaner''}.
 \end{itemize}
 \begin{property}[Evaluation Principle]
 Document relevance must always be assessed with respect to the user's underlying \textbf{Information Need}, never purely against the superficial keywords of the query string.
@@ -190,6 +300,7 @@ In unranked evaluation contexts (e.g., Boolean retrieval), the engine returns an
 
 \begin{figure}[htbp]
 \centering
+\resizebox{0.88\textwidth}{!}{%
 \begin{tikzpicture}
     % Document Collection Rectangle (Universe)
     \draw[thick, fill=gray!4, draw=gray!45, rounded corners=6pt] (-5.8, -3.3) rectangle (5.8, 3.7);
@@ -209,8 +320,9 @@ In unranked evaluation contexts (e.g., Boolean retrieval), the engine returns an
     \node[align=center] at (2.2, -0.15) {\textbf{\Large FP}\\[3pt]\footnotesize Retrieved\\[1.5pt]\footnotesize non-relevant};
     
     % True Negative label (Spacious bottom-left corner with ample clearance)
-    \node[anchor=south west, font=\footnotesize, text=gray!75!black] at (-5.5, -3.05) {\textbf{TN} (True Negative): Non-relevant and not retrieved documents};
-\end{tikzpicture}
+    \node[anchor=south west, font=\footnotesize, text=gray!75!black] at (-5.5, -3.2) {\textbf{TN} (True Negative): Non-relevant and not retrieved documents};
+\end{tikzpicture}%
+}
 \caption{Set-theoretic Venn diagram of document retrieval and confusion regions.}
 \label{fig:venn-retrieval-en}
 \end{figure}
@@ -340,7 +452,7 @@ Average Precision carries a direct analytical meaning:
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
-    scale=0.9,
+    scale=0.85,
     docrel/.style={rectangle, rounded corners=2pt, draw=teal!80!black, fill=teal!20, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize\bfseries},
     docnon/.style={rectangle, rounded corners=2pt, draw=red!70!black, fill=red!10, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize},
     lbl/.style={font=\scriptsize, align=center}
@@ -362,7 +474,7 @@ Average Precision carries a direct analytical meaning:
         \node[font=\footnotesize] at (\k*1.6, -1.05) {\ifnum\rel=1 \textbf{\p}\else \color{gray!60}--- \fi};
     }
 
-    \draw[-Stealth, thick, blue!80!black] (0.0, 0.7) -- node[above, font=\scriptsize] {Search Engine Output Order} (9.0, 0.7);
+    \draw[-Stealth, thick, blue!80!black] (0.5, 0.7) -- node[above, font=\scriptsize] {Search Engine Output Order} (8.5, 0.7);
 \end{tikzpicture}
 \caption{Schematic representation of Average Precision calculation over 5 documents with $R=3$ total relevant items.}
 \label{fig:ap-blocks-en}
@@ -441,7 +553,7 @@ MAP = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} AP(q)
 \begin{property}[Macro-Averaging vs. Micro-Averaging]
 MAP formally implements a \textbf{Macro-Averaging} scheme: each query carries identical statistical weight $1/|\mathcal{Q}|$.
 \begin{itemize}
-    \item In contrast, \textit{Micro-Averaging} (pooling all instantaneous precisions across all queries and dividing by the total sum of relevant documents) would be overwhelmingly dominated by a handful of broad queries (e.g., \texttt{"movies"} or \texttt{"news"}, which often match thousands of relevant documents), drowning out performance on specific long-tail queries.
+    \item In contrast, \textit{Micro-Averaging} (pooling all instantaneous precisions across all queries and dividing by the total sum of relevant documents) would be overwhelmingly dominated by a handful of broad queries (e.g., \texttt{``movies''} or \texttt{``news''}, which often match thousands of relevant documents), drowning out performance on specific long-tail queries.
     \item Macro-Averaging ensures that every individual information need receives equal representation in the final benchmark metric.
 \end{itemize}
 \end{property}
@@ -504,7 +616,7 @@ If the first relevant hit appears at rank 1, the score is $1.0$; if at rank 2, i
 
 In practical Web and commercial applications, binary judgments prove inadequate. Consider the following real-world Google search query:
 \begin{center}
-\texttt{Query: "information retrieval unipi"}
+\texttt{Query: ``information retrieval unipi''}
 \end{center}
 A commercial SERP returns pages exhibiting distinct qualitative levels of utility:
 \begin{enumerate}
