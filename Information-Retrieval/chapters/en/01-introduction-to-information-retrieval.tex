@@ -1,5 +1,6 @@
 \chapter{Introduction and Architecture of Information Retrieval}
 
+\FloatBarrier
 \section{Definition and Motivations}
 
 \textbf{Information Retrieval} (IR) is the scientific and engineering discipline concerned with representing, storing, organizing, and accessing large collections of predominantly unstructured or semi-structured data to satisfy an \textbf{information need} expressed by a user~\cite{manning2008,buttcher2010}.
@@ -10,11 +11,58 @@ Information Retrieval is finding material of an unstructured nature (usually tex
 
 In the modern digital landscape, Information Retrieval extends far beyond general-purpose Web search engines (such as Google or Bing) to serve as the foundational infrastructure for:
 \begin{itemize}
-    \item \textbf{E-commerce and marketplaces:} product retrieval driven by textual descriptions, structured specifications, and customer reviews.
+    \item \textbf{E-commerce and marketplaces:} product retrieval driven by textual descriptions, structured specifications, and customer reviews (e.g., Amazon, Alibaba, eBay).
     \item \textbf{Enterprise and Desktop Search:} indexing and semantic searching across enterprise repositories (documents, emails, source code bases).
-    \item \textbf{RAG (\textit{Retrieval-Augmented Generation}) Systems:} grounding Large Language Models (LLMs) with external, authoritative context documents to mitigate hallucinations and ensure up-to-date knowledge.
-    \item \textbf{Autonomous agents and recommender engines:} content-based and collaborative filtering for personalized information discovery.
+    \item \textbf{RAG (\textit{Retrieval-Augmented Generation}) Systems:} grounding Large Language Models (LLMs) with external, authoritative context documents to eliminate hallucinations and supply real-time fresh knowledge.
+    \item \textbf{Autonomous agents and recommender engines:} content-based and collaborative filtering for personalized content discovery and media streaming (e.g., Netflix, Spotify, Meta, Pinterest).
 \end{itemize}
+
+\subsection{The Generative Shift: From Web Search to Agentic Search}
+
+The rise of conversational Large Language Models (LLMs) has not diminished the relevance of Information Retrieval; rather, it has placed IR at the center of modern AI systems. An interview with an LLM reveals that conversational AI fundamentally depends on core IR competencies:
+\begin{enumerate}
+    \item \textbf{Semantic Query Understanding:} advanced natural language processing (NLP) to parse and disambiguate user intent.
+    \item \textbf{Matching and Relevance Scoring:} identifying and prioritizing the most pertinent information across massive corpora.
+    \item \textbf{Contextual Retrieval for Fresh Information:} pure generative models are bound by their training cutoff and cannot answer questions requiring recent or private knowledge without expensive retraining.
+\end{enumerate}
+
+To bridge this gap, modern architectures rely on \textbf{RAG (\textit{Retrieval-Augmented Generation})}: the system extracts queries from user input, retrieves authoritative passages from an external corpus or the Web, and injects them into the LLM's prompt context to synthesize an accurate, cited response without modifying model parameters.
+
+\subsubsection{Agentic Search and the Adaptive Feedback Loop}
+While conventional RAG operates as a single-step pipeline (query $\to$ retrieve $\to$ generate), complex inquiries necessitate \textbf{Agentic Search}:
+
+\begin{definition}[Agentic Search]
+\textbf{Agentic Search} is an autonomous, multi-turn retrieval process in which an AI agent dynamically decides subsequent search actions based on intermediate findings. The agent inspects retrieved sources, identifies missing knowledge or discrepancies (\textit{information gaps}), formulates targeted follow-up queries, and iterates until sufficient evidence is assembled to synthesize the final answer.
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    stepbox/.style={rectangle, rounded corners=4pt, draw=blue!80!black, fill=blue!8, thick, minimum width=2.8cm, minimum height=1.0cm, align=center, font=\small\bfseries},
+    evalbox/.style={rectangle, rounded corners=4pt, draw=orange!80!black, fill=orange!12, thick, minimum width=2.8cm, minimum height=1.0cm, align=center, font=\small\bfseries},
+    outbox/.style={rectangle, rounded corners=4pt, draw=teal!80!black, fill=teal!12, thick, minimum width=2.8cm, minimum height=1.0cm, align=center, font=\small\bfseries},
+    arr/.style={-Stealth, thick, blue!85!black},
+    looparr/.style={-Stealth, thick, dashed, red!75!black}
+]
+    \node[stepbox] (search)  at ( 0.0, 0) {1. Search\\[3pt]\scriptsize (Execute query)};
+    \node[stepbox] (inspect) at ( 5.5, 0) {2. Inspect\\[3pt]\scriptsize (Analyze sources)};
+    \node[evalbox] (gaps)    at (11.0, 0) {3. Identify Gaps\\[3pt]\scriptsize (Detect missing facts)};
+    \node[outbox]  (answer)  at (16.5, 0) {4. Synthesize\\[3pt]\scriptsize (Final response)};
+
+    \draw[arr] (search)  -- (inspect);
+    \draw[arr] (inspect) -- (gaps);
+    % Curved arrow above boxes to avoid label overlap
+    \draw[arr, bend left=40] (gaps.north) to node[above, font=\small\bfseries, fill=white, inner sep=3pt, text=teal!70!black] {Complete} (answer.north);
+    \draw[looparr] (gaps.south) -- ++(0,-1.4) -| node[pos=0.25, below, font=\small\bfseries, text=red!75!black, fill=white, inner sep=3pt] {Information gaps detected $\rightarrow$ Issue targeted query} (search.south);
+\end{tikzpicture}%
+}
+\caption{Adaptive feedback loop characterizing Agentic Search.}
+\label{fig:agentic-search-loop-en}
+\end{figure}
+
+
+For example, when prompted with: \textit{"Why did Company X's profits drop last quarter despite record revenue?"}, an agentic system retrieves the financial report, notices the divergence between revenue and operating margins, identifies the need to investigate rising raw material costs or restructuring expenses, executes a refined query, and consolidates the evidence into an analytical answer with citations.
 
 \subsection{Information Retrieval vs. Data Retrieval}
 A fundamental conceptual distinction lies in contrasting traditional relational database querying (\textit{Data Retrieval}) with Information Retrieval:
@@ -22,29 +70,31 @@ A fundamental conceptual distinction lies in contrasting traditional relational 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabularx}{\textwidth}{p{3.2cm} X X}
+\begin{tabularx}{\textwidth}{>{\raggedright\bfseries\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Dimension} & \textbf{Data Retrieval (SQL Databases)} & \textbf{Information Retrieval} \\
+\normalfont\textbf{Dimension} & \textbf{Data Retrieval (SQL Databases)} & \textbf{Information Retrieval} \\
 \midrule
-\textbf{Data Structure} & Highly structured data with strict relational schemas (tables, types, constraints) & Unstructured or semi-structured data (free text, HTML, PDF, metadata) \\
+Data Structure & Highly structured data with strict relational schemas (tables, types, constraints) & Unstructured or semi-structured data (free text, HTML, PDF, metadata) \\
 \addlinespace
-\textbf{Query Language} & Formal deterministic queries (e.g., SQL) with exact relational algebra semantics & Natural language keywords or phrases (often ambiguous, short, and incomplete) \\
+Query Language & Formal deterministic queries (e.g., SQL) with exact relational algebra semantics & Natural language keywords or phrases (often ambiguous, short, and incomplete) \\
 \addlinespace
-\textbf{Matching Criterion} & Exact Boolean matching: a record either strictly satisfies or violates the predicate & Partial and probabilistic matching: documents exhibit varying degrees of relevance \\
+Matching Criterion & Exact Boolean matching: a record either strictly satisfies or violates the predicate & Partial and probabilistic matching: documents exhibit varying degrees of relevance \\
 \addlinespace
-\textbf{Result Ordering} & No intrinsic ordering (unless explicitly specified via \texttt{ORDER BY}) & Central ranking mechanism driven by relevance estimation (\textit{Relevance Ranking}) \\
+Result Ordering & No intrinsic ordering (unless explicitly specified via \texttt{ORDER BY}) & Central ranking mechanism driven by relevance estimation (\textit{Relevance Ranking}) \\
 \addlinespace
-\textbf{Error Tolerance} & Zero tolerance: syntax errors or unexpected values produce errors or empty sets & High tolerance: resilience to typos, synonyms, polysemy, and morphological variants \\
+Error Tolerance & Zero tolerance: syntax errors or unexpected values produce errors or empty sets & High tolerance: resilience to typos, synonyms, polysemy, and morphological variants \\
 \bottomrule
 \end{tabularx}
 \caption{Analytical comparison between traditional Data Retrieval and Information Retrieval.}
 \label{tab:ir-vs-dr-en}
 \end{table}
 
+
 \begin{alertblock}{Relevance: The Core of IR}
 While database systems evaluate binary truth against relational predicates, Information Retrieval focuses on estimating the degree of \textbf{relevance} of each document with respect to the user's underlying cognitive information need. Relevance is inherently subjective, context-dependent, and time-varying.
 \end{alertblock}
 
+\FloatBarrier
 \section{The Two Fundamental Goals: Effectiveness and Efficiency}
 
 A large-scale information retrieval system must simultaneously optimize two competing objectives:
@@ -68,6 +118,7 @@ The efficiency of a modern search engine depends not merely on algorithmic compl
     \item \textbf{Parallel Computing and Distributed Sharding:} Indices exceeding the capacity of a single machine are partitioned (\textit{sharded}), typically through document-level sharding, allowing compute clusters to process queries concurrently with centralized result aggregation.
 \end{itemize}
 
+\FloatBarrier
 \section{Information Retrieval System Architecture}
 
 As depicted in Figure~\ref{fig:ir-architecture-detailed-en}, an IR system enforces a strict decoupling between the \textbf{Offline Pipeline} (indexing and model training) and the \textbf{Online Pipeline} (low-latency query serving).
@@ -150,6 +201,7 @@ Raw textual content undergoes four sequential preparation stages:
     \end{itemize}
 \end{enumerate}
 
+\FloatBarrier
 \section{Language Properties and Retrieval Models}
 
 Natural language word distributions adhere to statistical empirical laws that shape index designs and ranking algorithms:
@@ -168,92 +220,133 @@ Natural language word distributions adhere to statistical empirical laws that sh
 
 Core retrieval models include:
 \begin{enumerate}
-    \item \textbf{Boolean Model:} Deterministic matching against logical operators ($\land, \lor, \neg$), yielding unranked result sets.
+    \item \textbf{Boolean Model:} Deterministic matching against logical operators ($\land, \lor, \neg$), lacking an intrinsic relevance score.
     \item \textbf{Vector Space Model (TF-IDF):} Documents and queries are modeled as vectors across vocabulary space $|V|$, weighted by term frequency ($TF$) and inverse document frequency ($IDF$), scored via cosine similarity.
-    \item \textbf{Probabilistic Model (BM25):} The industry standard for lexical retrieval based on the 2-Poisson indexing model, incorporating non-linear term frequency saturation and document length normalization~\cite{buttcher2010}.
+    \item \textbf{Probabilistic Model (BM25):} The de facto industry standard for lexical retrieval based on the 2-Poisson probabilistic model~\cite{buttcher2010}. It formalizes asymptotic term frequency saturation and penalizes excessively long documents to mitigate verbosity bias:
+    \begin{equation}
+    \operatorname{score}_{\text{BM25}}(q, d) = \sum_{t \in q} \operatorname{IDF}(t) \cdot \frac{tf(t, d) \cdot (k_1 + 1)}{tf(t, d) + k_1 \cdot \left(1 - b + b \cdot \dfrac{|d|}{\text{avgdl}}\right)}
+    \label{eq:bm25-formula-en}
+    \end{equation}
+    where:
+    \begin{itemize}
+        \item $\operatorname{IDF}(t) = \ln \left( \dfrac{N - df_t + 0.5}{df_t + 0.5} + 1 \right)$ quantifies the informative specificity of term $t$ across the entire collection of $N$ documents.
+        \item $tf(t, d)$ is the raw term frequency of $t$ within document $d$.
+        \item $k_1 \ge 0$ (term frequency saturation parameter, typically calibrated between $1.2$ and $2.0$): governs how rapidly repeated occurrences of the same term flatten toward an asymptote.
+        \item $b \in [0, 1]$ (document length normalization penalty, typically $b \approx 0.75$): regulates the penalty applied to document length $|d|$ relative to the average collection document length $\text{avgdl}$. At $b=1$, the penalty for lengthy documents is maximal; at $b=0$, document length is entirely ignored.
+    \end{itemize}
 \end{enumerate}
 
+\FloatBarrier
 \section{The Inverted Index}
 
-The \textbf{Inverted Index} reverses document storage directionality, mapping terms to posting lists $t \mapsto \mathcal{P}_t$~\cite{manning2008}.
+The \textbf{Inverted Index} reverses document storage directionality, establishing a mapping $t \mapsto \mathcal{P}_t$, where $\mathcal{P}_t$ is the ordered list of documents containing term $t$~\cite{manning2008}.
 
 \begin{definition}[Inverted Index]
-An Inverted Index consists of two complementary structures:
+An Inverted Index consists of two complementary components:
 \begin{enumerate}
     \item \textbf{Dictionary (Vocabulary):} Stores all unique terms appearing across the collection, maintained via fast lookup structures (B-Trees or Hash Tables), along with document frequency $df_t$ and a pointer to the start of its posting list.
-    \item \textbf{Posting List:} For each term $t$, an ordered array of document identifiers sorted strictly in ascending order ($\text{DocID}_1 < \text{DocID}_2 < \dots$). Each posting may also record local term frequencies ($tf$) and intra-document term position offsets.
+    \item \textbf{Posting List:} For each term $t$, an ordered array of document identifiers sorted strictly in ascending order ($\text{DocID}_1 < \text{DocID}_2 < \dots$). Each posting may also record auxiliary metadata such as local term frequencies ($tf$) and intra-document term position offsets.
 \end{enumerate}
 \end{definition}
+
+\begin{example}[Reference Toy Collection (Slide 16)]
+Consider a toy educational collection of three documents:
+\begin{itemize}
+    \item $d_1$: \textit{"An inverted index is an index storing a mapping from terms to their occurrences in a set of documents."}
+    \item $d_2$: \textit{"The inverted index data structure is a central component of a typical search engine indexing algorithm."}
+    \item $d_3$: \textit{"The goal is to optimize the speed of the query: find the documents where a set of words occur."}
+\end{itemize}
+Figure~\ref{fig:inverted-index-structure-en} illustrates the Inverted Index constructed for the key terms extracted from this collection.
+\end{example}
 
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
-    scale=0.95,
-    term/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=0.68cm, font=\small\ttfamily, align=left},
-    df/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=0.9cm, minimum height=0.68cm, font=\small, align=center},
-    post/.style={rectangle, draw=purple!80!black, fill=purple!8, thick, minimum width=0.85cm, minimum height=0.68cm, font=\small\bfseries},
+    scale=0.92,
+    term/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=0.62cm, font=\footnotesize\ttfamily, align=left},
+    df/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=0.8cm, minimum height=0.62cm, font=\footnotesize, align=center},
+    post/.style={rectangle, draw=purple!80!black, fill=purple!8, thick, minimum width=0.75cm, minimum height=0.62cm, font=\footnotesize\bfseries},
     ptr/.style={-Stealth, thick, blue!80!black},
     link/.style={-Stealth, thick, purple!80!black},
     header/.style={font=\bfseries\small, align=center}
 ]
     % Main Headers
-    \node[header, blue!80!black] at (0.825, 4.0) {DICTIONARY};
-    \node[header, purple!80!black] at (5.3, 4.0) {POSTING LISTS};
+    \node[header, blue!80!black] at (0.825, 4.2) {DICTIONARY};
+    \node[header, purple!80!black] at (5.3, 4.2) {POSTING LISTS};
 
     % Sub-headers
-    \node[font=\footnotesize\itshape, blue!60!black] at (0, 3.4) {Term};
-    \node[font=\footnotesize\itshape, blue!60!black] at (1.65, 3.4) {$df_t$};
-    \node[font=\footnotesize\itshape, purple!70!black] at (5.3, 3.4) {$\mathrm{DocID}_1 < \mathrm{DocID}_2 < \dots$};
+    \node[font=\footnotesize\itshape, blue!60!black] at (0, 3.6) {Term};
+    \node[font=\footnotesize\itshape, blue!60!black] at (1.65, 3.6) {$df_t$};
+    \node[font=\footnotesize\itshape, purple!70!black] at (5.3, 3.6) {$\mathrm{DocID}_1 < \mathrm{DocID}_2 < \dots$};
 
-    % Dictionary column (Terms + Doc Frequency df_t)
-    \node[term] (t1) at (0, 2.7) {an};
-    \node[df]   (df1) at (1.65, 2.7) {2};
+    % Row 1: a -> 1, 2, 3
+    \node[term] (t1) at (0, 2.9) {a};
+    \node[df]   (df1) at (1.65, 2.9) {3};
+    \node[post] (p11) at (4.0, 2.9) {1};
+    \node[post] (p12) at (5.0, 2.9) {2};
+    \node[post] (p13) at (6.0, 2.9) {3};
 
-    \node[term] (t2) at (0, 1.8) {inverted};
-    \node[df]   (df2) at (1.65, 1.8) {3};
+    % Row 2: an -> 1
+    \node[term] (t2) at (0, 2.1) {an};
+    \node[df]   (df2) at (1.65, 2.1) {1};
+    \node[post] (p21) at (4.0, 2.1) {1};
 
-    \node[term] (t3) at (0, 0.9) {index};
-    \node[df]   (df3) at (1.65, 0.9) {3};
+    % Row 3: index -> 1, 2
+    \node[term] (t3) at (0, 1.3) {index};
+    \node[df]   (df3) at (1.65, 1.3) {2};
+    \node[post] (p31) at (4.0, 1.3) {1};
+    \node[post] (p32) at (5.0, 1.3) {2};
 
-    \node[term] (t4) at (0, 0.0) {query};
-    \node[df]   (df4) at (1.65, 0.0) {1};
+    % Row 4: inverted -> 1, 2
+    \node[term] (t4) at (0, 0.5) {inverted};
+    \node[df]   (df4) at (1.65, 0.5) {2};
+    \node[post] (p41) at (4.0, 0.5) {1};
+    \node[post] (p42) at (5.0, 0.5) {2};
 
-    % Postings
-    \node[post] (p11) at (4.2, 2.7) {1};
-    \node[post] (p12) at (5.3, 2.7) {2};
-
-    % Row 2
-    \node[post] (p21) at (4.2, 1.8) {1};
-    \node[post] (p22) at (5.3, 1.8) {2};
-    \node[post] (p23) at (6.4, 1.8) {3};
-
-    % Row 3
-    \node[post] (p31) at (4.2, 0.9) {1};
-    \node[post] (p32) at (5.3, 0.9) {2};
-    \node[post] (p33) at (6.4, 0.9) {3};
-
-    % Row 4
-    \node[post] (p41) at (4.2, 0.0) {3};
+    % Row 5: query -> 3
+    \node[term] (t5) at (0, -0.3) {query};
+    \node[df]   (df5) at (1.65, -0.3) {1};
+    \node[post] (p51) at (4.0, -0.3) {3};
 
     % Arrows from Dictionary to Posting Lists
     \draw[ptr] (df1.east) -- (p11.west);
     \draw[ptr] (df2.east) -- (p21.west);
     \draw[ptr] (df3.east) -- (p31.west);
     \draw[ptr] (df4.east) -- (p41.west);
+    \draw[ptr] (df5.east) -- (p51.west);
 
     % Links between postings
     \draw[link] (p11) -- (p12);
-    \draw[link] (p21) -- (p22);
-    \draw[link] (p22) -- (p23);
+    \draw[link] (p12) -- (p13);
     \draw[link] (p31) -- (p32);
-    \draw[link] (p32) -- (p33);
+    \draw[link] (p41) -- (p42);
 \end{tikzpicture}
-\caption{Inverted Index structure: Term dictionary with document frequency $df_t$ and linked posting lists ordered by ascending DocID.}
+\caption{Inverted Index structure for the reference toy collection ($d_1, d_2, d_3$): Term dictionary with document frequency $df_t$ and linked posting lists.}
 \label{fig:inverted-index-structure-en}
 \end{figure}
 
-\subsection{Query Processing and Merge Intersection}
-Maintaining strictly ascending DocID order allows conjunctive (\textbf{AND}) queries to be resolved via a synchronized two-pointer merge algorithm (Algorithm~\ref{alg:merge-intersection-en}).
+\subsection{Query Processing and Merge Algorithms}
+The strictly ascending order of DocIDs enables Boolean and phrase queries to be evaluated via coordinated traversals of posting lists:
+\begin{itemize}
+    \item \textbf{Conjunctive Query (AND):} Identifies documents containing all specified terms simultaneously. For example, evaluating $q = \text{\texttt{"inverted" AND "index"}}$:
+    \[
+    \mathcal{P}_{\text{inverted}} \cap \mathcal{P}_{\text{index}} = [1, 2] \cap [1, 2] = [1, 2] \implies \{d_1, d_2\}
+    \]
+    Conversely, for $q = \text{\texttt{"query" AND "inverted" AND "index"}}$:
+    \[
+    (\mathcal{P}_{\text{inverted}} \cap \mathcal{P}_{\text{index}}) \cap \mathcal{P}_{\text{query}} = [1, 2] \cap [3] = \emptyset
+    \]
+    The two-pointer intersection merge (Algorithm~\ref{alg:merge-intersection-en}) provides linear complexity $\BigO{|P_1| + |P_2|}$. When evaluating queries with $k > 2$ terms, best practice dictates processing posting lists in ascending order of document frequency $df_t$, starting with the shortest list to minimize intermediate candidate sets.
+    \item \textbf{Disjunctive Query (OR):} Identifies documents containing at least one of the query terms. For $q = \text{\texttt{"query" OR "inverted"}}$:
+    \[
+    \mathcal{P}_{\text{query}} \cup \mathcal{P}_{\text{inverted}} = [3] \cup [1, 2] = [1, 2, 3] \implies \{d_1, d_2, d_3\}
+    \]
+    \item \textbf{Phrase Search:} To match exact sequences of words (e.g., \texttt{"inverted index"}), posting lists store positional offsets for each occurrence within a document. The evaluation algorithm verifies that:
+    \[
+    \text{pos}(\text{index}) - \text{pos}(\text{inverted}) = 1
+    \]
+    filtering out documents where terms appear in reversed order or at non-adjacent positions.
+\end{itemize}
 
 \begin{algorithm}[H]
 \caption{Merge Intersection for Conjunctive Queries ($P_1 \land P_2$)}
@@ -278,8 +371,32 @@ $i \leftarrow 1$; $j \leftarrow 1$\;
 \Return{$R$}\;
 \end{algorithm}
 
-The worst-case runtime complexity is $\BigO{|P_1| + |P_2|}$. Disjunctive queries (\textbf{OR}) compute the union of the posting lists, while Phrase Search checks positional difference constraints across word occurrences.
+\subsubsection{From Theory to Practice: Google Advanced Search}
+Theoretical Boolean and phrase retrieval constructs directly map to commercial search engine operators and advanced query interfaces (Table~\ref{tab:google-advanced-search-en}).
 
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{3.2cm} p{3.6cm} X}
+\toprule
+\textbf{IR Logical Operator} & \textbf{Google Advanced Search Field} & \textbf{Operational Syntax and Example} \\
+\midrule
+\textbf{Conjunction (AND)} & \textit{all these words} & Juxtaposed keywords: \texttt{tri-colour rat terrier} \\
+\addlinespace
+\textbf{Phrase Search} & \textit{this exact word or phrase} & Double quotes: \texttt{"rat terrier"} \\
+\addlinespace
+\textbf{Disjunction (OR)} & \textit{any of these words} & Uppercase operator: \texttt{miniature OR standard} \\
+\addlinespace
+\textbf{Negation (NOT)} & \textit{none of these words} & Minus prefix without spaces: \texttt{-rodent -"Jack Russell"} \\
+\addlinespace
+\textbf{Numeric Range} & \textit{numbers ranging from \dots\ to} & Two-dot operator: \texttt{10..35 kg}, \texttt{\pounds 300..\pounds 500} \\
+\bottomrule
+\end{tabularx}
+\caption{Direct mapping between theoretical Query Processing constructs and commercial Advanced Search interfaces.}
+\label{tab:google-advanced-search-en}
+\end{table}
+
+\FloatBarrier
 \section{Index Compression Techniques}
 
 Compressing inverted indices serves two goals: minimizing storage footprint and converting slow I/O bus transfer bottlenecks into fast CPU decompression operations.
@@ -300,38 +417,188 @@ R = (h - n + m) - (l + m - 1) + 1 = h - l - n + 1
 The shifted value $(x_m - (l + m - 1))$ is encoded using exactly $\lceil \log_2 R \rceil$ bits. The procedure then recurses on the left sub-array over $[l, x_m - 1]$ and on the right sub-array over $[x_m + 1, h]$.
 \end{definition}
 
-\begin{example}[Recursive Decomposition Example from Slides]
-Consider the sequence of $n = 12$ identifiers within $[0, 62]$:
+\begin{example}[Recursive Decomposition Tree (Slide 18)]
+Consider the sorted posting list of $n = 12$ identifiers bounded in the interval $[0, 62]$:
 \[
 L = [3, 4, 7, 13, 14, 15, 21, 25, 36, 38, 54, 62] \quad (n=12, m=6, l=0, h=62)
 \]
-The recursive tree partitions the sequence as follows:
+The recursive decomposition tree (Figure~\ref{fig:interpolative-tree-en}) partitions the sequence hierarchically:
 \begin{itemize}
-    \item The median splits the array into left sublist $[3, 4, 7, 13, 14]$ with $(n=5, m=3, l=0, h=14)$ and right sublist $[21, 25, 36, 38, 54]$ with $(n=5, m=3, l=16, h=62)$.
-    \item At the next depth, $[3, 4, 7, 13, 14]$ splits into $[3, 4]$ with $(n=2, m=1, l=0, h=6)$ and $[13, 14]$ with $(n=2, m=1, l=8, h=14)$.
-    \item The leaves encode individual elements: for instance, $[14]$ with $(n=1, m=1, l=14, h=14)$ yields $R = 14 - 14 - 1 + 1 = 1$, requiring $\lceil \log_2 1 \rceil = 0$ bits!
+    \item The median element $x_6 = 15$ splits the sequence into left sublist $[3, 4, 7, 13, 14]$ constrained by $(n=5, m=3, l=0, h=14)$ and right sublist $[21, 25, 36, 38, 54]$ constrained by $(n=5, m=3, l=16, h=62)$.
+    \item At the next lower level, the first sublist splits into $[3, 4]$ with $(n=2, m=1, l=0, h=6)$ and $[13, 14]$ with $(n=2, m=1, l=8, h=14)$.
+    \item The leaf nodes encode individual elements: for instance, for $[14]$ with parameters $(n=1, m=1, l=14, h=14)$, the candidate range of valid values collapses to:
+    \[
+    R = 14 - 14 - 1 + 1 = 1 \implies \lceil \log_2 1 \rceil = 0 \text{ bits!}
+    \]
 \end{itemize}
-When postings are densely clustered, $R$ collapses to $1$, yielding zero-bit representations for clustered entries.
+When document identifiers form dense clusters, the candidate range $R$ collapses to $1$, reducing the storage footprint to zero bits for many clustered postings.
 \end{example}
 
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    level distance=1.5cm,
+    level 1/.style={sibling distance=7.0cm},
+    level 2/.style={sibling distance=3.5cm},
+    level 3/.style={sibling distance=1.8cm},
+    node/.style={rectangle, rounded corners=3pt, draw=blue!80!black, fill=blue!8, thick, align=center, font=\scriptsize, inner sep=3pt},
+    leaf/.style={rectangle, rounded corners=3pt, draw=teal!80!black, fill=teal!10, thick, align=center, font=\scriptsize\bfseries, inner sep=3pt},
+    arr/.style={-Stealth, thick, blue!80!black}
+]
+    % Root
+    \node[node] (root) {$[3,4,7,13,14,15,21,25,36,38,54,62]$\\[2pt]\tiny $(n=12, m=6, l=0, h=62)$}
+        child {
+            node[node] (l1) {$[3,4,7,13,14]$\\[2pt]\tiny $(n=5, m=3, l=0, h=14)$}
+            child {
+                node[node] (l11) {$[3,4]$\\[2pt]\tiny $(n=2, m=1, l=0, h=6)$}
+                child {
+                    node[leaf] (leaf1) {$[4]$\\[2pt]\tiny $(n=1, m=1, l=4, h=6)$}
+                    edge from parent[arr]
+                }
+                edge from parent[arr]
+            }
+            child {
+                node[node] (l12) {$[13,14]$\\[2pt]\tiny $(n=2, m=1, l=8, h=14)$}
+                child {
+                    node[leaf] (leaf2) {$[14]$\\[2pt]\tiny $(n=1, m=1, l=14, h=14)$\\[1pt]\tiny \color{teal!80!black}\textbf{0 bits!}}
+                    edge from parent[arr]
+                }
+                edge from parent[arr]
+            }
+            edge from parent[arr]
+        }
+        child {
+            node[node] (r1) {$[21,25,36,38,54]$\\[2pt]\tiny $(n=5, m=3, l=16, h=62)$}
+            child {
+                node[node] (r11) {$[21,25]$\\[2pt]\tiny $(n=2, m=1, l=16, h=35)$}
+                child {
+                    node[leaf] (leaf3) {$[25]$\\[2pt]\tiny $(n=1, m=1, l=22, h=35)$}
+                    edge from parent[arr]
+                }
+                edge from parent[arr]
+            }
+            child {
+                node[node] (r12) {$[38,54]$\\[2pt]\tiny $(n=2, m=1, l=37, h=62)$}
+                child {
+                    node[leaf] (leaf4) {$[54]$\\[2pt]\tiny $(n=1, m=1, l=39, h=62)$}
+                    edge from parent[arr]
+                }
+                edge from parent[arr]
+            }
+            edge from parent[arr]
+        };
+\end{tikzpicture}
+\caption{Dichotomous decomposition tree for Binary Interpolative Coding (Slide 18).}
+\label{fig:interpolative-tree-en}
+\end{figure}
+
 \subsection{Dictionary-Based Compression: LZ77}
-For general text or token streams, the \textbf{Lempel-Ziv '77} (LZ77) algorithm maintains a sliding window comprising a Search Buffer and a Lookahead Buffer, emitting triples:
-\begin{equation}
-(\text{offset}, \text{length}, \text{next\_char})
-\end{equation}
-For example, given the input sequence:
+For general text or token streams, the \textbf{Lempel-Ziv '77} (LZ77) algorithm maintains a sliding window comprising a Search Buffer and a Lookahead Buffer, emitting triples formatted as $(\text{offset}, \text{length}, \text{next\_char})$.
+
+Consider the phrase segmentation of the sample input sequence:
 \[
-T = \text{\texttt{a b a b a a a a b a b a a a a b}}
+T = \underbrace{\text{\texttt{a}}}_{(0, \text{'a'})} \; \underbrace{\text{\texttt{b}}}_{(0, \text{'b'})} \; \underbrace{\text{\texttt{a b a}}}_{(2, 3)} \; \underbrace{\text{\texttt{a a a}}}_{(1, 3)} \; \underbrace{\text{\texttt{b a b a a a a b}}}_{(7, 8)}
 \]
-LZ77 generates the pointer sequence:
+The resulting sequence of emitted pointers is:
 \[
 (0, \text{\texttt{'a'}}), \; (0, \text{\texttt{'b'}}), \; (2, 3), \; (1, 3), \; (7, 8)
 \]
-replacing repeated substrings with compact backward references.
+In this manner, long lexical repetitions are replaced with compact backward references within the sliding window. This algorithmic family forms the core of widely used production compressors such as \texttt{gzip}, \texttt{7-Zip}, and \texttt{LZ4} for high-throughput compressed storage.
 
+\FloatBarrier
+\section{Learning-to-Rank (LTR) and the Non-Differentiability Challenge}
+
+Within the architecture of a modern search engine (cf. Figure~\ref{fig:ir-architecture-detailed-en}), the candidate documents retrieved by the Inverted Index are passed to a machine learning re-ranking stage known as \textbf{Learning-to-Rank} (LTR)~\cite{burges2010}.
+
+\subsection{Formulation of the Ranking Problem}
+In the supervised LTR setting, the training collection consists of a set of queries, each paired with a list of candidate documents evaluated by human assessors or derived from implicit click logs:
+\begin{equation}
+\mathcal{T} = \left\{ \left( q, \langle (d_1, y_1), (d_2, y_2), \dots, (d_m, y_m) \rangle \right) \right\}
+\end{equation}
+where $y_i \in \{0, 1, 2, 3, 4\}$ denotes the graded relevance judgment on a multi-level ordinal scale:
+\begin{itemize}
+    \item $y = 0$: Irrelevant;
+    \item $y = 1$: Marginally relevant;
+    \item $y = 2$: Relevant;
+    \item $y = 3$: Highly relevant;
+    \item $y = 4$: Perfectly relevant.
+\end{itemize}
+
+Given a feature vector extracted for each query-document pair $\vec{x}_{q, d} = \Phi(q, d)$, a machine learning model computes a predicted relevance score $s_i = f_\theta(\vec{x}_{q, d_i})$. The final ranked list presented to the user is generated by sorting the documents in descending order of predicted score:
+\begin{equation}
+\pi = \operatorname{sort}_{\downarrow} \left( \{ (d_i, s_i) \}_{i=1}^m \right)
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=3pt, draw=blue!80!black, fill=blue!8, thick, minimum width=2.4cm, minimum height=0.8cm, align=center, font=\scriptsize},
+    model/.style={rectangle, rounded corners=3pt, draw=purple!80!black, fill=purple!12, thick, minimum width=2.8cm, minimum height=0.9cm, align=center, font=\scriptsize\bfseries},
+    blackbox/.style={rectangle, rounded corners=3pt, draw=black!90, fill=black!85, text=white, thick, minimum width=2.6cm, minimum height=0.85cm, align=center, font=\scriptsize\bfseries},
+    data/.style={rectangle, rounded corners=3pt, draw=gray!70!black, fill=gray!8, dashed, thick, align=left, font=\tiny, inner sep=4pt},
+    arr/.style={-Stealth, thick, blue!80!black}
+]
+    % Training stage
+    \node[data] (train) at (0, 2.4) {\textbf{Training Dataset of Queries and Ideal Judgments:}\\[2pt]
+        $q_a, \langle (d_1, y_{a1}), (d_2, y_{a2}), (d_3, y_{a3}), (d_5, y_{a5}), \dots \rangle$\\[1pt]
+        $q_b, \langle (d_{99}, y_{b99}), (d_{98}, y_{b98}), (d_{97}, y_{b97}), \dots \rangle$\\[2pt]
+        \textit{Graded labels $y \in \{0, \dots, 4\}$ (irrelevant to perfectly relevant)}};
+    
+    \node[model] (ml) at (6.5, 2.4) {Machine Learning Model\\[2pt]\tiny (Ranking Optimization)};
+
+    % Online inference stage
+    \node[box] (inonline) at (0, 0) {\textbf{Online Query $q$}\\[2pt]Candidate documents $\{d_1, d_2, d_3, \dots\}$};
+    \node[blackbox] (bbox) at (4.0, 0) {Ranking Function\\[2pt]\tiny (Learned Model)};
+    \node[box, draw=teal!80!black, fill=teal!10] (ranked) at (8.0, 0) {\textbf{Final Ranked SERP}\\[2pt]$d_{17}, d_{13}, d_{666}, \dots$};
+
+    \draw[arr] (train) -- (ml);
+    \draw[arr] (ml) -| (bbox);
+    \draw[arr] (inonline) -- (bbox);
+    \draw[arr] (bbox) -- (ranked);
+\end{tikzpicture}
+\caption{Conceptual workflow of Learning-to-Rank (LTR): from training with graded labels to online SERP ordering (Slide 19).}
+\label{fig:learning-to-rank-flow-en}
+\end{figure}
+
+\subsection{The Theoretical Challenge: Non-Differentiability of Ranking}
+In standard regression problems, an algorithm minimizes mean squared error $\sum_i (f_\theta(x_i) - y_i)^2$. In Information Retrieval, however, a foundational principle applies:
+\begin{alertblock}{The Core Principle of LTR}
+\textbf{The goal is to learn the ranking, not the label}: the primary objective is not accurately predicting an isolated numerical label $y$, but optimizing the relative ordering of documents in the list presented to the user, maximizing evaluation metrics such as \textbf{NDCG} (\textit{Normalized Discounted Cumulative Gain}) or \textbf{MAP} (\textit{Mean Average Precision}).
+\end{alertblock}
+
+This formulation introduces a fundamental mathematical obstacle:
+\begin{itemize}
+    \item Ranking metrics $\mathcal{M}(\pi)$ depend directly on the \textbf{discrete ranks} (positions $1, 2, \dots, k$) assigned to each document by the sorting permutation.
+    \item The sorting operation ($\operatorname{sort}$) is a piecewise constant, discontinuous step function.
+    \item As model parameters $\theta$ vary smoothly, document positions remain invariant (derivative is exactly zero) until two scores cross, creating a step discontinuity (derivative is undefined):
+    \begin{equation}
+    \frac{\partial \mathcal{M}_{\text{NDCG}}(\pi_\theta)}{\partial \theta} = 0 \quad \text{almost everywhere (a.e.)}
+    \end{equation}
+    \item Consequently, **standard stochastic gradient descent (SGD) and backpropagation cannot be applied directly** to optimize official ranking metrics!
+\end{itemize}
+
+\subsection{LTR Model Families and Surrogate Gradients}
+To circumvent the non-differentiability barrier, the literature has established three primary methodologies:
+\begin{enumerate}
+    \item \textbf{Pointwise Approach:} Treats each document as an independent regression or ordinal classification instance. While standard SGD applies directly, this method fails to model the inherently relative, competitive nature of ranked lists.
+    \item \textbf{Pairwise Approach (e.g., RankNet):} Considers pairs of documents $(d_i, d_j)$ for the same query with differing relevance ($y_i > y_j$). The objective becomes minimizing inverted pairs, modeling the probability that $d_i$ outranks $d_j$ via a smooth logistic sigmoid:
+    \[
+    P(d_i \succ d_j) = \frac{1}{1 + e^{-\sigma (s_i - s_j)}}
+    \]
+    The cross-entropy loss over these probabilities is smooth and differentiable.
+    \item \textbf{Listwise Approach and $\lambda$-Gradients (LambdaMART):} Directly optimizes the entire ranked list. **LambdaRank** introduces virtual surrogate gradients ($\lambda_{ij}$), defined by weighting pairwise gradients by the absolute metric change $|\Delta \operatorname{NDCG}_{ij}|$ resulting from swapping positions between $d_i$ and $d_j$:
+    \begin{equation}
+    \lambda_{ij} = \frac{-\sigma}{1 + e^{\sigma(s_i - s_j)}} \cdot |\Delta \operatorname{NDCG}_{ij}|
+    \end{equation}
+    Combining these virtual gradients with Gradient Boosted Decision Trees produced **LambdaMART**~\cite{burges2010}, which remained the industry gold standard in web search engines for over a decade.
+\end{enumerate}
+
+\FloatBarrier
 \section{Evolution Toward Neural Information Retrieval}
 
-Beginning in 2018, Transformer architectures and pretrained models like BERT revolutionized Information Retrieval~\cite{khattab2020,formal2021}. Neural architectures split into two primary paradigms:
+Beginning in 2018, Transformer architectures and pretrained models like BERT revolutionized Information Retrieval~\cite{khattab2020,formal2021}. Transformer models acquire deep semantic language representations through large-scale self-supervised pre-training, primarily \textbf{Masked Language Modeling (MLM)}: during training, a random fraction of tokens (typically $15\%$) is masked out with the special token \texttt{[MASK]}, and the network learns to predict the original token via a dense classifier and softmax over the vocabulary $|V|$.
+
+In document retrieval, neural approaches split into two fundamental architectural paradigms (Figure~\ref{fig:cross-vs-bi-encoder-en}):
 
 \begin{figure}[htbp]
 \centering
@@ -401,16 +668,44 @@ Representation models fall into three broad categories:
     \end{itemize}
 \end{enumerate}
 
-\section{\texorpdfstring{$k$-Approximate Nearest Neighbor Search ($k$-ANN)}{k-Approximate Nearest Neighbor Search (k-ANN)}}
+\begin{example}[SPLADE Semantic Expansion (Slide 21)]
+Consider the natural language query:
+\[
+q = \text{\texttt{"what shoes do most nba players wear"}}
+\]
+A learned sparse neural retrieval model (such as SPLADE~\cite{formal2021}) activates a selective subset of vocabulary components over $|V|$, producing a sparse vector with learned weights:
+\begin{center}
+\small\ttfamily
+nba: 2.56, \quad shoes: 2.32, \quad shoe: 2.14, \quad basketball: 1.97, \\
+wearing: 1.55, \quad wear: 1.52, \quad most: 1.34, \quad players: 1.25
+\end{center}
+This example highlights two fundamental advantages of neural sparse models:
+\begin{enumerate}
+    \item \textbf{Semantic Vocabulary Expansion:} The model autonomously assigns high weight to the term \texttt{"basketball"} ($1.97$) despite its complete absence from the original query text, resolving the classical \textit{vocabulary mismatch} problem.
+    \item \textbf{Morphological Harmonization:} It assigns coordinated weights to singular/plural forms (\texttt{shoe} / \texttt{shoes}) and inflected verb variations (\texttt{wear} / \texttt{wearing}), blending the advantages of linguistic stemming with deep contextual learning.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section{\texorpdfstring{$k$-Approximate Nearest Neighbor Search ($k$-ANN) and Scalability}{k-Approximate Nearest Neighbor Search (k-ANN) and Scalability}}
 
 In high-dimensional embedding spaces, retrieval reduces to finding the top-$k$ documents maximizing the inner product with the query vector (\textit{Maximum Inner Product Search}, MIPS):
 \begin{equation}
 \operatorname{argmax}_{v \in \mathcal{D}}^{(k)} \; \vec{q}^{\,T} \cdot \vec{v}
 \end{equation}
-On standard Web-scale collections:
+
+On standard Web-scale collections (e.g., the MS MARCO benchmark):
 \begin{itemize}
-    \item The document volume exceeds $8.8$ million items (e.g., MS MARCO benchmark).
+    \item The document volume exceeds $8.8$ million items ($|\mathcal{D}| \approx 8.8 \times 10^6$).
     \item The vocabulary vector space comprises roughly $30\,000$ dimensions.
-    \item Each document activates only approximately $150$ non-zero components.
+    \item Each document activates only approximately $150$ non-zero components on average.
 \end{itemize}
-High-throughput query serving avoids brute-force linear scans through hybrid forward-inverted sparse vector index architectures, exemplified by modern libraries such as \textbf{TusKANNy}, engineered in Rust at the University of Pisa.
+
+\subsection{Forward Index and the TusKANNy Framework}
+To avoid the prohibitive latency of exhaustive linear scans, modern sparse $k$-ANN systems combine inverted indices with a \textbf{Forward Index}. In the Forward Index, each document is stored as a compact, contiguous sequence of (component, value) pairs:
+\begin{equation}
+d_i = \langle (c_1, v_1), (c_2, v_2), \dots, (c_m, v_m) \rangle \quad (\text{with } m \approx 150)
+\end{equation}
+At query time ($q = \langle (c_1, v_1), \dots, (c_p, v_p) \rangle$), the engine selectively computes inner products only across overlapping non-zero components.
+
+These techniques were highlighted in the international \textbf{NeurIPS'23 Big-ANN Challenge} and the \textbf{SISAP 2026} benchmark. In this ecosystem, \textbf{TusKANNy} (\url{https://tuskanny.com/}) is an open-source, high-performance Rust library co-developed by researchers from ISTI-CNR and the University of Pisa. TusKANNy implements advanced vector pruning and scanning algorithms (such as \textit{Seismic} and \textit{Kannolo}) capable of sustaining over $15\,000$ queries per second (QPS) with recall exceeding $90\%$, operating with sub-millisecond latencies.

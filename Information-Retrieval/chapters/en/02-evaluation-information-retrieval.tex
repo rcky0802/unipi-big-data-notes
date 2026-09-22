@@ -1,6 +1,7 @@
 \chapter{Evaluation of Information Retrieval Systems}
 \label{chap:evaluation}
 
+\FloatBarrier
 \section{Evaluating Search Engine Quality}
 
 Rigorous performance evaluation is essential for designing, fine-tuning, and deploying Information Retrieval systems~\cite{manning2008,buttcher2010}. Search engine quality is evaluated across two complementary dimensions:
@@ -18,6 +19,7 @@ Rigorous performance evaluation is essential for designing, fine-tuning, and dep
     \end{itemize}
 \end{enumerate}
 
+\FloatBarrier
 \section{Measuring User Happiness}
 
 In commercial Web search engines, the overarching objective is maximizing \textbf{User Happiness}. Because happiness is an internal cognitive state that cannot be directly queried, production environments rely on observable online behavioral proxies:
@@ -37,6 +39,7 @@ In commercial Web search engines, the overarching objective is maximizing \textb
 The rise of generative conversational engines (such as ChatGPT, SearchGPT, and Perplexity) alters traditional CTR and Dwell Time dynamics: users consume direct synthesized summaries rather than navigating outgoing links. Consequently, factual grounding, hallucination minimization, and citation fidelity supplant traditional link click telemetry.
 \end{alertblock}
 
+\FloatBarrier
 \section{The Cranfield Paradigm and Offline Test Collections}
 
 While online signals offer valuable telemetry, they are noisy, subject to position bias, and unsuitable for comparing algorithmic improvements offline prior to production deployment.
@@ -82,6 +85,36 @@ Organized by the National Institute of Standards and Technology (NIST), the \tex
 TREC is organized into specialized thematic \textit{tracks} reflecting distinct information access tasks (Web search, biomedical IR, conversational search, deep learning retrieval).
 The output produced by a participant system executing a retrieval task on a test collection is termed a \textbf{Run}.
 
+Table~\ref{tab:test-corpora-en} documents the dimensional evolution of classical benchmark collections across Information Retrieval history~\cite{manning2008}, emphasizing the massive scale increase that necessitated the creation of TREC.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l r r r r r}
+\toprule
+\textbf{Collection} & \textbf{Documents ($N$)} & \textbf{Queries} & \textbf{Size (MB)} & \textbf{Terms/Doc} & \textbf{Assessments (Q-D)} \\
+\midrule
+ADI & 82 & 35 & --- & --- & --- \\
+AIT & 2\,109 & 14 & 2 & 400.0 & $> 10\,000$ \\
+CACM & 3\,204 & 64 & 2 & 24.5 & --- \\
+CISI & 1\,460 & 112 & 2 & 46.5 & --- \\
+\textbf{Cranfield} & 1\,400 & 225 & 2 & 53.1 & Exhaustive \\
+LISA & 5\,872 & 35 & 3 & --- & --- \\
+Medline & 1\,033 & 30 & 1 & --- & --- \\
+NPL & 11\,429 & 93 & 3 & --- & --- \\
+OSHMED & 348\,566 & 106 & 400 & 250.0 & 16\,140 \\
+Reuters & 21\,578 & 672 & 28 & 131.0 & --- \\
+\midrule
+\textbf{TREC (Typical)} & \textbf{740\,000} & \textbf{200} & \textbf{2\,000 (2 GB)} & \textbf{89--3\,543} & \textbf{$> 100\,000$} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Comparative overview of classical historical evaluation test corpora (Slide 11).}
+\label{tab:test-corpora-en}
+\end{table}
+
+As evident from the empirical data, early corpora from the 1960s and 1970s (such as Cranfield and Medline) comprised only a few thousand records and 1--2 MB, allowing exhaustive manual judging. With the advent of realistic Web-scale corpora containing hundreds of thousands of documents and gigabytes of text like TREC, the combinatorial evaluation space exploded, mandating selective sampling strategies.
+
 \subsection{The Pooling Technique}
 To select which documents human assessors should judge without evaluating the entire corpus, TREC standardizes the \textbf{Pooling} methodology (Figure~\ref{fig:pooling-process-en}):
 
@@ -122,6 +155,7 @@ All documents in the corpus not present in the pool (\textit{unpooled}) are form
 While this assumption may theoretically penalize innovative systems surfacing relevant documents overlooked by historical pool contributors, NIST experiments confirm that sufficiently diverse pools maintain stable, fair, and reliable system rankings.
 \end{alertblock}
 
+\FloatBarrier
 \section{Information Need vs. Query}
 
 A crucial principle in evaluation separates the underlying need from its textual expression:
@@ -133,6 +167,7 @@ A crucial principle in evaluation separates the underlying need from its textual
 Document relevance must always be assessed with respect to the user's underlying \textbf{Information Need}, never purely against the superficial keywords of the query string.
 \end{property}
 
+\FloatBarrier
 \section{Unranked Retrieval Measures}
 
 In unranked evaluation contexts (e.g., Boolean retrieval), the engine returns an unordered set of documents. Performance is derived from the standard contingency table (Table~\ref{tab:contingency-evaluation-en}):
@@ -247,6 +282,7 @@ F_\beta = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R}
     \item Values of $\beta > 1$ (e.g., $\beta = 2.0$) emphasize \textbf{Recall} over Precision (crucial in legal discovery, patent search, and clinical meta-analyses).
 \end{itemize}
 
+\FloatBarrier
 \section{Rank-Based Measures (Binary Relevance)}
 
 Modern search engines return ranked lists ordered by descending relevance scores. Furthermore, Web users rarely look beyond the first page of results ($k = 10$ or $k = 30$).
@@ -271,10 +307,20 @@ Consider a ranked list with binary relevance sequence for the top 5 positions $\
 \end{itemize}
 \end{example}
 
-\textbf{Limitations of $P@k$:} It does not reward placing relevant documents higher within the top-$k$ window, and it does not average cleanly across queries with fewer than $k$ total relevant documents. Similarly, $Recall@k$ ($R@k$) evaluates the fraction of all relevant documents recovered within the top $k$.
+\begin{alertblock}{The Distortion of $P@k$ When Averaged Across Queries (Slide 28)}
+While $P@k$ is intuitive for estimating top-page result quality, it suffers from a critical methodological flaw when averaged across heterogeneous queries:
+\begin{itemize}
+    \item If a specific query $q_A$ possesses only $R_A = 2$ relevant documents in the entire corpus, the theoretical maximum possible $P@10(q_A)$ is capped at $\frac{2}{10} = 0.20$, even if a flawless engine places both relevant documents at ranks 1 and 2!
+    \item Averaging raw $P@10$ across queries penalizes the retrieval engine for the intrinsic scarcity of relevant documents for specific information needs, rather than algorithmic ranking errors.
+\end{itemize}
+Similarly, the complementary measure $Recall@k$ ($R@k$) evaluates the fraction of all relevant documents recovered within rank $k$:
+\begin{equation}
+Recall@k = \frac{1}{R} \sum_{i=1}^k \mathrm{rel}_i
+\end{equation}
+\end{alertblock}
 
 \subsection{Average Precision (AP)}
-\textbf{Average Precision} computes precision at each rank position where a relevant document appears, rewarding systems that place relevant documents earlier in the ranking:
+\textbf{Average Precision} (AP) summarizes the entire Precision-Recall curve into a single scalar score for a given query, evaluating instantaneous precision at each rank position where recall increases.
 
 \begin{definition}[Average Precision]
 For a ranking of $N$ documents corresponding to a query with $R$ total relevant documents in the collection:
@@ -283,16 +329,104 @@ AP = \frac{1}{R} \sum_{k=1}^N P@k \cdot \mathrm{rel}_k
 \end{equation}
 \end{definition}
 
-\begin{example}[Step-by-Step Calculation from Slides]
-Consider a query with $R = 3$ total relevant documents. The search engine returns relevant documents at ranks $k_1 = 1$, $k_2 = 3$, and $k_3 = 5$.
-The corresponding precisions are:
+\begin{property}[Geometric Interpretation and the Role of $1/R$]
+Average Precision carries a direct analytical meaning:
+\begin{enumerate}
+    \item Each time a relevant document is encountered at rank $k$, recall increases by a discrete increment $\Delta Recall = \frac{1}{R}$. AP accumulates the rectangular areas $P@k \cdot \Delta Recall$, representing the \textbf{discrete numerical approximation of the Area Under the Precision-Recall Curve} (AUC-PR).
+    \item Normalizing by $R$ (the total number of relevant documents in the corpus) ensures that relevant documents omitted from the top-$N$ candidate pool implicitly contribute zero precision, heavily penalizing systems with incomplete recall.
+\end{enumerate}
+\end{property}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.9,
+    docrel/.style={rectangle, rounded corners=2pt, draw=teal!80!black, fill=teal!20, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize\bfseries},
+    docnon/.style={rectangle, rounded corners=2pt, draw=red!70!black, fill=red!10, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize},
+    lbl/.style={font=\scriptsize, align=center}
+]
+    % Document ranking blocks
+    \node[lbl] at (-1.5, 0.35) {Rank Position ($k$):};
+    \node[lbl] at (-1.5, -0.35) {Document:};
+    \node[lbl] at (-1.5, -1.05) {Precision@k:};
+
+    \foreach \k/\rel/\p/\type in {
+        1/1/1.00/docrel,
+        2/0/---/docnon,
+        3/1/0.67/docrel,
+        4/0/---/docnon,
+        5/1/0.60/docrel%
+    } {
+        \node[font=\footnotesize\bfseries] at (\k*1.6, 0.35) {$k=\k$};
+        \node[\type] (b\k) at (\k*1.6, -0.35) {\ifnum\rel=1 Rel\else NonRel\fi};
+        \node[font=\footnotesize] at (\k*1.6, -1.05) {\ifnum\rel=1 \textbf{\p}\else \color{gray!60}--- \fi};
+    }
+
+    \draw[-Stealth, thick, blue!80!black] (0.0, 0.7) -- node[above, font=\scriptsize] {Search Engine Output Order} (9.0, 0.7);
+\end{tikzpicture}
+\caption{Schematic representation of Average Precision calculation over 5 documents with $R=3$ total relevant items (Slide 22).}
+\label{fig:ap-blocks-en}
+\end{figure}
+
+\begin{example}[Basic Calculation with $R=3$ Relevant Documents (Slide 22)]
+Consider the ranking scenario in Figure~\ref{fig:ap-blocks-en} with $R=3$ total relevant documents appearing at ranks $k_1 = 1$, $k_2 = 3$, and $k_3 = 5$:
 \[
 P@1 = \frac{1}{1} = 1.00, \quad P@3 = \frac{2}{3} \approx 0.667, \quad P@5 = \frac{3}{5} = 0.60
 \]
 The resulting Average Precision is:
 \begin{equation}
-AP = \frac{1}{3} \left( 1 + \frac{2}{3} + \frac{3}{5} \right) = \frac{1}{3} \left( 1.00 + 0.667 + 0.600 \right) = \frac{2.267}{3} \approx 0.756
+AP = \frac{1}{3} \left( 1.00 + \frac{2}{3} + \frac{3}{5} \right) = \frac{1}{3} \left( 2.267 \right) \approx 0.756 \quad (75.6\%)
 \end{equation}
+\end{example}
+
+\begin{example}[Comparative Analysis Between Two Rankings (Slide 23)]
+Consider a query associated with $R = 6$ relevant documents in the collection. Two competing search algorithms output the following top-10 ranked results:
+\begin{itemize}
+    \item \textbf{Ranking \#1:} Relevant items concentrated early in the list:
+    \[
+    \langle \text{Rel}, \text{NonRel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{NonRel}, \text{NonRel}, \text{NonRel}, \text{Rel} \rangle
+    \]
+    \item \textbf{Ranking \#2:} Relevant items delayed and scattered:
+    \[
+    \langle \text{NonRel}, \text{Rel}, \text{NonRel}, \text{NonRel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{NonRel}, \text{Rel}, \text{Rel} \rangle
+    \]
+\end{itemize}
+Table~\ref{tab:ap-comparison-slide23-en} presents the step-by-step evolution of Precision and Recall across all 10 ranks.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{c c c c c c c}
+\toprule
+& \multicolumn{3}{c}{\textbf{Ranking \#1}} & \multicolumn{3}{c}{\textbf{Ranking \#2}} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+\textbf{Rank ($k$)} & \textbf{Item} & \textbf{Recall} & \textbf{Precision} & \textbf{Item} & \textbf{Recall} & \textbf{Precision} \\
+\midrule
+1  & \textbf{Rel}    & 0.17 & \textbf{1.00} & NonRel          & 0.00 & --- \\
+2  & NonRel          & 0.17 & ---           & \textbf{Rel}    & 0.17 & \textbf{0.50} \\
+3  & \textbf{Rel}    & 0.33 & \textbf{0.67} & NonRel          & 0.17 & --- \\
+4  & \textbf{Rel}    & 0.50 & \textbf{0.75} & NonRel          & 0.17 & --- \\
+5  & \textbf{Rel}    & 0.67 & \textbf{0.80} & \textbf{Rel}    & 0.33 & \textbf{0.40} \\
+6  & \textbf{Rel}    & 0.83 & \textbf{0.83} & \textbf{Rel}    & 0.50 & \textbf{0.50} \\
+7  & NonRel          & 0.83 & ---           & \textbf{Rel}    & 0.67 & \textbf{0.57} \\
+8  & NonRel          & 0.83 & ---           & NonRel          & 0.67 & --- \\
+9  & NonRel          & 0.83 & ---           & \textbf{Rel}    & 0.83 & \textbf{0.56} \\
+10 & \textbf{Rel}    & 1.00 & \textbf{0.60} & \textbf{Rel}    & 1.00 & \textbf{0.60} \\
+\midrule
+\multicolumn{2}{l}{\textbf{Average Precision (AP)}} & & \textbf{0.78} & & & \textbf{0.52} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Detailed comparative evaluation of Average Precision between Ranking \#1 and Ranking \#2 (Slide 23).}
+\label{tab:ap-comparison-slide23-en}
+\end{table}
+
+The resulting AP scores evaluate to:
+\begin{align*}
+AP(\text{Ranking \#1}) &= \frac{1.00 + 0.67 + 0.75 + 0.80 + 0.83 + 0.60}{6} = \frac{4.65}{6} \approx \mathbf{0.78} \\
+AP(\text{Ranking \#2}) &= \frac{0.50 + 0.40 + 0.50 + 0.57 + 0.56 + 0.60}{6} = \frac{3.13}{6} \approx \mathbf{0.52}
+\end{align*}
+Although both systems achieve identical overall recall ($R = 100\%$ across 10 retrieved documents), Ranking \#1 obtains a substantially higher score ($0.78$ vs $0.52$) because it rewards front-loading relevant items.
 \end{example}
 
 \subsection{Mean Average Precision (MAP)}
@@ -304,9 +438,51 @@ MAP = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} AP(q)
 \end{equation}
 \end{definition}
 
-\begin{property}[Macro-Averaging in MAP]
-MAP implements a \textbf{macro-averaging} scheme: each query contributes equally ($1/|\mathcal{Q}|$) regardless of whether it has 2 or 200 relevant documents. It remains the gold standard in academic IR benchmarking for binary relevance.
+\begin{property}[Macro-Averaging vs. Micro-Averaging (Slide 25)]
+MAP formally implements a \textbf{Macro-Averaging} scheme: each query carries identical statistical weight $1/|\mathcal{Q}|$.
+\begin{itemize}
+    \item In contrast, \textit{Micro-Averaging} (pooling all instantaneous precisions across all queries and dividing by the total sum of relevant documents) would be overwhelmingly dominated by a handful of broad queries (e.g., \texttt{"movies"} or \texttt{"news"}, which often match thousands of relevant documents), drowning out performance on specific long-tail queries.
+    \item Macro-Averaging ensures that every individual information need receives equal representation in the final benchmark metric.
+\end{itemize}
 \end{property}
+
+\begin{example}[Computing MAP Over Two Queries (Slide 24)]
+Consider an evaluation suite consisting of two distinct queries $q_1$ and $q_2$:
+\begin{itemize}
+    \item \textbf{Query 1 ($R_1 = 5$ total relevant documents):} The engine returns 5 relevant items at ranks $k \in \{1, 3, 6, 9, 10\}$ with precisions $1.00$, $0.67$, $0.50$, $0.44$, and $0.50$:
+    \[
+    AP(q_1) = \frac{1.00 + 0.67 + 0.50 + 0.44 + 0.50}{5} = \frac{3.11}{5} \approx \mathbf{0.62}
+    \]
+    \item \textbf{Query 2 ($R_2 = 3$ total relevant documents):} The engine returns 3 relevant items at ranks $k \in \{2, 5, 7\}$ with precisions $0.50$, $0.40$, and $0.43$:
+    \[
+    AP(q_2) = \frac{0.50 + 0.40 + 0.43}{3} = \frac{1.33}{3} \approx \mathbf{0.44}
+    \]
+\end{itemize}
+The overall Mean Average Precision across both queries is:
+\begin{equation}
+MAP = \frac{AP(q_1) + AP(q_2)}{2} = \frac{0.62 + 0.44}{2} = \mathbf{0.53}
+\end{equation}
+\end{example}
+
+\subsection{Truncated Ranking Measures: AP@k and MAP@k}
+In Web search and Recommender Systems, evaluating AP across an entire collection is impractical (the true total count $R$ of relevant items is unknown) and disconnected from user browsing habits.
+Engines thus adopt rank-truncated formulations (\textbf{MAP@K}, Slide 28):
+
+\begin{definition}[AP@K and MAP@K]
+Given a fixed rank cutoff $K$ (typically $K=10$ or $K=20$), Average Precision at $K$ for query $q_i$ is defined as:
+\begin{equation}
+AP@K(q_i) = \frac{1}{K_i} \sum_{k=1}^K P@k(q_i) \cdot \mathrm{rel}(q_i, k)
+\end{equation}
+where the normalizing denominator $K_i$ reflects the number of relevant items within the top $K$:
+\begin{equation}
+K_i = \sum_{k=1}^K \mathrm{rel}(q_i, k) \quad \left(\text{or } K_i = \min(R_i, K)\right)
+\end{equation}
+The global \textbf{MAP@K} across query suite $\mathcal{Q}$ evaluates to:
+\begin{equation}
+MAP@K(\mathcal{Q}) = \frac{1}{|\mathcal{Q}|} \sum_{q_i \in \mathcal{Q}} AP@K(q_i)
+\end{equation}
+\end{definition}
+This formulation resolves the fundamental flaw of raw $P@K$: by normalizing by $K_i$ instead of a rigid $K$, a query with only 2 relevant documents that places both in the top 2 slots attains $AP@10 = 1.0$ rather than being artificially capped at $0.20$.
 
 \subsection{Mean Reciprocal Rank (MRR)}
 In tasks such as known-item search, navigational queries (e.g., locating an institutional homepage), or factoid retrieval, the user is interested solely in finding the \textbf{first correct document}. User effort is inversely proportional to the rank of that first hit:
@@ -323,9 +499,21 @@ MRR = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} \frac{1}{\mathrm{rank}_1(
 \end{definition}
 If the first relevant hit appears at rank 1, the score is $1.0$; if at rank 2, it drops to $0.5$; if delayed to rank 10, it falls to $0.1$.
 
+\FloatBarrier
 \section{Beyond Binary Relevance: Graded Relevance and NDCG}
 
-In practical Web and commercial applications, binary judgments prove inadequate. Documents exhibit varying degrees of utility, typically evaluated on discrete integer scales (e.g., $0 = \text{Non-Relevant}$, $1 = \text{Marginal}$, $2 = \text{Relevant}$, $3 = \text{Highly Relevant}$).
+In practical Web and commercial applications, binary judgments prove inadequate. Consider the real-world Google search query shown in the lecture slides (Slide 31--32):
+\begin{center}
+\texttt{Query: "information retrieval unipi"}
+\end{center}
+A commercial SERP returns pages exhibiting distinct qualitative levels of utility:
+\begin{enumerate}
+    \item \textbf{Course DidaWiki (Instructor, CFU, syllabus, lecture notes):} The primary resource fully satisfying user search intent $\implies$ \textbf{Highly Relevant ($r = 3$)}.
+    \item \textbf{Official UniPi Valutami Portal (Exam registration and administrative syllabus):} Authoritative institutional record but lacks study material $\implies$ \textbf{Relevant ($r = 2$)}.
+    \item \textbf{Master's Degree PDF Brochure:} Contains only a brief mention of the course $\implies$ \textbf{Marginally Relevant ($r = 1$)}.
+    \item \textbf{Unrelated articles or campus news:} $\implies$ \textbf{Irrelevant ($r = 0$)}.
+\end{enumerate}
+While all top three pages are pertinent, user satisfaction depends heavily on displaying the most informative page at rank 1. To capture this nuance, IR formalizes multi-grade relevance scales ($r \in \{0, 1, 2, 3\}$ or $\{0, \dots, 4\}$).
 
 The \textbf{Discounted Cumulative Gain} (DCG) framework, introduced by J\"arvelin and Kek\"al\"ainen~\cite{jarvelin2002}, rests on two assumptions:
 \begin{enumerate}
@@ -346,14 +534,32 @@ $CG_p$ is position-insensitive: swapping a highly relevant document at rank 1 wi
 Standard DCG applies a logarithmic discount based on rank $i$:
 \begin{equation}
 DCG_p = r_1 + \sum_{i=2}^p \frac{r_i}{\log_2(i)}
+\label{eq:dcg-standard-en}
 \end{equation}
 \end{definition}
+
+\begin{alertblock}{Behavioral Meaning of the Logarithmic Discount (Slide 34)}
+The discount factor $\frac{1}{\log_2(i)}$ reflects the exponential decay of user visual attention under cascade reading models:
+\begin{itemize}
+    \item At rank $i = 4$, the discount factor is $\frac{1}{\log_2(4)} = \frac{1}{2}$: perceived informative utility is cut in half relative to rank 1.
+    \item At rank $i = 8$, the factor drops to $\frac{1}{\log_2(8)} = \frac{1}{3}$.
+    \item At rank $i = 16$, the factor falls to $\frac{1}{\log_2(16)} = \frac{1}{4}$.
+\end{itemize}
+\end{alertblock}
 
 Commercial search engines (Google, Bing) frequently utilize the \textbf{exponential formulation}:
 \begin{equation}
 DCG_p^{\text{exp}} = \sum_{i=1}^p \frac{2^{r_i} - 1}{\log_2(i + 1)}
+\label{eq:dcg-exp-en}
 \end{equation}
-This formulation places heavy emphasis on surfacing top-tier relevance ($r=3 \implies 2^3 - 1 = 7$, compared to $r=1 \implies 2^1 - 1 = 1$).
+\begin{noteblock}{Summation Index Clarification}
+Note the index shift in the logarithm denominator:
+\begin{itemize}
+    \item In Equation~\eqref{eq:dcg-standard-en}, $r_1$ is separated to prevent division by $\log_2(1) = 0$, while the summation starts at $i=2$ with $\log_2(i)$.
+    \item In Equation~\eqref{eq:dcg-exp-en}, the summation starts directly at $i=1$ by taking $\log_2(i+1)$ ($\log_2(1+1) = \log_2(2) = 1$).
+    \item Furthermore, numerator $2^{r_i} - 1$ non-linearly rewards top-tier relevance ($r=3 \implies 2^3 - 1 = 7$, vs. $r=1 \implies 2^1 - 1 = 1$), severely penalizing any demotion of stellar results.
+\end{itemize}
+\end{noteblock}
 
 \subsection{Normalized Discounted Cumulative Gain}
 Because different queries have varying numbers of relevant documents, raw $DCG_p$ scores cannot be compared across queries. We normalize by the \textbf{Ideal DCG} ($IDCG_p$), obtained by computing the DCG of the ideal ranking sorted by relevance descending:

@@ -21,6 +21,12 @@ Le motivazioni alla base dell'adozione delle tecniche di Data Mining possono ess
 
 I Big Data rappresentano a tutti gli effetti un proxy della vita sociale (comportamenti d'acquisto, stili di vita, opinioni, reti di relazioni, mobilità sul territorio), offrendo grandi opportunità per affrontare problematiche globali: dall'efficientamento della sanità alla ricerca di fonti di energia pulita, dalla previsione degli impatti climatici all'ottimizzazione della produzione agricola.
 
+In tale scenario moderno, l'Intelligenza Artificiale applicata poggia sul principio cardine:
+\begin{equation}
+\mathbf{AI} = \mathbf{Machine\ Learning} + \mathbf{Big\ Data}
+\end{equation}
+in cui la disponibilità di basi di dati su scala massiva (\textit{Big Data}) costituisce il substrato empirico e la sorgente di informazione, mentre gli algoritmi di \textit{Machine Learning} e \textit{Data Mining} forniscono il motore logico-induttivo capace di estrarre generalizzazioni e schemi decisionali non banali.
+
 \subsection{Una Confluenza di Discipline}
 Il Data Mining non è una disciplina isolata, bensì una confluenza sinergica di diverse aree dell'informatica e della matematica applicata:
 
@@ -136,6 +142,89 @@ Il dataset viene suddiviso in due insiemi disgiunti:
     \item \textbf{Test Set:} Utilizzato per valutare la capacità di generalizzazione del modello su istanze non osservate durante la fase di apprendimento.
 \end{itemize}
 
+\begin{example}[Esempio Didattico: Induzione di un Albero Decisionale per il Merito Creditizio]
+Consideriamo un tipico problema di concessione del credito bancario, in cui l'obiettivo \`e stimare se un nuovo richiedente sia finanziariamente affidabile (\textit{Credit Worthy} $\in \{\text{Sì}, \text{No}\}$).
+
+\paragraph{1. Training Set (Dati storici con classe nota):}
+L'istituto dispone di uno storico di clienti con esito di rimborso accertato:
+\begin{table}[htbp]
+\centering
+\begin{tabular}{cllcc}
+\toprule
+\textbf{TID} & \textbf{Occupato} & \textbf{Livello Istruzione} & \textbf{Anni di Residenza} & \textbf{Affidabile (Classe)} \\
+\midrule
+1 & Sì & Laurea & 5 & \textbf{Sì} \\
+2 & Sì & Diploma & 2 & \textbf{No} \\
+3 & No & Triennale & 1 & \textbf{No} \\
+4 & Sì & Diploma & 10 & \textbf{Sì} \\
+\bottomrule
+\end{tabular}
+\caption{Training set per l'addestramento del classificatore creditizio.}
+\label{tab:credit-train}
+\end{table}
+
+\paragraph{2. Modello Appreso (Albero Decisionale):}
+L'algoritmo di classificazione estrae dai dati storici una sequenza gerarchica di test logici (Fig.~\ref{fig:decision-tree-example}):
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape, font=\small},
+    decision/.style={rectangle, draw=blue!70, fill=blue!10, rounded corners=3pt, font=\bfseries\small, inner sep=5pt},
+    leaf_yes/.style={rectangle, draw=green!70!black, fill=green!15, rounded corners=2pt, font=\bfseries\small, text=green!60!black, inner sep=4pt},
+    leaf_no/.style={rectangle, draw=red!70, fill=red!15, rounded corners=2pt, font=\bfseries\small, text=red!70!black, inner sep=4pt},
+    edge_label/.style={font=\scriptsize\itshape, text=gray!80!black, fill=white, inner sep=1.5pt}
+]
+    % Root
+    \node[decision] (root) at (0, 0) {Occupato?};
+
+    % Level 1
+    \node[leaf_no] (l_no) at (-3.4, -1.5) {Classe = No};
+    \node[decision] (l_edu) at (2.6, -1.5) {Livello Istruzione?};
+
+    % Level 2
+    \node[leaf_yes] (l_grad) at (0.6, -3.1) {Classe = Sì};
+    \node[decision] (l_years) at (4.8, -3.1) {Anni di Residenza?};
+
+    % Level 3
+    \node[leaf_yes] (l_yyes) at (3.2, -4.7) {Classe = Sì};
+    \node[leaf_no] (l_yno) at (6.4, -4.7) {Classe = No};
+
+    % Edges
+    \draw[-Stealth, thick] (root) -- node[edge_label] {No} (l_no);
+    \draw[-Stealth, thick] (root) -- node[edge_label] {Sì} (l_edu);
+
+    \draw[-Stealth, thick] (l_edu) -- node[edge_label] {Laurea} (l_grad);
+    \draw[-Stealth, thick] (l_edu) -- node[edge_label] {\{Diploma, Triennale\}} (l_years);
+
+    \draw[-Stealth, thick] (l_years) -- node[edge_label] {$> 3$ anni} (l_yyes);
+    \draw[-Stealth, thick] (l_years) -- node[edge_label] {$\le 3$ anni} (l_yno);
+\end{tikzpicture}
+\caption{Modello classificatore: albero decisionale appreso.}
+\label{fig:decision-tree-example}
+\end{figure}
+
+\paragraph{3. Test Set (Dati nuovi non osservati):}
+Quando giungono nuove domande di prestito con classe incognita (\texttt{?}), il modello le valuta navigando la struttura ad albero:
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{cllccl}
+\toprule
+\textbf{TID} & \textbf{Occupato} & \textbf{Istruzione} & \textbf{Anni} & \textbf{Target} & \textbf{Predizione del Modello} \\
+\midrule
+5 & Sì & Triennale & 7 & \textbf{?} & \textbf{Sì} (Occupato $\to$ Triennale $\to 7 > 3$) \\
+6 & No & Laurea & 3 & \textbf{?} & \textbf{No} (Non occupato) \\
+7 & Sì & Diploma & 2 & \textbf{?} & \textbf{No} (Occupato $\to$ Diploma $\to 2 \le 3$) \\
+\bottomrule
+\end{tabular}
+\caption{Valutazione del test set mediante l'albero decisionale.}
+\label{tab:credit-test}
+\end{table}
+L'esempio illustra come il classificatore non si limiti a memorizzare i record del training set, ma generalizzi una regola predittiva applicabile a qualsiasi nuova istanza.
+\end{example}
+
 \begin{example}[Applicazioni di Classificazione]
 Tra le principali e pi\`u diffuse aree applicative dei modelli di classificazione troviamo:
 \begin{itemize}
@@ -157,28 +246,33 @@ Il \textbf{clustering} consiste nell'organizzare un insieme di oggetti in gruppi
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[scale=0.85]
+\begin{tikzpicture}[scale=0.95]
     % Cluster 1
-    \draw[thick, fill=blue!10, draw=blue!60, rounded corners=15pt] (-3.5,-1) rectangle (-1.2,1.5);
-    \fill[blue!70] (-3,0.8) circle (3pt);
-    \fill[blue!70] (-2.2,1.1) circle (3pt);
-    \fill[blue!70] (-2.7,0.1) circle (3pt);
-    \fill[blue!70] (-1.8,-0.4) circle (3pt);
-    \node[blue!80!black, font=\bfseries\scriptsize] at (-2.35,-0.7) {Cluster 1};
+    \draw[thick, fill=blue!8, draw=blue!60, rounded corners=15pt] (-5.4,-1.6) rectangle (-1.6,1.8);
+    \node[blue!80!black, font=\bfseries\small] at (-3.5, 1.4) {Cluster 1};
+
+    \fill[blue!75] (-4.6, 0.7) circle (3pt);
+    \fill[blue!75] (-2.4, 0.9) circle (3pt);
+    \fill[blue!75] (-4.2, -0.6) circle (3pt);
+    \fill[blue!75] (-2.2, -0.7) circle (3pt);
+    
+    % Intra-cluster arrow in Cluster 1
+    \draw[Stealth-Stealth, thick, blue!80!black] (-4.1, -0.5) -- node[above=2pt, font=\scriptsize\bfseries, text=blue!80!black] {intra-distanza min} (-2.3, -0.6);
 
     % Cluster 2
-    \draw[thick, fill=green!10, draw=green!60, rounded corners=15pt] (1.2,-1) rectangle (3.5,1.5);
-    \fill[green!60!black] (1.7,0.9) circle (3pt);
-    \fill[green!60!black] (2.4,1.1) circle (3pt);
-    \fill[green!60!black] (3.0,0.2) circle (3pt);
-    \fill[green!60!black] (2.1,-0.5) circle (3pt);
-    \node[green!60!black, font=\bfseries\scriptsize] at (2.35,-0.7) {Cluster 2};
+    \draw[thick, fill=green!8, draw=green!60!black, rounded corners=15pt] (1.6,-1.6) rectangle (5.4,1.8);
+    \node[green!60!black, font=\bfseries\small] at (3.5, 1.4) {Cluster 2};
 
-    % Intra-cluster distance arrow
-    \draw[Stealth-Stealth, thick, blue!80] (-2.7,0.1) -- node[above, font=\tiny] {intra-distanza min} (-1.8,-0.4);
+    \fill[green!55!black] (2.4, 0.8) circle (3pt);
+    \fill[green!55!black] (4.6, 0.7) circle (3pt);
+    \fill[green!55!black] (2.2, -0.7) circle (3pt);
+    \fill[green!55!black] (4.4, -0.6) circle (3pt);
+    
+    % Intra-cluster arrow in Cluster 2
+    \draw[Stealth-Stealth, thick, green!50!black] (2.3, -0.6) -- node[below=2pt, font=\scriptsize\bfseries, text=green!60!black] {intra-distanza min} (4.3, -0.5);
 
     % Inter-cluster distance arrow
-    \draw[Stealth-Stealth, very thick, red!80] (-1.2,0.5) -- node[above, font=\scriptsize\bfseries] {inter-distanza max} (1.2,0.5);
+    \draw[Stealth-Stealth, very thick, red!80!black] (-1.6, 0.2) -- node[above=3pt, font=\small\bfseries, text=red!80!black] {inter-distanza max} (1.6, 0.2);
 \end{tikzpicture}
 \caption{Principio geometrico fondamentale del clustering.}
 \label{fig:clustering-principle}

@@ -2,7 +2,9 @@
 $rootDir = $PSScriptRoot
 
 $subjectDirs = Get-ChildItem -Path $rootDir -Directory | Where-Object {
-    Test-Path (Join-Path $_.FullName "main.tex")
+    (Test-Path (Join-Path $_.FullName "main.tex")) -or
+    (Test-Path (Join-Path $_.FullName "main_it.tex")) -or
+    (Test-Path (Join-Path $_.FullName "main_en.tex"))
 }
 
 $hasLatexmk = [bool](Get-Command latexmk -ErrorAction SilentlyContinue)
