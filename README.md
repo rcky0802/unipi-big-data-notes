@@ -1,13 +1,15 @@
-# 📚 Appunti Universitari
+# Appunti di Big Data Technologies
 
-Appunti in LaTeX per la **Laurea Magistrale in Informatica**, corso **Big Data Technologies**, presso l'**Università di Pisa (UniPi)** — A.A. 2026/2027.
+Raccolta di appunti universitari in LaTeX per il corso di laurea magistrale in Informatica dell'Università di Pisa, anno accademico 2026/2027.
 
-## 📥 Download PDF
+Il repository contiene le dispense delle materie trattate nel corso, disponibili in italiano e in inglese.
 
-- **Algorithm Engineering:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Algorithm-Engineering-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Algorithm-Engineering-EN.pdf)
-- **Data Mining:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Data-Mining-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Data-Mining-EN.pdf)
-- **Information Retrieval:** [🇮🇹 Scarica PDF (Italiano)](./pdf/Information-Retrieval-IT.pdf) • [🇬🇧 Download PDF (English)](./pdf/Information-Retrieval-EN.pdf)
+## Dispense
 
----
+I PDF aggiornati sono disponibili nella directory [`pdf/`](./pdf/).
 
-Per istruzioni su compilazione locale, setup e modifiche, consulta la [**Guida Rapida (`GETTING_STARTED.md`)**](./GETTING_STARTED.md).
+| Materia | Italiano | English |
+| --- | --- | --- |
+| Algorithm Engineering | [Scarica PDF](./pdf/Algorithm-Engineering-IT.pdf) | [Download PDF](./pdf/Algorithm-Engineering-EN.pdf) |
+| Data Mining | [Scarica PDF](./pdf/Data-Mining-IT.pdf) | [Download PDF](./pdf/Data-Mining-EN.pdf) |
+| Information Retrieval | [Scarica PDF](./pdf/Information-Retrieval-IT.pdf) | [Download PDF](./pdf/Information-Retrieval-EN.pdf) |
