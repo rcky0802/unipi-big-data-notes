@@ -78,6 +78,13 @@ latexmk -c
   - $k$-Approximate Nearest Neighbor Search ($k$-ANN, MIPS, TusKANNy).
 
 - **Chapter 2: Evaluation of Information Retrieval Systems**
+
+- **Chapter 3: Efficiency on Modern CPU Architectures** *(Italian only)*
+  - Memory hierarchy (L1/L2/L3/RAM), cache lines, spatial/temporal locality, hardware prefetchers.
+  - Sequential scan vs. pointer-chasing benchmark (Rust) and cache-line-aware jumping.
+  - 5-stage pipelining, latency vs. throughput, superscalar execution and execution ports.
+  - Structural hazards, RAW data hazards and dependency-chain interleaving.
+  - Control hazards, speculative execution, branch misprediction cost and branchless techniques.
   - Evaluating search quality: efficiency, side services, intrinsic effectiveness.
   - Measuring User Happiness: CTR, zero-click searches, conversions, retention, Dwell Time, paradigm shifts with LLMs.
   - The Cranfield Paradigm (Cyril Cleverdon), benchmark test collections (corpus, queries, qrels).
