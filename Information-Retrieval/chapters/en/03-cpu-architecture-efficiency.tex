@@ -107,20 +107,23 @@ pub fn sum_by_jumping(v: &[usize]) -> usize {
 In the theoretical RAM model both functions execute $N$ iterations with one addition per step: they have identical asymptotic complexity $\BigO{N}$. On real hardware, measuring the average time per element as array size varies, marked divergences emerge instead.
 
 \begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{l l l r r r}
-\toprule
-\textbf{$N$ (elements)} & \textbf{Size} & \textbf{Level} & \textbf{\texttt{sum()}} & \textbf{\texttt{sum\_by\_jumping()}} & \textbf{Slowdown} \\
-\midrule
-$256$ & $2\,\text{KiB}$ & L1 ($32\,\text{KB}$) & $0.1\,\text{ns}$ & $1.3\,\text{ns}$ & $13\times$ \\
-$8\,192$ & $64\,\text{KiB}$ & L2 ($256\,\text{KB}$) & $0.1\,\text{ns}$ & $2.5\,\text{ns}$ & $25\times$ \\
-$262\,144$ & $2\,\text{MiB}$ & L3 ($16\,\text{MB}$) & $0.2\,\text{ns}$ & $13.4\,\text{ns}$ & $67\times$ \\
-$16\,777\,216$ & $128\,\text{MiB}$ & RAM (DRAM) & $0.4\,\text{ns}$ & $84.9\,\text{ns}$ & $212\times$ \\
-\bottomrule
-\end{tabular}
-\caption{Average time per element for \texttt{sum()} and \texttt{sum\_by\_jumping()} as array size varies.}
-\label{tab:pointer-chasing-benchmark-en}
+  \centering
+  \small
+  \setlength{\tabcolsep}{6pt}
+  \begin{tabular}{r r l r r r}
+    \toprule
+    & & & \multicolumn{2}{c}{\textbf{Time per elem.}} & \\
+    \cmidrule(lr){4-5}
+    \textbf{$N$} & \textbf{Size} & \textbf{Cache level} & \textbf{\texttt{sum()}} & \textbf{\texttt{jumping()}} & \textbf{Slowdown} \\
+    \midrule
+    $256$         & $2\,\text{KiB}$   & L1 ($32\,\text{KB}$)  & $0.1\,\text{ns}$ & $1.3\,\text{ns}$  & $13\times$  \\
+    $8\,192$      & $64\,\text{KiB}$  & L2 ($256\,\text{KB}$) & $0.1\,\text{ns}$ & $2.5\,\text{ns}$  & $25\times$  \\
+    $262\,144$    & $2\,\text{MiB}$   & L3 ($16\,\text{MB}$)  & $0.2\,\text{ns}$ & $13.4\,\text{ns}$ & $67\times$  \\
+    $16\,777\,216$& $128\,\text{MiB}$ & RAM (DRAM)            & $0.4\,\text{ns}$ & $84.9\,\text{ns}$ & $212\times$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Average time per element for \texttt{sum()} and \texttt{sum\_by\_jumping()} as array size varies.}
+  \label{tab:pointer-chasing-benchmark-en}
 \end{table}
 
 \subsection{Analysis of Physical Causes}
@@ -391,10 +394,12 @@ pub fn do_more_stuff_5(v: &[u64]) -> (u64, u64, u64) {
 Since the condition is true on average $50\%$ of the time, one would intuitively expect a time roughly halved compared to \texttt{do\_more\_stuff\_4} ($1.7 / 2 \approx 0.85\,\text{ns}$). The measured time instead rises to $3.5\,\text{ns}$, more than twice as slow as the version without the condition.
 
 \begin{alertblock}{The Real Cost Is Not Computation but Misprediction}
-With random values the branch predictor's accuracy is equivalent to a coin flip, $P(\text{hit}) = P(\text{miss}) = 0.50$. The average cost per iteration is then
+With random values the branch predictor's accuracy is equivalent to a coin flip, $P(\text{hit}) = P(\text{miss}) = 0.50$. The average cost per iteration is then:
 \[
-\text{Average cost} \approx 0.5 \times T_{\text{body}} + P(\text{miss}) \times \text{Flush penalty}
-\approx 0.5 \times 0.85\,\text{ns} + 0.5 \times 5.0\,\text{ns} \approx 2.9\text{--}3.5\,\text{ns},
+\begin{aligned}
+  \text{Average cost} &\approx 0.5 \times T_{\text{body}} + P(\text{miss}) \times \text{Flush penalty} \\
+                      &\approx 0.5 \times 0.85\,\text{ns} + 0.5 \times 5.0\,\text{ns} \approx 2.9\text{--}3.5\,\text{ns},
+\end{aligned}
 \]
 having assumed a penalty of $15$--$20$ cycles ($\approx 4$--$5\,\text{ns}$ on a $4\,\text{GHz}$ CPU). The cost of the algorithm is no longer dictated by arithmetic operations, but is dominated by the time lost flushing and refilling the pipeline.
 \end{alertblock}
@@ -404,20 +409,21 @@ having assumed a penalty of $15$--$20$ cycles ($\approx 4$--$5\,\text{ns}$ on a 
 To demonstrate that the slowdown derives exclusively from branch predictor behavior, the same identical code is run while only changing the arrangement of data in the array.
 
 \begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{l r l}
-\toprule
-\textbf{Configuration} & \textbf{Time per iteration} & \textbf{Predictor behavior} \\
-\midrule
-\texttt{do\_more\_stuff\_4()} (no \texttt{if}) & $1.7\,\text{ns}$ & --- \\
-\texttt{do\_more\_stuff\_5()}, random data & $3.5\,\text{ns}$ & unpredictable branch, miss rate $\approx 50\%$ \\
-\texttt{do\_more\_stuff\_5()}, sorted data & $1.2\,\text{ns}$ & near-perfect prediction, single miss \\
-\texttt{do\_more\_stuff\_5()}, alternating data & $1.1\,\text{ns}$ & periodic sequence, miss rate $\approx 0\%$ \\
-\bottomrule
-\end{tabular}
-\caption{Time per iteration of \texttt{do\_more\_stuff\_5()} as data arrangement varies.}
-\label{tab:branch-prediction-benchmark-en}
+  \centering
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{l r Y}
+    \toprule
+    \textbf{Configuration} & \textbf{Time / iter.} & \textbf{Branch predictor behavior} \\
+    \midrule
+    \texttt{do\_more\_stuff\_4()} (no \texttt{if}) & $1.7\,\text{ns}$ & --- \\
+    \texttt{do\_more\_stuff\_5()} (random data)    & $3.5\,\text{ns}$ & Unpredictable branch, miss rate $\approx 50\%$ \\
+    \texttt{do\_more\_stuff\_5()} (sorted data)    & $1.2\,\text{ns}$ & Near-perfect prediction, single miss \\
+    \texttt{do\_more\_stuff\_5()} (alternating data)& $1.1\,\text{ns}$ & Periodic sequence, miss rate $\approx 0\%$ \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Time per iteration of \texttt{do\_more\_stuff\_5()} as data arrangement varies.}
+  \label{tab:branch-prediction-benchmark-en}
 \end{table}
 
 With \textbf{sorted data} (all elements $\le 50$ at the start of the array and all elements $> 50$ at the end) the predictor assumes the branch is not taken for the whole first half and taken for the second: a single misprediction occurs at the transition point, and once flush costs are removed the time drops to $1.2\,\text{ns}$, lower than the $1.7\,\text{ns}$ of the version without the condition since half the iterations do not execute the \texttt{if} body. With \textbf{alternating data} following a periodic pattern (\textit{false, true, false, true, \ldots}), predictors integrate historical pattern tables (\textit{branch history shift register}): once the periodicity is identified, the predictor anticipates the outcome at every step without errors, eliminating stalls.

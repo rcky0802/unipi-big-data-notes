@@ -127,20 +127,23 @@ pub fn sum_by_jumping(v: &[usize]) -> usize {
 Nel modello teorico RAM entrambe le funzioni eseguono $N$ iterazioni con un'operazione di somma per passo: hanno cio\`e identica complessit\`a asintotica $\BigO{N}$. Sulla macchina fisica, misurando il tempo medio per singolo elemento al variare della dimensione dell'array, emergono per\`o divergenze marcate.
 
 \begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{l l l r r r}
-\toprule
-\textbf{$N$ (elementi)} & \textbf{Dimensione} & \textbf{Livello} & \textbf{\texttt{sum()}} & \textbf{\texttt{sum\_by\_jumping()}} & \textbf{Rallentamento} \\
-\midrule
-$256$ & $2\,\text{KiB}$ & L1 ($32\,\text{KB}$) & $0.1\,\text{ns}$ & $1.3\,\text{ns}$ & $13\times$ \\
-$8\,192$ & $64\,\text{KiB}$ & L2 ($256\,\text{KB}$) & $0.1\,\text{ns}$ & $2.5\,\text{ns}$ & $25\times$ \\
-$262\,144$ & $2\,\text{MiB}$ & L3 ($16\,\text{MB}$) & $0.2\,\text{ns}$ & $13.4\,\text{ns}$ & $67\times$ \\
-$16\,777\,216$ & $128\,\text{MiB}$ & RAM (DRAM) & $0.4\,\text{ns}$ & $84.9\,\text{ns}$ & $212\times$ \\
-\bottomrule
-\end{tabular}
-\caption{Tempo medio per elemento di \texttt{sum()} e \texttt{sum\_by\_jumping()} al variare della dimensione dell'array.}
-\label{tab:pointer-chasing-benchmark}
+  \centering
+  \small
+  \setlength{\tabcolsep}{6pt}
+  \begin{tabular}{r r l r r r}
+    \toprule
+    & & & \multicolumn{2}{c}{\textbf{Tempo per elem.}} & \\
+    \cmidrule(lr){4-5}
+    \textbf{$N$} & \textbf{Dim.} & \textbf{Livello cache} & \textbf{\texttt{sum()}} & \textbf{\texttt{jumping()}} & \textbf{Rallentamento} \\
+    \midrule
+    $256$         & $2\,\text{KiB}$   & L1 ($32\,\text{KB}$)  & $0.1\,\text{ns}$ & $1.3\,\text{ns}$  & $13\times$  \\
+    $8\,192$      & $64\,\text{KiB}$  & L2 ($256\,\text{KB}$) & $0.1\,\text{ns}$ & $2.5\,\text{ns}$  & $25\times$  \\
+    $262\,144$    & $2\,\text{MiB}$   & L3 ($16\,\text{MB}$)  & $0.2\,\text{ns}$ & $13.4\,\text{ns}$ & $67\times$  \\
+    $16\,777\,216$& $128\,\text{MiB}$ & RAM (DRAM)            & $0.4\,\text{ns}$ & $84.9\,\text{ns}$ & $212\times$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Tempo medio per elemento di \texttt{sum()} e \texttt{sum\_by\_jumping()} al variare della dimensione dell'array.}
+  \label{tab:pointer-chasing-benchmark}
 \end{table}
 
 \subsection{Analisi delle Cause Fisiche}
@@ -413,8 +416,10 @@ Poich\'e la condizione \`e vera in media il $50\%$ delle volte, ci si aspettereb
 \begin{alertblock}{Il Costo Reale non \`e il Calcolo ma la Mispredizione}
 Con valori casuali il branch predictor ha accuratezza pari al lancio di una moneta, $P(\text{hit}) = P(\text{miss}) = 0.50$. Il costo medio per iterazione \`e allora
 \[
-\text{Costo medio} \approx 0.5 \times T_{\text{corpo}} + P(\text{miss}) \times \text{Penalit\`a flush}
-\approx 0.5 \times 0.85\,\text{ns} + 0.5 \times 5.0\,\text{ns} \approx 2.9\text{--}3.5\,\text{ns},
+\begin{aligned}
+  \text{Costo medio} &\approx 0.5 \times T_{\text{corpo}} + P(\text{miss}) \times \text{Penalit\`a flush} \\
+                     &\approx 0.5 \times 0.85\,\text{ns} + 0.5 \times 5.0\,\text{ns} \approx 2.9\text{--}3.5\,\text{ns},
+\end{aligned}
 \]
 avendo assunto una penalit\`a di $15$--$20$ cicli ($\approx 4$--$5\,\text{ns}$ su una CPU a $4\,\text{GHz}$). Il costo dell'algoritmo non \`e pi\`u dettato dalle operazioni aritmetiche, ma \`e dominato dal tempo perso a svuotare e ricaricare la pipeline.
 \end{alertblock}
@@ -424,20 +429,21 @@ avendo assunto una penalit\`a di $15$--$20$ cicli ($\approx 4$--$5\,\text{ns}$ s
 Per dimostrare che il rallentamento deriva esclusivamente dal comportamento del branch predictor, si esegue lo stesso identico codice modificando solo la disposizione dei dati nell'array.
 
 \begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{l r l}
-\toprule
-\textbf{Configurazione} & \textbf{Tempo per iterazione} & \textbf{Comportamento del predittore} \\
-\midrule
-\texttt{do\_more\_stuff\_4()} (nessun \texttt{if}) & $1.7\,\text{ns}$ & --- \\
-\texttt{do\_more\_stuff\_5()}, dati casuali & $3.5\,\text{ns}$ & ramo impredicibile, miss rate $\approx 50\%$ \\
-\texttt{do\_more\_stuff\_5()}, dati ordinati & $1.2\,\text{ns}$ & predizione quasi perfetta, un solo miss \\
-\texttt{do\_more\_stuff\_5()}, dati alternati & $1.1\,\text{ns}$ & sequenza periodica, miss rate $\approx 0\%$ \\
-\bottomrule
-\end{tabular}
-\caption{Tempo per iterazione di \texttt{do\_more\_stuff\_5()} al variare della disposizione dei dati.}
-\label{tab:branch-prediction-benchmark}
+  \centering
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{l r Y}
+    \toprule
+    \textbf{Configurazione} & \textbf{Tempo / iter.} & \textbf{Comportamento del predittore} \\
+    \midrule
+    \texttt{do\_more\_stuff\_4()} (nessun \texttt{if}) & $1.7\,\text{ns}$ & --- \\
+    \texttt{do\_more\_stuff\_5()} (dati casuali)       & $3.5\,\text{ns}$ & Ramo impredicibile, miss rate $\approx 50\%$ \\
+    \texttt{do\_more\_stuff\_5()} (dati ordinati)      & $1.2\,\text{ns}$ & Predizione quasi perfetta, un solo miss \\
+    \texttt{do\_more\_stuff\_5()} (dati alternati)     & $1.1\,\text{ns}$ & Sequenza periodica, miss rate $\approx 0\%$ \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Tempo per iterazione di \texttt{do\_more\_stuff\_5()} al variare della disposizione dei dati.}
+  \label{tab:branch-prediction-benchmark}
 \end{table}
 
 Con \textbf{dati ordinati} (tutti gli elementi $\le 50$ all'inizio dell'array e tutti quelli $> 50$ alla fine) il predittore assume che il salto non sia preso per l'intera prima met\`a e che sia preso per la seconda: si verifica un unico misprediction al punto di transizione, e rimosso il costo dei flush il tempo scende a $1.2\,\text{ns}$, inferiore ai $1.7\,\text{ns}$ della versione senza condizione poich\'e met\`a delle iterazioni non esegue il corpo dell'\texttt{if}. Con \textbf{dati alternati} secondo un pattern periodico (\textit{falso, vero, falso, vero, \ldots}), i predittori integrano tabelle storiche dei pattern (\textit{branch history shift register}): identificata la periodicit\`a, il predittore anticipa l'esito a ogni passo senza errori, annullando gli stalli.
