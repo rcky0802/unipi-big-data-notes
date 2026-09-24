@@ -1,0 +1,73 @@
+services:
+  # Servizio interattivo da terminale o dev container
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: university-notes-compiler:latest
+    container_name: unipi-notes-app
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+
+  # Genera le figure di Data Mining tramite lo script Python
+  figures:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: university-notes-compiler:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: python3 Data-Mining/playground/generate_dispensa_figures.py
+
+  # Compila tutte le dispense (Data Mining, Algorithm Engineering, Information Retrieval)
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: university-notes-compiler:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      bash -c "
+        python3 Data-Mining/playground/generate_dispensa_figures.py &&
+        for d in Algorithm-Engineering Data-Mining Information-Retrieval; do
+          if [ -d \"\$$d\" ]; then
+            echo \"=== Compiling \$$d ===\"
+            (cd \"\$$d\" && [ -f main_it.tex ] && latexmk -pdf -interaction=nonstopmode main_it.tex)
+            (cd \"\$$d\" && [ -f main_en.tex ] && latexmk -pdf -interaction=nonstopmode main_en.tex)
+            (cd \"\$$d\" && [ -f main.tex ] && latexmk -pdf -interaction=nonstopmode main.tex)
+          fi
+        done &&
+        mkdir -p pdf &&
+        [ -f Data-Mining/main_it.pdf ] && cp Data-Mining/main_it.pdf pdf/Data-Mining-IT.pdf || true &&
+        [ -f Data-Mining/main_en.pdf ] && cp Data-Mining/main_en.pdf pdf/Data-Mining-EN.pdf || true &&
+        [ -f Algorithm-Engineering/main_it.pdf ] && cp Algorithm-Engineering/main_it.pdf pdf/Algorithm-Engineering-IT.pdf || true &&
+        [ -f Algorithm-Engineering/main_en.pdf ] && cp Algorithm-Engineering/main_en.pdf pdf/Algorithm-Engineering-EN.pdf || true &&
+        [ -f Information-Retrieval/main_it.pdf ] && cp Information-Retrieval/main_it.pdf pdf/Information-Retrieval-IT.pdf || true &&
+        [ -f Information-Retrieval/main_en.pdf ] && cp Information-Retrieval/main_en.pdf pdf/Information-Retrieval-EN.pdf || true &&
+        echo '=== Build completata con successo! PDF sincronizzati in pdf/ ==='
+      "
+
+  # Pulisce i file ausiliari di compilazione
+  clean:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: university-notes-compiler:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: >
+      bash -c "
+        for d in Algorithm-Engineering Data-Mining Information-Retrieval; do
+          if [ -d \"\$$d\" ]; then
+            (cd \"\$$d\" && latexmk -c)
+          fi
+        done &&
+        echo '=== Pulizia file ausiliari completata ==='
+      "

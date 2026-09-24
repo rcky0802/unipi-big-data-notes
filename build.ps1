@@ -59,69 +59,24 @@ if ($availableSubjects.Count -eq 0) {
     exit 0
 }
 
-# Auto-discovery per latexmk
-$latexmkPath = Get-Command latexmk -ErrorAction SilentlyContinue
-if (-not $latexmkPath) {
-    $candidates = @(
-        "$env:LOCALAPPDATA\Programs\MiKTeX\miktex\bin\x64\latexmk.exe",
-        "$env:LOCALAPPDATA\Programs\MiKTeX\miktex\bin\latexmk.exe",
-        "$env:ProgramFiles\MiKTeX\miktex\bin\x64\latexmk.exe",
-        "${env:ProgramFiles(x86)}\MiKTeX\miktex\bin\latexmk.exe",
-        "C:\MiKTeX\miktex\bin\x64\latexmk.exe"
-    ) + (Get-Item "C:\texlive\*\bin\*\latexmk.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-
-    foreach ($cand in $candidates) {
-        if ($cand -and (Test-Path $cand)) {
-            $latexmkDir = Split-Path -Parent $cand
-            $env:PATH = "$latexmkDir;$env:PATH"
-            $latexmkPath = Get-Command latexmk -ErrorAction SilentlyContinue
-            if ($latexmkPath) {
-                Write-Host "[INFO] Individuata installazione LaTeX in: $latexmkDir" -ForegroundColor Cyan
-                break
-            }
-        }
-    }
-}
-
-# Auto-discovery per motore Perl (necessario per latexmk su Windows)
-$perlPath = Get-Command perl -ErrorAction SilentlyContinue
-if (-not $perlPath) {
-    $perlCandidates = @(
-        "C:\Program Files\Git\usr\bin\perl.exe",
-        "C:\Program Files (x86)\Git\usr\bin\perl.exe",
-        "C:\Strawberry\perl\bin\perl.exe",
-        "C:\Perl64\bin\perl.exe",
-        "C:\Perl\bin\perl.exe"
-    )
-    foreach ($p in $perlCandidates) {
-        if (Test-Path $p) {
-            $perlDir = Split-Path -Parent $p
-            $env:PATH = "$perlDir;$env:PATH"
-            $perlPath = Get-Command perl -ErrorAction SilentlyContinue
-            if ($perlPath) {
-                Write-Host "[INFO] Individuato motore Perl in: $perlDir" -ForegroundColor Cyan
-                break
-            }
-        }
-    }
-}
-
-# Assicura che MiKTeX installi i pacchetti mancanti in automatico senza blocchi GUI
-$initexmf = Get-Command initexmf -ErrorAction SilentlyContinue
-if ($initexmf) {
-    try {
-        & initexmf --set-config-value [MPM]AutoInstall=1 2>$null | Out-Null
-    } catch { }
-}
-
-if (-not $latexmkPath) {
-    Write-Host "`n[ERRORE] 'latexmk' non e' stato trovato nel PATH o nelle directory standard." -ForegroundColor Red
-    Write-Host "Per compilare i documenti LaTeX e' necessaria una distribuzione TeX:" -ForegroundColor Yellow
-    Write-Host "  -> Scarica e installa MiKTeX da: https://miktex.org/download" -ForegroundColor Yellow
-    Write-Host "     (Durante l'installazione seleziona 'Install missing packages on the fly: Yes')" -ForegroundColor Gray
-    Write-Host "  -> Oppure TeX Live da: https://tug.org/texlive/`n" -ForegroundColor Gray
+# Verifica presenza di Docker (unico prerequisito)
+$dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+if (-not $dockerCmd) {
+    Write-Host "`n[ERRORE] 'docker' non e' stato trovato nel PATH." -ForegroundColor Red
+    Write-Host "Questo progetto utilizza Docker per garantire la completa riproducibilità di LaTeX e Python." -ForegroundColor Yellow
+    Write-Host "  -> Scarica e installa Docker Desktop: https://www.docker.com/products/docker-desktop`n" -ForegroundColor Gray
     exit 1
 }
+
+# Verifica che il daemon di Docker sia effettivamente in esecuzione
+$null = & docker info 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`n[ERRORE] Il daemon di Docker non e' in esecuzione." -ForegroundColor Red
+    Write-Host "Avvia Docker Desktop per procedere con la compilazione delle dispense.`n" -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host "[INFO] Motore di compilazione: Container Docker (ambiente unificato LaTeX + Python)" -ForegroundColor Green
 
 # Funzione per testare se una specifica combinazione (Materia, Lingua) ha modifiche
 function Test-TargetModified {
@@ -300,7 +255,15 @@ foreach ($item in $buildPlan) {
 
     Push-Location $dir.FullName
     try {
-        & latexmk -pdf -interaction=nonstopmode $texFile
+        # Se la materia è Data Mining e non esistono le figure o è invocato -Force, genera prima le figure nel container
+        if ($subjectName -eq "Data-Mining" -and ($Force -or -not (Test-Path "$($dir.FullName)\assets\figures\it\iris_scatterplot_real.pdf"))) {
+            Write-Host "     [Docker] Aggiornamento figure vettoriali Data-Mining..." -ForegroundColor DarkCyan
+            & docker compose -f "$rootDir\docker-compose.yml" run --rm figures
+        }
+
+        # Esegui latexmk montando il workspace corrente nel container
+        & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode $texFile
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Compilato con successo: $subjectName [$lang]" -ForegroundColor Green
             $successCount++
