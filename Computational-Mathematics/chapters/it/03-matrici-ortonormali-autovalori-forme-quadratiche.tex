@@ -1,0 +1,855 @@
+\chapter[Matrici Ortonormali, Autovalori e Forme Quadratiche]{Matrici a Colonne Ortonormali, Autovalori,\\Decomposizione Spettrale e Forme Quadratiche}
+\label{chap:matrici-ortonormali-autovalori-forme-quadratiche}
+
+Il presente capitolo approfondisce le propriet\`a algebriche e geometriche delle matrici a colonne ortonormali nel caso rettangolare, confrontando sistematicamente i prodotti $V^T V$ e $V V^T$. Vengono quindi introdotti la teoria spettrale, il concetto di autovalore e autovettore, la diagonalizzazione e l'espansione diadica, culminando nel Teorema Spettrale per matrici simmetriche. Infine, si analizzano le forme quadratiche, la disuguaglianza del quoziente di Rayleigh, la classificazione delle matrici simmetriche definite e semidefinite positive (SPD e SPSD), e la genesi naturale delle strutture simmetriche tramite i gramiani $B^T B$ e $B B^T$~\cite{trefethen1997numerical}.
+
+\FloatBarrier
+\section{Richiamo sulle Matrici Ortogonali Quadrate e Isometria}
+
+Nel capitolo precedente \`e stata introdotta la nozione di matrice ortogonale nello spazio euclideo $\R^n$. Richiamiamo sinteticamente le formulazioni equivalenti che ne regolano il comportamento.
+
+\begin{definition}[Caratterizzazioni Equivalenti di Matrice Ortogonale]
+\label{def:ortogonale-quadrata-recap}
+Una matrice quadrata $U \in \R^{n \times n}$ si dice \textbf{ortogonale} se soddisfa una qualsiasi delle seguenti condizioni mutuamente equivalenti:
+\begin{enumerate}
+    \item $U^T U = I_n$, ovvero l'inversa coincide con la trasposta ($U^{-1} = U^T$).
+    \item $U U^T = I_n$.
+    \item L'insieme delle colonne di $U = [\mathbf{u}_1, \dots, \mathbf{u}_n]$ costituisce una base ortonormale di $\R^n$:
+    \begin{equation}
+        \langle \mathbf{u}_i, \mathbf{u}_j \rangle = \mathbf{u}_i^T \mathbf{u}_j = \delta_{ij} = \begin{cases} 1 & \text{se } i = j, \\ 0 & \text{se } i \neq j. \end{cases}
+    \end{equation}
+    \item L'insieme delle righe di $U$ costituisce una base ortonormale di $\R^n$.
+\end{enumerate}
+\end{definition}
+
+\begin{noteblock}{Chiarimento Terminologico Storico}
+In letteratura si adotta storicamente la locuzione \textit{matrice ortogonale}, bench\'e le colonne (e le righe) della matrice non siano unicamente tra loro ortogonali, bens\`i \textbf{normalizzate a norma unitaria}, costituendo pertanto un sistema strettamente \textbf{ortonormale}.
+\end{noteblock}
+
+La caratteristica geometrica cruciale di una trasformazione ortogonale risiede nella conservazione delle distanze e delle norme euclidee, come espresso dalla propriet\`a di isometria.
+
+\begin{property}[Isometria Euclidea]
+\label{prop:isometria-euclidea-quadrata}
+Sia $U \in \R^{n \times n}$ una matrice ortogonale. Per ogni vettore $\mathbf{x} \in \R^n$, l'applicazione lineare preserva esattamente la norma euclidea:
+\begin{equation}
+    \|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+\end{property}
+
+\begin{proof}
+Calcolando la norma euclidea al quadrato di $U\mathbf{x}$ e applicando l'identit\`a $(U\mathbf{x})^T = \mathbf{x}^T U^T$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = (U\mathbf{x})^T (U\mathbf{x}) = \mathbf{x}^T (U^T U) \mathbf{x} = \mathbf{x}^T I_n \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Estraendo la radice quadrata aritmetica si ottiene $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$.
+\end{proof}
+
+\FloatBarrier
+\section[Matrici Rettangolari a Colonne Ortonormali]{Matrici Rettangolari a Colonne Ortonormali: \texorpdfstring{$V^T V$}{V\textasciicircum T V} vs \texorpdfstring{$V V^T$}{V V\textasciicircum T}}
+
+Nelle applicazioni computazionali (quali la riduzione di dimensionalit\`a, la PCA e la fattorizzazione ai valori singolari in forma compatta) si manipolano costantemente matrici rettangolari le cui colonne formano un sistema ortonormale.
+
+\subsection{Definizione e Vincolo sulla Dimensionalit\`a}
+
+\begin{definition}[Matrice Rettangolare a Colonne Ortonormali]
+Una matrice $V \in \R^{n \times k}$ con $k < n$ (\textit{tall-skinny}, ovvero alta e stretta) possiede colonne mutuamente ortonormali se:
+\begin{equation}
+    V = \begin{bmatrix} \mid & \mid & & \mid \\ \mathbf{v}_1 & \mathbf{v}_2 & \dots & \mathbf{v}_k \\ \mid & \mid & & \mid \end{bmatrix}, \qquad \mathbf{v}_i \in \R^n,
+\end{equation}
+con vettori colonna soddisfacenti la condizione di ortonormalit\`a:
+\begin{equation}
+    \langle \mathbf{v}_i, \mathbf{v}_j \rangle = \mathbf{v}_i^T \mathbf{v}_j = \delta_{ij} \quad \forall i, j \in \{1, \dots, k\}.
+\end{equation}
+\end{definition}
+
+\begin{alertblock}{Vincolo sulla Dimensione: Perch\'e deve essere $k \le n$?}
+In uno spazio vettoriale di dimensione $n$ (come $\R^n$), la dimensione di qualsiasi sottospazio \`e al pi\`u $n$. Poich\'e ogni famiglia finita di vettori ortonormali \`e intrinsecamente linearmente indipendente, non possono sussistere pi\`u di $n$ vettori ortonormali in $\R^n$. Di conseguenza, una matrice a colonne ortonormali pu\`o avere al massimo tante colonne quante sono le sue righe ($k \le n$).
+\end{alertblock}
+
+\subsection{Il Prodotto \texorpdfstring{$V^T V$}{V\textasciicircum T V} (Gramiano delle Colonne)}
+
+Consideriamo il prodotto tra la trasposta $V^T \in \R^{k \times n}$ e la matrice $V \in \R^{n \times k}$. Il risultato \`e una matrice quadrata di ordine $k$:
+\begin{equation}
+    V^T V \in \R^{k \times k}.
+\end{equation}
+Sviluppando il prodotto per blocchi, considerando $V^T$ per righe e $V$ per colonne:
+\begin{equation}
+    V^T V = \begin{bmatrix} \text{---} & \mathbf{v}_1^T & \text{---} \\ \text{---} & \mathbf{v}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{v}_k^T & \text{---} \end{bmatrix} \begin{bmatrix} \mid & \mid & & \mid \\ \mathbf{v}_1 & \mathbf{v}_2 & \dots & \mathbf{v}_k \\ \mid & \mid & & \mid \end{bmatrix} = \begin{bmatrix} \mathbf{v}_1^T \mathbf{v}_1 & \mathbf{v}_1^T \mathbf{v}_2 & \dots & \mathbf{v}_1^T \mathbf{v}_k \\ \mathbf{v}_2^T \mathbf{v}_1 & \mathbf{v}_2^T \mathbf{v}_2 & \dots & \mathbf{v}_2^T \mathbf{v}_k \\ \vdots & \vdots & \ddots & \vdots \\ \mathbf{v}_k^T \mathbf{v}_1 & \mathbf{v}_k^T \mathbf{v}_2 & \dots & \mathbf{v}_k^T \mathbf{v}_k \end{bmatrix}.
+\end{equation}
+Imponendo l'ortonormalit\`a $\mathbf{v}_i^T \mathbf{v}_j = \delta_{ij}$, la matrice risultante coincide con l'identit\`a di ordine $k$:
+\begin{equation}
+    V^T V = I_k.
+\end{equation}
+
+\subsection{Il Prodotto Inverso \texorpdfstring{$V V^T$}{V V\textasciicircum T} (Proiettore Ortogonale)}
+
+Invertendo l'ordine dei fattori, otteniamo una matrice quadrata di dimensione considerevolmente superiore, pari a $n \times n$:
+\begin{equation}
+    V V^T \in \R^{n \times n}.
+\end{equation}
+
+\begin{theorem}[Non-Coincidenza con l'Identit\`a]
+Sia $V \in \R^{n \times k}$ a colonne ortonormali con $k < n$. Allora:
+\begin{equation}
+    V V^T \neq I_n.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione discende direttamente dal teorema sul rango del prodotto matriciale:
+\begin{enumerate}
+    \item Il rango del prodotto di due matrici \`e superiormente limitato dal rango dei singoli fattori:
+    \begin{equation}
+        \rank(V V^T) \le \min\big(\rank(V), \, \rank(V^T)\big).
+    \end{equation}
+    \item Essendo le $k$ colonne di $V$ ortonormali e dunque linearmente indipendenti, si ha $\rank(V) = \rank(V^T) = k$.
+    \item Pertanto, $\rank(V V^T) \le k$. In realt\`a, poich\'e $V^T V = I_k$, vale esattamente $\rank(V V^T) = k$.
+    \item D'altra parte, la matrice identit\`a $I_n \in \R^{n \times n}$ ha rango pieno pari a $n$.
+    \item Poich\'e per ipotesi $k < n$, segue:
+    \begin{equation}
+        \rank(V V^T) = k < n = \rank(I_n) \implies V V^T \neq I_n.
+    \end{equation}
+\end{enumerate}
+La matrice $V V^T$ \`e singolare e possiede un nucleo non banale di dimensione $n - k > 0$.
+\end{proof}
+
+\subsubsection{Espansione per Prodotti Esterni e Significato Geometrico}
+Applicando la decomposizione per blocchi, il prodotto $V V^T$ pu\`o essere espresso come somma di diadi (\textit{outer products}):
+\begin{equation}
+    V V^T = \sum_{i=1}^k \mathbf{v}_i \mathbf{v}_i^T = \mathbf{v}_1 \mathbf{v}_1^T + \mathbf{v}_2 \mathbf{v}_2^T + \dots + \mathbf{v}_k \mathbf{v}_k^T.
+\end{equation}
+Ciascun addendo $\mathbf{v}_i \mathbf{v}_i^T$ \`e una matrice simmetrica di rango 1. L'operatore $P = V V^T$:
+\begin{itemize}
+    \item \`E idempotente: $P^2 = (V V^T)(V V^T) = V (V^T V) V^T = V I_k V^T = V V^T = P$.
+    \item \`E simmetrico: $P^T = (V V^T)^T = (V^T)^T V^T = V V^T = P$.
+\end{itemize}
+Di conseguenza, $P = V V^T$ \`e il \textbf{proiettore ortogonale} da $\R^n$ sul sottospazio generato dalle colonne di $V$:
+\begin{equation}
+    \mathcal{S} = \spanop\{\mathbf{v}_1, \dots, \mathbf{v}_k\}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+    % --- Matrice V (n x k, tall-skinny) ---
+    \draw[thick, fill=blue!8, draw=blue!60!black] (0, 0) rectangle (1.6, 3.8);
+    \node[font=\bfseries\huge, text=blue!80!black] at (0.8, 1.9) {$V$};
+    \node[below=6pt, font=\scriptsize\bfseries, text=blue!70!black] at (0.8, 0) {($n \times k$, tall-skinny)};
+    % Braces dimensionali di V (orientate verso l'esterno)
+    \draw[brace] (-0.15, 0) -- (-0.15, 3.8) node[midway, left=6pt, font=\small] {$n$};
+    \draw[brace] (0, 3.8) -- (1.6, 3.8) node[midway, above=6pt, font=\small] {$k$};
+
+    % Operatore moltiplicazione
+    \node[font=\huge, text=gray!80!black] at (2.6, 1.9) {$\times$};
+
+    % --- Matrice V^T (k x n, short-wide) ---
+    \draw[thick, fill=green!8, draw=green!60!black] (3.6, 1.1) rectangle (7.4, 2.7);
+    \node[font=\bfseries\huge, text=green!70!black] at (5.5, 1.9) {$V^T$};
+    \node[below=6pt, font=\scriptsize\bfseries, text=green!70!black] at (5.5, 1.1) {($k \times n$, short-wide)};
+    % Braces dimensionali di V^T (orientate verso l'esterno)
+    \draw[brace] (3.6, 2.7) -- (7.4, 2.7) node[midway, above=6pt, font=\small] {$n$};
+    \draw[brace] (7.55, 2.7) -- (7.55, 1.1) node[midway, right=6pt, font=\small] {$k$};
+
+    % Operatore uguaglianza
+    \node[font=\huge, text=gray!80!black] at (8.6, 1.9) {$=$};
+
+    % --- Matrice Risultante V V^T = P (n x n) ---
+    \draw[thick, fill=orange!8, draw=orange!60!black] (9.8, 0) rectangle (13.6, 3.8);
+    \node[align=center] at (11.7, 1.9) {%
+        {\bfseries\Large\color{orange!85!black} $P = V V^T$}\\[6pt]
+        {\scriptsize\bfseries\color{gray!80!black} Proiettore ortogonale}\\[4pt]
+        {\scriptsize\color{gray!70!black} $\rank(P) = k < n$}\\[4pt]
+        {\scriptsize\bfseries\color{red!75!black} $P \neq I_n$ (singolare)}%
+    };
+    \node[below=6pt, font=\scriptsize\bfseries, text=orange!80!black] at (11.7, 0) {($n \times n$, rango $k$)};
+    % Braces dimensionali di V V^T (orientate verso l'esterno)
+    \draw[brace] (9.8, 3.8) -- (13.6, 3.8) node[midway, above=6pt, font=\small] {$n$};
+    \draw[brace] (13.75, 3.8) -- (13.75, 0) node[midway, right=6pt, font=\small] {$n$};
+\end{tikzpicture}%
+}
+\caption{Confronto dimensionale e di rango: il prodotto $V V^T$ genera un proiettore ortogonale di dimensione $n \times n$ con rango strettamente deficitario $k < n$.}
+\label{fig:v-vt-proiettore}
+\end{figure}
+
+\FloatBarrier
+\section{Isometria Parziale per Matrici Rettangolari Ortonormali}
+
+Nel caso rettangolare ($V \in \R^{n \times k}$ con $k < n$), la propriet\`a di isometria si applica asimmetricamente a seconda dello spazio di partenza del vettore.
+
+\subsection{Quesito (a): Conservazione della Norma per Vettori in \texorpdfstring{$\R^k$}{R\textasciicircum k}}
+
+\begin{proposition}[Isometria Destra]
+\label{prop:isometria-destra}
+Sia $V \in \R^{n \times k}$ a colonne ortonormali con $k < n$. Per ogni vettore $\mathbf{x} \in \R^k$, vale:
+\begin{equation}
+    \|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Calcoliamo la norma quadratica dell'immagine $V\mathbf{x} \in \R^n$:
+\begin{equation}
+    \|V\mathbf{x}\|_2^2 = (V\mathbf{x})^T (V\mathbf{x}) = \mathbf{x}^T (V^T V) \mathbf{x}.
+\end{equation}
+Poich\'e le colonne di $V$ sono ortonormali, abbiamo dimostrato che $V^T V = I_k$. Sostituendo:
+\begin{equation}
+    \|V\mathbf{x}\|_2^2 = \mathbf{x}^T I_k \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Estraendo la radice quadrata aritmetica, $\|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ per ogni $\mathbf{x} \in \R^k$.
+\end{proof}
+
+\begin{noteblock}{Interpretazione Geometrica}
+L'applicazione $V: \R^k \to \R^n$ costituisce un'\textbf{immersione isometrica}: essa mappa lo spazio a dimensione inferiore $\R^k$ in un sottospazio $k$-dimensionale di $\R^n$, conservando rigorosamente lunghezze e angoli tra vettori.
+\end{noteblock}
+
+\subsection{Quesito (b): Conservazione della Norma per Vettori in \texorpdfstring{$\R^n$}{R\textasciicircum n} sotto \texorpdfstring{$V^T$}{V\textasciicircum T}}
+
+\begin{proposition}[Mancata Isometria Sinistra]
+\label{prop:non-isometria-sinistra}
+Sia $V \in \R^{n \times k}$ a colonne ortonormali con $k < n$. L'operatore trasposto $V^T: \R^n \to \R^k$ \textbf{non} preserva la norma euclidea su tutto $\R^n$:
+\begin{equation}
+    \exists \mathbf{y} \in \R^n \quad \text{tale che} \quad \|V^T \mathbf{y}\|_2 \neq \|\mathbf{y}\|_2.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Valutiamo la norma euclidea al quadrato di $V^T \mathbf{y}$:
+\begin{equation}
+    \|V^T \mathbf{y}\|_2^2 = (V^T \mathbf{y})^T (V^T \mathbf{y}) = \mathbf{y}^T (V V^T) \mathbf{y}.
+\end{equation}
+Poich\'e $V V^T \neq I_n$, l'espressione non collassa identicamente a $\|\mathbf{y}\|_2^2$.
+
+\medskip
+\noindent\textbf{Controesempio basato sul nucleo:}
+Consideriamo la matrice $V^T \in \R^{k \times n}$. Dal Teorema del Rango-Nullit\`a:
+\begin{equation}
+    \dim(\ker(V^T)) = n - \rank(V^T) = n - k.
+\end{equation}
+Essendo $k < n$, la dimensione del nucleo \`e strettamente positiva ($n - k > 0$). Esiste pertanto almeno un vettore non nullo $\tilde{\mathbf{y}} \in \R^n \setminus \{\mathbf{0}\}$ tale che:
+\begin{equation}
+    \tilde{\mathbf{y}} \in \ker(V^T) \implies V^T \tilde{\mathbf{y}} = \mathbf{0} \in \R^k.
+\end{equation}
+Calcolando le norme:
+\begin{equation}
+    \|V^T \tilde{\mathbf{y}}\|_2 = \|\mathbf{0}\|_2 = 0 \neq \|\tilde{\mathbf{y}}\|_2.
+\end{equation}
+Pertanto, la contrazione della norma \`e massima per tutti i vettori ortogonali al sottospazio generato dalle colonne di $V$.
+\end{proof}
+
+\FloatBarrier
+\section{Autovalori e Autovettori: Fondamenti ed Esempio Guida}
+
+\subsection{Definizioni Fondamentali}
+
+Sia $A \in \R^{n \times n}$ una matrice \textbf{quadrata}.
+
+\begin{definition}[Autovalore, Autovettore e Autocoppia]
+\label{def:autovalore-autovettore}
+Uno scalare $\lambda \in \R$ (o in $\C$) \`e detto \textbf{autovalore} di $A$ se esiste un vettore \textbf{non nullo} $\mathbf{v} \in \R^n \setminus \{\mathbf{0}\}$ (o $\C^n \setminus \{\mathbf{0}\}$) tale che:
+\begin{equation}
+    A\mathbf{v} = \lambda \mathbf{v}.
+\end{equation}
+Il vettore $\mathbf{v}$ \`e detto \textbf{autovettore} associato a $\lambda$. La coppia $(\lambda, \mathbf{v})$ \`e definita \textbf{autocoppia} (\textit{eigenpair}).
+\end{definition}
+
+L'equazione $A\mathbf{v} = \lambda \mathbf{v}$ pu\`o essere riformulata come un sistema lineare omogeneo:
+\begin{equation}
+    (A - \lambda I_n)\mathbf{v} = \mathbf{0}.
+\end{equation}
+Affinch\'e tale sistema ammetta soluzioni non nulle ($\mathbf{v} \neq \mathbf{0}$), la matrice dei coefficienti $(A - \lambda I_n)$ deve essere singolare, ossia avere determinante nullo:
+\begin{equation}
+    p(\lambda) = \det(A - \lambda I_n) = 0.
+\end{equation}
+Il polinomio $p(\lambda)$ \`e il \textbf{polinomio caratteristico} di $A$, di grado $n$. Gli autovalori di $A$ sono tutte e sole le radici (reali o complesse) del polinomio caratteristico.
+
+\subsection{Esempio Guidato Passo-Passo}
+
+\begin{example}[Calcolo di Autovalori e Autovettori per Matrice $2 \times 2$]
+\label{ex:autovalori-2x2}
+Consideriamo la matrice simmetrica reale:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 1 \\ 1 & 2 \end{bmatrix} \in \R^{2 \times 2}.
+\end{equation}
+
+\noindent\textbf{Passo 1: Determinazione del Polinomio Caratteristico e degli Autovalori.}
+\begin{equation}
+    p(\lambda) = \det(A - \lambda I_2) = \det \begin{bmatrix} 2-\lambda & 1 \\ 1 & 2-\lambda \end{bmatrix} = (2-\lambda)^2 - 1.
+\end{equation}
+Sfruttando la scomposizione come differenza di quadrati $a^2 - b^2 = (a-b)(a+b)$:
+\begin{equation}
+    p(\lambda) = \big((2-\lambda) - 1\big)\big((2-\lambda) + 1\big) = (1-\lambda)(3-\lambda) = 0.
+\end{equation}
+Le radici del polinomio forniscono i due autovalori:
+\begin{equation}
+    \lambda_1 = 3, \quad \lambda_2 = 1.
+\end{equation}
+
+\noindent\textbf{Passo 2: Ricerca dell'Autovettore per $\lambda_1 = 3$.}
+Risolviamo il sistema $(A - 3I_2)\mathbf{v}_1 = \mathbf{0}$:
+\begin{equation}
+    \begin{bmatrix} 2-3 & 1 \\ 1 & 2-3 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} -1 & 1 \\ 1 & -1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies -x + y = 0 \iff y = x.
+\end{equation}
+Ponendo $x = 1$, otteniamo l'autovettore:
+\begin{equation}
+    \mathbf{v}_1 = \begin{bmatrix} 1 \\ 1 \end{bmatrix}.
+\end{equation}
+
+\noindent\textbf{Passo 3: Ricerca dell'Autovettore per $\lambda_2 = 1$.}
+Risolviamo il sistema $(A - I_2)\mathbf{v}_2 = \mathbf{0}$:
+\begin{equation}
+    \begin{bmatrix} 2-1 & 1 \\ 1 & 2-1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 1 & 1 \\ 1 & 1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies x + y = 0 \iff y = -x.
+\end{equation}
+Ponendo $x = 1$, ricaviamo l'autovettore:
+\begin{equation}
+    \mathbf{v}_2 = \begin{bmatrix} 1 \\ -1 \end{bmatrix}.
+\end{equation}
+Si noti che $\mathbf{v}_1^T \mathbf{v}_2 = 1(1) + 1(-1) = 0$: i due autovettori risultano mutuamente ortogonali.
+\end{example}
+
+\FloatBarrier
+\section{Diagonalizzazione ed Espansione Diadica}
+
+\subsection{Matrici Diagonalizzabili}
+
+\begin{definition}[Diagonalizzabilit\`a]
+Una matrice $A \in \R^{n \times n}$ si dice \textbf{diagonalizzabile} se ammette $n$ autovettori linearmente indipendenti, ovvero se esiste una base di $\R^n$ formata da autovettori di $A$.
+\end{definition}
+
+In tal caso, organizzando gli $n$ autovettori nelle colonne della matrice modale $V = [\mathbf{v}_1, \dots, \mathbf{v}_n] \in \R^{n \times n}$ e gli autovalori sulla diagonale di $D = \diag(\lambda_1, \dots, \lambda_n)$:
+\begin{equation}
+    A V = A [\mathbf{v}_1, \dots, \mathbf{v}_n] = [\lambda_1 \mathbf{v}_1, \dots, \lambda_n \mathbf{v}_n] = [\mathbf{v}_1, \dots, \mathbf{v}_n] \begin{bmatrix} \lambda_1 & & \\ & \ddots & \\ & & \lambda_n \end{bmatrix} = V D.
+\end{equation}
+Essendo gli autovettori linearmente indipendenti, $V$ \`e invertibile. Moltiplicando a destra per $V^{-1}$:
+\begin{equation}
+    A = V D V^{-1}.
+\end{equation}
+
+\subsection{Espansione Diadica (Outer Product Expansion)}
+
+Sia $W = V^{-1} \in \R^{n \times n}$. Rappresentiamo $W$ partizionata per righe:
+\begin{equation}
+    W = V^{-1} = \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ \text{---} & \mathbf{w}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix}.
+\end{equation}
+Poich\'e $W V = I_n$, sussiste la relazione di bi-ortonormalit\`a: $\mathbf{w}_i^T \mathbf{v}_j = \delta_{ij}$. Sviluppando la fattorizzazione $A = V D W$:
+\begin{align}
+    A &= \begin{bmatrix} \mid & & \mid \\ \mathbf{v}_1 & \dots & \mathbf{v}_n \\ \mid & & \mid \end{bmatrix} \begin{bmatrix} \lambda_1 & & \\ & \ddots & \\ & & \lambda_n \end{bmatrix} \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix} \mid & & \mid \\ \lambda_1 \mathbf{v}_1 & \dots & \lambda_n \mathbf{v}_n \\ \mid & & \mid \end{bmatrix} \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix}.
+\end{align}
+Eseguendo la moltiplicazione a blocchi colonna per riga si ottiene:
+\begin{equation}
+    A = \sum_{i=1}^n \lambda_i \mathbf{v}_i \mathbf{w}_i^T = \lambda_1 \mathbf{v}_1 \mathbf{w}_1^T + \lambda_2 \mathbf{v}_2 \mathbf{w}_2^T + \dots + \lambda_n \mathbf{v}_n \mathbf{w}_n^T.
+\end{equation}
+
+\begin{noteblock}{Significato dell'Espansione Diadica}
+La matrice $A$ \`e espressa come combinazione lineare pesata di $n$ matrici elementari di rango 1, ciascuna generata dal prodotto esterno $\mathbf{v}_i \mathbf{w}_i^T$. Gli autovalori $\lambda_i$ agiscono come pesi di modulazione. Questa struttura analitica costituisce la base concettuale della decomposizione a valori singolari (SVD) e dell'approssimazione a basso rango di Eckart-Young-Mirsky.
+\end{noteblock}
+
+\subsection{Casi Patologici di Mancata Diagonalizzabilit\`a}
+
+Non tutte le matrici ammettono una decomposizione $A = V D V^{-1}$ su campo reale. Esistono due ostacoli teorici fondamentali.
+
+\subsubsection{Caso 1: Assenza di Autovalori Reali}
+Consideriamo la matrice di rotazione nel piano di un angolo pari a $\theta = 90^\circ$:
+\begin{equation}
+    A = \begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}.
+\end{equation}
+Il relativo polinomio caratteristico \`e:
+\begin{equation}
+    p(\lambda) = \det \begin{bmatrix} -\lambda & -1 \\ 1 & -\lambda \end{bmatrix} = \lambda^2 + 1 = 0 \implies \lambda_{1,2} = \pm i \notin \R.
+\end{equation}
+Beninteso che la matrice ha entrate puramente reali, essa \textbf{non ammette autovalori n\'e autovettori reali}. Geometricamente, una rotazione pura non banale non preserva la direzione di alcun vettore reale in $\R^2$.
+
+\subsubsection{Caso 2: Matrici Difettive (Molteplicit\`a Geometrica Inferiore a Quella Algebrica)}
+Consideriamo la matrice di scorrimento (\textit{shear matrix}):
+\begin{equation}
+    A = \begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}.
+\end{equation}
+\begin{enumerate}
+    \item Il polinomio caratteristico \`e $p(\lambda) = (1-\lambda)^2 = 0$. Esiste un solo autovalore $\lambda = 1$ con \textbf{molteplicit\`a algebrica} $m_a(1) = 2$.
+    \item Calcoliamo la \textbf{molteplicit\`a geometrica} $m_g(1) = \dim(\ker(A - I_2))$:
+    \begin{equation}
+        A - I_2 = \begin{bmatrix} 0 & 1 \\ 0 & 0 \end{bmatrix} \implies \begin{bmatrix} 0 & 1 \\ 0 & 0 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies y = 0, \quad x \in \R \text{ libero}.
+    \end{equation}
+    L'autospazio associato \`e unidimensionale: $\ker(A - I_2) = \spanop\left\{\begin{bmatrix} 1 \\ 0 \end{bmatrix}\right\}$, da cui $m_g(1) = 1$.
+\end{enumerate}
+Poich\'e $m_g(1) = 1 < 2 = m_a(1)$, non \`e possibile reperire 2 autovettori linearmente indipendenti per costruire la matrice $V$. La matrice $A$ \`e detta \textbf{difettiva} e non \`e diagonalizzabile (pu\`o essere unicamente ridotta in forma canonica di Jordan).
+
+\FloatBarrier
+\section{Esercizi Guidati sugli Autovalori (Q1 -- Q4)}
+
+\subsection{Esercizio Q1: Autocoppie di una Matrice Diagonale}
+
+\begin{example}[Spettro di una Matrice Diagonale]
+\label{ex:q1-matrice-diagonale}
+Data una generica matrice diagonale $D = \diag(d_1, d_2, \dots, d_n) \in \R^{n \times n}$, determiniamo le sue autocoppie.
+
+\noindent\textbf{Risoluzione:}
+Valutiamo l'azione di $D$ sul generico vettore della base canonica $\mathbf{e}_i = [0, \dots, 1, \dots, 0]^T$:
+\begin{equation}
+    D \mathbf{e}_i = \begin{bmatrix} d_1 & & & \\ & d_2 & & \\ & & \ddots & \\ & & & d_n \end{bmatrix} \begin{bmatrix} 0 \\ \vdots \\ 1 \\ \vdots \\ 0 \end{bmatrix} = \begin{bmatrix} 0 \\ \vdots \\ d_i \\ \vdots \\ 0 \end{bmatrix} = d_i \mathbf{e}_i.
+\end{equation}
+Pertanto:
+\begin{itemize}
+    \item Gli autovalori sono esattamente le entrate poste sulla diagonale principale: $\lambda_i = d_i$ per $i = 1, \dots, n$.
+    \item Gli autovettori canonici associati sono i vettori della base standard: $\mathbf{v}_i = \mathbf{e}_i$.
+    \item Le autocoppie canoniche sono $(d_1, \mathbf{e}_1), (d_2, \mathbf{e}_2), \dots, (d_n, \mathbf{e}_n)$.
+\end{itemize}
+\end{example}
+
+\begin{property}[Autovalori Coincidenti e Struttura dell'Autospazio]
+Cosa accade qualora due o pi\`u valori diagonali coincidano, ad esempio $d_1 = d_2 = \lambda$?
+In tale evenienza, \textbf{qualsiasi combinazione lineare} $\alpha \mathbf{e}_1 + \beta \mathbf{e}_2$ (con $\alpha, \beta$ non entrambi nulli) \`e ancora un autovettore per $\lambda$.
+
+\medskip
+\noindent\textit{Dimostrazione generale:} Siano $\mathbf{v}, \mathbf{w} \in \R^n$ due autovettori di una matrice $A$ associati al \textbf{medesimo} autovalore $\lambda$, ovvero $A\mathbf{v} = \lambda \mathbf{v}$ e $A\mathbf{w} = \lambda \mathbf{w}$. Per ogni coppia di scalari $\alpha, \beta \in \R$:
+\begin{equation}
+    A(\alpha \mathbf{v} + \beta \mathbf{w}) = \alpha (A\mathbf{v}) + \beta (A\mathbf{w}) = \alpha (\lambda \mathbf{v}) + \beta (\lambda \mathbf{w}) = \lambda (\alpha \mathbf{v} + \beta \mathbf{w}).
+\end{equation}
+Pertanto l'insieme degli autovettori associati a $\lambda$, unitamente al vettore nullo, costituisce un sottospazio vettoriale chiuso denominato \textbf{autospazio} (\textit{eigenspace}):
+\begin{equation}
+    \mathcal{E}(\lambda) = \ker(A - \lambda I_n).
+\end{equation}
+\end{property}
+
+\subsection{Esercizio Q2: Autocoppie della Matrice Identit\`a}
+
+\begin{example}[Spettro della Matrice Identit\`a]
+\label{ex:q2-matrice-identita}
+Determiniamo autovalori e autovettori della matrice identit\`a $I_n \in \R^{n \times n}$.
+
+\noindent\textbf{Risoluzione:}
+Per definizione dell'operatore identit\`a, per ogni vettore non nullo $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$:
+\begin{equation}
+    I_n \mathbf{x} = 1 \cdot \mathbf{x}.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Autovalore:} $\lambda = 1$ con molteplicit\`a algebrica e geometrica pari a $n$ ($m_a = m_g = n$).
+    \item \textbf{Autovettori:} \textbf{qualsiasi} vettore non nullo di $\R^n$.
+    \item L'intero spazio $\R^n$ coincide con l'autospazio associato: $\mathcal{E}(1) = \R^n$.
+\end{itemize}
+\end{example}
+
+\subsection{Esercizio Q3: Somma e Prodotto di Matrici con Autovalore Comune}
+
+\begin{example}[Autovalori di Somma e Prodotto di Matrici]
+\label{ex:q3-somma-prodotto}
+Sia dato $\lambda \in \R$ autovalore comune di $A \in \R^{n \times n}$ e $B \in \R^{n \times n}$.
+\begin{enumerate}
+    \item $2\lambda$ \`e necessariamente autovalore di $A + B$?
+    \item $\lambda^2$ \`e necessariamente autovalore di $AB$?
+\end{enumerate}
+
+\noindent\textbf{Risposta analitica: NO a entrambi i quesiti.}
+Affinch\'e le relazioni spettrali valgano sulla somma o sul prodotto, le due matrici $A$ e $B$ devono condividere il \textbf{medesimo autovettore} associato a $\lambda$. Se i vettori propri non sono allineati, la propriet\`a decade.
+
+\medskip
+\noindent\textbf{Controesempio per la somma:}
+Consideriamo:
+\begin{equation}
+    A = \begin{bmatrix} 5 & 0 \\ 0 & 1 \end{bmatrix}, \quad B = \begin{bmatrix} 1 & 0 \\ 0 & 5 \end{bmatrix}.
+\end{equation}
+Entrambe le matrici possiedono l'insieme di autovalori $\{1, 5\}$ (in particolare condividono $\lambda = 1$ e $\lambda = 5$). Calcoliamo la somma:
+\begin{equation}
+    A + B = \begin{bmatrix} 6 & 0 \\ 0 & 6 \end{bmatrix} = 6 I_2.
+\end{equation}
+Gli autovalori di $A + B$ sono entrambi pari a $6$. Tuttavia, raddoppiando gli autovalori originari:
+\begin{equation}
+    2 \cdot 1 = 2 \neq 6, \qquad 2 \cdot 5 = 10 \neq 6.
+\end{equation}
+Quindi $2\lambda$ non appartiene allo spettro della matrice somma.
+
+\medskip
+\noindent\textbf{Controesempio per il prodotto:}
+Consideriamo:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 0 \\ 0 & 3 \end{bmatrix}, \quad B = \begin{bmatrix} 10 & 0 \\ 0 & 2 \end{bmatrix}.
+\end{equation}
+Entrambe le matrici condividono l'autovalore $\lambda = 2$. Il prodotto risulta:
+\begin{equation}
+    AB = \begin{bmatrix} 20 & 0 \\ 0 & 6 \end{bmatrix}.
+\end{equation}
+Gli autovalori di $AB$ sono $\{20, 6\}$, nessuno dei quali coincide con $\lambda^2 = 2^2 = 4$.
+\end{example}
+
+\subsection{Esercizio Q4: Autocoppie della Potenza di una Matrice}
+
+\begin{theorem}[Spettro della Potenza $A^k$]
+\label{thm:potenza-matrice}
+Sia $A \in \R^{n \times n}$ una matrice quadrata e sia $(\lambda, \mathbf{v})$ una sua autocoppia ($A\mathbf{v} = \lambda \mathbf{v}$). Allora per ogni esponente intero positivo $k \in \N$:
+\begin{equation}
+    (\lambda^k, \mathbf{v}) \quad \text{\`e un'autocoppia di } A^k, \quad \text{ovvero} \quad A^k \mathbf{v} = \lambda^k \mathbf{v}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione procede agevolmente per induzione su $k$:
+\begin{enumerate}
+    \item \textbf{Base dell'induzione ($k=1$):} $A^1 \mathbf{v} = A\mathbf{v} = \lambda \mathbf{v} = \lambda^1 \mathbf{v}$.
+    \item \textbf{Passo induttivo:} Assumiamo vera l'ipotesi induttiva $A^k \mathbf{v} = \lambda^k \mathbf{v}$. Moltiplicando a sinistra per $A$:
+    \begin{equation}
+        A^{k+1} \mathbf{v} = A(A^k \mathbf{v}) = A(\lambda^k \mathbf{v}) = \lambda^k (A\mathbf{v}) = \lambda^k (\lambda \mathbf{v}) = \lambda^{k+1} \mathbf{v}.
+    \end{equation}
+\end{enumerate}
+La tesi \`e dunque verificata per ogni $k \ge 1$.
+\end{proof}
+
+\begin{corollary}[Fattorizzazione della Potenza per Matrici Diagonalizzabili]
+Se $A = V D V^{-1}$ \`e diagonalizzabile, calcolando la potenza per composizione telescopica:
+\begin{align}
+    A^k &= (V D V^{-1})(V D V^{-1}) \cdots (V D V^{-1}) \nonumber \\
+    &= V D (V^{-1}V) D \cdots (V^{-1}V) D V^{-1} = V D^k V^{-1}.
+\end{align}
+Essendo $D = \diag(\lambda_1, \dots, \lambda_n)$ diagonale, la sua potenza $k$-esima \`e immediata:
+\begin{equation}
+    D^k = \diag(\lambda_1^k, \lambda_2^k, \dots, \lambda_n^k).
+\end{equation}
+\end{corollary}
+
+\begin{alertblock}{Avvertenza sull'Invarianza dell'Autovettore}
+Si presti estrema attenzione al fatto che, elevando la matrice a potenza, \textbf{soltanto gli autovalori} vengono elevati alla potenza $k$, mentre \textbf{gli autovettori permangono rigorosamente invariati}. La scrittura $\mathbf{v}^k$ \`e priva di significato nell'algebra vettoriale.
+\end{alertblock}
+
+\FloatBarrier
+\section{Matrici Simmetriche e il Teorema Spettrale}
+
+Le matrici simmetriche costituiscono la classe di matrici pi\`u rilevante nell'algebra lineare computazionale, nell'ottimizzazione e nel machine learning.
+
+\begin{definition}[Matrice Simmetrica]
+Una matrice quadrata $A \in \R^{n \times n}$ si dice \textbf{simmetrica} se coincide con la propria trasposta:
+\begin{equation}
+    A^T = A \iff A_{ij} = A_{ji} \quad \forall i, j \in \{1, \dots, n\}.
+\end{equation}
+\end{definition}
+
+\begin{theorem}[Teorema Spettrale per Matrici Reali Simmetriche]
+\label{thm:teorema-spettrale}
+Sia $A \in \R^{n \times n}$ una matrice simmetrica reale ($A^T = A$). Allora:
+\begin{enumerate}
+    \item Tutti gli $n$ autovalori di $A$ sono numeri \textbf{reali}: $\lambda_1, \lambda_2, \dots, \lambda_n \in \R$.
+    \item Gli autovettori associati ad autovalori distinti sono tra loro \textbf{ortogonali}.
+    \item La matrice $A$ \`e \textbf{ortogonalmente diagonalizzabile}: esistono una matrice ortogonale $U \in \R^{n \times n}$ ($U^T U = U U^T = I_n$) e una matrice diagonale reale $D \in \R^{n \times n}$ tali che:
+    \begin{equation}
+        A = U D U^T.
+    \end{equation}
+\end{enumerate}
+In altri termini, esiste sempre una \textbf{base ortonormale di $\R^n$ interamente costituita da autovettori di $A$}.
+\end{theorem}
+
+\begin{proof}[Ortogonalit\`a per Autovalori Distinti]
+Siano $(\lambda_1, \mathbf{u}_1)$ e $(\lambda_2, \mathbf{u}_2)$ due autocoppie di $A$, con $\lambda_1 \neq \lambda_2$. Consideriamo la quantit\`a scalare $\mathbf{u}_1^T A \mathbf{u}_2$:
+\begin{enumerate}
+    \item Calcolando l'azione di $A$ verso destra:
+    \begin{equation}
+        \mathbf{u}_1^T (A \mathbf{u}_2) = \mathbf{u}_1^T (\lambda_2 \mathbf{u}_2) = \lambda_2 (\mathbf{u}_1^T \mathbf{u}_2).
+    \end{equation}
+    \item Sfruttando la simmetria di $A$ ($A = A^T$) e l'azione verso sinistra:
+    \begin{equation}
+        \mathbf{u}_1^T A \mathbf{u}_2 = (A^T \mathbf{u}_1)^T \mathbf{u}_2 = (A \mathbf{u}_1)^T \mathbf{u}_2 = (\lambda_1 \mathbf{u}_1)^T \mathbf{u}_2 = \lambda_1 (\mathbf{u}_1^T \mathbf{u}_2).
+    \end{equation}
+\end{enumerate}
+Uguagliando le due espressioni ottenute:
+\begin{equation}
+    \lambda_1 (\mathbf{u}_1^T \mathbf{u}_2) = \lambda_2 (\mathbf{u}_1^T \mathbf{u}_2) \iff (\lambda_1 - \lambda_2) (\mathbf{u}_1^T \mathbf{u}_2) = 0.
+\end{equation}
+Poich\'e per ipotesi $\lambda_1 \neq \lambda_2$, deve necessariamente risultare:
+\begin{equation}
+    \mathbf{u}_1^T \mathbf{u}_2 = 0,
+\end{equation}
+dimostrando che gli autovettori sono ortogonali.
+\end{proof}
+
+\FloatBarrier
+\section{Forme Quadratiche e Disuguaglianza di Rayleigh}
+
+\subsection{Definizione di Forma Quadratica}
+
+\begin{definition}[Forma Quadratica]
+Sia $A \in \R^{n \times n}$ una matrice simmetrica reale. La funzione $q: \R^n \to \R$ definita da:
+\begin{equation}
+    q(\mathbf{x}) = \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \sum_{j=1}^n A_{ij} x_i x_j
+\end{equation}
+\`e detta \textbf{forma quadratica} associata alla matrice $A$.
+\end{definition}
+
+\subsection{Teorema dei Limiti Spettrali (Disuguaglianza di Rayleigh)}
+
+\begin{theorem}[Limiti Spettrali della Forma Quadratica]
+\label{thm:limiti-spettrali}
+Sia $A \in \R^{n \times n}$ simmetrica reale, con autovalori ordinati in senso decrescente:
+\begin{equation}
+    \lambda_{\max} = \lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_n = \lambda_{\min}.
+\end{equation}
+Allora per ogni vettore $\mathbf{x} \in \R^n$ sussiste la doppia disuguaglianza:
+\begin{equation}
+    \lambda_{\min} \|\mathbf{x}\|_2^2 \le \mathbf{x}^T A \mathbf{x} \le \lambda_{\max} \|\mathbf{x}\|_2^2.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione si articola in passaggi analitici espliciti:
+\begin{enumerate}
+    \item \textbf{Fattorizzazione Spettrale:} Per il Teorema Spettrale~\ref{thm:teorema-spettrale}, decomponiamo $A = U D U^T$, dove $U \in \R^{n \times n}$ \`e ortogonale e $D = \diag(\lambda_1, \dots, \lambda_n)$.
+    \item \textbf{Sostituzione nella Forma Quadratica:}
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \mathbf{x}^T (U D U^T) \mathbf{x} = (U^T \mathbf{x})^T D (U^T \mathbf{x}).
+    \end{equation}
+    \item \textbf{Cambio di Coordinate Ortogonale:} Definiamo il vettore $\mathbf{y} \in \R^n$ tramite la trasformazione:
+    \begin{equation}
+        \mathbf{y} = U^T \mathbf{x} \iff \mathbf{x} = U \mathbf{y}.
+    \end{equation}
+    Poich\'e $U$ \`e ortogonale, l'applicazione preserva la norma euclidea (Propriet\`a~\ref{prop:isometria-euclidea-quadrata}):
+    \begin{equation}
+        \|\mathbf{y}\|_2^2 = \|U^T \mathbf{x}\|_2^2 = \|\mathbf{x}\|_2^2 \implies \sum_{i=1}^n y_i^2 = \|\mathbf{x}\|_2^2.
+    \end{equation}
+    \item \textbf{Espansione in Componenti:}
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \mathbf{y}^T D \mathbf{y} = \sum_{i=1}^n \lambda_i y_i^2 = \lambda_1 y_1^2 + \lambda_2 y_2^2 + \dots + \lambda_n y_n^2.
+    \end{equation}
+    \item \textbf{Derivazione del Limite Superiore:}
+    Essendo $\lambda_i \le \lambda_{\max}$ per ogni $i \in \{1, \dots, n\}$ e dato che $y_i^2 \ge 0$:
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \lambda_i y_i^2 \le \sum_{i=1}^n \lambda_{\max} y_i^2 = \lambda_{\max} \sum_{i=1}^n y_i^2 = \lambda_{\max} \|\mathbf{y}\|_2^2 = \lambda_{\max} \|\mathbf{x}\|_2^2.
+    \end{equation}
+    \item \textbf{Derivazione del Limite Inferiore:}
+    In modo del tutto analogo, poich\'e $\lambda_i \ge \lambda_{\min}$ per ogni $i$:
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \lambda_i y_i^2 \ge \sum_{i=1}^n \lambda_{\min} y_i^2 = \lambda_{\min} \sum_{i=1}^n y_i^2 = \lambda_{\min} \|\mathbf{y}\|_2^2 = \lambda_{\min} \|\mathbf{x}\|_2^2.
+    \end{equation}
+\end{enumerate}
+Combinando i due estremi, la tesi \`e pienamente provata per qualsiasi $\mathbf{x} \in \R^n$.
+\end{proof}
+
+\subsection{Condizioni di Uguaglianza e Quoziente di Rayleigh}
+
+\begin{property}[Condizioni di Uguaglianza ed Estremi Vettoriali]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item L'uguaglianza superiore $\mathbf{x}^T A \mathbf{x} = \lambda_{\max} \|\mathbf{x}\|_2^2$ si verifica \textbf{se e solo se} $\mathbf{x}$ \`e un autovettore di $A$ associato all'autovalore massimo $\lambda_{\max}$.
+    \item L'uguaglianza inferiore $\mathbf{x}^T A \mathbf{x} = \lambda_{\min} \|\mathbf{x}\|_2^2$ si verifica \textbf{se e solo se} $\mathbf{x}$ \`e un autovettore di $A$ associato all'autovalore minimo $\lambda_{\min}$.
+\end{enumerate}
+\end{property}
+
+\begin{proof}
+Analizziamo il limite superiore:
+\begin{equation}
+    \lambda_{\max} \sum_{i=1}^n y_i^2 - \sum_{i=1}^n \lambda_i y_i^2 = \sum_{i=1}^n (\lambda_{\max} - \lambda_i) y_i^2 = 0.
+\end{equation}
+Poich\'e $(\lambda_{\max} - \lambda_i) \ge 0$ e $y_i^2 \ge 0$, ogni termine della sommatoria \`e non-negativo. La somma si annulla se e solo se, per ciascun indice $i$ con $\lambda_i < \lambda_{\max}$, risulta $y_i = 0$. Dunque il vettore trasformato $\mathbf{y}$ possiede componenti non nulle unicamente in corrispondenza degli indici associati a $\lambda_{\max}$. Tornando alle coordinate originarie $\mathbf{x} = U \mathbf{y}$, ci\`o equivale ad asserire che $\mathbf{x}$ appartiene all'autospazio $\mathcal{E}(\lambda_{\max})$.
+\end{proof}
+
+\begin{definition}[Quoziente di Rayleigh]
+Per ogni vettore non nullo $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$, il \textbf{quoziente di Rayleigh} di una matrice simmetrica $A$ \`e il rapporto scalare:
+\begin{equation}
+    R_A(\mathbf{x}) = \frac{\mathbf{x}^T A \mathbf{x}}{\mathbf{x}^T \mathbf{x}} = \frac{\mathbf{x}^T A \mathbf{x}}{\|\mathbf{x}\|_2^2}.
+\end{equation}
+Dal Teorema~\ref{thm:limiti-spettrali} segue immediatamente la caratterizzazione variazionale degli autovalori estremi:
+\begin{equation}
+    \lambda_{\min} = \min_{\mathbf{x} \neq \mathbf{0}} R_A(\mathbf{x}), \qquad \lambda_{\max} = \max_{\mathbf{x} \neq \mathbf{0}} R_A(\mathbf{x}).
+\end{equation}
+\end{definition}
+
+\FloatBarrier
+\section{Matrici Simmetriche Definite e Semidefinite Positive}
+
+\subsection{Definizioni Assiomatiche}
+
+Sia $A \in \R^{n \times n}$ una matrice simmetrica reale ($A^T = A$).
+
+\begin{definition}[Matrice Simmetrica Definita Positiva -- SPD]
+La matrice $A$ si definisce \textbf{simmetrica definita positiva} (\textit{Symmetric Positive Definite}, SPD) se la forma quadratica associata \`e strettamente positiva per qualsiasi vettore non nullo:
+\begin{equation}
+    \mathbf{v}^T A \mathbf{v} > 0 \quad \forall \mathbf{v} \in \R^n \setminus \{\mathbf{0}\}.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Matrice Simmetrica Semidefinita Positiva -- SPSD]
+La matrice $A$ si definisce \textbf{simmetrica semidefinita positiva} (\textit{Symmetric Positive Semi-Definite}, SPSD) se la forma quadratica associata \`e non-negativa per qualsiasi vettore:
+\begin{equation}
+    \mathbf{v}^T A \mathbf{v} \ge 0 \quad \forall \mathbf{v} \in \R^n.
+\end{equation}
+\end{definition}
+
+\subsection{Caratterizzazione Spettrale Equivalente}
+
+\begin{theorem}[Criterio Spettrale per Matrici SPD e SPSD]
+\label{thm:criterio-spettrale-spd}
+Sia $A \in \R^{n \times n}$ simmetrica reale con autovalori $\lambda_1, \dots, \lambda_n$. Allora:
+\begin{enumerate}
+    \item $A$ \`e \textbf{SPD} $\iff \lambda_i > 0$ per ogni $i \in \{1, \dots, n\}$ (tutti gli autovalori sono strettamente positivi).
+    \item $A$ \`e \textbf{SPSD} $\iff \lambda_i \ge 0$ per ogni $i \in \{1, \dots, n\}$ (tutti gli autovalori sono non-negativi).
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione segue direttamente dalla disuguaglianza del quoziente di Rayleigh:
+\begin{itemize}
+    \item Se tutti i $\lambda_i > 0$, allora $\lambda_{\min} > 0$. Dalla disuguaglianza $\mathbf{v}^T A \mathbf{v} \ge \lambda_{\min} \|\mathbf{v}\|_2^2$, per ogni $\mathbf{v} \neq \mathbf{0}$ si ha $\mathbf{v}^T A \mathbf{v} > 0$, dunque $A$ \`e SPD.
+    \item Viceversa, se $A$ \`e SPD, scegliendo $\mathbf{v} = \mathbf{u}_i$ (autovettore unitario per $\lambda_i$):
+    \begin{equation}
+        \mathbf{u}_i^T A \mathbf{u}_i = \lambda_i \|\mathbf{u}_i\|_2^2 = \lambda_i > 0.
+    \end{equation}
+    \item Il medesimo ragionamento con disuguaglianze deboli dimostra l'equivalenza per matrici SPSD.
+\end{itemize}
+\end{proof}
+
+\subsection{Gerarchia e Inclusione delle Classi Matriciali}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth,
+    block/.style={rectangle, draw, rounded corners, fill=blue!8, minimum height=0.7cm, font=\small}]
+    \node[block] (gen) at (0, 0) {Matrici Generiche $\R^{n \times m}$};
+    \node[block] (sq) at (0, -1.0) {Matrici Quadrate $\R^{n \times n}$};
+    \node[block] (inv) at (0, -2.0) {Matrici Invertibili ($\det(A) \neq 0$)};
+    \node[block] (sym) at (0, -3.0) {Matrici Simmetriche ($A^T = A$)};
+    \node[block] (spsd) at (0, -4.0) {Matrici SPSD ($\lambda_i \ge 0$)};
+    \node[block, fill=green!15, thick] (spd) at (0, -5.0) {Matrici SPD ($\lambda_i > 0$)};
+
+    \draw[->, thick] (gen) -- (sq);
+    \draw[->, thick] (sq) -- (inv);
+    \draw[->, thick] (inv) -- (sym);
+    \draw[->, thick] (sym) -- (spsd);
+    \draw[->, thick] (spsd) -- (spd);
+\end{tikzpicture}
+\caption{Gerarchia strutturale e progressivo restringimento delle classi di matrici nell'algebra lineare.}
+\label{fig:gerarchia-matrici}
+\end{figure}
+
+Si noti che l'inclusione \`e stretta:
+\begin{equation}
+    \text{SPD} \subset \text{SPSD} \subset \text{Simmetriche}.
+\end{equation}
+Una matrice SPSD appartiene alla classe SPD se e solo se \`e non singolare, ossia se non possiede alcun autovalore nullo ($\lambda_{\min} > 0 \iff \det(A) = \prod_{i=1}^n \lambda_i > 0$).
+
+\subsection{Esempi Notevoli in \texorpdfstring{$\R^{2 \times 2}$}{R\textasciicircum(2x2)}}
+
+\begin{example}[Verifica di Matrici SPD e SPSD]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Esempi SPD:}
+    \begin{itemize}
+        \item $A_1 = \begin{bmatrix} 1 & 0 \\ 0 & 2 \end{bmatrix}$: simmetrica diagonale con autovalori $\lambda_1 = 1 > 0, \lambda_2 = 2 > 0 \implies \mathbf{SPD}$.
+        \item $A_2 = \begin{bmatrix} 2 & 1 \\ 1 & 2 \end{bmatrix}$: simmetrica con autovalori calcolati nell'Esempio~\ref{ex:autovalori-2x2} pari a $\lambda_1 = 3 > 0, \lambda_2 = 1 > 0 \implies \mathbf{SPD}$.
+    \end{itemize}
+    \item \textbf{Esempi SPSD non SPD:}
+    \begin{itemize}
+        \item $A_3 = \begin{bmatrix} 1 & 0 \\ 0 & 0 \end{bmatrix}$: simmetrica diagonale con autovalori $\lambda_1 = 1 \ge 0, \lambda_2 = 0 \ge 0 \implies \mathbf{SPSD}$. Non \`e SPD in quanto $\det(A_3) = 0$.
+        \item $A_4 = \begin{bmatrix} 1 & 1 \\ 1 & 1 \end{bmatrix}$: le due righe sono identiche, quindi $\rank(A_4) = 1 < 2$, implicando $\lambda_1 = 0$. Poich\'e la traccia eguaglia la somma degli autovalori, $\trace(A_4) = 1 + 1 = 2 \implies \lambda_1 + \lambda_2 = 2 \implies \lambda_2 = 2 \ge 0$. Dunque gli autovalori sono $\{2, 0\} \implies \mathbf{SPSD}$.
+    \end{itemize}
+    \item \textbf{Controesempio di Matrice Indefinita:}
+    Sia la matrice proposta $A_5 = \begin{bmatrix} 1 & 2 \\ 2 & 0 \end{bmatrix}$. Sebbene le entrate diagonali siano non-negative, il determinante risulta:
+    \begin{equation}
+        \det(A_5) = 1(0) - 2(2) = -4 < 0.
+    \end{equation}
+    Poich\'e $\det(A_5) = \lambda_1 \lambda_2 = -4 < 0$, i due autovalori hanno segni discordi ($\lambda_1 > 0$ e $\lambda_2 < 0$). La matrice \`e \textbf{indefinita} (n\'e SPD n\'e SPSD).
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section[Generazione Naturale di Matrici SPSD]{Generazione Naturale di Matrici SPSD: \texorpdfstring{$B^T B$}{B\textasciicircum T B} e \texorpdfstring{$B B^T$}{B B\textasciicircum T}}
+
+Nelle applicazioni di calcolo scientifico e statistica, le matrici simmetriche semidefinite positive non vengono solitamente costruite assemblando coefficienti a mano, bens\`i scaturiscono naturalmente dal prodotto di una matrice rettangolare per la propria trasposta.
+
+\begin{proposition}[Semidefinitenzia Positiva dei Gramiani]
+\label{prop:btb-bbt-spsd}
+Sia $B \in \R^{n \times m}$ una matrice arbitraria (quadrata o rettangolare). Allora:
+\begin{enumerate}
+    \item La matrice quadrata $B^T B \in \R^{m \times m}$ \`e simmetrica semidefinita positiva (\textbf{SPSD}).
+    \item La matrice quadrata $B B^T \in \R^{n \times n}$ \`e simmetrica semidefinita positiva (\textbf{SPSD}).
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+Dimostriamo le due propriet\`a separatamente:
+
+\medskip
+\noindent\textbf{1. Verifica della Simmetria:}
+Applicando la propriet\`a distributiva della trasposizione sul prodotto matriciale:
+\begin{equation}
+    (B^T B)^T = B^T (B^T)^T = B^T B, \qquad (B B^T)^T = (B^T)^T B^T = B B^T.
+\end{equation}
+Entrambe le matrici risultano formalmente simmetriche.
+
+\medskip
+\noindent\textbf{2. Semidefinitenzia Positiva di $B^T B$:}
+Sia $\mathbf{v} \in \R^m$ un qualsiasi vettore di dimensione compatibile. Esaminiamo la forma quadratica associata a $B^T B$:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} = (\mathbf{v}^T B^T)(B \mathbf{v}) = (B \mathbf{v})^T (B \mathbf{v}).
+\end{equation}
+Riconosciamo nel prodotto scalare $(B\mathbf{v})^T (B\mathbf{v})$ la definizione della norma euclidea al quadrato del vettore immagine $\mathbf{w} = B\mathbf{v} \in \R^n$:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} = \|B \mathbf{v}\|_2^2.
+\end{equation}
+Per il primo assioma della norma vettoriale (non-negativit\`a), vale $\|B \mathbf{v}\|_2^2 \ge 0$ per ogni $\mathbf{v} \in \R^m$. Di conseguenza:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} \ge 0 \quad \forall \mathbf{v} \in \R^m \implies B^T B \text{ \`e SPSD}.
+\end{equation}
+
+\medskip
+\noindent\textbf{3. Semidefinitenzia Positiva di $B B^T$:}
+Sia $\mathbf{u} \in \R^n$ un qualsiasi vettore. Procedendo in modo perfettamente simmetrico:
+\begin{equation}
+    \mathbf{u}^T (B B^T) \mathbf{u} = (\mathbf{u}^T B)(B^T \mathbf{u}) = (B^T \mathbf{u})^T (B^T \mathbf{u}) = \|B^T \mathbf{u}\|_2^2 \ge 0 \quad \forall \mathbf{u} \in \R^n.
+\end{equation}
+Pertanto anche $B B^T$ \`e SPSD.
+\end{proof}
+
+\begin{corollary}[Condizione di Definitenzia Stretta per $B^T B$]
+La matrice $B^T B \in \R^{m \times m}$ \`e \textbf{strettamente definita positiva (SPD)} se e solo se $B$ ha rango massimo di colonna:
+\begin{equation}
+    B^T B \in \text{SPD} \iff \rank(B) = m \iff \ker(B) = \{\mathbf{0}\}.
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+Dalla dimostrazione precedente, $\mathbf{v}^T (B^T B) \mathbf{v} = \|B\mathbf{v}\|_2^2$. Tale quantit\`a si annulla se e solo se $\|B\mathbf{v}\|_2 = 0 \iff B\mathbf{v} = \mathbf{0} \iff \mathbf{v} \in \ker(B)$.
+Se $\ker(B) = \{\mathbf{0}\}$, nessun vettore non nullo pu\`o azzerare la forma quadratica, rendendo $B^T B$ strettamente definita positiva.
+\end{proof}
+
+\begin{noteblock}{Rilevanza nelle Equazioni Normali e nella SVD}
+La propriet\`a appena dimostrata costituisce il fondamento teorico di due pilastri del calcolo numerico:
+\begin{enumerate}
+    \item \textbf{Problemi di Minimi Quadrati Lineari:} La risoluzione del problema $\min_{\mathbf{x}} \|A\mathbf{x} - \mathbf{b}\|_2$ conduce al sistema delle equazioni normali:
+    \begin{equation}
+        A^T A \mathbf{x} = A^T \mathbf{b}.
+    \end{equation}
+    Se $A$ ha colonne linearmente indipendenti, $A^T A$ \`e SPD, garantendo l'esistenza e l'unicit\`a della soluzione (risolvibile efficientemente tramite la fattorizzazione di Cholesky).
+    \item \textbf{Fattorizzazione ai Valori Singolari (SVD):} I valori singolari $\sigma_i$ di una matrice arbitraria $B$ sono definiti come le radici quadrate non-negative degli autovalori della matrice SPSD $B^T B$:
+    \begin{equation}
+        \sigma_i = \sqrt{\lambda_i(B^T B)} \ge 0.
+    \end{equation}
+\end{enumerate}
+\end{noteblock}
+
+\clearpage
+\section{Formulario di Sintesi del Capitolo}
+
+La tabella~\ref{tab:riassunto-lezione-3} riassume in modo organico le definizioni, le strutture matriciali e le propriet\`a algebriche analizzate nel presente capitolo.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Concetto / Matrice} & \textbf{Formulazione Matematica} & \textbf{Propriet\`a Salienti / Spettro} \\
+\midrule
+Colonne Ortonormali ($k < n$) & $V \in \R^{n \times k}, \; \mathbf{v}_i^T \mathbf{v}_j = \delta_{ij}$ & $V^T V = I_k$, mentre $V V^T \neq I_n$ \\
+Proiettore Ortogonale & $P = V V^T = \sum_{i=1}^k \mathbf{v}_i \mathbf{v}_i^T$ & Simmetrico ($P^T = P$), idempotente ($P^2 = P$), $\rank(P) = k$ \\
+Isometria Parziale & $\|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2 \quad (\forall \mathbf{x} \in \R^k)$ & Non preserva la norma da $\R^n$: $\|V^T \tilde{\mathbf{y}}\|_2 = 0$ per $\tilde{\mathbf{y}} \in \ker(V^T)$ \\
+Autocoppia & $A\mathbf{v} = \lambda \mathbf{v}, \quad \mathbf{v} \neq \mathbf{0}$ & $\lambda$ radice di $\det(A - \lambda I_n) = 0$ \\
+Diagonalizzazione & $A = V D V^{-1}$ & Richiede $n$ autovettori linearmente indipendenti \\
+Espansione Diadica & $A = \sum_{i=1}^n \lambda_i \mathbf{v}_i \mathbf{w}_i^T$ & Combinazione lineare di $n$ matrici di rango 1 \\
+Potenza di Matrice & $A^k = V D^k V^{-1}$ & Autocoppie $(\lambda_i^k, \mathbf{v}_i)$: autovettori invariati \\
+Teorema Spettrale & $A^T = A \implies A = U D U^T$ & Autovalori reali, autovettori ortonormali ($U^T U = I_n$) \\
+Disuguaglianza di Rayleigh & $\lambda_{\min} \|\mathbf{x}\|_2^2 \le \mathbf{x}^T A \mathbf{x} \le \lambda_{\max} \|\mathbf{x}\|_2^2$ & Estremi raggiunti sui corrispondenti autospazi \\
+Matrice SPD & $A^T = A, \; \mathbf{x}^T A \mathbf{x} > 0 \; (\forall \mathbf{x} \neq \mathbf{0})$ & Tutti $\lambda_i > 0$; invertibile con $\det(A) > 0$ \\
+Matrice SPSD & $A^T = A, \; \mathbf{x}^T A \mathbf{x} \ge 0 \; (\forall \mathbf{x})$ & Tutti $\lambda_i \ge 0$; ammette autovalori nulli \\
+Gramiani $B^T B$ e $B B^T$ & $\mathbf{v}^T (B^T B) \mathbf{v} = \|B\mathbf{v}\|_2^2 \ge 0$ & Sempre SPSD per ogni $B \in \R^{n \times m}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico delle propriet\`a spettrali, proiettori ortogonali e forme quadratiche.}
+\label{tab:riassunto-lezione-3}
+\end{table}

@@ -1,0 +1,571 @@
+\chapter{Linear Algebra Review: Vectors, Norms, Bases, and Transformations}
+\label{chap:linear-algebra-review-vectors-norms}
+
+\FloatBarrier
+\section{Introduction to Numerical Computation and Applied Motivations}
+
+This course addresses the computational and efficient resolution of linear algebra problems on digital computers~\cite{trefethen1997numerical,golub2013matrix}. In applied mathematics, data science, and machine learning, the general formulation of a decision problem typically takes the form of an optimization task:
+\begin{equation}
+    \min_{\mathbf{x} \in S} f(\mathbf{x}),
+\end{equation}
+where $f: \R^n \to \R$ denotes the objective function and $S \subseteq \R^n$ defines the feasible set of constraints.
+
+Within numerical linear algebra, this general problem is frequently reformulated or locally approximated by a linear least squares problem:
+\begin{equation}
+    \min_{\mathbf{x} \in \R^n} \|A \mathbf{x} - \mathbf{b}\|_2^2,
+\end{equation}
+where $A \in \R^{m \times n}$ represents the model or design matrix, $\mathbf{b} \in \R^m$ the observed target vector, and $\mathbf{x} \in \R^n$ the unknown parameter vector to estimate.
+
+\begin{noteblock}{Why Focus on Linear Problems?}
+Key motivations establishing linear problems as fundamental to scientific computing include:
+\begin{enumerate}
+    \item \textbf{Theoretical tractability and analytical clarity:} Linear problems exhibit clean, well-understood algebraic structures, enabling rigorous guarantees on existence, uniqueness, and algorithm convergence.
+    \item \textbf{Efficiency and machine accuracy:} Specialized direct and iterative algorithms can compute solutions up to the limits of machine floating-point arithmetic (IEEE 754 standard, $\epsilon_{\text{mach}} \approx 10^{-16}$ in double precision).
+    \item \textbf{Exploitation of special matrix structures:} Matrices endowed with specific properties (symmetric, positive definite, orthogonal, banded, Toeplitz, or sparse) permit specialized algorithms with significantly reduced asymptotic and memory complexity.
+    \item \textbf{Building blocks for non-linear algorithms:} Nearly all sophisticated numerical methods for non-linear problems (Newton's method, Quasi-Newton schemes like BFGS, constrained optimization, and PDE solvers) solve one or more linear systems or least squares subproblems at every iteration.
+    \item \textbf{Stability and error control:} Numerical practitioners demand algorithms resilient against catastrophic round-off error accumulation and algorithmic instability.
+\end{enumerate}
+\end{noteblock}
+
+\FloatBarrier
+\section{Vectors, Vector Spaces, and Geometric Representation}
+
+\subsection{Notation and Conventions}
+
+Unless stated otherwise, \textbf{all vectors are assumed to be column vectors}. A vector $\mathbf{x} \in \R^n$ is denoted:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} x_1 \\ x_2 \\ \vdots \\ x_n \end{bmatrix}, \qquad \mathbf{x}^T = \begin{bmatrix} x_1 & x_2 & \dots & x_n \end{bmatrix}.
+\end{equation}
+
+Consider, for example in $\R^2$, the two vectors:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} 2 \\ 4 \end{bmatrix}, \qquad \mathbf{y} = \begin{bmatrix} 2 \\ 1 \end{bmatrix}.
+\end{equation}
+
+The fundamental operation defining vector space addition is component-wise summation:
+\begin{equation}
+    \mathbf{x} + \mathbf{y} = \begin{bmatrix} 2 \\ 4 \end{bmatrix} + \begin{bmatrix} 2 \\ 1 \end{bmatrix} = \begin{bmatrix} 2+2 \\ 4+1 \end{bmatrix} = \begin{bmatrix} 4 \\ 5 \end{bmatrix}.
+\end{equation}
+
+\subsection{Geometric Interpretation: Points, Arrows, and the Parallelogram Rule}
+
+A vector $\mathbf{x} = [x_1, x_2]^T \in \R^2$ admits two complementary geometric perspectives:
+\begin{itemize}
+    \item as a \textbf{point} in the Cartesian plane with coordinates $(x_1, x_2)$ relative to the origin;
+    \item as a \textbf{directed segment (arrow)} originating at $(0,0)$ and terminating at $(x_1, x_2)$.
+\end{itemize}
+
+Vector addition $\mathbf{x} + \mathbf{y}$ corresponds to the classical \textbf{parallelogram law}: translating the tail of $\mathbf{y}$ to the tip of $\mathbf{x}$, the resulting vector connects the origin to the opposite vertex of the parallelogram formed by the two vectors, terminating at $(4, 5)$. This notion generalizes directly to $n$-dimensional Euclidean spaces $\R^n$ ($n \ge 3$).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9, >=Stealth]
+    \draw[->, gray!50, thin] (-0.5,0) -- (5.2,0) node[right, black] {$x_1$};
+    \draw[->, gray!50, thin] (0,-0.5) -- (0,5.8) node[above, black] {$x_2$};
+    \draw[step=1.0, gray!20, very thin] (-0.5,-0.5) grid (5.0,5.5);
+
+    % Vectors x and y
+    \draw[->, line width=1.3pt, blue!80!black] (0,0) -- (2,4) node[midway, left] {$\mathbf{x}$};
+    \draw[->, line width=1.3pt, green!60!black] (0,0) -- (2,1) node[midway, below right] {$\mathbf{y}$};
+
+    % Dashed parallelogram lines
+    \draw[dashed, blue!50] (2,1) -- (4,5);
+    \draw[dashed, green!50] (2,4) -- (4,5);
+
+    % Sum vector
+    \draw[->, line width=1.6pt, red!80!black] (0,0) -- (4,5) node[above right] {$\mathbf{x} + \mathbf{y} = [4, 5]^T$};
+
+    % Terminal points
+    \filldraw[blue!80!black] (2,4) circle (2pt) node[above left] {$(2,4)$};
+    \filldraw[green!60!black] (2,1) circle (2pt) node[right] {$(2,1)$};
+    \filldraw[red!80!black] (4,5) circle (2.5pt);
+\end{tikzpicture}
+\caption{Geometric interpretation of vector addition in $\R^2$ via the parallelogram rule.}
+\label{fig:parallelogram-rule-en}
+\end{figure}
+
+\subsection{Measuring the ``Size'' of a Vector}
+
+Consider the following question:
+\begin{quote}
+    \textit{Given the vectors $\mathbf{v}, \mathbf{w} \in \R^4$:}
+    \begin{equation}
+        \mathbf{v} = \begin{bmatrix} 2 \\ 2 \\ 2 \\ 2 \end{bmatrix}, \qquad \mathbf{w} = \begin{bmatrix} 4 \\ 0 \\ 0 \\ 0 \end{bmatrix},
+    \end{equation}
+    \textit{which of these two vectors is ``larger''?}
+\end{quote}
+
+The question is fundamentally ill-posed until a precise formal criterion of measurement is chosen:
+\begin{itemize}
+    \item Looking at the \textbf{maximum individual component}, $\mathbf{w}$ contains an entry of $4$, whereas all entries of $\mathbf{v}$ are $2$.
+    \item Looking at the \textbf{sum of components}, $\mathbf{v}$ sums to $2 + 2 + 2 + 2 = 8$, while $\mathbf{w}$ only reaches $4$.
+    \item Looking at the \textbf{Euclidean geometric length}, both measure $\sqrt{16} = 4$.
+\end{itemize}
+
+To answer such questions unequivocally, the formal concept of a \textbf{vector norm} is required.
+
+\FloatBarrier
+\section{Vector Norms and Normed Spaces}
+
+\begin{definition}[Vector Norm]
+Let $V$ be a real (or complex) vector space. A function $\|\cdot\|: V \to \R$ is called a \textbf{vector norm} if and only if it satisfies the following three axioms for all $\mathbf{v}, \mathbf{w} \in V$ and every scalar $\lambda \in \R$:
+\begin{enumerate}
+    \item \textbf{Non-negativity and positive definiteness:}
+    \begin{equation}
+        \|\mathbf{v}\| \ge 0 \quad \forall \mathbf{v} \in V, \qquad \|\mathbf{v}\| = 0 \iff \mathbf{v} = \mathbf{0}_V.
+    \end{equation}
+    \item \textbf{Absolute homogeneity:}
+    \begin{equation}
+        \|\lambda \mathbf{v}\| = |\lambda| \cdot \|\mathbf{v}\| \quad \forall \lambda \in \R, \; \forall \mathbf{v} \in V.
+    \end{equation}
+    \item \textbf{Triangle inequality:}
+    \begin{equation}
+        \|\mathbf{v} + \mathbf{w}\| \le \|\mathbf{v}\| + \|\mathbf{w}\| \quad \forall \mathbf{v}, \mathbf{w} \in V.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+A vector space $V$ paired with a norm $\|\cdot\|$ is termed a \textbf{normed space}.
+
+\subsection{The \texorpdfstring{$\ell_p$}{lp}-Norm Family on \texorpdfstring{$\R^n$}{Rn}}
+
+Let $\mathbf{v} = [v_1, v_2, \dots, v_n]^T \in \R^n$. The norms most commonly employed in numerical analysis and machine learning belong to the parameterized $\ell_p$-norm family:
+\begin{equation}
+    \|\mathbf{v}\|_p = \left( \sum_{i=1}^n |v_i|^p \right)^{1/p} \qquad (p \ge 1).
+\end{equation}
+
+Three canonical special cases are:
+
+\paragraph{1. Euclidean Norm ($\ell_2$).}
+Represents standard geometric distance in Euclidean affine space:
+\begin{equation}
+    \|\mathbf{v}\|_2 = \sqrt{\sum_{i=1}^n v_i^2} = \sqrt{\mathbf{v}^T \mathbf{v}}.
+\end{equation}
+
+\paragraph{2. Manhattan Norm ($\ell_1$ or Taxi-cab).}
+Sums the absolute values of all coordinates:
+\begin{equation}
+    \|\mathbf{v}\|_1 = \sum_{i=1}^n |v_i|.
+\end{equation}
+
+\paragraph{3. Maximum Norm ($\ell_\infty$ or Chebyshev Norm).}
+Captures the largest absolute component:
+\begin{equation}
+    \|\mathbf{v}\|_\infty = \lim_{p \to \infty} \|\mathbf{v}\|_p = \max_{1 \le i \le n} |v_i|.
+\end{equation}
+
+\subsection{Rigorous Comparison of Vectors \texorpdfstring{$\mathbf{v}$}{v} and \texorpdfstring{$\mathbf{w}$}{w}}
+
+Revisiting vectors $\mathbf{v} = [2, 2, 2, 2]^T$ and $\mathbf{w} = [4, 0, 0, 0]^T \in \R^4$:
+
+\begin{example}[Comparative Evaluation Across the Three Norms]
+\mbox{}\par\nopagebreak
+\begin{itemize}
+    \item \textbf{In Euclidean $\ell_2$ norm:}
+    \begin{align}
+        \|\mathbf{v}\|_2 &= \sqrt{2^2 + 2^2 + 2^2 + 2^2} = \sqrt{16} = 4, \\
+        \|\mathbf{w}\|_2 &= \sqrt{4^2 + 0^2 + 0^2 + 0^2} = \sqrt{16} = 4.
+    \end{align}
+    The two vectors have the exact same \textbf{Euclidean length}: $\|\mathbf{v}\|_2 = \|\mathbf{w}\|_2 = 4$.
+    \item \textbf{In $\ell_1$ norm:}
+    \begin{align}
+        \|\mathbf{v}\|_1 &= |2| + |2| + |2| + |2| = 8, \\
+        \|\mathbf{w}\|_1 &= |4| + |0| + |0| + |0| = 4.
+    \end{align}
+    Under $\ell_1$, we have $\|\mathbf{v}\|_1 = 8 > 4 = \|\mathbf{w}\|_1$.
+    \item \textbf{In $\ell_\infty$ norm:}
+    \begin{align}
+        \|\mathbf{v}\|_\infty &= \max\{|2|, |2|, |2|, |2|\} = 2, \\
+        \|\mathbf{w}\|_\infty &= \max\{|4|, |0|, |0|, |0|\} = 4.
+    \end{align}
+    Under $\ell_\infty$, the ranking reverses: $\|\mathbf{v}\|_\infty = 2 < 4 = \|\mathbf{w}\|_\infty$.
+\end{itemize}
+\end{example}
+
+\begin{alertblock}{Norm Selection Criteria in Real Problems}
+The choice of norm fundamentally influences algorithmic formulation and model behavior:
+\begin{itemize}
+    \item \textbf{Differentiability and smoothness:} The squared Euclidean norm $\|\cdot\|_2^2$ is smooth everywhere, leading to closed-form normal equations in least squares.
+    \item \textbf{Sparsity promotion:} The non-smooth $\ell_1$ norm induces compact support (sparse solutions), pivotal in Lasso regression and compressed sensing.
+    \item \textbf{Peak error bounding:} The $\ell_\infty$ norm is used in minimax approximation and robust control, where bounding worst-case deviation is paramount.
+\end{itemize}
+\end{alertblock}
+
+\FloatBarrier
+\section{Standard Inner Product}
+
+\begin{definition}[Standard Inner Product in $\R^n$]
+For two column vectors $\mathbf{v}, \mathbf{w} \in \R^n$, the \textbf{standard inner product} (or dot product) is the bilinear map:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = \sum_{i=1}^n v_i w_i = v_1 w_1 + v_2 w_2 + \dots + v_n w_n.
+\end{equation}
+\end{definition}
+
+\subsection{Matrix Notation and Output Dimensions}
+
+Since $\mathbf{v}, \mathbf{w} \in \R^{n \times 1}$, the transpose $\mathbf{v}^T$ is a $1 \times n$ row matrix:
+\begin{equation}
+    \mathbf{v}^T = \begin{bmatrix} v_1 & v_2 & \dots & v_n \end{bmatrix}, \qquad \mathbf{w} = \begin{bmatrix} w_1 \\ w_2 \\ \vdots \\ w_n \end{bmatrix}.
+\end{equation}
+Matrix multiplication $\mathbf{v}^T \mathbf{w}$ yields a $1 \times 1$ scalar:
+\begin{equation}
+    \mathbf{v}^T \mathbf{w} = \sum_{i=1}^n v_i w_i \in \R.
+\end{equation}
+
+\begin{property}[Direct Link with the Euclidean Norm]
+The inner product of a vector with itself recovers the square of its Euclidean norm:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{v} \rangle = \mathbf{v}^T \mathbf{v} = \sum_{i=1}^n v_i^2 = \|\mathbf{v}\|_2^2 \implies \|\mathbf{v}\|_2 = \sqrt{\langle \mathbf{v}, \mathbf{v} \rangle} = \sqrt{\mathbf{v}^T \mathbf{v}}.
+\end{equation}
+Furthermore, two non-zero vectors are \textbf{orthogonal} if and only if $\langle \mathbf{v}, \mathbf{w} \rangle = 0$.
+\end{property}
+
+\FloatBarrier
+\section{Bases of Vector Spaces and Linear Independence}
+
+\begin{definition}[Linear Combination]
+Given vectors $\{\mathbf{v}_1, \dots, \mathbf{v}_k\} \subseteq V$ and scalars $\alpha_1, \dots, \alpha_k \in \R$, their \textbf{linear combination} is:
+\begin{equation}
+    \mathbf{v} = \sum_{i=1}^k \alpha_i \mathbf{v}_i = \alpha_1 \mathbf{v}_1 + \alpha_2 \mathbf{v}_2 + \dots + \alpha_k \mathbf{v}_k.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Basis of a Vector Space]
+An ordered subset
+\begin{equation}
+    \mathcal{B} = \{\mathbf{v}_1, \dots, \mathbf{v}_k\} \subseteq V
+\end{equation}
+is a \textbf{basis} of $V$ if every element $\mathbf{v} \in V$ can be uniquely expressed as a linear combination of vectors in $\mathcal{B}$.
+\end{definition}
+
+\subsection{Prominent Examples of Bases}
+
+\paragraph{1. Standard (Canonical) Basis.}
+In $\R^n$, the canonical basis vectors $\mathbf{e}_1, \dots, \mathbf{e}_n$ have a $1$ at the corresponding index and $0$ elsewhere:
+\begin{equation}
+    \mathbf{e}_1 = \begin{bmatrix} 1 \\ 0 \\ \vdots \\ 0 \end{bmatrix}, \quad \mathbf{e}_2 = \begin{bmatrix} 0 \\ 1 \\ \vdots \\ 0 \end{bmatrix}, \quad \dots, \quad \mathbf{e}_n = \begin{bmatrix} 0 \\ 0 \\ \vdots \\ 1 \end{bmatrix}.
+\end{equation}
+Any vector $\mathbf{x} = [x_1, \dots, x_n]^T$ is uniquely expressed as $\mathbf{x} = \sum_{i=1}^n x_i \mathbf{e}_i$.
+
+\paragraph{2. Non-Standard Basis in $\R^2$.}
+Consider the two vectors in $\R^2$:
+\begin{equation}
+    \mathcal{B} = \left\{ \begin{bmatrix} 1 \\ 0 \end{bmatrix}, \begin{bmatrix} 1 \\ -1 \end{bmatrix} \right\}.
+\end{equation}
+To confirm $\mathcal{B}$ forms a basis, we show that for every $[x, y]^T \in \R^2$ there exist unique scalars $\alpha_1, \alpha_2 \in \R$ satisfying:
+\begin{equation}
+    \begin{bmatrix} x \\ y \end{bmatrix} = \alpha_1 \begin{bmatrix} 1 \\ 0 \end{bmatrix} + \alpha_2 \begin{bmatrix} 1 \\ -1 \end{bmatrix} = \begin{bmatrix} \alpha_1 + \alpha_2 \\ -\alpha_2 \end{bmatrix}.
+\end{equation}
+The resulting triangular linear system:
+\begin{equation}
+    \begin{cases} \alpha_1 + \alpha_2 = x \\ -\alpha_2 = y \end{cases} \implies \begin{cases} \alpha_2 = -y \\ \alpha_1 = x + y \end{cases}
+\end{equation}
+has a unique solution $(\alpha_1, \alpha_2) = (x+y, -y)$ for any arbitrary $(x, y)$, proving $\mathcal{B}$ is a valid basis.
+
+\subsection{Linear Independence and Cardinality Constraints}
+
+\begin{definition}[Linear Independence]
+A set of vectors $\{\mathbf{v}_1, \dots, \mathbf{v}_k\}$ is \textbf{linearly independent} if the only linear combination yielding the zero vector is the trivial one:
+\begin{equation}
+    \sum_{i=1}^k \alpha_i \mathbf{v}_i = \mathbf{0}_V \implies \alpha_1 = \alpha_2 = \dots = \alpha_k = 0.
+\end{equation}
+If non-trivial scalars exist such that the sum vanishes, the vectors are \textbf{linearly dependent}.
+\end{definition}
+
+\begin{example}[Checking Linear Independence]
+We illustrate the verification of linear independence and the notion of basis through two concrete questions:
+\begin{enumerate}
+    \item \textbf{Three vectors in $\R^2$.} Given the set of vectors:
+    \[
+        \mathcal{S} = \left\{ [1, 0]^T, [2, 1]^T, [1, 1]^T \right\} \subset \R^2,
+    \]
+    determine whether it forms a basis. \\
+    \textbf{Answer: NO.}
+    \begin{itemize}
+        \item \textit{Dimension constraint:} The dimension of $\R^2$ is $2$. Any basis of $\R^2$ must contain exactly two vectors. Any three vectors in $\R^2$ are necessarily linearly dependent.
+        \item \textit{Explicit dependence:} Observe that $[1, 1]^T = -[1, 0]^T + [2, 1]^T$, yielding the non-trivial relation:
+        \begin{equation}
+            1 \begin{bmatrix} 1 \\ 0 \end{bmatrix} - 1 \begin{bmatrix} 2 \\ 1 \end{bmatrix} + 1 \begin{bmatrix} 1 \\ 1 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix}.
+        \end{equation}
+    \end{itemize}
+    \item \textbf{Two collinear vectors in $\R^2$.} Given the set of vectors:
+    \[
+        \mathcal{S}' = \left\{ [2, 1]^T, [-4, -2]^T \right\} \subset \R^2,
+    \]
+    determine whether it forms a basis. \\
+    \textbf{Answer: NO.} \\
+    The vectors are collinear:
+    \begin{equation}
+        \begin{bmatrix} -4 \\ -2 \end{bmatrix} = -2 \begin{bmatrix} 2 \\ 1 \end{bmatrix} \implies 2 \begin{bmatrix} 2 \\ 1 \end{bmatrix} + \begin{bmatrix} -4 \\ -2 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix}.
+    \end{equation}
+    Their span is the line $y = \frac{1}{2}x$, not the full space $\R^2$.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section{Classroom Exercises: Unit Spheres and Norm Geometry}
+
+\subsection{Exercise 1: Comparative Norm Calculation in \texorpdfstring{$\R^3$}{R3}}
+Given $\mathbf{v} = [1, 2, -3]^T \in \R^3$, we compute the three core norms:
+\begin{enumerate}
+    \item \textbf{$\ell_1$ Norm:}
+    \begin{equation}
+        \|\mathbf{v}\|_1 = |1| + |2| + |-3| = 1 + 2 + 3 = 6.
+    \end{equation}
+    \item \textbf{$\ell_2$ Euclidean Norm:}
+    \begin{equation}
+        \|\mathbf{v}\|_2 = \sqrt{1^2 + 2^2 + (-3)^2} = \sqrt{1 + 4 + 9} = \sqrt{14} \approx 3.742.
+    \end{equation}
+    \item \textbf{$\ell_\infty$ Maximum Norm:}
+    \begin{equation}
+        \|\mathbf{v}\|_\infty = \max\{|1|, |2|, |-3|\} = \max\{1, 2, 3\} = 3.
+    \end{equation}
+\end{enumerate}
+
+\subsection{Exercise 2: Plotting Unit Spheres in \texorpdfstring{$\R^2$}{R2}}
+Consider the locus of unit-norm vectors for $\mathbf{v} = [x, y]^T \in \R^2$:
+
+\paragraph{1. Euclidean Unit Sphere $S_2 = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_2 = 1 \}$.}
+The equation is $\sqrt{x^2 + y^2} = 1 \iff x^2 + y^2 = 1$, which defines the \textbf{standard unit circle} centered at $(0,0)$ with radius $R = 1$.
+
+\paragraph{2. Manhattan Unit Sphere $S_1 = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_1 = 1 \}$.}
+The equation $|x| + |y| = 1$ expands piecewise in the four Cartesian quadrants:
+\begin{equation}
+    \begin{cases}
+        x + y = 1 \implies y = 1 - x & (x \ge 0, y \ge 0), \\
+        -x + y = 1 \implies y = 1 + x & (x \le 0, y \ge 0), \\
+        -x - y = 1 \implies y = -1 - x & (x \le 0, y \le 0), \\
+        x - y = 1 \implies y = x - 1 & (x \ge 0, y \le 0).
+    \end{cases}
+\end{equation}
+Geometrically, this is a \textbf{square rotated by $45^\circ$} (diamond) with vertices at $(\pm 1, 0)$ and $(0, \pm 1)$.
+
+\paragraph{3. Maximum Unit Sphere $S_\infty = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_\infty = 1 \}$.}
+The condition $\max\{|x|, |y|\} = 1$ requires one coordinate to have absolute value $1$ while the other lies in $[-1, 1]$. Geometrically, this forms an \textbf{axis-aligned square} of side length $2$ with vertices at $(\pm 1, \pm 1)$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=2.2, >=Stealth]
+    % Cartesian axes
+    \draw[->, gray!60, thin] (-1.6,0) -- (1.6,0) node[right, black] {$x$};
+    \draw[->, gray!60, thin] (0,-1.6) -- (0,1.6) node[above, black] {$y$};
+
+    % Light grid
+    \draw[step=0.5, gray!15, very thin] (-1.4,-1.4) grid (1.4,1.4);
+
+    % S_infty (Axis-aligned square)
+    \draw[line width=1.4pt, orange!90!black, dashed] (-1,-1) rectangle (1,1);
+    \node[orange!90!black, font=\small\bfseries] at (1.18, 0.95) {$S_\infty$};
+
+    % S_2 (Circle)
+    \draw[line width=1.4pt, blue!80!black] (0,0) circle (1);
+    \node[blue!80!black, font=\small\bfseries] at (0.82, 0.78) {$S_2$};
+
+    % S_1 (Rotated diamond)
+    \draw[line width=1.4pt, green!60!black] (1,0) -- (0,1) -- (-1,0) -- (0,-1) -- cycle;
+    \node[green!60!black, font=\small\bfseries] at (0.6, 0.35) {$S_1$};
+
+    % Common intersection points
+    \filldraw[red!80!black] (1,0) circle (1.5pt) node[below right, black, font=\scriptsize] {$(1,0)$};
+    \filldraw[red!80!black] (0,1) circle (1.5pt) node[above right, black, font=\scriptsize] {$(0,1)$};
+    \filldraw[red!80!black] (-1,0) circle (1.5pt) node[below left, black, font=\scriptsize] {$(-1,0)$};
+    \filldraw[red!80!black] (0,-1) circle (1.5pt) node[below left, black, font=\scriptsize] {$(0,-1)$};
+\end{tikzpicture}
+\caption{Geometric comparison of unit spheres $S_1$ (green diamond), $S_2$ (blue circle), and $S_\infty$ (dashed orange square) in $\R^2$. The four red points mark the intersection $S_1 \cap S_2 \cap S_\infty = \{\pm \mathbf{e}_1, \pm \mathbf{e}_2\}$.}
+\label{fig:unit-spheres-en}
+\end{figure}
+
+\begin{property}[Common Intersection of Unit Spheres]
+The intersection of all three unit loci consists exactly of the canonical basis vectors and their opposites:
+\begin{equation}
+    S_1 \cap S_2 \cap S_\infty = \left\{ \begin{bmatrix} 1 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ 1 \end{bmatrix}, \begin{bmatrix} -1 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ -1 \end{bmatrix} \right\} = \{\pm \mathbf{e}_1, \pm \mathbf{e}_2\}.
+\end{equation}
+Only for these four points do all three norms simultaneously evaluate to unity: $\|\mathbf{v}\|_1 = \|\mathbf{v}\|_2 = \|\mathbf{v}\|_\infty = 1$.
+\end{property}
+
+\subsection{Exercise 3: Basis Verification in \texorpdfstring{$\R^3$}{R3}}
+
+Consider the three vectors in $\R^3$:
+\begin{equation}
+    \mathbf{v}_1 = \begin{bmatrix} 1 \\ 0 \\ 2 \end{bmatrix}, \qquad \mathbf{v}_2 = \begin{bmatrix} 2 \\ 2 \\ 0 \end{bmatrix}, \qquad \mathbf{v}_3 = \begin{bmatrix} -3 \\ -4 \\ 2 \end{bmatrix}.
+\end{equation}
+
+Testing whether $\mathbf{v}_3$ lies in $\spanop(\mathbf{v}_1, \mathbf{v}_2)$:
+\begin{equation}
+    \alpha \mathbf{v}_1 + \beta \mathbf{v}_2 = \mathbf{v}_3 \iff \begin{cases}
+        \alpha + 2\beta = -3 & \text{(component 1)}, \\
+        2\beta = -4 & \text{(component 2)}, \\
+        2\alpha = 2 & \text{(component 3)}.
+    \end{cases}
+\end{equation}
+From the third equation, $\alpha = 1$; from the second, $\beta = -2$. Substituting into the first equation:
+\begin{equation}
+    \alpha + 2\beta = 1 + 2(-2) = 1 - 4 = -3.
+\end{equation}
+The system is consistent, confirming the non-trivial relation:
+\begin{equation}
+    \mathbf{v}_1 - 2\mathbf{v}_2 - \mathbf{v}_3 = \mathbf{0}_{\R^3}.
+\end{equation}
+Thus the vectors are linearly dependent, and $\{\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3\}$ \textbf{does not form a basis of $\R^3$}.
+
+\FloatBarrier
+\section[Three Perspectives on Matrix-Vector Products]{Three Perspectives on\\ Matrix-Vector Products}
+
+\subsection{Definition and Dimensional Compatibility}
+
+A matrix $A \in \R^{n \times m}$ is an ordered rectangular array with $n$ rows and $m$ columns:
+\begin{equation}
+    A = \begin{bmatrix}
+        A_{11} & A_{12} & \cdots & A_{1m} \\
+        A_{21} & A_{22} & \cdots & A_{2m} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        A_{n1} & A_{n2} & \cdots & A_{nm}
+    \end{bmatrix}.
+\end{equation}
+
+For the matrix-vector product $\mathbf{c} = A \mathbf{b}$, dimension compatibility requires:
+\begin{equation}
+    A \in \R^{n \times m}, \quad \mathbf{b} \in \R^{m \times 1} \implies \mathbf{c} = A \mathbf{b} \in \R^{n \times 1}.
+\end{equation}
+The number of columns in $A$ must equal the length of $\mathbf{b}$.
+
+\subsection{The Three Equivalent Perspectives}
+
+Consider the concrete numerical example:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 0 & 1 \\ 3 & -1 & 0 \end{bmatrix} \in \R^{2 \times 3}, \qquad \mathbf{b} = \begin{bmatrix} 1 \\ 2 \\ 3 \end{bmatrix} \in \R^3.
+\end{equation}
+
+Computational linear algebra examines this product through three complementary lenses:
+
+\paragraph{Perspective 1: Component-Wise Scalar Formula.}
+Each entry $c_i$ of the output accumulates along row and column:
+\begin{equation}
+    c_i = \sum_{j=1}^m A_{ij} b_j \qquad (i = 1, \dots, n).
+\end{equation}
+In our example:
+\begin{align}
+    c_1 &= 2 \cdot 1 + 0 \cdot 2 + 1 \cdot 3 = 2 + 0 + 3 = 5, \\
+    c_2 &= 3 \cdot 1 + (-1) \cdot 2 + 0 \cdot 3 = 3 - 2 + 0 = 1 \implies \mathbf{c} = \begin{bmatrix} 5 \\ 1 \end{bmatrix}.
+\end{align}
+
+\paragraph{Perspective 2: Row Perspective (Inner Products).}
+Expressing $A$ by its rows $\mathbf{u}_1^T, \dots, \mathbf{u}_n^T$ with $\mathbf{u}_i \in \R^m$:
+\begin{equation}
+    A = \begin{bmatrix} \text{---} & \mathbf{u}_1^T & \text{---} \\ \text{---} & \mathbf{u}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{u}_n^T & \text{---} \end{bmatrix} \implies c_i = \langle \mathbf{u}_i, \mathbf{b} \rangle = \mathbf{u}_i^T \mathbf{b}.
+\end{equation}
+Each output component is the Euclidean dot product between the corresponding row of $A$ and vector $\mathbf{b}$.
+
+\paragraph{Perspective 3: Column Perspective (Linear Combinations).}
+Expressing $A$ through its $m$ columns $\mathbf{w}_1, \dots, \mathbf{w}_m \in \R^n$:
+\begin{equation}
+    A = \begin{bmatrix} | & | & & | \\ \mathbf{w}_1 & \mathbf{w}_2 & \dots & \mathbf{w}_m \\ | & | & & | \end{bmatrix} \implies \mathbf{c} = A \mathbf{b} = \sum_{j=1}^m b_j \mathbf{w}_j.
+\end{equation}
+Output vector $\mathbf{c}$ is a \textbf{linear combination of the columns of $A$} weighted by the scalars of $\mathbf{b}$:
+\begin{equation}
+    \mathbf{c} = 1 \begin{bmatrix} 2 \\ 3 \end{bmatrix} + 2 \begin{bmatrix} 0 \\ -1 \end{bmatrix} + 3 \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \begin{bmatrix} 2 + 0 + 3 \\ 3 - 2 + 0 \end{bmatrix} = \begin{bmatrix} 5 \\ 1 \end{bmatrix}.
+\end{equation}
+
+\begin{noteblock}{Significance of the Column Perspective}
+The column perspective is foundational across this course: it reveals that the set of all possible outputs $A \mathbf{b}$ as $\mathbf{b}$ varies is precisely the \textbf{column space} $\mathrm{range}(A) = \spanop(\mathbf{w}_1, \dots, \mathbf{w}_m)$. Solving $A \mathbf{x} = \mathbf{b}$ means finding coefficients $\mathbf{x}$ to reconstruct $\mathbf{b}$ from $A$'s columns.
+\end{noteblock}
+
+\FloatBarrier
+\section{Matrices as Linear Transformations in the Plane}
+
+A square matrix $A \in \R^{2 \times 2}$ acts on plane vectors as a linear operator $T_A: \R^2 \to \R^2$ defined by $T_A(\mathbf{v}) = A \mathbf{v}$. Its geometric behavior is entirely determined by the images of the standard basis vectors:
+\begin{equation}
+    A \mathbf{e}_1 = \text{first column of } A, \qquad A \mathbf{e}_2 = \text{second column of } A.
+\end{equation}
+
+\subsection{Core Geometric Examples}
+
+\paragraph{1. $90^\circ$ Clockwise Rotation.}
+Consider:
+\begin{equation}
+    A_{\text{rot}} = \begin{bmatrix} 0 & 1 \\ -1 & 0 \end{bmatrix}.
+\end{equation}
+Acting on the canonical basis:
+\begin{equation}
+    A_{\text{rot}} \mathbf{e}_1 = \begin{bmatrix} 0 \\ -1 \end{bmatrix} = -\mathbf{e}_2, \qquad A_{\text{rot}} \mathbf{e}_2 = \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \mathbf{e}_1.
+\end{equation}
+Horizontal vector $\mathbf{e}_1$ rotates downward to $-\mathbf{e}_2$, while vertical vector $\mathbf{e}_2$ rotates rightward to $\mathbf{e}_1$. For general $\mathbf{v} = [v_1, v_2]^T$, it outputs $[v_2, -v_1]^T$, rotating the entire plane by $90^\circ$ clockwise.
+
+\paragraph{2. Horizontal Shear Mapping.}
+Consider the upper-triangular matrix:
+\begin{equation}
+    A_{\text{shear}} = \begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}.
+\end{equation}
+Its action on the basis vectors gives:
+\begin{equation}
+    A_{\text{shear}} \mathbf{e}_1 = \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \mathbf{e}_1, \qquad A_{\text{shear}} \mathbf{e}_2 = \begin{bmatrix} 1 \\ 1 \end{bmatrix} = \mathbf{e}_1 + \mathbf{e}_2.
+\end{equation}
+The horizontal axis remains fixed, while the horizontal coordinate shifts proportionally to vertical position ($x \mapsto x + y$, $y \mapsto y$). Squares deform into parallelograms of equal area ($\det A_{\text{shear}} = 1$).
+
+\paragraph{3. Uniform Scaling and Reflection.}
+\begin{itemize}
+    \item $A = \begin{bmatrix} 2 & 0 \\ 0 & 2 \end{bmatrix} = 2 I$: uniformly dilates every vector by a factor of $2$ ($A \mathbf{v} = 2 \mathbf{v}$), preserving directions and angles.
+    \item $A = \begin{bmatrix} 0 & 1 \\ 1 & 0 \end{bmatrix}$: swaps coordinates ($x \mapsto y$, $y \mapsto x$), performing reflection across the line $y = x$.
+\end{itemize}
+
+\FloatBarrier
+\section{Introduction to Computational Complexity and Flops}
+
+In numerical linear algebra, establishing theoretical solvability is insufficient: one must quantify the required elementary floating-point operations (\textbf{flops} — additions, subtractions, multiplications, divisions).
+
+\subsection{Operation Count for the Inner Product}
+
+For $\mathbf{v}, \mathbf{w} \in \R^n$, computing $\langle \mathbf{v}, \mathbf{w} \rangle = \sum_{i=1}^n v_i w_i$ requires:
+\begin{enumerate}
+    \item $n$ multiplications ($v_1 w_1, \dots, v_n w_n$);
+    \item $n - 1$ additions to sum the partial products.
+\end{enumerate}
+The exact count is:
+\begin{equation}
+    \text{Flops}(n) = n + (n - 1) = 2n - 1 \implies \BigO{n}.
+\end{equation}
+
+\subsection{Linear Time Scaling Model}
+
+Assuming execution time is proportional to operation count: if computing an inner product of length $n = 10^7$ takes $3$ seconds, tripling the size to $n' = 3 \cdot 10^7$ yields:
+\begin{equation}
+    \text{Estimated time} = 3 \times (\text{base time}) = 3 \times 3\,\text{s} = 9\,\text{s}.
+\end{equation}
+Linear complexity $\BigO{n}$ guarantees runtime scales proportionally with dimension.
+
+\begin{remark}[Open Question: The Cost of Matrix-Vector Multiplication]
+For a square matrix $A \in \R^{n \times n}$ and vector $\mathbf{b} \in \R^n$:
+\begin{itemize}
+    \item Evaluating $A \mathbf{b}$ requires computing $n$ independent dot products of length $n$, each costing $2n - 1$:
+    \begin{equation}
+        \text{Flops}_{\text{mat-vec}}(n) = n (2n - 1) = 2n^2 - n \implies \BigO{n^2}.
+    \end{equation}
+    \item If computation for $n = 1\,000$ takes $3$ seconds, doubling to $n' = 2\,000$ quadruples the expected time: $(2)^2 \times 3\,\text{s} = 12\,\text{s}$.
+\end{itemize}
+\end{remark}
+
+\FloatBarrier
+\section{Summary of Core Mathematical Concepts}
+
+\begin{table}[H]
+  \centering
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{l Y Y}
+    \toprule
+    \textbf{Object / Concept} & \textbf{Mathematical Definition} & \textbf{Key Property / Complexity} \\
+    \midrule
+    $\ell_1$ Norm & $\|\mathbf{v}\|_1 = \sum_{i=1}^n |v_i|$ & Unit sphere is a $45^\circ$ diamond; induces sparsity in models. \\
+    $\ell_2$ Norm & $\|\mathbf{v}\|_2 = \sqrt{\sum_{i=1}^n v_i^2} = \sqrt{\mathbf{v}^T \mathbf{v}}$ & Standard rotation-invariant Euclidean length; smooth and differentiable. \\
+    $\ell_\infty$ Norm & $\|\mathbf{v}\|_\infty = \max_{1 \le i \le n} |v_i|$ & Unit sphere is an axis-aligned square of side length $2$. \\
+    Inner Product & $\langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = \sum_{i=1}^n v_i w_i$ & Arithmetic operations: $2n - 1 \implies \BigO{n}$. \\
+    Basis & Linearly independent set with $\spanop = V$ & Unique coordinate representation for every vector. \\
+    Product $A \mathbf{b}$ (Row view) & $c_i = \mathbf{u}_i^T \mathbf{b}$ & $n$ dot products between rows of $A$ and vector $\mathbf{b}$. \\
+    Product $A \mathbf{b}$ (Column view) & $\mathbf{c} = \sum_{j=1}^m b_j \mathbf{w}_j$ & Linear combination of columns weighted by $\mathbf{b}$; spans $\mathrm{range}(A)$. \\
+    $90^\circ$ Clockwise Rotation & $A = \begin{bmatrix} 0 & 1 \\ -1 & 0 \end{bmatrix}$ & Maps $\mathbf{e}_1 \mapsto -\mathbf{e}_2$ and $\mathbf{e}_2 \mapsto \mathbf{e}_1$. \\
+    Reflection across $y = x$ & $A = \begin{bmatrix} 0 & 1 \\ 1 & 0 \end{bmatrix}$ & Maps $\mathbf{e}_1 \mapsto \mathbf{e}_2$ and $\mathbf{e}_2 \mapsto \mathbf{e}_1$, swapping coordinates. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Summary of algebraic, geometric, and computational concepts covered in Chapter 1.}
+  \label{tab:summary-chapter-1-en}
+\end{table}

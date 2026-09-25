@@ -1,0 +1,674 @@
+\chapter{Matrix Multiplication, Computational Complexity, and Orthogonal Matrices}
+\label{chap:matrix-multiplication-complexity-orthogonality}
+
+This chapter investigates higher-level algebraic operations between matrices, focusing on matrix-matrix multiplication, its computational complexity and scaling laws, and the structural properties of the fundamental subspaces associated with a matrix. We then formalize vector orthogonality and orthogonal matrices, which constitute cornerstone building blocks for designing stable numerical algorithms and canonical matrix factorizations in numerical linear algebra~\cite{trefethen1997numerical}.
+
+\FloatBarrier
+\section{Matrix-Matrix Multiplication}
+
+\subsection{Dimensional Compatibility Condition}
+
+Let $A$ and $B$ be real matrices. The matrix product $C = AB$ is well-defined \textbf{if and only if} the number of columns in the first factor $A$ equals the number of rows in the second factor $B$.
+
+\begin{definition}[Dimensional Compatibility of Matrix Products]
+Given $n, m, p \in \N$, let $A \in \R^{n \times m}$ and $B \in \R^{m \times p}$. Matrix multiplication produces a matrix $C = AB \in \R^{n \times p}$ whose dimensions match the rows of the first factor and the columns of the second:
+\begin{equation}
+    A \in \R^{n \times m}, \quad B \in \R^{m \times p} \implies C = AB \in \R^{n \times p}.
+\end{equation}
+\end{definition}
+
+If the inner dimensions differ, the product is undefined. In general, even for square matrices ($n = m = p$), matrix multiplication is non-commutative:
+\begin{equation}
+    AB \neq BA \qquad \text{(in general)}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+    % --- Matrix A (n x m) ---
+    \draw[thick, fill=blue!8, draw=blue!60!black] (0, 0) rectangle (2.4, 3.2);
+    % Row i of A highlighted
+    \draw[fill=blue!25, draw=blue!70!black, thick] (0, 2.0) rectangle (2.4, 2.5);
+    \node[font=\scriptsize\bfseries, text=blue!90!black] at (1.2, 2.25) {row $i$: $\mathbf{u}_i^T$};
+    \node[font=\bfseries\Large, text=blue!80!black] at (1.2, 1.0) {$A$};
+    % Dimension braces of A (facing outward)
+    \draw[brace] (-0.15, 0) -- (-0.15, 3.2) node[midway, left=6pt, font=\small] {$n$};
+    \draw[brace] (0, 3.2) -- (2.4, 3.2) node[midway, above=6pt, font=\small] {$m$};
+
+    % Multiplication operator
+    \node[font=\huge, text=gray!80!black] at (3.4, 1.6) {$\times$};
+
+    % --- Matrix B (m x p) ---
+    \draw[thick, fill=green!8, draw=green!60!black] (4.4, 0.4) rectangle (7.6, 2.8);
+    % Column j of B highlighted
+    \draw[fill=green!25, draw=green!70!black, thick] (5.2, 0.4) rectangle (5.7, 2.8);
+    \node[below=6pt, font=\scriptsize\bfseries, text=green!70!black] at (5.45, 0.4) {col. $j$: $\mathbf{w}_j$};
+    \node[font=\bfseries\Large, text=green!70!black] at (6.65, 1.6) {$B$};
+    % Dimension braces of B (facing outward)
+    \draw[brace] (4.4, 2.8) -- (7.6, 2.8) node[midway, above=6pt, font=\small] {$p$};
+    \draw[brace] (7.75, 2.8) -- (7.75, 0.4) node[midway, right=6pt, font=\small] {$m$};
+
+    % Equals operator
+    \node[font=\huge, text=gray!80!black] at (9.0, 1.6) {$=$};
+
+    % --- Matrix C (n x p) ---
+    \draw[thick, fill=orange!8, draw=orange!60!black] (10.2, 0) rectangle (13.4, 3.2);
+    % Dashed guidelines
+    \draw[dashed, blue!50, thin] (10.2, 2.25) -- (13.4, 2.25);
+    \draw[dashed, green!60!black, thin] (11.45, 0) -- (11.45, 3.2);
+    % Entry C_ij at intersection
+    \draw[fill=orange!70, draw=red!80!black, thick] (11.15, 2.0) rectangle (11.75, 2.5);
+    \node[font=\scriptsize\bfseries, text=white] at (11.45, 2.25) {$C_{ij}$};
+    \node[font=\bfseries\large, text=orange!80!black, align=center] at (12.3, 1.0) {$C = AB$\\[2pt]\scriptsize $C_{ij} = \mathbf{u}_i^T \mathbf{w}_j$};
+    % Dimension braces of C (facing outward)
+    \draw[brace] (10.2, 3.2) -- (13.4, 3.2) node[midway, above=6pt, font=\small] {$p$};
+    \draw[brace] (13.55, 3.2) -- (13.55, 0) node[midway, right=6pt, font=\small] {$n$};
+\end{tikzpicture}%
+}
+\caption{Dimensional compatibility in matrix multiplication: entry $C_{ij}$ is formed by the inner product of row $\mathbf{u}_i^T$ of $A$ and column $\mathbf{w}_j$ of $B$.}
+\label{fig:matrix-compatibility}
+\end{figure}
+
+\subsection{Component-Wise Definition}
+
+Each entry $C_{ij}$ located at row $i$ ($1 \le i \le n$) and column $j$ ($1 \le j \le p$) of the resulting matrix is computed as the standard Euclidean inner product between the $i$-th row of $A$ and the $j$-th column of $B$:
+
+\begin{definition}[Component-Wise Matrix Multiplication Formula]
+Given $A \in \R^{n \times m}$ and $B \in \R^{m \times p}$, entry $(i, j)$ of $C = AB$ is:
+\begin{equation}
+    C_{ij} = \sum_{k=1}^m A_{ik} B_{kj} = A_{i1}B_{1j} + A_{i2}B_{2j} + \dots + A_{im}B_{mj}.
+\end{equation}
+In vector notation, denoting the $i$-th row of $A$ by $\mathbf{u}_i^T$ and the $j$-th column of $B$ by $\mathbf{w}_j$:
+\begin{equation}
+    C_{ij} = \langle \mathbf{u}_i, \mathbf{w}_j \rangle = \mathbf{u}_i^T \mathbf{w}_j.
+\end{equation}
+\end{definition}
+
+\subsection{Step-by-Step Numerical Example}
+
+\begin{example}[Detailed Rectangular Matrix Multiplication]
+Consider the matrices:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 \\ 0 & 3 \end{bmatrix} \in \R^{2 \times 2}, \qquad B = \begin{bmatrix} 0 & 1 & -1 \\ 1 & 0 & 2 \end{bmatrix} \in \R^{2 \times 3}.
+\end{equation}
+Since $A$ has $m = 2$ columns and $B$ has $m = 2$ rows, product $C = AB$ is well-defined and yields a $2 \times 3$ matrix. We compute each component analytically:
+
+\paragraph{First row of $C$ (row 1 of $A$ against columns of $B$):}
+\begin{align}
+    C_{11} &= A_{11}B_{11} + A_{12}B_{21} = 1 \cdot 0 + 2 \cdot 1 = 0 + 2 = 2, \\
+    C_{12} &= A_{11}B_{12} + A_{12}B_{22} = 1 \cdot 1 + 2 \cdot 0 = 1 + 0 = 1, \\
+    C_{13} &= A_{11}B_{13} + A_{12}B_{23} = 1 \cdot (-1) + 2 \cdot 2 = -1 + 4 = 3.
+\end{align}
+
+\paragraph{Second row of $C$ (row 2 of $A$ against columns of $B$):}
+\begin{align}
+    C_{21} &= A_{21}B_{11} + A_{22}B_{21} = 0 \cdot 0 + 3 \cdot 1 = 0 + 3 = 3, \\
+    C_{22} &= A_{21}B_{12} + A_{22}B_{22} = 0 \cdot 1 + 3 \cdot 0 = 0 + 0 = 0, \\
+    C_{23} &= A_{21}B_{13} + A_{22}B_{23} = 0 \cdot (-1) + 3 \cdot 2 = 0 + 6 = 6.
+\end{align}
+
+Assembling the calculated components yields:
+\begin{equation}
+    C = AB = \begin{bmatrix} 2 & 1 & 3 \\ 3 & 0 & 6 \end{bmatrix} \in \R^{2 \times 3}.
+\end{equation}
+\end{example}
+
+\FloatBarrier
+\section{Computational Complexity and Scaling Law}
+
+\subsection{Rigorous FLOP Counting}
+
+Assessing numerical algorithm execution time requires quantifying floating-point operations (FLOPs).
+
+\begin{property}[Computational Cost of Matrix Multiplication]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Cost of a single entry:}
+    Evaluating $C_{ij} = \sum_{k=1}^m A_{ik} B_{kj}$ requires $m$ scalar multiplications and $m - 1$ additions:
+    \begin{equation}
+        \text{FLOPs per entry} = m + (m - 1) = 2m - 1 \quad \implies \quad \BigO{m}.
+    \end{equation}
+    \item \textbf{General rectangular case ($A \in \R^{n \times m}, B \in \R^{m \times p}$):}
+    Computing all $n \cdot p$ independent entries yields:
+    \begin{equation}
+        \text{Total FLOPs} = n \cdot p \cdot (2m - 1) = 2nmp - np \quad \implies \quad \BigO{nmp}.
+    \end{equation}
+    \item \textbf{Square matrix case ($n = m = p$):}
+    When both matrices belong to $\R^{n \times n}$, matrix $C$ has $n^2$ entries:
+    \begin{equation}
+        \text{Total FLOPs}(n) = n^2 \cdot (2n - 1) = 2n^3 - n^2 \quad \implies \quad \BigO{n^3}.
+    \end{equation}
+\end{enumerate}
+\end{property}
+
+The leading term $2n^3$ dictates cubic growth with respect to dimension $n$.
+
+\subsection{Cubic Time Scaling Law}
+
+Let $T(n) \approx \gamma n^3$ model execution time on fixed hardware, where $\gamma > 0$ absorbs cache architecture, CPU clock speed, and compiler optimization.
+
+\begin{example}[Predicting Execution Time under Doubled Dimension]
+Suppose multiplying two dense square matrices of size $n = 1000$ takes $3\text{ seconds}$ of CPU time:
+\begin{equation}
+    T(1000) \approx \gamma \cdot (1000)^3 = 3\text{ s}.
+\end{equation}
+Doubling the dimension to $n' = 2000$, the cubic scaling law implies:
+\begin{equation}
+    T(2000) \approx \gamma \cdot (2000)^3 = \gamma \cdot (2 \cdot 1000)^3 = 8 \cdot \left(\gamma \cdot 1000^3\right) = 8 \cdot T(1000).
+\end{equation}
+The execution time scales by a factor of $8$:
+\begin{equation}
+    T(2000) \approx 8 \cdot 3\text{ s} = 24\text{ seconds}.
+\end{equation}
+\end{example}
+
+\subsection{Comparative Overview of Core Linear Algebra Operations}
+
+Table~\ref{tab:complexity-comparison} illustrates how the three foundational linear algebra operations scale when the linear data dimension $n$ increases by a factor of $10$ (from $n = 10^3$ to $n = 10^4$).
+
+\begin{table}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tabular}{l l c l c}
+\toprule
+\textbf{Operation} & \textbf{Operands} & \textbf{FLOP Formula} & \textbf{Cost} & \textbf{Scaling Factor ($10\times$)} \\
+\midrule
+Inner Product & $\mathbf{v}, \mathbf{w} \in \R^n$ & $2n - 1$ & $\BigO{n}$ & $10^1 = 10$ \\
+Matrix-Vector & $A \in \R^{n \times n}, \mathbf{b} \in \R^n$ & $2n^2 - n$ & $\BigO{n^2}$ & $10^2 = 100$ \\
+Matrix-Matrix & $A, B \in \R^{n \times n}$ & $2n^3 - n^2$ & $\BigO{n^3}$ & $10^3 = 1000$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Complexity comparison and scaling factors for a tenfold increase in dimension.}
+\label{tab:complexity-comparison}
+\end{table}
+
+If an $n = 1000$ matrix-matrix multiplication runs in $1\text{ second}$, the same task for $n = 10\,000$ requires $1000\text{ seconds}$ ($\approx 16.6\text{ minutes}$).
+
+\FloatBarrier
+\section[Fundamental Properties: Rank, Subspaces, and Invertibility]{Fundamental Properties: Rank,\\ Subspaces, and Invertibility}
+
+\subsection{Subspaces Associated with a Linear Map}
+
+Let $A \in \R^{n \times m}$ define a linear operator $T_A: \R^m \to \R^n$ via $T_A(\mathbf{x}) = A\mathbf{x}$.
+
+\begin{definition}[Rank of a Matrix]
+The \textbf{rank} of $A$, denoted by $\rank(A)$, is the dimension of the vector space spanned by its columns. By the fundamental theorem of linear algebra, column rank and row rank always coincide:
+\begin{equation}
+    \rank(A) = \dim(\mathrm{col}(A)) = \dim(\mathrm{row}(A)) \le \min(n, m).
+\end{equation}
+When $\rank(A) = \min(n, m)$, the matrix is said to have \textbf{full rank}.
+\end{definition}
+
+\begin{definition}[Kernel or Nullspace]
+The \textbf{kernel} (or \textit{nullspace}) of $A$ is the subspace of $\R^m$ containing all vectors mapped to the zero vector in $\R^n$:
+\begin{equation}
+    \ker(A) = \left\{ \mathbf{x} \in \R^m : A\mathbf{x} = \mathbf{0}_{\R^n} \right\} \subseteq \R^m.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Image or Range]
+The \textbf{image} (or \textit{range}) of $A$ is the subspace of $\R^n$ spanned by all linear combinations of the columns of $A$:
+\begin{equation}
+    \mathrm{Im}(A) = \spanop(\text{columns of } A) = \left\{ A\mathbf{x} : \mathbf{x} \in \R^m \right\} \subseteq \R^n.
+\end{equation}
+We have $\dim(\mathrm{Im}(A)) = \rank(A)$.
+\end{definition}
+
+\begin{theorem}[Rank-Nullity Theorem]
+For any matrix $A \in \R^{n \times m}$ with $m$ columns, the dimension of the image plus the dimension of the kernel equals the dimension of the domain:
+\begin{equation}
+    \dim(\mathrm{Im}(A)) + \dim(\ker(A)) = m.
+\end{equation}
+\end{theorem}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    subspace/.style={thick, rounded corners=6pt},
+    point/.style={circle, fill, inner sep=2pt}]
+
+    % ================= DOMAIN R^m =================
+    \draw[thick, fill=blue!4, draw=blue!50!black] (0, 0) ellipse (2.6 and 3.2);
+    \node[above=6pt, font=\bfseries\large, text=blue!90!black] at (0, 3.2) {Domain $\R^m$};
+    \node[font=\footnotesize, text=gray!70!black] at (0, 2.7) {$\dim = m$};
+
+    % Orthogonal subspace (ker A)^\perp
+    \draw[subspace, fill=blue!12, draw=blue!70!black] (-2.0, 0.4) rectangle (2.0, 2.3);
+    \node[font=\small\bfseries, text=blue!90!black] at (0, 1.9) {$(\ker(A))^\perp$};
+    \node[font=\scriptsize, text=gray!80!black] at (0, 1.45) {$\dim = r$};
+    \node[point, fill=blue!90!black, label={[blue!90!black, left=3pt]:$\mathbf{x}$}] (x) at (0.4, 0.85) {};
+
+    % Internal direct sum symbol
+    \node[font=\scriptsize, text=gray!70!black] at (0, 0.05) {$\oplus \quad (\ker(A) \perp (\ker(A))^\perp)$};
+
+    % Kernel ker(A)
+    \draw[subspace, fill=red!10, draw=red!70!black] (-2.0, -2.4) rectangle (2.0, -0.3);
+    \node[font=\small\bfseries, text=red!85!black] at (0, -0.7) {$\ker(A)$};
+    \node[font=\scriptsize, text=gray!80!black] at (0, -1.1) {$\dim = m - r$};
+    \node[font=\scriptsize, text=red!70!black] at (0, -1.45) {$\{ \mathbf{v} \in \R^m : A\mathbf{v} = \mathbf{0} \}$};
+    \node[point, fill=red!80!black, label={[red!80!black, left=3pt]:$\mathbf{v}$}] (v) at (0.4, -1.9) {};
+
+    % ================= CODOMAIN R^n =================
+    \begin{scope}[xshift=8.2cm]
+        \draw[thick, fill=green!4, draw=green!50!black] (0, 0) ellipse (2.6 and 3.2);
+        \node[above=6pt, font=\bfseries\large, text=green!80!black] at (0, 3.2) {Codomain $\R^n$};
+        \node[font=\footnotesize, text=gray!70!black] at (0, 2.7) {$\dim = n$};
+
+        % Image Im(A)
+        \draw[subspace, fill=green!15, draw=green!70!black] (-2.0, 0.4) rectangle (2.0, 2.3);
+        \node[font=\small\bfseries, text=green!70!black] at (0, 1.9) {$\mathrm{Im}(A)$};
+        \node[font=\scriptsize, text=gray!80!black] at (0, 1.45) {$\dim = r = \rank(A)$};
+        \node[point, fill=green!70!black, label={[green!60!black, right=3pt]:$A\mathbf{x}$}] (Ax) at (-0.4, 0.85) {};
+
+        % Internal direct sum symbol
+        \node[font=\scriptsize, text=gray!70!black] at (0, 0.05) {$\oplus \quad (\mathrm{Im}(A) \perp \ker(A^T))$};
+
+        % Complement / ker(A^T)
+        \draw[subspace, fill=gray!10, draw=gray!50, dashed] (-2.0, -2.4) rectangle (2.0, -0.3);
+        \node[font=\small\bfseries, text=gray!80!black] at (0, -0.7) {$(\mathrm{Im}(A))^\perp = \ker(A^T)$};
+        \node[font=\scriptsize, text=gray!80!black] at (0, -1.1) {$\dim = n - r$};
+        \node[point, fill=red!80!black, label={[red!80!black, right=3pt]:$\mathbf{0}_{\R^n}$}] (zero) at (-0.4, -1.9) {};
+    \end{scope}
+
+    % ================= MAPS / TRANSFORMATIONS =================
+    % Isomorphism mapping from complement to Im(A)
+    \draw[->, very thick, blue!80!black] (x) to[out=18, in=162] node[midway, above=4pt, font=\small, align=center] {$T_A(\mathbf{x}) = A\mathbf{x}$\\[1pt]\scriptsize (isomorphism)} (Ax);
+
+    % Kernel mapping to zero
+    \draw[->, thick, dashed, red!80!black] (v) -- node[midway, above=4pt, font=\small] {$A\mathbf{v} = \mathbf{0}$} (zero);
+
+\end{tikzpicture}%
+}
+\caption{Geometric representation of fundamental subspaces and the Rank-Nullity Theorem: $\dim(\ker(A)) + \dim(\mathrm{Im}(A)) = m$. The restriction of $A$ to the orthogonal complement $(\ker(A))^\perp$ is an isomorphism onto $\mathrm{Im}(A)$.}
+\label{fig:fundamental-subspaces}
+\end{figure}
+
+\subsection{Invertibility of Square Matrices}
+
+For square matrices $A \in \R^{n \times n}$, rank, nullity, and invertibility merge into an overarching equivalence theorem.
+
+\begin{definition}[Invertible or Non-Singular Matrix]
+A matrix $A \in \R^{n \times n}$ is called \textbf{invertible} if there exists a unique matrix $A^{-1} \in \R^{n \times n}$ satisfying:
+\begin{equation}
+    A A^{-1} = I_n \qquad \text{and} \qquad A^{-1} A = I_n.
+\end{equation}
+\end{definition}
+
+\begin{theorem}[Equivalent Characterizations of Invertibility]
+Let $A \in \R^{n \times n}$. The following statements are equivalent:
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item $A$ is invertible.
+    \item $\rank(A) = n$ ($A$ has full rank).
+    \item $\det(A) \neq 0$.
+    \item $\ker(A) = \{ \mathbf{0}_{\R^n} \}$ (trivial nullspace).
+    \item The columns of $A$ form a basis of $\R^n$.
+    \item Linear system $A\mathbf{x} = \mathbf{b}$ has a unique solution $\mathbf{x} = A^{-1}\mathbf{b}$ for every $\mathbf{b} \in \R^n$.
+\end{enumerate}
+\end{theorem}
+
+\subsection{Guided Example: Rank, Kernel, and Image Calculation}
+
+\begin{example}[Full Subspace Analysis of a Singular $3 \times 3$ Matrix]
+Consider the matrix:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix} \in \R^{3 \times 3}.
+\end{equation}
+
+\paragraph{1. Rank via Gaussian Elimination:}
+Apply elementary row operation $R_2 \leftarrow R_2 - 2R_1$:
+\begin{equation}
+    \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix}
+    \xrightarrow{R_2 \to R_2 - 2R_1}
+    \begin{bmatrix} 1 & 2 & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 1 \end{bmatrix}
+    \xrightarrow{R_2 \leftrightarrow R_3}
+    \begin{bmatrix} 1 & 2 & 0 \\ 0 & 0 & 1 \\ 0 & 0 & 0 \end{bmatrix}.
+\end{equation}
+The row echelon form contains 2 non-zero pivots. Therefore:
+\begin{equation}
+    \rank(A) = 2.
+\end{equation}
+Since $\rank(A) = 2 < 3$, matrix $A$ is \textbf{not invertible} ($\det(A) = 0$).
+
+\paragraph{2. Image Space $\mathrm{Im}(A)$:}
+Examining the columns of $A$:
+\begin{equation}
+    \mathbf{a}_1 = \begin{bmatrix} 1 \\ 2 \\ 0 \end{bmatrix}, \qquad \mathbf{a}_2 = \begin{bmatrix} 2 \\ 4 \\ 0 \end{bmatrix} = 2\mathbf{a}_1, \qquad \mathbf{a}_3 = \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}.
+\end{equation}
+The second column is collinear to the first and hence redundant. Columns $\mathbf{a}_1$ and $\mathbf{a}_3$ are linearly independent and form a basis for the image:
+\begin{equation}
+    \mathrm{Im}(A) = \spanop\left\{ \begin{bmatrix} 1 \\ 2 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} \right\}, \qquad \dim(\mathrm{Im}(A)) = 2.
+\end{equation}
+
+\paragraph{3. Kernel Space $\ker(A)$:}
+Solve homogeneous linear system $A\mathbf{x} = \mathbf{0}_{\R^3}$ with $\mathbf{x} = [x_1, x_2, x_3]^T$:
+\begin{equation}
+    \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix} \begin{bmatrix} x_1 \\ x_2 \\ x_3 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \\ 0 \end{bmatrix} \implies \begin{cases} x_1 + 2x_2 = 0 \\ x_3 = 0 \end{cases} \implies \begin{cases} x_1 = -2x_2 \\ x_3 = 0 \end{cases}.
+\end{equation}
+Setting free variable $x_2 = t \in \R$:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} -2t \\ t \\ 0 \end{bmatrix} = t \begin{bmatrix} -2 \\ 1 \\ 0 \end{bmatrix} \implies \ker(A) = \spanop\left\{ \begin{bmatrix} -2 \\ 1 \\ 0 \end{bmatrix} \right\}.
+\end{equation}
+The nullity is $\dim(\ker(A)) = 1$. Verifying the Rank-Nullity Theorem:
+\begin{equation}
+    \dim(\mathrm{Im}(A)) + \dim(\ker(A)) = 2 + 1 = 3 = m.
+\end{equation}
+\end{example}
+
+\FloatBarrier
+\section{Vector Orthogonality and Orthonormality}
+
+\subsection{Core Definitions}
+
+\begin{definition}[Orthogonal Vectors]
+Two vectors $\mathbf{v}, \mathbf{w} \in \R^n$ are \textbf{orthogonal} ($\mathbf{v} \perp \mathbf{w}$) if and only if their standard dot product vanishes:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = 0.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Orthogonal and Orthonormal Sets]
+A set of vectors $\{\mathbf{v}_1, \dots, \mathbf{v}_k\} \subset \R^n$ is called:
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Orthogonal} if vectors are mutually perpendicular:
+    \begin{equation}
+        \langle \mathbf{v}_i, \mathbf{v}_j \rangle = 0 \qquad \forall i \neq j.
+    \end{equation}
+    \item \textbf{Orthonormal} if it is orthogonal and every vector has unit Euclidean norm:
+    \begin{equation}
+        \langle \mathbf{v}_i, \mathbf{v}_j \rangle = \delta_{ij} = \begin{cases} 1 & \text{if } i = j, \\ 0 & \text{if } i \neq j, \end{cases}
+    \end{equation}
+    where $\delta_{ij}$ is the Kronecker delta.
+\end{enumerate}
+\end{definition}
+
+\subsection{Constructive Normalization Exercises in \texorpdfstring{$\R^2$}{R2}}
+
+\begin{example}[Constructing and Normalizing an Orthogonal Pair]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Finding an orthogonal vector:}
+    Given vector $\mathbf{v}_1 = [2, 1]^T \in \R^2$, find a non-zero vector $\mathbf{v}_2 = [x, y]^T$ such that $\langle \mathbf{v}_1, \mathbf{v}_2 \rangle = 0$:
+    \begin{equation}
+        2x + y = 0 \implies y = -2x.
+    \end{equation}
+    Choosing $x = 1$ yields $y = -2$, producing the orthogonal pair:
+    \begin{equation}
+        \mathbf{v}_1 = \begin{bmatrix} 2 \\ 1 \end{bmatrix}, \qquad \mathbf{v}_2 = \begin{bmatrix} 1 \\ -2 \end{bmatrix}, \qquad \langle \mathbf{v}_1, \mathbf{v}_2 \rangle = 2(1) + 1(-2) = 0.
+    \end{equation}
+    \item \textbf{Euclidean Normalization (Orthonormalization):}
+    Dividing each vector by its Euclidean $\ell_2$ norm:
+    \begin{align}
+        \|\mathbf{v}_1\|_2 &= \sqrt{2^2 + 1^2} = \sqrt{5} \implies \mathbf{u}_1 = \frac{\mathbf{v}_1}{\|\mathbf{v}_1\|_2} = \begin{bmatrix} 2/\sqrt{5} \\ 1/\sqrt{5} \end{bmatrix}, \\
+        \|\mathbf{v}_2\|_2 &= \sqrt{1^2 + (-2)^2} = \sqrt{5} \implies \mathbf{u}_2 = \frac{\mathbf{v}_2}{\|\mathbf{v}_2\|_2} = \begin{bmatrix} 1/\sqrt{5} \\ -2/\sqrt{5} \end{bmatrix}.
+    \end{align}
+    Verifying orthonormality:
+    \begin{align}
+        \|\mathbf{u}_1\|_2 &= 1, \qquad \|\mathbf{u}_2\|_2 = 1, \\
+        \langle \mathbf{u}_1, \mathbf{u}_2 \rangle &= \frac{2}{\sqrt{5}}\frac{1}{\sqrt{5}} + \frac{1}{\sqrt{5}}\left(-\frac{2}{\sqrt{5}}\right) = \frac{2}{5} - \frac{2}{5} = 0.
+    \end{align}
+    The set $\{\mathbf{u}_1, \mathbf{u}_2\}$ forms an orthonormal basis of $\R^2$.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section{Orthogonal Matrices}
+
+\subsection{Definition and Transpose Properties}
+
+Recall that for general matrix $A \in \R^{n \times m}$, the transpose $A^T \in \R^{m \times n}$ has entries $(A^T)_{ij} = A_{ji}$. For any compatible matrices, the transpose of a product reverses order:
+\begin{equation}
+    (AB)^T = B^T A^T.
+\end{equation}
+
+\begin{definition}[Orthogonal Matrix]
+A square matrix $U \in \R^{n \times n}$ is \textbf{orthogonal} if and only if its transpose equals its inverse:
+\begin{equation}
+    U^T U = U U^T = I_n \iff U^{-1} = U^T.
+\end{equation}
+\end{definition}
+
+\subsection{Column and Row Characterization}
+
+\begin{theorem}[Column and Row Orthonormality]
+A square matrix $U \in \R^{n \times n}$ is orthogonal if and only if its columns form an orthonormal basis of $\R^n$. Equivalently, $U$ is orthogonal if and only if its rows form an orthonormal basis of $\R^n$.
+\end{theorem}
+
+\begin{proof}
+Partition $U$ into column vectors $\mathbf{u}_1, \mathbf{u}_2, \dots, \mathbf{u}_n \in \R^n$:
+\begin{equation}
+    U = \begin{bmatrix} \mathbf{u}_1 & \mathbf{u}_2 & \dots & \mathbf{u}_n \end{bmatrix}.
+\end{equation}
+Then $U^T$ is partitioned by rows:
+\begin{equation}
+    U^T = \begin{bmatrix} \mathbf{u}_1^T \\ \mathbf{u}_2^T \\ \vdots \\ \mathbf{u}_n^T \end{bmatrix}.
+\end{equation}
+Computing block matrix product $U^T U$:
+\begin{align}
+    U^T U &= \begin{bmatrix} \mathbf{u}_1^T \\ \mathbf{u}_2^T \\ \vdots \\ \mathbf{u}_n^T \end{bmatrix} \begin{bmatrix} \mathbf{u}_1 & \mathbf{u}_2 & \dots & \mathbf{u}_n \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix}
+        \mathbf{u}_1^T \mathbf{u}_1 & \mathbf{u}_1^T \mathbf{u}_2 & \cdots & \mathbf{u}_1^T \mathbf{u}_n \\
+        \mathbf{u}_2^T \mathbf{u}_1 & \mathbf{u}_2^T \mathbf{u}_2 & \cdots & \mathbf{u}_2^T \mathbf{u}_n \\
+        \vdots & \vdots & \ddots & \vdots \\
+        \mathbf{u}_n^T \mathbf{u}_1 & \mathbf{u}_n^T \mathbf{u}_2 & \cdots & \mathbf{u}_n^T \mathbf{u}_n
+    \end{bmatrix} = \left[ \langle \mathbf{u}_i, \mathbf{u}_j \rangle \right]_{i,j=1}^n.
+\end{align}
+For this product to equal identity matrix $I_n$, we must have:
+\begin{equation}
+    \langle \mathbf{u}_i, \mathbf{u}_j \rangle = \delta_{ij} \qquad \forall i, j \in \{1, \dots, n\}.
+\end{equation}
+Thus the columns are mutually orthogonal and have unit Euclidean norm. The identical reasoning applied to $U U^T = I_n$ proves that rows are orthonormal.
+\end{proof}
+
+\subsection{Prototypical Example: Planar Rotation Matrix}
+
+\begin{example}[Planar Rotation Matrix]
+Let $\theta \in \R$. Consider clockwise rotation matrix:
+\begin{equation}
+    U = \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix}.
+\end{equation}
+Verifying $U^T U = I_2$:
+\begin{align}
+    U^T U &= \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix} \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix}
+        \cos^2\theta + \sin^2\theta & \cos\theta\sin\theta - \sin\theta\cos\theta \\
+        \sin\theta\cos\theta - \cos\theta\sin\theta & \sin^2\theta + \cos^2\theta
+    \end{bmatrix} = \begin{bmatrix} 1 & 0 \\ 0 & 1 \end{bmatrix} = I_2.
+\end{align}
+Matrix $U$ is orthogonal for all angles $\theta$.
+\end{example}
+
+\subsection{Closure under Matrix Products}
+
+\begin{proposition}[Orthogonal Group and Product Closure]
+If $U, V \in \R^{n \times n}$ are orthogonal matrices, their product $Q = UV$ is also orthogonal.
+\end{proposition}
+
+\begin{proof}
+Compute $Q Q^T$ using the reversal rule $(UV)^T = V^T U^T$:
+\begin{equation}
+    Q Q^T = (UV)(UV)^T = (UV)(V^T U^T).
+\end{equation}
+By associativity of matrix products:
+\begin{equation}
+    Q Q^T = U (V V^T) U^T.
+\end{equation}
+Since $V$ is orthogonal, $V V^T = I_n$:
+\begin{equation}
+    Q Q^T = U I_n U^T = U U^T = I_n.
+\end{equation}
+Similarly, $Q^T Q = V^T (U^T U) V = V^T I_n V = I_n$. Hence $Q = UV$ is orthogonal.
+\end{proof}
+
+\FloatBarrier
+\section{The Four Noteworthy Questions on Orthogonal Matrices}
+
+\subsection{Question 1: Upper Bound on Individual Matrix Entries}
+
+\begin{example}[Can an Orthogonal Matrix Entry Exceed 1?]
+\textbf{Question:} Can an orthogonal matrix $U \in \R^{n \times n}$ have an entry $U_{ij} > 1$?
+
+\textbf{Answer: NO.} \\
+\textbf{Proof:} Let $\mathbf{u}_j$ denote the $j$-th column of $U$. Since $U$ is orthogonal, $\mathbf{u}_j$ has unit Euclidean norm:
+\begin{equation}
+    \|\mathbf{u}_j\|_2^2 = \sum_{k=1}^n U_{kj}^2 = 1.
+\end{equation}
+Since each squared entry $U_{kj}^2 \ge 0$, every single term is bounded by the total sum:
+\begin{equation}
+    U_{ij}^2 \le \sum_{k=1}^n U_{kj}^2 = 1 \implies |U_{ij}| \le 1 \implies -1 \le U_{ij} \le 1.
+\end{equation}
+No entry of an orthogonal matrix can exceed $1$ in absolute value.
+\end{example}
+
+\subsection{Question 2: Orthogonal Diagonal Matrices}
+
+\begin{example}[Characterizing Orthogonal Diagonal Matrices]
+\textbf{Question:} When is a diagonal matrix $D \in \R^{n \times n}$ orthogonal?
+
+\textbf{Solution:} Let $D = \diag(d_1, d_2, \dots, d_n)$. Being diagonal, $D^T = D$. Computing $D^T D$:
+\begin{equation}
+    D^T D = D^2 = \diag(d_1^2, d_2^2, \dots, d_n^2).
+\end{equation}
+For $D^T D = I_n$, each diagonal entry must satisfy:
+\begin{equation}
+    d_i^2 = 1 \iff d_i = \pm 1 \qquad \forall i = 1, \dots, n.
+\end{equation}
+\textbf{Conclusion:} A diagonal matrix is orthogonal if and only if all diagonal entries are $+1$ or $-1$. There exist exactly $2^n$ distinct orthogonal diagonal matrices in $\R^{n \times n}$.
+\end{example}
+
+\subsection{Question 3: Orthogonal Upper Triangular Matrices}
+
+\begin{example}[Characterizing Orthogonal Upper Triangular Matrices]
+\textbf{Question:} When is an upper triangular matrix $R \in \R^{n \times n}$ orthogonal?
+
+\textbf{Proof by column induction:} Let $R$ be upper triangular ($R_{ij} = 0$ for all $i > j$):
+\begin{equation}
+    R = \begin{bmatrix}
+        r_{11} & r_{12} & r_{13} & \cdots & r_{1n} \\
+        0 & r_{22} & r_{23} & \cdots & r_{2n} \\
+        0 & 0 & r_{33} & \cdots & r_{3n} \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        0 & 0 & 0 & \cdots & r_{nn}
+    \end{bmatrix}.
+\end{equation}
+Since $R$ is orthogonal, its columns $\mathbf{r}_1, \dots, \mathbf{r}_n$ must form an orthonormal basis:
+\begin{enumerate}
+    \item \textbf{First column $\mathbf{r}_1 = [r_{11}, 0, \dots, 0]^T$:}
+    Unit norm requires $r_{11}^2 = 1 \implies r_{11} = \pm 1$.
+    \item \textbf{Second column $\mathbf{r}_2 = [r_{12}, r_{22}, 0, \dots, 0]^T$:}
+    Orthogonality to $\mathbf{r}_1$ requires:
+    \begin{equation}
+        \langle \mathbf{r}_1, \mathbf{r}_2 \rangle = r_{11} r_{12} = 0 \implies r_{12} = 0 \quad (\text{since } r_{11} = \pm 1 \neq 0).
+    \end{equation}
+    Unit norm gives $\|\mathbf{r}_2\|_2^2 = r_{12}^2 + r_{22}^2 = 0 + r_{22}^2 = 1 \implies r_{22} = \pm 1$.
+    \item \textbf{Third column $\mathbf{r}_3 = [r_{13}, r_{23}, r_{33}, 0, \dots, 0]^T$:}
+    Orthogonality to $\mathbf{r}_1$ and $\mathbf{r}_2$ forces $r_{11} r_{13} = 0 \implies r_{13} = 0$ and $r_{22} r_{23} = 0 \implies r_{23} = 0$. Hence $r_{33} = \pm 1$.
+    \item \textbf{Inductive step:} For every column $j$, all off-diagonal entries vanish ($r_{ij} = 0$ for $i < j$), and diagonal entries satisfy $r_{jj} = \pm 1$.
+\end{enumerate}
+\textbf{Conclusion:} An upper triangular matrix is orthogonal if and only if it is diagonal with diagonal entries $\pm 1$.
+\end{example}
+
+\subsection{Question 4: Euclidean Isometry and Norm Preservation}
+
+\begin{theorem}[Isometry Property of Orthogonal Matrices]
+Orthogonal matrices strictly preserve Euclidean vector lengths and standard inner products:
+\begin{equation}
+    \forall U \in \R^{n \times n} \text{ orthogonal}, \quad \forall \mathbf{x} \in \R^n \implies \|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+Furthermore, inner products between arbitrary pairs of vectors are preserved:
+\begin{equation}
+    \langle U\mathbf{x}, U\mathbf{y} \rangle = \langle \mathbf{x}, \mathbf{y} \rangle \qquad \forall \mathbf{x}, \mathbf{y} \in \R^n.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Recall that for any vector $\mathbf{v}$, $\|\mathbf{v}\|_2^2 = \mathbf{v}^T \mathbf{v}$. Setting $\mathbf{v} = U\mathbf{x}$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = (U\mathbf{x})^T (U\mathbf{x}).
+\end{equation}
+Applying the transpose product rule $(U\mathbf{x})^T = \mathbf{x}^T U^T$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = \mathbf{x}^T (U^T U) \mathbf{x}.
+\end{equation}
+Since $U$ is orthogonal, $U^T U = I_n$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = \mathbf{x}^T I_n \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Taking the positive square root yields $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$. Similarly:
+\begin{equation}
+    \langle U\mathbf{x}, U\mathbf{y} \rangle = (U\mathbf{x})^T (U\mathbf{y}) = \mathbf{x}^T (U^T U) \mathbf{y} = \mathbf{x}^T I_n \mathbf{y} = \mathbf{x}^T \mathbf{y} = \langle \mathbf{x}, \mathbf{y} \rangle.
+\end{equation}
+\end{proof}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Unit circle S_2
+    \draw[dashed, gray!60, thick] (0, 0) circle (2.0);
+    \draw[->, thin, gray] (-2.5, 0) -- (2.5, 0) node[right] {$x_1$};
+    \draw[->, thin, gray] (0, -2.5) -- (0, 2.5) node[above] {$x_2$};
+
+    % Original vector x
+    \draw[->, ultra thick, blue!80!black] (0, 0) -- (1.6, 1.2) node[above right] {$\mathbf{x}$};
+    \node[blue!80!black, font=\footnotesize] at (1.0, 0.4) {$\|\mathbf{x}\|_2$};
+
+    % Rotated vector Ux
+    \draw[->, ultra thick, red!80!black] (0, 0) -- (-1.2, 1.6) node[above left] {$U\mathbf{x}$};
+    \node[red!80!black, font=\footnotesize] at (-0.4, 1.2) {$\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$};
+
+    % Angle arc theta
+    \draw[->, thick, orange!80!black] (0.8, 0.6) arc (36.87:126.87:1.0);
+    \node[orange!80!black, above] at (-0.1, 1.0) {$\theta$};
+
+    \node[draw, rounded corners, fill=yellow!10, align=center, font=\scriptsize] at (0, -1.3) {
+        $U$ acts as a rigid rotation: \\
+        it neither dilates nor contracts Euclidean lengths.
+    };
+\end{tikzpicture}
+\caption{Euclidean isometry of orthogonal transformation $U$: length conservation and rigid rotation.}
+\label{fig:orthogonal-isometry}
+\end{figure}
+
+\begin{noteblock}{Fundamental Numerical Significance of Isometry}
+The identity $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ is the theoretical backbone of backward error stability in numerical linear algebra. Since orthogonal matrices cannot amplify vector norms, multiplying an error or perturbation $\mathbf{e}$ by $U$:
+\begin{equation}
+    \|U(\mathbf{x} + \mathbf{e}) - U\mathbf{x}\|_2 = \|U\mathbf{e}\|_2 = \|\mathbf{e}\|_2
+\end{equation}
+\textbf{preserves the exact magnitude of the perturbation} without magnification. Algorithms built on orthogonal transformations (Householder reflectors, Givens rotations, and QR factorizations) provide exceptional backward stability guarantees.
+\end{noteblock}
+
+\clearpage
+\section{Chapter Summary Reference}
+
+Table~\ref{tab:lecture-2-summary} summarizes the key analytical formulas, complexities, and properties developed in this chapter.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Property / Object} & \textbf{Mathematical Formulation} & \textbf{Key Characteristic} \\
+\midrule
+Matrix Multiplication & $C_{ij} = \sum_{k=1}^m A_{ik} B_{kj}$ & Requires $A \in \R^{n \times m}, B \in \R^{m \times p}$ \\
+Square Product Cost & $2n^3 - n^2 \text{ FLOPs} \implies \BigO{n^3}$ & Cubic law: $T(2n) \approx 8 T(n)$ \\
+Rank-Nullity Theorem & $\dim(\mathrm{Im}(A)) + \dim(\ker(A)) = m$ & $m$ is number of columns of $A$ \\
+Orthonormal Vectors & $\langle \mathbf{u}_i, \mathbf{u}_j \rangle = \delta_{ij}$ & Mutually orthogonal, $\|\mathbf{u}_i\|_2 = 1$ \\
+Orthogonal Matrix & $U^T U = U U^T = I_n$ & Equivalent to $U^{-1} = U^T$ \\
+Rows and Columns of $U$ & Form orthonormal bases of $\R^n$ & Direct consequence of $U^T U = I_n$ \\
+Entries of Orthogonal $U$ & $-1 \le U_{ij} \le 1$ & Derived from $\sum_{i=1}^n U_{ij}^2 = 1$ \\
+Orthogonal Diagonal Matrix & $D = \diag(\pm 1, \dots, \pm 1)$ & $2^n$ distinct matrices in $\R^{n \times n}$ \\
+Orthogonal Triangular Matrix & $R = \diag(\pm 1, \dots, \pm 1)$ & Column induction proof \\
+Euclidean Isometry & $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ & Rigid map: length-preserving \\
+Inner Product Invariance & $\langle U\mathbf{x}, U\mathbf{y} \rangle = \langle \mathbf{x}, \mathbf{y} \rangle$ & Preserves angles between vectors \\
+Transpose of Product & $(AB)^T = B^T A^T$ & Reverses factor order \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Comprehensive reference table of definitions, computational complexities, and orthogonal matrix properties.}
+\label{tab:lecture-2-summary}
+\end{table}

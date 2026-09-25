@@ -1,0 +1,567 @@
+\chapter{Richiami di Algebra Lineare: Vettori, Norme, Basi e Trasformazioni}
+\label{chap:richiami-algebra-lineare-vettori-norme}
+
+\FloatBarrier
+\section{Introduzione al Calcolo Numerico e Motivazioni Applicative}
+
+Il corso affronta la risoluzione computazionale ed efficiente dei problemi tipici dell'algebra lineare su calcolatori elettronici~\cite{trefethen1997numerical,golub2013matrix}. Nella matematica applicata, nella scienza dei dati e nel machine learning, la formulazione generale di un problema decisionale assume la forma di un'ottimizzazione:
+\begin{equation}
+    \min_{\mathbf{x} \in S} f(\mathbf{x}),
+\end{equation}
+dove $f: \R^n \to \R$ denota la funzione obiettivo e $S \subseteq \R^n$ definisce l'insieme ammissibile dei vincoli.
+
+Nell'ambito dell'algebra lineare numerica (\textit{Numerical Linear Algebra}), tale formulazione generale viene frequentemente ricondotta o approssimata tramite il problema lineare ai minimi quadrati (\textit{least squares problem}):
+\begin{equation}
+    \min_{\mathbf{x} \in \R^n} \|A \mathbf{x} - \mathbf{b}\|_2^2,
+\end{equation}
+dove $A \in \R^{m \times n}$ rappresenta la matrice del modello o dei dati, $\mathbf{b} \in \R^m$ il vettore dei termini noti (o target osservati) e $\mathbf{x} \in \R^n$ l'incognita da stimare.
+
+\begin{noteblock}{Perché Focalizzarsi sui Problemi Lineari?}
+I motivi cardine che rendono lo studio dei problemi lineari insostituibile nel calcolo scientifico moderno sono molteplici:
+\begin{enumerate}
+    \item \textbf{Trattabilità teorica e chiarezza analitica:} I problemi lineari godono di una struttura algebrica pulita e ben compresa; ciò consente di formulare garanzie a priori sull'esistenza, unicità e convergenza delle soluzioni.
+    \item \textbf{Efficienza e precisione di macchina:} È possibile progettare algoritmi diretti o iterativi in grado di determinare la soluzione numerica fino alla precisione limite dell'aritmetica di macchina (standard IEEE 754 a virgola mobile, $\epsilon_{\text{mach}} \approx 10^{-16}$ in doppia precisione).
+    \item \textbf{Sfruttamento di strutture matriciali speciali:} Matrici reali caratterizzate da proprietà specifiche (simmetriche, definite positive, ortogonali, a bande, di Toeplitz o fortemente sparse) ammettono algoritmi dedicati con complessità temporale e spaziale drasticamente ridotta rispetto ai metodi generici.
+    \item \textbf{Blocco costitutivo di algoritmi non lineari:} La quasi totalità dei metodi numerici avanzati per problemi non lineari complessi (metodi di Newton, Quasi-Newton come BFGS, algoritmi di ottimizzazione vincolata e discretizzazione di equazioni differenziali) richiede la risoluzione di uno o più sistemi lineari a ogni singola iterazione.
+    \item \textbf{Stabilità e controllo dell'errore:} Nel calcolo applicato è essenziale prevenire fenomeni di propagazione incontrollata degli errori di arrotondamento, instabilità algoritmica o cancellazione numerica distruttiva.
+\end{enumerate}
+\end{noteblock}
+
+\FloatBarrier
+\section{Vettori, Spazi Vettoriali e Rappresentazione Geometrica}
+
+\subsection{Notazione e Convenzioni}
+
+Salvo diversa indicazione esplicita, \textbf{tutti i vettori sono considerati vettori colonna}. Un vettore $\mathbf{x} \in \R^n$ si denota:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} x_1 \\ x_2 \\ \vdots \\ x_n \end{bmatrix}, \qquad \mathbf{x}^T = \begin{bmatrix} x_1 & x_2 & \dots & x_n \end{bmatrix}.
+\end{equation}
+
+Consideriamo, a titolo esemplificativo in $\R^2$, i vettori:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} 2 \\ 4 \end{bmatrix}, \qquad \mathbf{y} = \begin{bmatrix} 2 \\ 1 \end{bmatrix}.
+\end{equation}
+
+L'operazione fondamentale che definisce la struttura di spazio vettoriale è la somma componente per componente:
+\begin{equation}
+    \mathbf{x} + \mathbf{y} = \begin{bmatrix} 2 \\ 4 \end{bmatrix} + \begin{bmatrix} 2 \\ 1 \end{bmatrix} = \begin{bmatrix} 2+2 \\ 4+1 \end{bmatrix} = \begin{bmatrix} 4 \\ 5 \end{bmatrix}.
+\end{equation}
+
+\subsection{Interpretazione Geometrica: Punti, Frecce e Regola del Parallelogramma}
+
+Un vettore $\mathbf{x} = [x_1, x_2]^T \in \R^2$ ammette una duplice interpretazione geometrica:
+\begin{itemize}
+    \item come \textbf{punto} nel piano cartesiano con coordinate $(x_1, x_2)$ rispetto all'origine;
+    \item come \textbf{freccia orientata} (segmento orientato) avente punto di applicazione nell'origine $(0,0)$ e vertice in $(x_1, x_2)$.
+\end{itemize}
+
+La somma vettoriale $\mathbf{x} + \mathbf{y}$ corrisponde alla classica \textbf{regola del parallelogramma}: traslando l'origine di $\mathbf{y}$ sulla punta di $\mathbf{x}$, il vettore risultante connette l'origine con il vertice opposto del parallelogramma individuato dai due vettori, terminando nel punto $(4, 5)$. Tale nozione si estende inalterata agli spazi euclidei di dimensione $n \ge 3$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9, >=Stealth]
+    \draw[->, gray!50, thin] (-0.5,0) -- (5.2,0) node[right, black] {$x_1$};
+    \draw[->, gray!50, thin] (0,-0.5) -- (0,5.8) node[above, black] {$x_2$};
+    \draw[step=1.0, gray!20, very thin] (-0.5,-0.5) grid (5.0,5.5);
+
+    % Vettori x e y
+    \draw[->, line width=1.3pt, blue!80!black] (0,0) -- (2,4) node[midway, left] {$\mathbf{x}$};
+    \draw[->, line width=1.3pt, green!60!black] (0,0) -- (2,1) node[midway, below right] {$\mathbf{y}$};
+
+    % Linee tratteggiate del parallelogramma
+    \draw[dashed, blue!50] (2,1) -- (4,5);
+    \draw[dashed, green!50] (2,4) -- (4,5);
+
+    % Vettore somma
+    \draw[->, line width=1.6pt, red!80!black] (0,0) -- (4,5) node[above right] {$\mathbf{x} + \mathbf{y} = [4, 5]^T$};
+
+    % Punti terminali
+    \filldraw[blue!80!black] (2,4) circle (2pt) node[above left] {$(2,4)$};
+    \filldraw[green!60!black] (2,1) circle (2pt) node[right] {$(2,1)$};
+    \filldraw[red!80!black] (4,5) circle (2.5pt);
+\end{tikzpicture}
+\caption{Interpretazione geometrica della somma vettoriale in $\R^2$ tramite la regola del parallelogramma.}
+\label{fig:parallelogram-rule}
+\end{figure}
+
+\subsection{Il Problema della Misura della ``Grandezza'' di un Vettore}
+
+Si consideri la seguente domanda apparentemente elementare:
+\begin{quote}
+    \textit{Dati i vettori $\mathbf{v}, \mathbf{w} \in \R^4$:}
+    \begin{equation}
+        \mathbf{v} = \begin{bmatrix} 2 \\ 2 \\ 2 \\ 2 \end{bmatrix}, \qquad \mathbf{w} = \begin{bmatrix} 4 \\ 0 \\ 0 \\ 0 \end{bmatrix},
+    \end{equation}
+    \textit{quale tra questi due vettori è il ``più grande''?}
+\end{quote}
+
+La risposta non è univoca, poiché la nozione di ``grandezza'' dipende criticamente dal criterio matematico adottato:
+\begin{itemize}
+    \item In base al \textbf{valore massimo delle coordinate}, $\mathbf{w}$ presenta un elemento pari a $4$, mentre gli elementi di $\mathbf{v}$ non superano $2$.
+    \item In base alla \textbf{somma assoluta delle coordinate}, $\mathbf{v}$ totalizza $2 + 2 + 2 + 2 = 8$, mentre $\mathbf{w}$ raggiunge appena $4$.
+    \item In base alla \textbf{lunghezza geometrica euclidea}, entrambi misurano $\sqrt{16} = 4$.
+\end{itemize}
+
+Per rendere quantitativo e inequivocabile questo confronto occorre formalizzare la nozione di \textbf{norma vettoriale}.
+
+\FloatBarrier
+\section{Norme Vettoriali e Spazi Normati}
+
+\begin{definition}[Norma Vettoriale]
+Sia $V$ uno spazio vettoriale su $\R$ (o $\mathbb{C}$). Una funzione $\|\cdot\|: V \to \R$ è detta \textbf{norma vettoriale} se e solo se soddisfa i seguenti tre assiomi per ogni $\mathbf{v}, \mathbf{w} \in V$ e ogni scalare $\lambda \in \R$:
+\begin{enumerate}
+    \item \textbf{Non-negatività e positività stretta (separazione):}
+    \begin{equation}
+        \|\mathbf{v}\| \ge 0 \quad \forall \mathbf{v} \in V, \qquad \|\mathbf{v}\| = 0 \iff \mathbf{v} = \mathbf{0}_V.
+    \end{equation}
+    \item \textbf{Omogeneità assoluta:}
+    \begin{equation}
+        \|\lambda \mathbf{v}\| = |\lambda| \cdot \|\mathbf{v}\| \quad \forall \lambda \in \R, \; \forall \mathbf{v} \in V.
+    \end{equation}
+    \item \textbf{Disuguaglianza triangolare (sub-additività):}
+    \begin{equation}
+        \|\mathbf{v} + \mathbf{w}\| \le \|\mathbf{v}\| + \|\mathbf{w}\| \quad \forall \mathbf{v}, \mathbf{w} \in V.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+Uno spazio vettoriale $V$ equipaggiato con una norma $\|\cdot\|$ prende il nome di \textbf{spazio normato}.
+
+\subsection{Famiglia delle \texorpdfstring{$\ell_p$}{lp}-Norme su \texorpdfstring{$\R^n$}{Rn}}
+
+Sia $\mathbf{v} = [v_1, v_2, \dots, v_n]^T \in \R^n$. Le norme più frequentemente utilizzate nell'analisi numerica e nei modelli di apprendimento appartengono alla classe delle $\ell_p$-norme:
+\begin{equation}
+    \|\mathbf{v}\|_p = \left( \sum_{i=1}^n |v_i|^p \right)^{1/p} \qquad (p \ge 1).
+\end{equation}
+
+I tre casi d'uso canonici corrispondono a:
+
+\paragraph{1. Norma Euclidea ($\ell_2$).}
+Rappresenta la naturale lunghezza euclidea del segmento nello spazio affine:
+\begin{equation}
+    \|\mathbf{v}\|_2 = \sqrt{\sum_{i=1}^n v_i^2} = \sqrt{\mathbf{v}^T \mathbf{v}}.
+\end{equation}
+
+\paragraph{2. Norma di Manhattan ($\ell_1$ o Taxi-cab).}
+Calcola la somma dei moduli delle singole coordinate:
+\begin{equation}
+    \|\mathbf{v}\|_1 = \sum_{i=1}^n |v_i|.
+\end{equation}
+
+\paragraph{3. Norma del Massimo ($\ell_\infty$ o Norma di Chebyshev).}
+Rileva la massima magnitudine assoluta tra tutte le componenti:
+\begin{equation}
+    \|\mathbf{v}\|_\infty = \lim_{p \to \infty} \|\mathbf{v}\|_p = \max_{1 \le i \le n} |v_i|.
+\end{equation}
+
+\subsection{Risoluzione Rigorosa del Confronto tra i Vettori \texorpdfstring{$\mathbf{v}$}{v} e \texorpdfstring{$\mathbf{w}$}{w}}
+
+Riprendiamo i vettori $\mathbf{v} = [2, 2, 2, 2]^T$ e $\mathbf{w} = [4, 0, 0, 0]^T \in \R^4$:
+
+\begin{example}[Valutazione Comparativa nelle Tre Norme]
+\mbox{}\par\nopagebreak
+\begin{itemize}
+    \item \textbf{In norma euclidea $\ell_2$:}
+    \begin{align}
+        \|\mathbf{v}\|_2 &= \sqrt{2^2 + 2^2 + 2^2 + 2^2} = \sqrt{4 + 4 + 4 + 4} = \sqrt{16} = 4, \\
+        \|\mathbf{w}\|_2 &= \sqrt{4^2 + 0^2 + 0^2 + 0^2} = \sqrt{16 + 0 + 0 + 0} = \sqrt{16} = 4.
+    \end{align}
+    I due vettori possiedono esattamente la \textbf{stessa lunghezza euclidea}: $\|\mathbf{v}\|_2 = \|\mathbf{w}\|_2 = 4$.
+    \item \textbf{In norma $\ell_1$:}
+    \begin{align}
+        \|\mathbf{v}\|_1 &= |2| + |2| + |2| + |2| = 8, \\
+        \|\mathbf{w}\|_1 &= |4| + |0| + |0| + |0| = 4.
+    \end{align}
+    In norma $\ell_1$, risulta $\|\mathbf{v}\|_1 = 8 > 4 = \|\mathbf{w}\|_1$.
+    \item \textbf{In norma $\ell_\infty$:}
+    \begin{align}
+        \|\mathbf{v}\|_\infty &= \max\{|2|, |2|, |2|, |2|\} = 2, \\
+        \|\mathbf{w}\|_\infty &= \max\{|4|, |0|, |0|, |0|\} = 4.
+    \end{align}
+    In norma infinito, l'ordinamento si inverte: $\|\mathbf{v}\|_\infty = 2 < 4 = \|\mathbf{w}\|_\infty$.
+\end{itemize}
+\end{example}
+
+\begin{alertblock}{Criteri di Selezione della Norma nei Problemi Reali}
+La scelta della norma non è una mera preferenza formale, ma governa le proprietà matematiche del modello:
+\begin{itemize}
+    \item \textbf{Trattabilità analitica e differenziabilità:} La norma euclidea quadra $\|\cdot\|_2^2$ è ovunque liscia e differenziabile, e la sua minimizzazione conduce a sistemi di equazioni lineari chiusi (equazioni normali).
+    \item \textbf{Sparsità delle soluzioni:} La norma $\ell_1$ non è differenziabile nell'origine ed induce soluzioni a supporto compatto (vettori sparsi), risultando fondamentale in statistica (Lasso) e nell'elaborazione di segnali (\textit{compressed sensing}).
+    \item \textbf{Limitazione del picco d'errore:} La norma $\ell_\infty$ trova impiego nell'approssimazione minimax e nel controllo ottimo, dove conta garantire un limite assoluto sul peggior scostamento possibile.
+\end{itemize}
+\end{alertblock}
+
+\FloatBarrier
+\section{Prodotto Scalare Standard (Inner Product)}
+
+\begin{definition}[Prodotto Scalare in $\R^n$]
+Dati due vettori colonna $\mathbf{v}, \mathbf{w} \in \R^n$, il \textbf{prodotto scalare standard} (o \textit{inner product}) è l'applicazione bilineare definita da:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = \sum_{i=1}^n v_i w_i = v_1 w_1 + v_2 w_2 + \dots + v_n w_n.
+\end{equation}
+\end{definition}
+
+\subsection{Notazione Matriciale e Dimensione del Risultato}
+
+Poiché $\mathbf{v}, \mathbf{w} \in \R^{n \times 1}$, la trasposta $\mathbf{v}^T$ è una matrice riga di tipo $1 \times n$:
+\begin{equation}
+    \mathbf{v}^T = \begin{bmatrix} v_1 & v_2 & \dots & v_n \end{bmatrix}, \qquad \mathbf{w} = \begin{bmatrix} w_1 \\ w_2 \\ \vdots \\ w_n \end{bmatrix}.
+\end{equation}
+Il prodotto riga per colonna $\mathbf{v}^T \mathbf{w}$ produce formalmente una matrice scalare $1 \times 1$:
+\begin{equation}
+    \mathbf{v}^T \mathbf{w} = \begin{bmatrix} v_1 & v_2 & \dots & v_n \end{bmatrix} \begin{bmatrix} w_1 \\ w_2 \\ \vdots \\ w_n \end{bmatrix} = \sum_{i=1}^n v_i w_i \in \R.
+\end{equation}
+
+\begin{property}[Legame Diretto con la Norma Euclidea]
+Il prodotto scalare di un vettore con se stesso restituisce il quadrato della sua norma euclidea:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{v} \rangle = \mathbf{v}^T \mathbf{v} = \sum_{i=1}^n v_i^2 = \|\mathbf{v}\|_2^2 \implies \|\mathbf{v}\|_2 = \sqrt{\langle \mathbf{v}, \mathbf{v} \rangle} = \sqrt{\mathbf{v}^T \mathbf{v}}.
+\end{equation}
+Inoltre, due vettori non nulli si dicono \textbf{ortogonali} se e solo se $\langle \mathbf{v}, \mathbf{w} \rangle = 0$.
+\end{property}
+
+\FloatBarrier
+\section{Basi di Spazi Vettoriali e Indipendenza Lineare}
+
+\begin{definition}[Combinazione Lineare]
+Dato un insieme ordinato di vettori $\{\mathbf{v}_1, \mathbf{v}_2, \dots, \mathbf{v}_k\} \subseteq V$ e un insieme di scalari $\alpha_1, \alpha_2, \dots, \alpha_k \in \R$, la \textbf{combinazione lineare} associata è il vettore:
+\begin{equation}
+    \mathbf{v} = \sum_{i=1}^k \alpha_i \mathbf{v}_i = \alpha_1 \mathbf{v}_1 + \alpha_2 \mathbf{v}_2 + \dots + \alpha_k \mathbf{v}_k.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Base di uno Spazio Vettoriale]
+Un sottoinsieme ordinato $\mathcal{B} = \{\mathbf{v}_1, \dots, \mathbf{v}_k\} \subseteq V$ costituisce una \textbf{base} di $V$ se ogni elemento $\mathbf{v} \in V$ può essere espresso come combinazione lineare dei vettori di $\mathcal{B}$ in \textbf{modo unico}.
+\end{definition}
+
+\subsection{Esempi Notabili di Basi}
+
+\paragraph{1. Base Canonica (Standard).}
+In $\R^n$, i vettori della base canonica $\mathbf{e}_1, \dots, \mathbf{e}_n$ presentano valore $1$ nella posizione corrispondente all'indice e $0$ altrove:
+\begin{equation}
+    \mathbf{e}_1 = \begin{bmatrix} 1 \\ 0 \\ \vdots \\ 0 \end{bmatrix}, \quad \mathbf{e}_2 = \begin{bmatrix} 0 \\ 1 \\ \vdots \\ 0 \end{bmatrix}, \quad \dots, \quad \mathbf{e}_n = \begin{bmatrix} 0 \\ 0 \\ \vdots \\ 1 \end{bmatrix}.
+\end{equation}
+Ogni vettore $\mathbf{x} = [x_1, \dots, x_n]^T$ ammette l'espansione canonica immediata $\mathbf{x} = \sum_{i=1}^n x_i \mathbf{e}_i$.
+
+\paragraph{2. Base Non Canonica in $\R^2$.}
+Si consideri la coppia di vettori in $\R^2$:
+\begin{equation}
+    \mathcal{B} = \left\{ \begin{bmatrix} 1 \\ 0 \end{bmatrix}, \begin{bmatrix} 1 \\ -1 \end{bmatrix} \right\}.
+\end{equation}
+Per verificare che $\mathcal{B}$ sia una base, mostriamo che per ogni $[x, y]^T \in \R^2$ esistono unici scalari $\alpha_1, \alpha_2 \in \R$ tali che:
+\begin{equation}
+    \begin{bmatrix} x \\ y \end{bmatrix} = \alpha_1 \begin{bmatrix} 1 \\ 0 \end{bmatrix} + \alpha_2 \begin{bmatrix} 1 \\ -1 \end{bmatrix} = \begin{bmatrix} \alpha_1 + \alpha_2 \\ -\alpha_2 \end{bmatrix}.
+\end{equation}
+Il sistema lineare triangolare risultante:
+\begin{equation}
+    \begin{cases} \alpha_1 + \alpha_2 = x \\ -\alpha_2 = y \end{cases} \implies \begin{cases} \alpha_2 = -y \\ \alpha_1 = x + y \end{cases}
+\end{equation}
+ammette soluzione unica per qualsiasi scelta di $(x, y)$. I coefficienti cercati sono univocamente $(\alpha_1, \alpha_2) = (x+y, -y)$, dimostrando che $\mathcal{B}$ è una base valida.
+
+\subsection{Indipendenza Lineare e Criteri di Cardinalità}
+
+\begin{definition}[Indipendenza Lineare]
+Un insieme di vettori $\{\mathbf{v}_1, \dots, \mathbf{v}_k\}$ si dice \textbf{linearmente indipendente} se l'unica combinazione lineare che genera il vettore nullo è quella banale:
+\begin{equation}
+    \sum_{i=1}^k \alpha_i \mathbf{v}_i = \mathbf{0}_V \implies \alpha_1 = \alpha_2 = \dots = \alpha_k = 0.
+\end{equation}
+Se esistono coefficienti non tutti nulli per cui la somma si annulla, i vettori sono detti \textbf{linearmente dipendenti}.
+\end{definition}
+
+\begin{example}[Quesiti di Verifica dell'Indipendenza Lineare]
+Illustriamo mediante due quesiti pratici la verifica dell'indipendenza lineare e della nozione di base:
+\begin{enumerate}
+    \item \textbf{Tre vettori in $\R^2$.} Sia dato l'insieme:
+    \[
+        \mathcal{S} = \left\{ [1, 0]^T, [2, 1]^T, [1, 1]^T \right\} \subset \R^2.
+    \]
+    Determinare se $\mathcal{S}$ costituisce una base. \\
+    \textbf{Risposta: NO.}
+    \begin{itemize}
+        \item \textit{Vincolo di dimensione:} La dimensione di $\R^2$ è $2$. Qualsiasi base di $\R^2$ deve contenere esattamente due vettori. Tre o più vettori in $\R^2$ sono necessariamente linearmente dipendenti.
+        \item \textit{Dipendenza esplicita:} Poiché $[1, 1]^T = -[1, 0]^T + [2, 1]^T$, vale la combinazione non banale:
+        \begin{equation}
+            1 \begin{bmatrix} 1 \\ 0 \end{bmatrix} - 1 \begin{bmatrix} 2 \\ 1 \end{bmatrix} + 1 \begin{bmatrix} 1 \\ 1 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix}.
+        \end{equation}
+    \end{itemize}
+    \item \textbf{Due vettori collineari in $\R^2$.} Sia dato l'insieme:
+    \[
+        \mathcal{S}' = \left\{ [2, 1]^T, [-4, -2]^T \right\} \subset \R^2.
+    \]
+    Determinare se $\mathcal{S}'$ costituisce una base. \\
+    \textbf{Risposta: NO.} \\
+    I due vettori sono collineari (proporzionali):
+    \begin{equation}
+        \begin{bmatrix} -4 \\ -2 \end{bmatrix} = -2 \begin{bmatrix} 2 \\ 1 \end{bmatrix} \implies 2 \begin{bmatrix} 2 \\ 1 \end{bmatrix} + \begin{bmatrix} -4 \\ -2 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix}.
+    \end{equation}
+    Il loro span genera esclusivamente la retta $y = \frac{1}{2}x$ e non l'intero piano $\R^2$.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section{Esercitazione Guidata: Sfere Unitarie e Geometria delle Norme}
+
+\subsection{Esercizio 1: Calcolo Comparativo delle Norme in \texorpdfstring{$\R^3$}{R3}}
+Dato il vettore $\mathbf{v} = [1, 2, -3]^T \in \R^3$, calcoliamo le tre norme fondamentali:
+\begin{enumerate}
+    \item \textbf{Norma $\ell_1$:}
+    \begin{equation}
+        \|\mathbf{v}\|_1 = |1| + |2| + |-3| = 1 + 2 + 3 = 6.
+    \end{equation}
+    \item \textbf{Norma $\ell_2$:}
+    \begin{equation}
+        \|\mathbf{v}\|_2 = \sqrt{1^2 + 2^2 + (-3)^2} = \sqrt{1 + 4 + 9} = \sqrt{14} \approx 3.742.
+    \end{equation}
+    \item \textbf{Norma $\ell_\infty$:}
+    \begin{equation}
+        \|\mathbf{v}\|_\infty = \max\{|1|, |2|, |-3|\} = \max\{1, 2, 3\} = 3.
+    \end{equation}
+\end{enumerate}
+
+\subsection{Esercizio 2: Tracciamento delle Sfere Unitarie nel Piano \texorpdfstring{$\R^2$}{R2}}
+Si consideri il luogo geometrico dei vettori di norma unitaria al variare della metrica, per $\mathbf{v} = [x, y]^T \in \R^2$:
+
+\paragraph{1. Sfera Euclidea $S_2 = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_2 = 1 \}$.}
+L'equazione coincide con $\sqrt{x^2 + y^2} = 1 \iff x^2 + y^2 = 1$. È la \textbf{circonferenza unitaria} centrata nell'origine con raggio $R = 1$.
+
+\paragraph{2. Sfera di Manhattan $S_1 = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_1 = 1 \}$.}
+L'equazione $|x| + |y| = 1$ definisce, per interpolazione lineare nei quattro quadranti cartesiani:
+\begin{equation}
+    \begin{cases}
+        x + y = 1 \implies y = 1 - x & (x \ge 0, y \ge 0), \\
+        -x + y = 1 \implies y = 1 + x & (x \le 0, y \ge 0), \\
+        -x - y = 1 \implies y = -1 - x & (x \le 0, y \le 0), \\
+        x - y = 1 \implies y = x - 1 & (x \ge 0, y \le 0).
+    \end{cases}
+\end{equation}
+Geometricamente è un \textbf{quadrato ruotato di $45^\circ$} (losanga o \textit{diamond}) con vertici nei punti cardinali $(\pm 1, 0)$ e $(0, \pm 1)$.
+
+\paragraph{3. Sfera del Massimo $S_\infty = \{ \mathbf{v} \in \R^2 : \|\mathbf{v}\|_\infty = 1 \}$.}
+La condizione $\max\{|x|, |y|\} = 1$ impone che almeno una coordinata abbia modulo pari a $1$ mentre l'altra rimanga confinata in $[-1, 1]$. Geometricamente corrisponde al perimetro di un \textbf{quadrato con lati paralleli agli assi}, avente lato di lunghezza $2$ e vertici nei punti $(\pm 1, \pm 1)$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=2.2, >=Stealth]
+    % Assi cartesiani
+    \draw[->, gray!60, thin] (-1.6,0) -- (1.6,0) node[right, black] {$x$};
+    \draw[->, gray!60, thin] (0,-1.6) -- (0,1.6) node[above, black] {$y$};
+
+    % Griglia leggera
+    \draw[step=0.5, gray!15, very thin] (-1.4,-1.4) grid (1.4,1.4);
+
+    % S_infty (Quadrato parallelo agli assi)
+    \draw[line width=1.4pt, orange!90!black, dashed] (-1,-1) rectangle (1,1);
+    \node[orange!90!black, font=\small\bfseries] at (1.18, 0.95) {$S_\infty$};
+
+    % S_2 (Circonferenza)
+    \draw[line width=1.4pt, blue!80!black] (0,0) circle (1);
+    \node[blue!80!black, font=\small\bfseries] at (0.82, 0.78) {$S_2$};
+
+    % S_1 (Quadrato ruotato a 45 gradi)
+    \draw[line width=1.4pt, green!60!black] (1,0) -- (0,1) -- (-1,0) -- (0,-1) -- cycle;
+    \node[green!60!black, font=\small\bfseries] at (0.6, 0.35) {$S_1$};
+
+    % Punti di intersezione comuni a tutte e tre le sfere
+    \filldraw[red!80!black] (1,0) circle (1.5pt) node[below right, black, font=\scriptsize] {$(1,0)$};
+    \filldraw[red!80!black] (0,1) circle (1.5pt) node[above right, black, font=\scriptsize] {$(0,1)$};
+    \filldraw[red!80!black] (-1,0) circle (1.5pt) node[below left, black, font=\scriptsize] {$(-1,0)$};
+    \filldraw[red!80!black] (0,-1) circle (1.5pt) node[below left, black, font=\scriptsize] {$(0,-1)$};
+\end{tikzpicture}
+\caption{Confronto geometrico delle sfere unitarie $S_1$ (verde), $S_2$ (blu) e $S_\infty$ (arancione tratteggiato) in $\R^2$. I quattro punti rossi indicano l'intersezione $S_1 \cap S_2 \cap S_\infty = \{\pm \mathbf{e}_1, \pm \mathbf{e}_2\}$.}
+\label{fig:unit-spheres}
+\end{figure}
+
+\begin{property}[Intersezione Comune delle Sfere Unitarie]
+L'intersezione dei tre luoghi geometrici è data esattamente dall'insieme dei vettori della base canonica e dai rispettivi opposti:
+\begin{equation}
+    S_1 \cap S_2 \cap S_\infty = \left\{ \begin{bmatrix} 1 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ 1 \end{bmatrix}, \begin{bmatrix} -1 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ -1 \end{bmatrix} \right\} = \{\pm \mathbf{e}_1, \pm \mathbf{e}_2\}.
+\end{equation}
+Solo per questi specifici quattro vettori, tutte e tre le norme assumono simultaneamente valore unitario $\|\mathbf{v}\|_1 = \|\mathbf{v}\|_2 = \|\mathbf{v}\|_\infty = 1$.
+\end{property}
+
+\subsection{Esercizio 3: Verifica di Base in \texorpdfstring{$\R^3$}{R3}}
+
+Si considerino i tre vettori in $\R^3$:
+\begin{equation}
+    \mathbf{v}_1 = \begin{bmatrix} 1 \\ 0 \\ 2 \end{bmatrix}, \qquad \mathbf{v}_2 = \begin{bmatrix} 2 \\ 2 \\ 0 \end{bmatrix}, \qquad \mathbf{v}_3 = \begin{bmatrix} -3 \\ -4 \\ 2 \end{bmatrix}.
+\end{equation}
+
+Verifichiamo se $\mathbf{v}_3$ sia esprimibile come combinazione lineare di $\mathbf{v}_1$ e $\mathbf{v}_2$:
+\begin{equation}
+    \alpha \mathbf{v}_1 + \beta \mathbf{v}_2 = \mathbf{v}_3 \iff \begin{cases}
+        \alpha + 2\beta = -3 & \text{(componente 1)}, \\
+        2\beta = -4 & \text{(componente 2)}, \\
+        2\alpha = 2 & \text{(componente 3)}.
+    \end{cases}
+\end{equation}
+Dalla terza equazione si ricava $\alpha = 1$, mentre dalla seconda si ottiene $\beta = -2$. Sostituendo nella prima equazione:
+\begin{equation}
+    \alpha + 2\beta = 1 + 2(-2) = 1 - 4 = -3,
+\end{equation}
+il sistema risulta consistente e confermato. Abbiamo ottenuto la relazione di dipendenza lineare non banale:
+\begin{equation}
+    \mathbf{v}_1 - 2\mathbf{v}_2 - \mathbf{v}_3 = \mathbf{0}_{\R^3}.
+\end{equation}
+I tre vettori sono linearmente dipendenti; il vettore $\mathbf{v}_3$ appartiene al sottospazio piano $\spanop(\mathbf{v}_1, \mathbf{v}_2)$ e dunque l'insieme $\{\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3\}$ \textbf{non costituisce una base di $\R^3$}.
+
+\FloatBarrier
+\section{Tre Visioni del Prodotto Matrice-Vettore}
+
+\subsection{Definizione e Compatibilità Dimensionale}
+
+Una matrice $A \in \R^{n \times m}$ è una tabella rettangolare ordinata formata da $n$ righe ed $m$ colonne:
+\begin{equation}
+    A = \begin{bmatrix}
+        A_{11} & A_{12} & \cdots & A_{1m} \\
+        A_{21} & A_{22} & \cdots & A_{2m} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        A_{n1} & A_{n2} & \cdots & A_{nm}
+    \end{bmatrix}.
+\end{equation}
+
+Nel prodotto matrice-vettore $\mathbf{c} = A \mathbf{b}$, la compatibilità algebrica impone:
+\begin{equation}
+    A \in \R^{n \times m}, \quad \mathbf{b} \in \R^{m \times 1} \implies \mathbf{c} = A \mathbf{b} \in \R^{n \times 1}.
+\end{equation}
+Il numero di colonne di $A$ deve coincidere esattamente con il numero di righe di $\mathbf{b}$.
+
+\subsection{Le Tre Visioni Equivalenti del Prodotto}
+
+Si consideri l'esempio numerico concreto:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 0 & 1 \\ 3 & -1 & 0 \end{bmatrix} \in \R^{2 \times 3}, \qquad \mathbf{b} = \begin{bmatrix} 1 \\ 2 \\ 3 \end{bmatrix} \in \R^3.
+\end{equation}
+
+L'algebra lineare computazionale interpreta questo calcolo attraverso tre prospettive complementari:
+
+\paragraph{Visione 1: Formula Scalare per Componenti.}
+Ogni elemento $c_i$ del vettore di output si ottiene accumulando i prodotti lungo riga e colonna:
+\begin{equation}
+    c_i = \sum_{j=1}^m A_{ij} b_j \qquad (i = 1, \dots, n).
+\end{equation}
+Nel nostro esempio:
+\begin{align}
+    c_1 &= 2 \cdot 1 + 0 \cdot 2 + 1 \cdot 3 = 2 + 0 + 3 = 5, \\
+    c_2 &= 3 \cdot 1 + (-1) \cdot 2 + 0 \cdot 3 = 3 - 2 + 0 = 1 \implies \mathbf{c} = \begin{bmatrix} 5 \\ 1 \end{bmatrix}.
+\end{align}
+
+\paragraph{Visione 2: Prospettiva per Righe (Prodotto Scalare).}
+Rappresentando la matrice $A$ per righe orizzontali $\mathbf{u}_1^T, \dots, \mathbf{u}_n^T$ con $\mathbf{u}_i \in \R^m$:
+\begin{equation}
+    A = \begin{bmatrix} \text{---} & \mathbf{u}_1^T & \text{---} \\ \text{---} & \mathbf{u}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{u}_n^T & \text{---} \end{bmatrix} \implies c_i = \langle \mathbf{u}_i, \mathbf{b} \rangle = \mathbf{u}_i^T \mathbf{b}.
+\end{equation}
+Ogni elemento dell'output è il prodotto scalare euclideo tra la riga corrispondente di $A$ e il vettore $\mathbf{b}$.
+
+\paragraph{Visione 3: Prospettiva per Colonne (Combinazione Lineare delle Colonne).}
+Rappresentando $A$ tramite le sue $m$ colonne verticali $\mathbf{w}_1, \dots, \mathbf{w}_m \in \R^n$:
+\begin{equation}
+    A = \begin{bmatrix} | & | & & | \\ \mathbf{w}_1 & \mathbf{w}_2 & \dots & \mathbf{w}_m \\ | & | & & | \end{bmatrix} \implies \mathbf{c} = A \mathbf{b} = \sum_{j=1}^m b_j \mathbf{w}_j.
+\end{equation}
+Il vettore risultante $\mathbf{c}$ è la \textbf{combinazione lineare delle colonne di $A$} pesata dai coefficienti scalari forniti dal vettore $\mathbf{b}$:
+\begin{equation}
+    \mathbf{c} = 1 \begin{bmatrix} 2 \\ 3 \end{bmatrix} + 2 \begin{bmatrix} 0 \\ -1 \end{bmatrix} + 3 \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \begin{bmatrix} 2 + 0 + 3 \\ 3 - 2 + 0 \end{bmatrix} = \begin{bmatrix} 5 \\ 1 \end{bmatrix}.
+\end{equation}
+
+\begin{noteblock}{Rilevanza della Visione per Colonne}
+La prospettiva per colonne è cruciale in tutto il corso: essa mostra immediatamente che il sottospazio di tutti i possibili vettori generabili da $A \mathbf{b}$ al variare di $\mathbf{b}$ è lo \textbf{spazio delle colonne} $\mathrm{range}(A) = \spanop(\mathbf{w}_1, \dots, \mathbf{w}_m)$. Risolvere un sistema $A \mathbf{x} = \mathbf{b}$ equivale a ricercare i pesi $\mathbf{x}$ con cui combinare le colonne di $A$ per ricostruire $\mathbf{b}$.
+\end{noteblock}
+
+\FloatBarrier
+\section{Matrici come Trasformazioni Lineari nel Piano}
+
+Una matrice quadrata $A \in \R^{2 \times 2}$ agisce sui vettori del piano euclideo definendo una trasformazione lineare $T_A: \R^2 \to \R^2$, con $T_A(\mathbf{v}) = A \mathbf{v}$. L'effetto geometrico complessivo di $A$ è interamente governato dalle immagini dei vettori della base canonica:
+\begin{equation}
+    A \mathbf{e}_1 = \text{prima colonna di } A, \qquad A \mathbf{e}_2 = \text{seconda colonna di } A.
+\end{equation}
+
+\subsection{Esempi Geometrici Fondamentali}
+
+\paragraph{1. Rotazione Oraria di $90^\circ$.}
+Si consideri la matrice:
+\begin{equation}
+    A_{\text{rot}} = \begin{bmatrix} 0 & 1 \\ -1 & 0 \end{bmatrix}.
+\end{equation}
+L'azione sui vettori canonici vale:
+\begin{equation}
+    A_{\text{rot}} \mathbf{e}_1 = \begin{bmatrix} 0 \\ -1 \end{bmatrix} = -\mathbf{e}_2, \qquad A_{\text{rot}} \mathbf{e}_2 = \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \mathbf{e}_1.
+\end{equation}
+Il vettore orizzontale $\mathbf{e}_1$ viene ruotato verso il basso ($-\mathbf{e}_2$), mentre il vettore verticale $\mathbf{e}_2$ viene ruotato verso destra ($\mathbf{e}_1$). Applicato a un vettore generico $\mathbf{v} = [v_1, v_2]^T$, restituisce $[v_2, -v_1]^T$, ruotando l'intero piano di $90^\circ$ in senso orario.
+
+\paragraph{2. Scorrimento Orizzontale (\textit{Shear Mapping}).}
+Si consideri la matrice triangolare:
+\begin{equation}
+    A_{\text{shear}} = \begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}.
+\end{equation}
+L'azione sulla base canonica restituisce:
+\begin{equation}
+    A_{\text{shear}} \mathbf{e}_1 = \begin{bmatrix} 1 \\ 0 \end{bmatrix} = \mathbf{e}_1, \qquad A_{\text{shear}} \mathbf{e}_2 = \begin{bmatrix} 1 \\ 1 \end{bmatrix} = \mathbf{e}_1 + \mathbf{e}_2.
+\end{equation}
+L'asse delle ascisse rimane immobile, mentre la coordinata orizzontale di ogni punto subisce una traslazione proporzionale alla sua ordinata ($x \mapsto x + y$, $y \mapsto y$). Tale trasformazione muta i quadrati in parallelogrammi preservandone l'area ($\det A_{\text{shear}} = 1$).
+
+\paragraph{3. Omotetia Uniforme e Riflessione.}
+\begin{itemize}
+    \item $A = \begin{bmatrix} 2 & 0 \\ 0 & 2 \end{bmatrix} = 2 I$: scala uniformemente ogni vettore dello spazio di un fattore $2$ ($A \mathbf{v} = 2 \mathbf{v}$), conservando direzioni e angoli.
+    \item $A = \begin{bmatrix} 0 & 1 \\ 1 & 0 \end{bmatrix}$: scambia tra loro le coordinate ($x \mapsto y$, $y \mapsto x$), realizzando la riflessione speculare rispetto alla retta bisettrice $y = x$.
+\end{itemize}
+
+\FloatBarrier
+\section{Introduzione alla Complessità Computazionale e Flops}
+
+Nell'algebra lineare numerica non basta verificare teoricamente la risolubilità di un'equazione: è indispensabile quantificare il numero di operazioni elementari in virgola mobile (\textbf{flops}, \textit{floating-point operations} — addizioni, sottrazioni, moltiplicazioni, divisioni) richieste per eseguirla al calcolatore.
+
+\subsection{Conteggio delle Operazioni per il Prodotto Scalare}
+
+Siano $\mathbf{v}, \mathbf{w} \in \R^n$. Il calcolo di $\langle \mathbf{v}, \mathbf{w} \rangle = \sum_{i=1}^n v_i w_i$ richiede:
+\begin{enumerate}
+    \item $n$ moltiplicazioni elementari ($v_1 w_1, v_2 w_2, \dots, v_n w_n$);
+    \item $n - 1$ addizioni per accumulare i prodotti parziali.
+\end{enumerate}
+Il costo computazionale esatto ammonta a:
+\begin{equation}
+    \text{Flops}(n) = n + (n - 1) = 2n - 1 \implies \BigO{n}.
+\end{equation}
+
+\subsection{Modello di Scaling Temporale Lineare}
+
+Si assuma che il tempo di esecuzione su un'architettura hardware sia proporzionale al numero di operazioni. Se il calcolo del prodotto scalare per vettori di dimensione $n = 10^7$ ($10$ milioni di elementi) impiega $3$ secondi, per vettori di dimensione triplicata $n' = 3 \cdot 10^7$:
+\begin{equation}
+    \text{Tempo stimato} = 3 \times (\text{tempo base}) = 3 \times 3\,\text{s} = 9\,\text{s}.
+\end{equation}
+La complessità lineare $\BigO{n}$ assicura che il tempo di computazione scali proporzionalmente al fattore di ingrandimento dei dati.
+
+\begin{remark}[Quesito Aperto: Il Costo del Prodotto Matrice-Vettore]
+Data una matrice quadrata $A \in \R^{n \times n}$ e un vettore $\mathbf{b} \in \R^n$:
+\begin{itemize}
+    \item Il calcolo di $A \mathbf{b}$ equivale a calcolare $n$ prodotti scalari indipendenti, ciascuno di costo $2n - 1$:
+    \begin{equation}
+        \text{Flops}_{\text{mat-vec}}(n) = n (2n - 1) = 2n^2 - n \implies \BigO{n^2}.
+    \end{equation}
+    \item Se per $n = 1\,000$ l'operazione impiega $3$ secondi, raddoppiando la dimensione a $n' = 2\,000$, la crescita quadratica $\BigO{n^2}$ comporta un incremento per un fattore $(2)^2 = 4$, portando il tempo atteso a circa $4 \times 3\,\text{s} = 12\,\text{s}$.
+\end{itemize}
+\end{remark}
+
+\FloatBarrier
+\section{Quadro Sinottico dei Concetti Fondamentali}
+
+\begin{table}[H]
+  \centering
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabularx}{\textwidth}{l Y Y}
+    \toprule
+    \textbf{Oggetto / Concetto} & \textbf{Definizione Matematica} & \textbf{Proprietà Chiave / Complessità} \\
+    \midrule
+    Norma $\ell_1$ & $\|\mathbf{v}\|_1 = \sum_{i=1}^n |v_i|$ & Sfera unitaria a rombo ($45^\circ$), induce sparsità nei modelli. \\
+    Norma $\ell_2$ & $\|\mathbf{v}\|_2 = \sqrt{\sum_{i=1}^n v_i^2} = \sqrt{\mathbf{v}^T \mathbf{v}}$ & Lunghezza euclidea invariante per rotazioni, liscia e differenziabile. \\
+    Norma $\ell_\infty$ & $\|\mathbf{v}\|_\infty = \max_{1 \le i \le n} |v_i|$ & Sfera unitaria a quadrato parallelo agli assi cartesiani. \\
+    Prodotto Scalare & $\langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = \sum_{i=1}^n v_i w_i$ & Operazioni aritmetiche: $2n - 1 \implies \BigO{n}$. \\
+    Base & Insieme lin. indep. con $\spanop = V$ & Rappresentazione unica delle coordinate di ogni vettore. \\
+    Prodotto $A \mathbf{b}$ (Righe) & $c_i = \mathbf{u}_i^T \mathbf{b}$ & $n$ prodotti scalari tra le righe di $A$ e il vettore $\mathbf{b}$. \\
+    Prodotto $A \mathbf{b}$ (Colonne) & $\mathbf{c} = \sum_{j=1}^m b_j \mathbf{w}_j$ & Combinazione lineare delle colonne pesata da $\mathbf{b}$; descrive $\mathrm{range}(A)$. \\
+    Rotazione $90^\circ$ Oraria & $A = \begin{bmatrix} 0 & 1 \\ -1 & 0 \end{bmatrix}$ & Mappa $\mathbf{e}_1 \mapsto -\mathbf{e}_2$ e $\mathbf{e}_2 \mapsto \mathbf{e}_1$. \\
+    Riflessione su $y = x$ & $A = \begin{bmatrix} 0 & 1 \\ 1 & 0 \end{bmatrix}$ & Mappa $\mathbf{e}_1 \mapsto \mathbf{e}_2$ e $\mathbf{e}_2 \mapsto \mathbf{e}_1$, invertendo le coordinate. \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Sintesi dei concetti algebrici, geometrici e computazionali trattati nel Capitolo 1.}
+  \label{tab:sintesi-capitolo-1}
+\end{table}

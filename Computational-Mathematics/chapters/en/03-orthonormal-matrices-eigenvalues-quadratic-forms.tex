@@ -1,0 +1,855 @@
+\chapter[Orthonormal Matrices, Eigenvalues, and Quadratic Forms]{Matrices with Orthonormal Columns, Eigenvalues,\\Spectral Decomposition, and Quadratic Forms}
+\label{chap:orthonormal-matrices-eigenvalues-quadratic-forms}
+
+This chapter investigates the algebraic and geometric properties of rectangular matrices with orthonormal columns, systematically comparing the products $V^T V$ and $V V^T$. We then introduce spectral theory, the notions of eigenvalue and eigenvector, diagonalization, and outer product (dyadic) expansion, culminating in the Spectral Theorem for symmetric matrices. Finally, we analyze quadratic forms, the Rayleigh quotient inequality, the classification of symmetric positive definite and semidefinite matrices (SPD and SPSD), and the natural emergence of positive semidefinite structures via the Gram matrices $B^T B$ and $B B^T$~\cite{trefethen1997numerical}.
+
+\FloatBarrier
+\section{Review of Square Orthogonal Matrices and Isometry}
+
+In the preceding chapter, we introduced the concept of an orthogonal matrix in Euclidean space $\R^n$. We briefly summarize the equivalent formulations that govern its behavior.
+
+\begin{definition}[Equivalent Characterizations of a Square Orthogonal Matrix]
+\label{def:square-orthogonal-recap}
+A square matrix $U \in \R^{n \times n}$ is said to be \textbf{orthogonal} if it satisfies any of the following mutually equivalent conditions:
+\begin{enumerate}
+    \item $U^T U = I_n$, meaning its inverse coincides with its transpose ($U^{-1} = U^T$).
+    \item $U U^T = I_n$.
+    \item The set of columns of $U = [\mathbf{u}_1, \dots, \mathbf{u}_n]$ forms an orthonormal basis of $\R^n$:
+    \begin{equation}
+        \langle \mathbf{u}_i, \mathbf{u}_j \rangle = \mathbf{u}_i^T \mathbf{u}_j = \delta_{ij} = \begin{cases} 1 & \text{if } i = j, \\ 0 & \text{if } i \neq j. \end{cases}
+    \end{equation}
+    \item The set of rows of $U$ forms an orthonormal basis of $\R^n$.
+\end{enumerate}
+\end{definition}
+
+\begin{noteblock}{Historical Terminological Clarification}
+In mathematical literature, the term \textit{orthogonal matrix} is standard, although the columns (and rows) of such a matrix are not merely pairwise orthogonal, but also \textbf{normalized to unit length}, forming an explicitly \textbf{orthonormal} system.
+\end{noteblock}
+
+The key geometric property of an orthogonal transformation is the preservation of Euclidean distances and norms, formalized as isometry.
+
+\begin{property}[Euclidean Isometry]
+\label{prop:square-euclidean-isometry}
+Let $U \in \R^{n \times n}$ be an orthogonal matrix. For every vector $\mathbf{x} \in \R^n$, the linear map preserves the Euclidean norm exactly:
+\begin{equation}
+    \|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+\end{property}
+
+\begin{proof}
+Evaluating the squared Euclidean norm of $U\mathbf{x}$ and applying the identity $(U\mathbf{x})^T = \mathbf{x}^T U^T$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = (U\mathbf{x})^T (U\mathbf{x}) = \mathbf{x}^T (U^T U) \mathbf{x} = \mathbf{x}^T I_n \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Taking the principal square root yields $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$.
+\end{proof}
+
+\FloatBarrier
+\section[Rectangular Matrices with Orthonormal Columns]{Rectangular Matrices with Orthonormal Columns: \texorpdfstring{$V^T V$}{V\textasciicircum T V} vs \texorpdfstring{$V V^T$}{V V\textasciicircum T}}
+
+In computational settings (such as dimensionality reduction, principal component analysis, and thin singular value decomposition), one routinely works with rectangular matrices whose columns form an orthonormal system.
+
+\subsection{Definition and Dimensional Constraint}
+
+\begin{definition}[Rectangular Matrix with Orthonormal Columns]
+A matrix $V \in \R^{n \times k}$ with $k < n$ (a tall-skinny matrix) has orthonormal columns if:
+\begin{equation}
+    V = \begin{bmatrix} \mid & \mid & & \mid \\ \mathbf{v}_1 & \mathbf{v}_2 & \dots & \mathbf{v}_k \\ \mid & \mid & & \mid \end{bmatrix}, \qquad \mathbf{v}_i \in \R^n,
+\end{equation}
+with column vectors satisfying the orthonormality condition:
+\begin{equation}
+    \langle \mathbf{v}_i, \mathbf{v}_j \rangle = \mathbf{v}_i^T \mathbf{v}_j = \delta_{ij} \quad \forall i, j \in \{1, \dots, k\}.
+\end{equation}
+\end{definition}
+
+\begin{alertblock}{Dimensional Constraint: Why Must $k \le n$?}
+In an $n$-dimensional vector space such as $\R^n$, any subspace has dimension at most $n$. Because any finite set of orthonormal vectors is inherently linearly independent, there cannot exist more than $n$ orthonormal vectors in $\R^n$. Consequently, a matrix with orthonormal columns can possess at most as many columns as it has rows ($k \le n$).
+\end{alertblock}
+
+\subsection{The Inner Product \texorpdfstring{$V^T V$}{V\textasciicircum T V} (Column Gramian)}
+
+Consider the product of the transpose $V^T \in \R^{k \times n}$ and $V \in \R^{n \times k}$. The result is a square matrix of order $k$:
+\begin{equation}
+    V^T V \in \R^{k \times k}.
+\end{equation}
+Expanding the block multiplication, representing $V^T$ by rows and $V$ by columns:
+\begin{equation}
+    V^T V = \begin{bmatrix} \text{---} & \mathbf{v}_1^T & \text{---} \\ \text{---} & \mathbf{v}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{v}_k^T & \text{---} \end{bmatrix} \begin{bmatrix} \mid & \mid & & \mid \\ \mathbf{v}_1 & \mathbf{v}_2 & \dots & \mathbf{v}_k \\ \mid & \mid & & \mid \end{bmatrix} = \begin{bmatrix} \mathbf{v}_1^T \mathbf{v}_1 & \mathbf{v}_1^T \mathbf{v}_2 & \dots & \mathbf{v}_1^T \mathbf{v}_k \\ \mathbf{v}_2^T \mathbf{v}_1 & \mathbf{v}_2^T \mathbf{v}_2 & \dots & \mathbf{v}_2^T \mathbf{v}_k \\ \vdots & \vdots & \ddots & \vdots \\ \mathbf{v}_k^T \mathbf{v}_1 & \mathbf{v}_k^T \mathbf{v}_2 & \dots & \mathbf{v}_k^T \mathbf{v}_k \end{bmatrix}.
+\end{equation}
+Applying orthonormality $\mathbf{v}_i^T \mathbf{v}_j = \delta_{ij}$, this matrix evaluates precisely to the $k \times k$ identity matrix:
+\begin{equation}
+    V^T V = I_k.
+\end{equation}
+
+\subsection{The Reversed Product \texorpdfstring{$V V^T$}{V V\textasciicircum T} (Orthogonal Projector)}
+
+Reversing the order of multiplication yields a square matrix of substantially larger size, $n \times n$:
+\begin{equation}
+    V V^T \in \R^{n \times n}.
+\end{equation}
+
+\begin{theorem}[Non-Identity of $V V^T$]
+Let $V \in \R^{n \times k}$ have orthonormal columns with $k < n$. Then:
+\begin{equation}
+    V V^T \neq I_n.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+The proof relies on the rank inequality for matrix products:
+\begin{enumerate}
+    \item The rank of a matrix product is bounded by the rank of its factors:
+    \begin{equation}
+        \rank(V V^T) \le \min\big(\rank(V), \, \rank(V^T)\big).
+    \end{equation}
+    \item Since the $k$ columns of $V$ are orthonormal and hence linearly independent, $\rank(V) = \rank(V^T) = k$.
+    \item Therefore, $\rank(V V^T) \le k$. In fact, because $V^T V = I_k$, we have exactly $\rank(V V^T) = k$.
+    \item On the other hand, the identity matrix $I_n \in \R^{n \times n}$ has full rank $n$.
+    \item Because $k < n$ by assumption:
+    \begin{equation}
+        \rank(V V^T) = k < n = \rank(I_n) \implies V V^T \neq I_n.
+    \end{equation}
+\end{enumerate}
+The matrix $V V^T$ is singular and possesses a non-trivial null space of dimension $n - k > 0$.
+\end{proof}
+
+\subsubsection{Outer Product Expansion and Geometric Interpretation}
+By block partition, the product $V V^T$ can be expressed as a sum of outer products (dyads):
+\begin{equation}
+    V V^T = \sum_{i=1}^k \mathbf{v}_i \mathbf{v}_i^T = \mathbf{v}_1 \mathbf{v}_1^T + \mathbf{v}_2 \mathbf{v}_2^T + \dots + \mathbf{v}_k \mathbf{v}_k^T.
+\end{equation}
+Each term $\mathbf{v}_i \mathbf{v}_i^T$ is a symmetric rank-1 matrix of size $n \times n$. The operator $P = V V^T$:
+\begin{itemize}
+    \item Is idempotent: $P^2 = (V V^T)(V V^T) = V (V^T V) V^T = V I_k V^T = V V^T = P$.
+    \item Is symmetric: $P^T = (V V^T)^T = (V^T)^T V^T = V V^T = P$.
+\end{itemize}
+Hence, $P = V V^T$ is the \textbf{orthogonal projector} from $\R^n$ onto the $k$-dimensional subspace:
+\begin{equation}
+    \mathcal{S} = \spanop\{\mathbf{v}_1, \dots, \mathbf{v}_k\}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+    % --- Matrix V (n x k, tall-skinny) ---
+    \draw[thick, fill=blue!8, draw=blue!60!black] (0, 0) rectangle (1.6, 3.8);
+    \node[font=\bfseries\huge, text=blue!80!black] at (0.8, 1.9) {$V$};
+    \node[below=6pt, font=\scriptsize\bfseries, text=blue!70!black] at (0.8, 0) {($n \times k$, tall-skinny)};
+    % Dimension braces of V (facing outward)
+    \draw[brace] (-0.15, 0) -- (-0.15, 3.8) node[midway, left=6pt, font=\small] {$n$};
+    \draw[brace] (0, 3.8) -- (1.6, 3.8) node[midway, above=6pt, font=\small] {$k$};
+
+    % Multiplication operator
+    \node[font=\huge, text=gray!80!black] at (2.6, 1.9) {$\times$};
+
+    % --- Matrix V^T (k x n, short-wide) ---
+    \draw[thick, fill=green!8, draw=green!60!black] (3.6, 1.1) rectangle (7.4, 2.7);
+    \node[font=\bfseries\huge, text=green!70!black] at (5.5, 1.9) {$V^T$};
+    \node[below=6pt, font=\scriptsize\bfseries, text=green!70!black] at (5.5, 1.1) {($k \times n$, short-wide)};
+    % Dimension braces of V^T (facing outward)
+    \draw[brace] (3.6, 2.7) -- (7.4, 2.7) node[midway, above=6pt, font=\small] {$n$};
+    \draw[brace] (7.55, 2.7) -- (7.55, 1.1) node[midway, right=6pt, font=\small] {$k$};
+
+    % Equals operator
+    \node[font=\huge, text=gray!80!black] at (8.6, 1.9) {$=$};
+
+    % --- Resulting Matrix V V^T = P (n x n) ---
+    \draw[thick, fill=orange!8, draw=orange!60!black] (9.8, 0) rectangle (13.6, 3.8);
+    \node[align=center] at (11.7, 1.9) {%
+        {\bfseries\Large\color{orange!85!black} $P = V V^T$}\\[6pt]
+        {\scriptsize\bfseries\color{gray!80!black} Orthogonal projector}\\[4pt]
+        {\scriptsize\color{gray!70!black} $\rank(P) = k < n$}\\[4pt]
+        {\scriptsize\bfseries\color{red!75!black} $P \neq I_n$ (singular)}%
+    };
+    \node[below=6pt, font=\scriptsize\bfseries, text=orange!80!black] at (11.7, 0) {($n \times n$, rank $k$)};
+    % Dimension braces of V V^T (facing outward)
+    \draw[brace] (9.8, 3.8) -- (13.6, 3.8) node[midway, above=6pt, font=\small] {$n$};
+    \draw[brace] (13.75, 3.8) -- (13.75, 0) node[midway, right=6pt, font=\small] {$n$};
+\end{tikzpicture}%
+}
+\caption{Dimension and rank comparison: the product $V V^T$ yields an $n \times n$ orthogonal projector with strictly deficient rank $k < n$.}
+\label{fig:v-vt-projector}
+\end{figure}
+
+\FloatBarrier
+\section[Partial Isometry for Orthonormal Matrices]{Partial Isometry for Rectangular\\Orthonormal Matrices}
+
+In the rectangular setting ($V \in \R^{n \times k}$ with $k < n$), the isometric property applies asymmetrically depending on the domain of the input vector.
+
+\subsection{Question (a): Norm Preservation for Vectors in \texorpdfstring{$\R^k$}{R\textasciicircum k}}
+
+\begin{proposition}[Right Isometry]
+\label{prop:right-isometry}
+Let $V \in \R^{n \times k}$ have orthonormal columns with $k < n$. For any vector $\mathbf{x} \in \R^k$:
+\begin{equation}
+    \|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Compute the squared Euclidean norm of $V\mathbf{x} \in \R^n$:
+\begin{equation}
+    \|V\mathbf{x}\|_2^2 = (V\mathbf{x})^T (V\mathbf{x}) = \mathbf{x}^T (V^T V) \mathbf{x}.
+\end{equation}
+Since the columns of $V$ are orthonormal, $V^T V = I_k$. Substituting:
+\begin{equation}
+    \|V\mathbf{x}\|_2^2 = \mathbf{x}^T I_k \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Taking the positive square root yields $\|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ for all $\mathbf{x} \in \R^k$.
+\end{proof}
+
+\begin{noteblock}{Geometric Interpretation}
+The mapping $V: \R^k \to \R^n$ is an \textbf{isometric embedding}: it embeds the lower-dimensional space $\R^k$ into a $k$-dimensional subspace of $\R^n$ while strictly preserving all vector lengths and angles.
+\end{noteblock}
+
+\subsection{Question (b): Norm Preservation for Vectors in \texorpdfstring{$\R^n$}{R\textasciicircum n} under \texorpdfstring{$V^T$}{V\textasciicircum T}}
+
+\begin{proposition}[Failure of Left Isometry]
+\label{prop:left-non-isometry}
+Let $V \in \R^{n \times k}$ have orthonormal columns with $k < n$. The transposed operator $V^T: \R^n \to \R^k$ does \textbf{not} preserve the Euclidean norm across all of $\R^n$:
+\begin{equation}
+    \exists \mathbf{y} \in \R^n \quad \text{such that} \quad \|V^T \mathbf{y}\|_2 \neq \|\mathbf{y}\|_2.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Evaluate the squared Euclidean norm of $V^T \mathbf{y}$:
+\begin{equation}
+    \|V^T \mathbf{y}\|_2^2 = (V^T \mathbf{y})^T (V^T \mathbf{y}) = \mathbf{y}^T (V V^T) \mathbf{y}.
+\end{equation}
+Because $V V^T \neq I_n$, this expression does not collapse identically to $\|\mathbf{y}\|_2^2$.
+
+\medskip
+\noindent\textbf{Null-Space Counterexample:}
+Consider the matrix $V^T \in \R^{k \times n}$. By the Rank-Nullity Theorem:
+\begin{equation}
+    \dim(\ker(V^T)) = n - \rank(V^T) = n - k.
+\end{equation}
+Since $k < n$, the null-space dimension is strictly positive ($n - k > 0$). There exists a non-zero vector $\tilde{\mathbf{y}} \in \R^n \setminus \{\mathbf{0}\}$ such that:
+\begin{equation}
+    \tilde{\mathbf{y}} \in \ker(V^T) \implies V^T \tilde{\mathbf{y}} = \mathbf{0} \in \R^k.
+\end{equation}
+Computing norms:
+\begin{equation}
+    \|V^T \tilde{\mathbf{y}}\|_2 = \|\mathbf{0}\|_2 = 0 \neq \|\tilde{\mathbf{y}}\|_2.
+\end{equation}
+Thus, norm shrinkage is maximal for any vector orthogonal to the subspace spanned by the columns of $V$.
+\end{proof}
+
+\FloatBarrier
+\section{Eigenvalues and Eigenvectors: Foundations and Step-by-Step Example}
+
+\subsection{Fundamental Definitions}
+
+Let $A \in \R^{n \times n}$ be a \textbf{square} matrix.
+
+\begin{definition}[Eigenvalue, Eigenvector, and Eigenpair]
+\label{def:eigenvalue-eigenvector}
+A scalar $\lambda \in \R$ (or in $\C$) is called an \textbf{eigenvalue} of $A$ if there exists a \textbf{non-zero} vector $\mathbf{v} \in \R^n \setminus \{\mathbf{0}\}$ (or $\C^n \setminus \{\mathbf{0}\}$) such that:
+\begin{equation}
+    A\mathbf{v} = \lambda \mathbf{v}.
+\end{equation}
+The vector $\mathbf{v}$ is termed an \textbf{eigenvector} associated with $\lambda$. The pair $(\lambda, \mathbf{v})$ is called an \textbf{eigenpair}.
+\end{definition}
+
+The eigenvalue equation $A\mathbf{v} = \lambda \mathbf{v}$ can be recast as a homogeneous linear system:
+\begin{equation}
+    (A - \lambda I_n)\mathbf{v} = \mathbf{0}.
+\end{equation}
+For non-trivial solutions ($\mathbf{v} \neq \mathbf{0}$) to exist, the coefficient matrix $(A - \lambda I_n)$ must be singular, meaning its determinant vanishes:
+\begin{equation}
+    p(\lambda) = \det(A - \lambda I_n) = 0.
+\end{equation}
+The polynomial $p(\lambda)$ is the \textbf{characteristic polynomial} of $A$, of degree $n$. The eigenvalues of $A$ are precisely the roots of this characteristic polynomial.
+
+\subsection{Step-by-Step Worked Example}
+
+\begin{example}[Computing Eigenvalues and Eigenvectors for a $2 \times 2$ Matrix]
+\label{ex:eigenvalues-2x2}
+Consider the real symmetric matrix:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 1 \\ 1 & 2 \end{bmatrix} \in \R^{2 \times 2}.
+\end{equation}
+
+\noindent\textbf{Step 1: Characteristic Polynomial and Eigenvalues.}
+\begin{equation}
+    p(\lambda) = \det(A - \lambda I_2) = \det \begin{bmatrix} 2-\lambda & 1 \\ 1 & 2-\lambda \end{bmatrix} = (2-\lambda)^2 - 1.
+\end{equation}
+Using the difference of squares factorization $a^2 - b^2 = (a-b)(a+b)$:
+\begin{equation}
+    p(\lambda) = \big((2-\lambda) - 1\big)\big((2-\lambda) + 1\big) = (1-\lambda)(3-\lambda) = 0.
+\end{equation}
+Setting $p(\lambda) = 0$ yields the eigenvalues:
+\begin{equation}
+    \lambda_1 = 3, \quad \lambda_2 = 1.
+\end{equation}
+
+\noindent\textbf{Step 2: Eigenvector for $\lambda_1 = 3$.}
+We solve $(A - 3I_2)\mathbf{v}_1 = \mathbf{0}$:
+\begin{equation}
+    \begin{bmatrix} 2-3 & 1 \\ 1 & 2-3 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} -1 & 1 \\ 1 & -1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies -x + y = 0 \iff y = x.
+\end{equation}
+Choosing $x = 1$, we obtain the eigenvector:
+\begin{equation}
+    \mathbf{v}_1 = \begin{bmatrix} 1 \\ 1 \end{bmatrix}.
+\end{equation}
+
+\noindent\textbf{Step 3: Eigenvector for $\lambda_2 = 1$.}
+We solve $(A - I_2)\mathbf{v}_2 = \mathbf{0}$:
+\begin{equation}
+    \begin{bmatrix} 2-1 & 1 \\ 1 & 2-1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 1 & 1 \\ 1 & 1 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies x + y = 0 \iff y = -x.
+\end{equation}
+Choosing $x = 1$, we find the eigenvector:
+\begin{equation}
+    \mathbf{v}_2 = \begin{bmatrix} 1 \\ -1 \end{bmatrix}.
+\end{equation}
+Notice that $\mathbf{v}_1^T \mathbf{v}_2 = 1(1) + 1(-1) = 0$: the two eigenvectors are mutually orthogonal.
+\end{example}
+
+\FloatBarrier
+\section{Diagonalization and Dyadic Expansion}
+
+\subsection{Diagonalizable Matrices}
+
+\begin{definition}[Diagonalizability]
+A matrix $A \in \R^{n \times n}$ is called \textbf{diagonalizable} if it possesses $n$ linearly independent eigenvectors, that is, if there exists a basis of $\R^n$ consisting of eigenvectors of $A$.
+\end{definition}
+
+In this case, assembling the $n$ eigenvectors into the modal matrix $V = [\mathbf{v}_1, \dots, \mathbf{v}_n] \in \R^{n \times n}$ and the eigenvalues along the diagonal matrix $D = \diag(\lambda_1, \dots, \lambda_n)$:
+\begin{equation}
+    A V = A [\mathbf{v}_1, \dots, \mathbf{v}_n] = [\lambda_1 \mathbf{v}_1, \dots, \lambda_n \mathbf{v}_n] = [\mathbf{v}_1, \dots, \mathbf{v}_n] \begin{bmatrix} \lambda_1 & & \\ & \ddots & \\ & & \lambda_n \end{bmatrix} = V D.
+\end{equation}
+Because the eigenvectors are linearly independent, $V$ is invertible. Multiplying on the right by $V^{-1}$:
+\begin{equation}
+    A = V D V^{-1}.
+\end{equation}
+
+\subsection{Dyadic (Outer Product) Expansion}
+
+Let $W = V^{-1} \in \R^{n \times n}$, partitioned by rows:
+\begin{equation}
+    W = V^{-1} = \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ \text{---} & \mathbf{w}_2^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix}.
+\end{equation}
+Because $W V = I_n$, the rows of $W$ and columns of $V$ satisfy biorthonormality: $\mathbf{w}_i^T \mathbf{v}_j = \delta_{ij}$. Expanding $A = V D W$:
+\begin{align}
+    A &= \begin{bmatrix} \mid & & \mid \\ \mathbf{v}_1 & \dots & \mathbf{v}_n \\ \mid & & \mid \end{bmatrix} \begin{bmatrix} \lambda_1 & & \\ & \ddots & \\ & & \lambda_n \end{bmatrix} \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix} \mid & & \mid \\ \lambda_1 \mathbf{v}_1 & \dots & \lambda_n \mathbf{v}_n \\ \mid & & \mid \end{bmatrix} \begin{bmatrix} \text{---} & \mathbf{w}_1^T & \text{---} \\ & \vdots & \\ \text{---} & \mathbf{w}_n^T & \text{---} \end{bmatrix}.
+\end{align}
+Performing block column-by-row multiplication yields the dyadic expansion:
+\begin{equation}
+    A = \sum_{i=1}^n \lambda_i \mathbf{v}_i \mathbf{w}_i^T = \lambda_1 \mathbf{v}_1 \mathbf{w}_1^T + \lambda_2 \mathbf{v}_2 \mathbf{w}_2^T + \dots + \lambda_n \mathbf{v}_n \mathbf{w}_n^T.
+\end{equation}
+
+\begin{noteblock}{Significance of the Dyadic Expansion}
+The matrix $A$ is represented as a weighted sum of $n$ elementary rank-1 matrices, each formed by the outer product $\mathbf{v}_i \mathbf{w}_i^T$. The eigenvalues $\lambda_i$ serve as modulation weights. This structure serves as the direct precursor to the Singular Value Decomposition (SVD) and the Eckart-Young-Mirsky low-rank approximation theorem.
+\end{noteblock}
+
+\subsection{Pathologies: When Diagonalization Fails}
+
+Not all matrices admit a decomposition $A = V D V^{-1}$ over the real numbers. Two distinct theoretical obstacles exist.
+
+\subsubsection{Case 1: Absence of Real Eigenvalues}
+Consider the $90^\circ$ planar rotation matrix:
+\begin{equation}
+    A = \begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}.
+\end{equation}
+Its characteristic polynomial is:
+\begin{equation}
+    p(\lambda) = \det \begin{bmatrix} -\lambda & -1 \\ 1 & -\lambda \end{bmatrix} = \lambda^2 + 1 = 0 \implies \lambda_{1,2} = \pm i \notin \R.
+\end{equation}
+Although $A$ has purely real entries, it \textbf{admits no real eigenvalues or real eigenvectors}. Geometrically, a non-trivial planar rotation does not preserve the direction of any real vector in $\R^2$.
+
+\subsubsection{Case 2: Defective Matrices (Geometric Multiplicity Strictly Less than Algebraic)}
+Consider the shear matrix:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}.
+\end{equation}
+\begin{enumerate}
+    \item The characteristic polynomial is $p(\lambda) = (1-\lambda)^2 = 0$. There is a single eigenvalue $\lambda = 1$ with \textbf{algebraic multiplicity} $m_a(1) = 2$.
+    \item We determine its \textbf{geometric multiplicity} $m_g(1) = \dim(\ker(A - I_2))$:
+    \begin{equation}
+        A - I_2 = \begin{bmatrix} 0 & 1 \\ 0 & 0 \end{bmatrix} \implies \begin{bmatrix} 0 & 1 \\ 0 & 0 \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} \implies y = 0, \quad x \in \R \text{ free}.
+    \end{equation}
+    The eigenspace is one-dimensional: $\ker(A - I_2) = \spanop\left\{\begin{bmatrix} 1 \\ 0 \end{bmatrix}\right\}$, so $m_g(1) = 1$.
+\end{enumerate}
+Since $m_g(1) = 1 < 2 = m_a(1)$, it is impossible to find 2 linearly independent eigenvectors to form $V$. The matrix $A$ is termed \textbf{defective} and cannot be diagonalized (it admits only a Jordan canonical form).
+
+\FloatBarrier
+\section{Guided Exercises on Eigenvalues (Q1 -- Q4)}
+
+\subsection{Exercise Q1: Eigenpairs of a Diagonal Matrix}
+
+\begin{example}[Spectrum of a Diagonal Matrix]
+\label{ex:q1-diagonal-matrix}
+Given a generic diagonal matrix $D = \diag(d_1, d_2, \dots, d_n) \in \R^{n \times n}$, we determine its eigenpairs.
+
+\noindent\textbf{Solution:}
+Examine the action of $D$ on the $i$-th standard basis vector $\mathbf{e}_i = [0, \dots, 1, \dots, 0]^T$:
+\begin{equation}
+    D \mathbf{e}_i = \begin{bmatrix} d_1 & & & \\ & d_2 & & \\ & & \ddots & \\ & & & d_n \end{bmatrix} \begin{bmatrix} 0 \\ \vdots \\ 1 \\ \vdots \\ 0 \end{bmatrix} = \begin{bmatrix} 0 \\ \vdots \\ d_i \\ \vdots \\ 0 \end{bmatrix} = d_i \mathbf{e}_i.
+\end{equation}
+Therefore:
+\begin{itemize}
+    \item The eigenvalues are precisely the entries along the main diagonal: $\lambda_i = d_i$ for $i = 1, \dots, n$.
+    \item The corresponding eigenvectors are the standard basis vectors: $\mathbf{v}_i = \mathbf{e}_i$.
+    \item The canonical eigenpairs are $(d_1, \mathbf{e}_1), (d_2, \mathbf{e}_2), \dots, (d_n, \mathbf{e}_n)$.
+\end{itemize}
+\end{example}
+
+\begin{property}[Coinciding Eigenvalues and Eigenspace Structure]
+What happens if two or more diagonal entries coincide, for example $d_1 = d_2 = \lambda$?
+In this case, \textbf{any linear combination} $\alpha \mathbf{e}_1 + \beta \mathbf{e}_2$ (with $\alpha, \beta$ not both zero) remains an eigenvector corresponding to $\lambda$.
+
+\medskip
+\noindent\textit{General proof:} Let $\mathbf{v}, \mathbf{w} \in \R^n$ be two eigenvectors of an arbitrary matrix $A$ associated with the \textbf{same} eigenvalue $\lambda$ ($A\mathbf{v} = \lambda \mathbf{v}$ and $A\mathbf{w} = \lambda \mathbf{w}$). For any scalars $\alpha, \beta \in \R$:
+\begin{equation}
+    A(\alpha \mathbf{v} + \beta \mathbf{w}) = \alpha (A\mathbf{v}) + \beta (A\mathbf{w}) = \alpha (\lambda \mathbf{v}) + \beta (\lambda \mathbf{w}) = \lambda (\alpha \mathbf{v} + \beta \mathbf{w}).
+\end{equation}
+Hence, the set of eigenvectors associated with $\lambda$, together with the zero vector, forms a closed vector subspace known as the \textbf{eigenspace}:
+\begin{equation}
+    \mathcal{E}(\lambda) = \ker(A - \lambda I_n).
+\end{equation}
+\end{property}
+
+\subsection{Exercise Q2: Eigenpairs of the Identity Matrix}
+
+\begin{example}[Spectrum of the Identity Matrix]
+\label{ex:q2-identity-matrix}
+Determine the eigenvalues and eigenvectors of the identity matrix $I_n \in \R^{n \times n}$.
+
+\noindent\textbf{Solution:}
+By definition of the identity operator, for every non-zero vector $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$:
+\begin{equation}
+    I_n \mathbf{x} = 1 \cdot \mathbf{x}.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Eigenvalue:} $\lambda = 1$ with algebraic and geometric multiplicity $n$ ($m_a = m_g = n$).
+    \item \textbf{Eigenvectors:} \textbf{every} non-zero vector in $\R^n$.
+    \item The entire space $\R^n$ constitutes the eigenspace: $\mathcal{E}(1) = \R^n$.
+\end{itemize}
+\end{example}
+
+\subsection{Exercise Q3: Sum and Product of Matrices Sharing an Eigenvalue}
+
+\begin{example}[Eigenvalues of Matrix Sum and Product]
+\label{ex:q3-sum-product}
+Let $\lambda \in \R$ be a common eigenvalue of $A \in \R^{n \times n}$ and $B \in \R^{n \times n}$.
+\begin{enumerate}
+    \item Is $2\lambda$ necessarily an eigenvalue of $A + B$?
+    \item Is $\lambda^2$ necessarily an eigenvalue of $AB$?
+\end{enumerate}
+
+\noindent\textbf{Analytical Answer: NO to both questions.}
+For eigenvalue addition or multiplication to hold, $A$ and $B$ must share the \textbf{same eigenvector} associated with $\lambda$. If their eigenvectors are misaligned, the property fails.
+
+\medskip
+\noindent\textbf{Counterexample for Summation:}
+Consider:
+\begin{equation}
+    A = \begin{bmatrix} 5 & 0 \\ 0 & 1 \end{bmatrix}, \quad B = \begin{bmatrix} 1 & 0 \\ 0 & 5 \end{bmatrix}.
+\end{equation}
+Both matrices possess the eigenvalue set $\{1, 5\}$ (in particular, sharing $\lambda = 1$ and $\lambda = 5$). Compute the sum:
+\begin{equation}
+    A + B = \begin{bmatrix} 6 & 0 \\ 0 & 6 \end{bmatrix} = 6 I_2.
+\end{equation}
+The eigenvalues of $A + B$ are both equal to $6$. However, doubling the original eigenvalues gives:
+\begin{equation}
+    2 \cdot 1 = 2 \neq 6, \qquad 2 \cdot 5 = 10 \neq 6.
+\end{equation}
+Thus, $2\lambda$ does not belong to the spectrum of the sum matrix.
+
+\medskip
+\noindent\textbf{Counterexample for Multiplication:}
+Consider:
+\begin{equation}
+    A = \begin{bmatrix} 2 & 0 \\ 0 & 3 \end{bmatrix}, \quad B = \begin{bmatrix} 10 & 0 \\ 0 & 2 \end{bmatrix}.
+\end{equation}
+Both matrices share the eigenvalue $\lambda = 2$. Their product evaluates to:
+\begin{equation}
+    AB = \begin{bmatrix} 20 & 0 \\ 0 & 6 \end{bmatrix}.
+\end{equation}
+The eigenvalues of $AB$ are $\{20, 6\}$, neither of which matches $\lambda^2 = 2^2 = 4$.
+\end{example}
+
+\subsection{Exercise Q4: Eigenpairs of a Matrix Power}
+
+\begin{theorem}[Spectrum of Matrix Power $A^k$]
+\label{thm:matrix-power}
+Let $A \in \R^{n \times n}$ and let $(\lambda, \mathbf{v})$ be an eigenpair of $A$ ($A\mathbf{v} = \lambda \mathbf{v}$). Then for every positive integer exponent $k \in \N$:
+\begin{equation}
+    (\lambda^k, \mathbf{v}) \quad \text{is an eigenpair of } A^k, \quad \text{that is, } A^k \mathbf{v} = \lambda^k \mathbf{v}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+The proof proceeds by induction on $k$:
+\begin{enumerate}
+    \item \textbf{Base Case ($k=1$):} $A^1 \mathbf{v} = A\mathbf{v} = \lambda \mathbf{v} = \lambda^1 \mathbf{v}$.
+    \item \textbf{Inductive Step:} Assume $A^k \mathbf{v} = \lambda^k \mathbf{v}$. Multiplying on the left by $A$:
+    \begin{equation}
+        A^{k+1} \mathbf{v} = A(A^k \mathbf{v}) = A(\lambda^k \mathbf{v}) = \lambda^k (A\mathbf{v}) = \lambda^k (\lambda \mathbf{v}) = \lambda^{k+1} \mathbf{v}.
+    \end{equation}
+\end{enumerate}
+The statement holds for all $k \ge 1$.
+\end{proof}
+
+\begin{corollary}[Power Factorization for Diagonalizable Matrices]
+If $A = V D V^{-1}$ is diagonalizable, evaluating powers telescopically yields:
+\begin{align}
+    A^k &= (V D V^{-1})(V D V^{-1}) \cdots (V D V^{-1}) \nonumber \\
+    &= V D (V^{-1}V) D \cdots (V^{-1}V) D V^{-1} = V D^k V^{-1}.
+\end{align}
+Since $D = \diag(\lambda_1, \dots, \lambda_n)$ is diagonal, its $k$-th power is simply:
+\begin{equation}
+    D^k = \diag(\lambda_1^k, \lambda_2^k, \dots, \lambda_n^k).
+\end{equation}
+\end{corollary}
+
+\begin{alertblock}{Warning on Eigenvector Invariance}
+Take careful note that when raising a matrix to a power, \textbf{only the eigenvalues} are raised to the power $k$, while the \textbf{eigenvectors remain strictly unchanged}. The notation $\mathbf{v}^k$ has no meaning in vector algebra.
+\end{alertblock}
+
+\FloatBarrier
+\section{Symmetric Matrices and the Spectral Theorem}
+
+Symmetric matrices represent the most important class of matrices in numerical linear algebra, optimization, and machine learning.
+
+\begin{definition}[Symmetric Matrix]
+A square matrix $A \in \R^{n \times n}$ is said to be \textbf{symmetric} if it coincides with its transpose:
+\begin{equation}
+    A^T = A \iff A_{ij} = A_{ji} \quad \forall i, j \in \{1, \dots, n\}.
+\end{equation}
+\end{definition}
+
+\begin{theorem}[Spectral Theorem for Real Symmetric Matrices]
+\label{thm:spectral-theorem}
+Let $A \in \R^{n \times n}$ be a real symmetric matrix ($A^T = A$). Then:
+\begin{enumerate}
+    \item All $n$ eigenvalues of $A$ are \textbf{real numbers}: $\lambda_1, \lambda_2, \dots, \lambda_n \in \R$.
+    \item Eigenvectors corresponding to distinct eigenvalues are mutually \textbf{orthogonal}.
+    \item The matrix $A$ is \textbf{orthogonally diagonalizable}: there exist an orthogonal matrix $U \in \R^{n \times n}$ ($U^T U = U U^T = I_n$) and a real diagonal matrix $D \in \R^{n \times n}$ such that:
+    \begin{equation}
+        A = U D U^T.
+    \end{equation}
+\end{enumerate}
+Equivalently, there exists an \textbf{orthonormal basis of $\R^n$ consisting entirely of eigenvectors of $A$}.
+\end{theorem}
+
+\begin{proof}[Distinct Eigenvalues]
+Let $(\lambda_1, \mathbf{u}_1)$ and $(\lambda_2, \mathbf{u}_2)$ be two eigenpairs of $A$ with $\lambda_1 \neq \lambda_2$. Consider the scalar quantity $\mathbf{u}_1^T A \mathbf{u}_2$:
+\begin{enumerate}
+    \item Acting with $A$ to the right:
+    \begin{equation}
+        \mathbf{u}_1^T (A \mathbf{u}_2) = \mathbf{u}_1^T (\lambda_2 \mathbf{u}_2) = \lambda_2 (\mathbf{u}_1^T \mathbf{u}_2).
+    \end{equation}
+    \item Using symmetry $A = A^T$ and acting to the left:
+    \begin{equation}
+        \mathbf{u}_1^T A \mathbf{u}_2 = (A^T \mathbf{u}_1)^T \mathbf{u}_2 = (A \mathbf{u}_1)^T \mathbf{u}_2 = (\lambda_1 \mathbf{u}_1)^T \mathbf{u}_2 = \lambda_1 (\mathbf{u}_1^T \mathbf{u}_2).
+    \end{equation}
+\end{enumerate}
+Equating the two expressions:
+\begin{equation}
+    \lambda_1 (\mathbf{u}_1^T \mathbf{u}_2) = \lambda_2 (\mathbf{u}_1^T \mathbf{u}_2) \iff (\lambda_1 - \lambda_2) (\mathbf{u}_1^T \mathbf{u}_2) = 0.
+\end{equation}
+Since $\lambda_1 \neq \lambda_2$ by assumption, it necessarily follows that:
+\begin{equation}
+    \mathbf{u}_1^T \mathbf{u}_2 = 0,
+\end{equation}
+proving that the eigenvectors are orthogonal.
+\end{proof}
+
+\FloatBarrier
+\section{Quadratic Forms and the Rayleigh Quotient Inequality}
+
+\subsection{Definition of a Quadratic Form}
+
+\begin{definition}[Quadratic Form]
+Let $A \in \R^{n \times n}$ be a real symmetric matrix. The function $q: \R^n \to \R$ defined by:
+\begin{equation}
+    q(\mathbf{x}) = \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \sum_{j=1}^n A_{ij} x_i x_j
+\end{equation}
+is called the \textbf{quadratic form} associated with matrix $A$.
+\end{definition}
+
+\subsection{Spectral Bounds Theorem (Rayleigh Inequality)}
+
+\begin{theorem}[Spectral Bounds on Quadratic Forms]
+\label{thm:spectral-bounds}
+Let $A \in \R^{n \times n}$ be real symmetric, with eigenvalues arranged in descending order:
+\begin{equation}
+    \lambda_{\max} = \lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_n = \lambda_{\min}.
+\end{equation}
+Then for every vector $\mathbf{x} \in \R^n$, the double inequality holds:
+\begin{equation}
+    \lambda_{\min} \|\mathbf{x}\|_2^2 \le \mathbf{x}^T A \mathbf{x} \le \lambda_{\max} \|\mathbf{x}\|_2^2.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+The proof proceeds systematically:
+\begin{enumerate}
+    \item \textbf{Spectral Factorization:} By the Spectral Theorem~\ref{thm:spectral-theorem}, we factorize $A = U D U^T$, where $U \in \R^{n \times n}$ is orthogonal and $D = \diag(\lambda_1, \dots, \lambda_n)$.
+    \item \textbf{Substitution into the Quadratic Form:}
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \mathbf{x}^T (U D U^T) \mathbf{x} = (U^T \mathbf{x})^T D (U^T \mathbf{x}).
+    \end{equation}
+    \item \textbf{Orthogonal Change of Coordinates:} Define $\mathbf{y} \in \R^n$ via:
+    \begin{equation}
+        \mathbf{y} = U^T \mathbf{x} \iff \mathbf{x} = U \mathbf{y}.
+    \end{equation}
+    Because $U$ is orthogonal, the map preserves Euclidean norm (Property~\ref{prop:square-euclidean-isometry}):
+    \begin{equation}
+        \|\mathbf{y}\|_2^2 = \|U^T \mathbf{x}\|_2^2 = \|\mathbf{x}\|_2^2 \implies \sum_{i=1}^n y_i^2 = \|\mathbf{x}\|_2^2.
+    \end{equation}
+    \item \textbf{Component Expansion:}
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \mathbf{y}^T D \mathbf{y} = \sum_{i=1}^n \lambda_i y_i^2 = \lambda_1 y_1^2 + \lambda_2 y_2^2 + \dots + \lambda_n y_n^2.
+    \end{equation}
+    \item \textbf{Upper Bound:}
+    Since $\lambda_i \le \lambda_{\max}$ for all $i \in \{1, \dots, n\}$ and $y_i^2 \ge 0$:
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \lambda_i y_i^2 \le \sum_{i=1}^n \lambda_{\max} y_i^2 = \lambda_{\max} \sum_{i=1}^n y_i^2 = \lambda_{\max} \|\mathbf{y}\|_2^2 = \lambda_{\max} \|\mathbf{x}\|_2^2.
+    \end{equation}
+    \item \textbf{Lower Bound:}
+    Analogously, because $\lambda_i \ge \lambda_{\min}$ for all $i$:
+    \begin{equation}
+        \mathbf{x}^T A \mathbf{x} = \sum_{i=1}^n \lambda_i y_i^2 \ge \sum_{i=1}^n \lambda_{\min} y_i^2 = \lambda_{\min} \sum_{i=1}^n y_i^2 = \lambda_{\min} \|\mathbf{y}\|_2^2 = \lambda_{\min} \|\mathbf{x}\|_2^2.
+    \end{equation}
+\end{enumerate}
+Combining both bounds completes the proof for all $\mathbf{x} \in \R^n$.
+\end{proof}
+
+\subsection{Equality Conditions and the Rayleigh Quotient}
+
+\begin{property}[Equality Conditions and Extremal Vectors]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item The upper equality $\mathbf{x}^T A \mathbf{x} = \lambda_{\max} \|\mathbf{x}\|_2^2$ holds \textbf{if and only if} $\mathbf{x}$ is an eigenvector of $A$ corresponding to $\lambda_{\max}$.
+    \item The lower equality $\mathbf{x}^T A \mathbf{x} = \lambda_{\min} \|\mathbf{x}\|_2^2$ holds \textbf{if and only if} $\mathbf{x}$ is an eigenvector of $A$ corresponding to $\lambda_{\min}$.
+\end{enumerate}
+\end{property}
+
+\begin{proof}
+Examining the upper bound difference:
+\begin{equation}
+    \lambda_{\max} \sum_{i=1}^n y_i^2 - \sum_{i=1}^n \lambda_i y_i^2 = \sum_{i=1}^n (\lambda_{\max} - \lambda_i) y_i^2 = 0.
+\end{equation}
+Since each term $(\lambda_{\max} - \lambda_i) y_i^2 \ge 0$, the sum vanishes if and only if $y_i = 0$ whenever $\lambda_i < \lambda_{\max}$. Thus $\mathbf{y}$ is supported only on coordinates corresponding to $\lambda_{\max}$. In original coordinates $\mathbf{x} = U\mathbf{y}$, this precisely states that $\mathbf{x} \in \mathcal{E}(\lambda_{\max})$.
+\end{proof}
+
+\begin{definition}[Rayleigh Quotient]
+For any non-zero vector $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$, the \textbf{Rayleigh quotient} of a symmetric matrix $A$ is defined as:
+\begin{equation}
+    R_A(\mathbf{x}) = \frac{\mathbf{x}^T A \mathbf{x}}{\mathbf{x}^T \mathbf{x}} = \frac{\mathbf{x}^T A \mathbf{x}}{\|\mathbf{x}\|_2^2}.
+\end{equation}
+Theorem~\ref{thm:spectral-bounds} yields the variational characterization of extremal eigenvalues:
+\begin{equation}
+    \lambda_{\min} = \min_{\mathbf{x} \neq \mathbf{0}} R_A(\mathbf{x}), \qquad \lambda_{\max} = \max_{\mathbf{x} \neq \mathbf{0}} R_A(\mathbf{x}).
+\end{equation}
+\end{definition}
+
+\FloatBarrier
+\section{Symmetric Positive Definite and Semidefinite Matrices}
+
+\subsection{Axiomatic Definitions}
+
+Let $A \in \R^{n \times n}$ be a real symmetric matrix ($A^T = A$).
+
+\begin{definition}[Symmetric Positive Definite Matrix -- SPD]
+The matrix $A$ is called \textbf{symmetric positive definite} (SPD) if its quadratic form is strictly positive for every non-zero vector:
+\begin{equation}
+    \mathbf{v}^T A \mathbf{v} > 0 \quad \forall \mathbf{v} \in \R^n \setminus \{\mathbf{0}\}.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Symmetric Positive Semi-Definite Matrix -- SPSD]
+The matrix $A$ is called \textbf{symmetric positive semi-definite} (SPSD) if its quadratic form is non-negative for every vector:
+\begin{equation}
+    \mathbf{v}^T A \mathbf{v} \ge 0 \quad \forall \mathbf{v} \in \R^n.
+\end{equation}
+\end{definition}
+
+\subsection{Equivalent Spectral Characterization}
+
+\begin{theorem}[Spectral Criterion for SPD and SPSD Matrices]
+\label{thm:spectral-criterion-spd}
+Let $A \in \R^{n \times n}$ be real symmetric with eigenvalues $\lambda_1, \dots, \lambda_n$. Then:
+\begin{enumerate}
+    \item $A$ is \textbf{SPD} $\iff \lambda_i > 0$ for all $i \in \{1, \dots, n\}$ (all eigenvalues are strictly positive).
+    \item $A$ is \textbf{SPSD} $\iff \lambda_i \ge 0$ for all $i \in \{1, \dots, n\}$ (all eigenvalues are non-negative).
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Directly from the Rayleigh quotient inequality:
+\begin{itemize}
+    \item If all $\lambda_i > 0$, then $\lambda_{\min} > 0$. By $\mathbf{v}^T A \mathbf{v} \ge \lambda_{\min} \|\mathbf{v}\|_2^2$, for any $\mathbf{v} \neq \mathbf{0}$ we have $\mathbf{v}^T A \mathbf{v} > 0$, so $A$ is SPD.
+    \item Conversely, if $A$ is SPD, setting $\mathbf{v} = \mathbf{u}_i$ (unit eigenvector for $\lambda_i$):
+    \begin{equation}
+        \mathbf{u}_i^T A \mathbf{u}_i = \lambda_i \|\mathbf{u}_i\|_2^2 = \lambda_i > 0.
+    \end{equation}
+    \item Replacing strict inequalities with weak ones establishes the SPSD case.
+\end{itemize}
+\end{proof}
+
+\subsection{Matrix Class Hierarchy and Nested Inclusions}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth,
+    block/.style={rectangle, draw, rounded corners, fill=blue!8, minimum height=0.7cm, font=\small}]
+    \node[block] (gen) at (0, 0) {Generic Matrices $\R^{n \times m}$};
+    \node[block] (sq) at (0, -1.0) {Square Matrices $\R^{n \times n}$};
+    \node[block] (inv) at (0, -2.0) {Invertible Matrices ($\det(A) \neq 0$)};
+    \node[block] (sym) at (0, -3.0) {Symmetric Matrices ($A^T = A$)};
+    \node[block] (spsd) at (0, -4.0) {SPSD Matrices ($\lambda_i \ge 0$)};
+    \node[block, fill=green!15, thick] (spd) at (0, -5.0) {SPD Matrices ($\lambda_i > 0$)};
+
+    \draw[->, thick] (gen) -- (sq);
+    \draw[->, thick] (sq) -- (inv);
+    \draw[->, thick] (inv) -- (sym);
+    \draw[->, thick] (sym) -- (spsd);
+    \draw[->, thick] (spsd) -- (spd);
+\end{tikzpicture}
+\caption{Structural hierarchy and progressive refinement of matrix classes in linear algebra.}
+\label{fig:matrix-hierarchy}
+\end{figure}
+
+The inclusion is strict:
+\begin{equation}
+    \text{SPD} \subset \text{SPSD} \subset \text{Symmetric}.
+\end{equation}
+An SPSD matrix belongs to the SPD class if and only if it is non-singular, meaning it has no zero eigenvalue ($\lambda_{\min} > 0 \iff \det(A) = \prod_{i=1}^n \lambda_i > 0$).
+
+\subsection{Illustrative Examples in \texorpdfstring{$\R^{2 \times 2}$}{R\textasciicircum(2x2)}}
+
+\begin{example}[Verification of SPD and SPSD Matrices]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{SPD Examples:}
+    \begin{itemize}
+        \item $A_1 = \begin{bmatrix} 1 & 0 \\ 0 & 2 \end{bmatrix}$: symmetric diagonal with eigenvalues $\lambda_1 = 1 > 0, \lambda_2 = 2 > 0 \implies \mathbf{SPD}$.
+        \item $A_2 = \begin{bmatrix} 2 & 1 \\ 1 & 2 \end{bmatrix}$: symmetric with eigenvalues calculated in Example~\ref{ex:eigenvalues-2x2} as $\lambda_1 = 3 > 0, \lambda_2 = 1 > 0 \implies \mathbf{SPD}$.
+    \end{itemize}
+    \item \textbf{SPSD but Non-SPD Examples:}
+    \begin{itemize}
+        \item $A_3 = \begin{bmatrix} 1 & 0 \\ 0 & 0 \end{bmatrix}$: symmetric diagonal with eigenvalues $\lambda_1 = 1 \ge 0, \lambda_2 = 0 \ge 0 \implies \mathbf{SPSD}$. It is not SPD because $\det(A_3) = 0$.
+        \item $A_4 = \begin{bmatrix} 1 & 1 \\ 1 & 1 \end{bmatrix}$: rows are identical, so $\rank(A_4) = 1 < 2$, implying $\lambda_1 = 0$. Because the trace equals the sum of eigenvalues, $\trace(A_4) = 1 + 1 = 2 \implies \lambda_1 + \lambda_2 = 2 \implies \lambda_2 = 2 \ge 0$. The eigenvalues are $\{2, 0\} \implies \mathbf{SPSD}$.
+    \end{itemize}
+    \item \textbf{Counterexample of an Indefinite Matrix:}
+    Consider $A_5 = \begin{bmatrix} 1 & 2 \\ 2 & 0 \end{bmatrix}$. Although its diagonal entries are non-negative, the determinant evaluates to:
+    \begin{equation}
+        \det(A_5) = 1(0) - 2(2) = -4 < 0.
+    \end{equation}
+    Because $\det(A_5) = \lambda_1 \lambda_2 = -4 < 0$, the eigenvalues have opposite signs ($\lambda_1 > 0$ and $\lambda_2 < 0$). The matrix is \textbf{indefinite} (neither SPD nor SPSD).
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section[Natural Generation of SPSD Matrices]{Natural Generation of SPSD Matrices: \texorpdfstring{$B^T B$}{B\textasciicircum T B} and \texorpdfstring{$B B^T$}{B B\textasciicircum T}}
+
+In scientific computing and statistics, positive semidefinite matrices are rarely assembled manually; rather, they arise naturally from multiplying a rectangular matrix by its transpose.
+
+\begin{proposition}[Positive Semidefiniteness of Gram Matrices]
+\label{prop:btb-bbt-spsd-en}
+Let $B \in \R^{n \times m}$ be an arbitrary matrix (square or rectangular). Then:
+\begin{enumerate}
+    \item The square matrix $B^T B \in \R^{m \times m}$ is symmetric positive semi-definite (\textbf{SPSD}).
+    \item The square matrix $B B^T \in \R^{n \times n}$ is symmetric positive semi-definite (\textbf{SPSD}).
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+We establish symmetry and positive semidefiniteness:
+
+\medskip
+\noindent\textbf{1. Verification of Symmetry:}
+Using the transpose of a matrix product:
+\begin{equation}
+    (B^T B)^T = B^T (B^T)^T = B^T B, \qquad (B B^T)^T = (B^T)^T B^T = B B^T.
+\end{equation}
+Both matrices are formally symmetric.
+
+\medskip
+\noindent\textbf{2. Positive Semidefiniteness of $B^T B$:}
+Let $\mathbf{v} \in \R^m$ be an arbitrary vector. Consider the quadratic form:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} = (\mathbf{v}^T B^T)(B \mathbf{v}) = (B \mathbf{v})^T (B \mathbf{v}).
+\end{equation}
+Recognizing the inner product $(B\mathbf{v})^T (B\mathbf{v})$ as the squared Euclidean norm of $\mathbf{w} = B\mathbf{v} \in \R^n$:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} = \|B \mathbf{v}\|_2^2.
+\end{equation}
+By non-negativity of vector norms, $\|B \mathbf{v}\|_2^2 \ge 0$ for all $\mathbf{v} \in \R^m$. Therefore:
+\begin{equation}
+    \mathbf{v}^T (B^T B) \mathbf{v} \ge 0 \quad \forall \mathbf{v} \in \R^m \implies B^T B \text{ is SPSD}.
+\end{equation}
+
+\medskip
+\noindent\textbf{3. Positive Semidefiniteness of $B B^T$:}
+Let $\mathbf{u} \in \R^n$ be an arbitrary vector. In an identical manner:
+\begin{equation}
+    \mathbf{u}^T (B B^T) \mathbf{u} = (\mathbf{u}^T B)(B^T \mathbf{u}) = (B^T \mathbf{u})^T (B^T \mathbf{u}) = \|B^T \mathbf{u}\|_2^2 \ge 0 \quad \forall \mathbf{u} \in \R^n.
+\end{equation}
+Hence $B B^T$ is also SPSD.
+\end{proof}
+
+\begin{corollary}[Condition for Strict Positive Definiteness of $B^T B$]
+The matrix $B^T B \in \R^{m \times m}$ is \textbf{strictly positive definite (SPD)} if and only if $B$ has full column rank:
+\begin{equation}
+    B^T B \in \text{SPD} \iff \rank(B) = m \iff \ker(B) = \{\mathbf{0}\}.
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+From the previous proof, $\mathbf{v}^T (B^T B) \mathbf{v} = \|B\mathbf{v}\|_2^2$. This quantity vanishes if and only if $\|B\mathbf{v}\|_2 = 0 \iff B\mathbf{v} = \mathbf{0} \iff \mathbf{v} \in \ker(B)$.
+When $\ker(B) = \{\mathbf{0}\}$, no non-zero vector can zero out the quadratic form, making $B^T B$ strictly positive definite.
+\end{proof}
+
+\begin{noteblock}{Relevance to Normal Equations and SVD}
+This fundamental property underpins two cornerstones of computational mathematics:
+\begin{enumerate}
+    \item \textbf{Linear Least Squares:} Solving $\min_{\mathbf{x}} \|A\mathbf{x} - \mathbf{b}\|_2$ yields the normal equations:
+    \begin{equation}
+        A^T A \mathbf{x} = A^T \mathbf{b}.
+    \end{equation}
+    When $A$ has full column rank, $A^T A$ is SPD, guaranteeing unique solvability via Cholesky factorization.
+    \item \textbf{Singular Value Decomposition (SVD):} The singular values $\sigma_i$ of an arbitrary matrix $B$ are defined as the non-negative square roots of the eigenvalues of the SPSD matrix $B^T B$:
+    \begin{equation}
+        \sigma_i = \sqrt{\lambda_i(B^T B)} \ge 0.
+    \end{equation}
+\end{enumerate}
+\end{noteblock}
+
+\clearpage
+\section{Chapter Summary Formulary}
+
+Table~\ref{tab:lecture-3-summary} provides an organized summary of definitions, matrix structures, and algebraic properties covered in this chapter.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Concept / Matrix} & \textbf{Mathematical Formulation} & \textbf{Key Property / Spectrum} \\
+\midrule
+Orthonormal Columns ($k < n$) & $V \in \R^{n \times k}, \; \mathbf{v}_i^T \mathbf{v}_j = \delta_{ij}$ & $V^T V = I_k$, while $V V^T \neq I_n$ \\
+Orthogonal Projector & $P = V V^T = \sum_{i=1}^k \mathbf{v}_i \mathbf{v}_i^T$ & Symmetric ($P^T = P$), idempotent ($P^2 = P$), $\rank(P) = k$ \\
+Partial Isometry & $\|V\mathbf{x}\|_2 = \|\mathbf{x}\|_2 \quad (\forall \mathbf{x} \in \R^k)$ & Does not preserve norm on $\R^n$: $\|V^T \tilde{\mathbf{y}}\|_2 = 0$ for $\tilde{\mathbf{y}} \in \ker(V^T)$ \\
+Eigenpair & $A\mathbf{v} = \lambda \mathbf{v}, \quad \mathbf{v} \neq \mathbf{0}$ & $\lambda$ root of $\det(A - \lambda I_n) = 0$ \\
+Diagonalization & $A = V D V^{-1}$ & Requires $n$ linearly independent eigenvectors \\
+Dyadic Expansion & $A = \sum_{i=1}^n \lambda_i \mathbf{v}_i \mathbf{w}_i^T$ & Linear combination of $n$ rank-1 matrices \\
+Matrix Power & $A^k = V D^k V^{-1}$ & Eigenpairs $(\lambda_i^k, \mathbf{v}_i)$: eigenvectors unchanged \\
+Spectral Theorem & $A^T = A \implies A = U D U^T$ & Real eigenvalues, orthonormal eigenvectors ($U^T U = I_n$) \\
+Rayleigh Inequality & $\lambda_{\min} \|\mathbf{x}\|_2^2 \le \mathbf{x}^T A \mathbf{x} \le \lambda_{\max} \|\mathbf{x}\|_2^2$ & Bounds attained on corresponding eigenspaces \\
+SPD Matrix & $A^T = A, \; \mathbf{x}^T A \mathbf{x} > 0 \; (\forall \mathbf{x} \neq \mathbf{0})$ & All $\lambda_i > 0$; invertible with $\det(A) > 0$ \\
+SPSD Matrix & $A^T = A, \; \mathbf{x}^T A \mathbf{x} \ge 0 \; (\forall \mathbf{x})$ & All $\lambda_i \ge 0$; may have zero eigenvalues \\
+Gramians $B^T B$ and $B B^T$ & $\mathbf{v}^T (B^T B) \mathbf{v} = \|B\mathbf{v}\|_2^2 \ge 0$ & Always SPSD for any $B \in \R^{n \times m}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Comprehensive overview of spectral properties, orthogonal projectors, and quadratic forms.}
+\label{tab:lecture-3-summary}
+\end{table}

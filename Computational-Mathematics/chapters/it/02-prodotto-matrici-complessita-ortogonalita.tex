@@ -1,0 +1,674 @@
+\chapter{Prodotto tra Matrici, Complessit\`a Computazionale e Matrici Ortogonali}
+\label{chap:prodotto-matrici-complessita-ortogonalita}
+
+Il presente capitolo approfondisce le operazioni algebriche di livello superiore tra matrici, analizzando la moltiplicazione matrice-matrice, il relativo profilo di complessit\`a computazionale e le propriet\`a strutturali degli spazi fondamentali associati a una matrice. Vengono quindi introdotte l'ortogonalit\`a vettoriale e le matrici ortogonali, componenti basilari per la progettazione di algoritmi stabili e per le fattorizzazioni matriciali dell'algebra lineare numerica~\cite{trefethen1997numerical}.
+
+\FloatBarrier
+\section{Moltiplicazione Matrice-Matrice}
+
+\subsection{Condizione di Compatibilit\`a Dimensionale}
+
+Siano date due matrici a entrate reali $A$ e $B$. L'operazione di moltiplicazione matriciale $C = AB$ \`e lecita ed algebricamente definita \textbf{se e solo se} il numero di colonne del primo fattore $A$ coincide con il numero di righe del secondo fattore $B$.
+
+\begin{definition}[Compatibilit\`a del Prodotto Matriciale]
+Dati $n, m, p \in \N$, siano $A \in \R^{n \times m}$ e $B \in \R^{m \times p}$. Il prodotto matrice-matrice restituisce la matrice $C = AB \in \R^{n \times p}$ la cui dimensione \`e data dal numero di righe del primo fattore per il numero di colonne del secondo:
+\begin{equation}
+    A \in \R^{n \times m}, \quad B \in \R^{m \times p} \implies C = AB \in \R^{n \times p}.
+\end{equation}
+\end{definition}
+
+Se il numero di colonne di $A$ differisce dal numero di righe di $B$, il prodotto non \`e definito. In generale, anche per matrici quadrate ($n = m = p$), la moltiplicazione non gode della propriet\`a commutativa:
+\begin{equation}
+    AB \neq BA \qquad \text{(in generale)}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+    % --- Matrice A (n x m) ---
+    \draw[thick, fill=blue!8, draw=blue!60!black] (0, 0) rectangle (2.4, 3.2);
+    % Riga i di A evidenziata
+    \draw[fill=blue!25, draw=blue!70!black, thick] (0, 2.0) rectangle (2.4, 2.5);
+    \node[font=\scriptsize\bfseries, text=blue!90!black] at (1.2, 2.25) {riga $i$: $\mathbf{u}_i^T$};
+    \node[font=\bfseries\Large, text=blue!80!black] at (1.2, 1.0) {$A$};
+    % Braces dimensionali di A (orientate verso l'esterno)
+    \draw[brace] (-0.15, 0) -- (-0.15, 3.2) node[midway, left=6pt, font=\small] {$n$};
+    \draw[brace] (0, 3.2) -- (2.4, 3.2) node[midway, above=6pt, font=\small] {$m$};
+
+    % Operatore moltiplicazione
+    \node[font=\huge, text=gray!80!black] at (3.4, 1.6) {$\times$};
+
+    % --- Matrice B (m x p) ---
+    \draw[thick, fill=green!8, draw=green!60!black] (4.4, 0.4) rectangle (7.6, 2.8);
+    % Colonna j di B evidenziata
+    \draw[fill=green!25, draw=green!70!black, thick] (5.2, 0.4) rectangle (5.7, 2.8);
+    \node[below=6pt, font=\scriptsize\bfseries, text=green!70!black] at (5.45, 0.4) {$\mathbf{w}_j$ (col. $j$)};
+    \node[font=\bfseries\Large, text=green!70!black] at (6.65, 1.6) {$B$};
+    % Braces dimensionali di B (orientate verso l'esterno)
+    \draw[brace] (4.4, 2.8) -- (7.6, 2.8) node[midway, above=6pt, font=\small] {$p$};
+    \draw[brace] (7.75, 2.8) -- (7.75, 0.4) node[midway, right=6pt, font=\small] {$m$};
+
+    % Operatore uguaglianza
+    \node[font=\huge, text=gray!80!black] at (9.0, 1.6) {$=$};
+
+    % --- Matrice C (n x p) ---
+    \draw[thick, fill=orange!8, draw=orange!60!black] (10.2, 0) rectangle (13.4, 3.2);
+    % Linee guida tratteggiate
+    \draw[dashed, blue!50, thin] (10.2, 2.25) -- (13.4, 2.25);
+    \draw[dashed, green!60!black, thin] (11.45, 0) -- (11.45, 3.2);
+    % Elemento C_ij all'intersezione
+    \draw[fill=orange!70, draw=red!80!black, thick] (11.15, 2.0) rectangle (11.75, 2.5);
+    \node[font=\scriptsize\bfseries, text=white] at (11.45, 2.25) {$C_{ij}$};
+    \node[font=\bfseries\large, text=orange!80!black, align=center] at (12.3, 1.0) {$C = AB$\\[2pt]\scriptsize $C_{ij} = \mathbf{u}_i^T \mathbf{w}_j$};
+    % Braces dimensionali di C (orientate verso l'esterno)
+    \draw[brace] (10.2, 3.2) -- (13.4, 3.2) node[midway, above=6pt, font=\small] {$p$};
+    \draw[brace] (13.55, 3.2) -- (13.55, 0) node[midway, right=6pt, font=\small] {$n$};
+\end{tikzpicture}%
+}
+\caption{Compatibilit\`a dimensionale nel prodotto matriciale: l'elemento generico $C_{ij}$ nasce dall'intersezione tra la riga $\mathbf{u}_i^T$ di $A$ e la colonna $\mathbf{w}_j$ di $B$.}
+\label{fig:compatibilita-matrici}
+\end{figure}
+
+\subsection{Definizione per Componenti}
+
+Ciascun elemento $C_{ij}$ posizionato all'intersezione tra la riga $i$ ($1 \le i \le n$) e la colonna $j$ ($1 \le j \le p$) della matrice risultante \`e generato dal prodotto scalare euclideo tra la riga $i$-esima di $A$ e la colonna $j$-esima di $B$:
+
+\begin{definition}[Formula per Componenti del Prodotto]
+Dati $A \in \R^{n \times m}$ e $B \in \R^{m \times p}$, la voce $(i,j)$ del prodotto $C = AB$ \`e pari a:
+\begin{equation}
+    C_{ij} = \sum_{k=1}^m A_{ik} B_{kj} = A_{i1}B_{1j} + A_{i2}B_{2j} + \dots + A_{im}B_{mj}.
+\end{equation}
+In forma vettoriale, indicando con $\mathbf{u}_i^T$ la $i$-esima riga di $A$ e con $\mathbf{w}_j$ la $j$-esima colonna di $B$:
+\begin{equation}
+    C_{ij} = \langle \mathbf{u}_i, \mathbf{w}_j \rangle = \mathbf{u}_i^T \mathbf{w}_j.
+\end{equation}
+\end{definition}
+
+\subsection{Esempio Numerico Passo-Passo}
+
+\begin{example}[Calcolo Dettagliato del Prodotto Rettangolare]
+Siano assegnate le matrici:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 \\ 0 & 3 \end{bmatrix} \in \R^{2 \times 2}, \qquad B = \begin{bmatrix} 0 & 1 & -1 \\ 1 & 0 & 2 \end{bmatrix} \in \R^{2 \times 3}.
+\end{equation}
+Poich\'e le colonne di $A$ ($m = 2$) eguagliano le righe di $B$ ($m = 2$), la matrice prodotto $C = AB$ \`e ben definita ed ha dimensione $2 \times 3$. Calcoliamo analiticamente le sue sei componenti:
+
+\paragraph{Prima riga di $C$ (prodotto della riga 1 di $A$ con le colonne di $B$):}
+\begin{align}
+    C_{11} &= A_{11}B_{11} + A_{12}B_{21} = 1 \cdot 0 + 2 \cdot 1 = 0 + 2 = 2, \\
+    C_{12} &= A_{11}B_{12} + A_{12}B_{22} = 1 \cdot 1 + 2 \cdot 0 = 1 + 0 = 1, \\
+    C_{13} &= A_{11}B_{13} + A_{12}B_{23} = 1 \cdot (-1) + 2 \cdot 2 = -1 + 4 = 3.
+\end{align}
+
+\paragraph{Seconda riga di $C$ (prodotto della riga 2 di $A$ con le colonne di $B$):}
+\begin{align}
+    C_{21} &= A_{21}B_{11} + A_{22}B_{21} = 0 \cdot 0 + 3 \cdot 1 = 0 + 3 = 3, \\
+    C_{22} &= A_{21}B_{12} + A_{22}B_{22} = 0 \cdot 1 + 3 \cdot 0 = 0 + 0 = 0, \\
+    C_{23} &= A_{21}B_{13} + A_{22}B_{23} = 0 \cdot (-1) + 3 \cdot 2 = 0 + 6 = 6.
+\end{align}
+
+Ricomponendo i valori calcolati nella tabella matriciale:
+\begin{equation}
+    C = AB = \begin{bmatrix} 2 & 1 & 3 \\ 3 & 0 & 6 \end{bmatrix} \in \R^{2 \times 3}.
+\end{equation}
+\end{example}
+
+\FloatBarrier
+\section{Complessit\`a Computazionale e Legge di Scaling}
+
+\subsection{Conteggio Rigoroso dei FLOPs}
+
+La valutazione del tempo di esecuzione di un algoritmo numerico richiede la stima analitica delle operazioni in virgola mobile (\textit{FLOPs}, floating-point operations).
+
+\begin{property}[Costo Computazionale del Prodotto Matrice-Matrice]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Costo di una singola entrata:}
+    La valutazione di $C_{ij} = \sum_{k=1}^m A_{ik} B_{kj}$ richiede $m$ moltiplicazioni tra scalari ed $m - 1$ addizioni, per un totale di:
+    \begin{equation}
+        \text{FLOPs per entrata} = m + (m - 1) = 2m - 1 \quad \implies \quad \BigO{m}.
+    \end{equation}
+    \item \textbf{Costo del caso rettangolare generale ($A \in \R^{n \times m}, B \in \R^{m \times p}$):}
+    Dovendo calcolare $n \cdot p$ elementi indipendenti:
+    \begin{equation}
+        \text{FLOPs Totali} = n \cdot p \cdot (2m - 1) = 2nmp - np \quad \implies \quad \BigO{nmp}.
+    \end{equation}
+    \item \textbf{Costo del caso quadrato ($n = m = p$):}
+    Se entrambe le matrici appartengono a $\R^{n \times n}$, la matrice $C$ contiene $n^2$ elementi:
+    \begin{equation}
+        \text{FLOPs Totali}(n) = n^2 \cdot (2n - 1) = 2n^3 - n^2 \quad \implies \quad \BigO{n^3}.
+    \end{equation}
+\end{enumerate}
+\end{property}
+
+Il termine dominante $2n^3$ impone una crescita cubica al crescere della taglia $n$.
+
+\subsection{Legge di Scalabilit\`a Temporale Cubica}
+
+Sia $T(n) \approx \gamma n^3$ il tempo di calcolo su un'architettura hardware fissata, dove la costante $\gamma > 0$ racchiude l'efficienza della cache, la frequenza di clock della CPU e il fattore di conversione del compilatore.
+
+\begin{example}[Previsione dei Tempi con Raddoppio della Dimensione]
+Supponiamo che il prodotto tra due matrici quadrate dense di dimensione $n = 1000$ richieda $3\text{ secondi}$ di CPU:
+\begin{equation}
+    T(1000) \approx \gamma \cdot (1000)^3 = 3\text{ s}.
+\end{equation}
+Se raddoppiamo la dimensione portandola a $n' = 2000$, la legge cubica stabilisce:
+\begin{equation}
+    T(2000) \approx \gamma \cdot (2000)^3 = \gamma \cdot (2 \cdot 1000)^3 = 8 \cdot \left(\gamma \cdot 1000^3\right) = 8 \cdot T(1000).
+\end{equation}
+Il tempo di esecuzione scala di un fattore $8$:
+\begin{equation}
+    T(2000) \approx 8 \cdot 3\text{ s} = 24\text{ secondi}.
+\end{equation}
+\end{example}
+
+\subsection{Quadro Comparativo delle Operazioni Fondamentali}
+
+La tabella~\ref{tab:confronto-complessita} illustra come le tre operazioni cardine dell'algebra lineare numerica scalino in risposta a un incremento di un fattore $10$ della dimensione lineare $n$ (passaggio da $n = 10^3$ a $n = 10^4$).
+
+\begin{table}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tabular}{l l c l c}
+\toprule
+\textbf{Operazione} & \textbf{Dati Coinvolti} & \textbf{Formula FLOPs} & \textbf{Costo} & \textbf{Fattore ($10\times$)} \\
+\midrule
+Prodotto Scalare & $\mathbf{v}, \mathbf{w} \in \R^n$ & $2n - 1$ & $\BigO{n}$ & $10^1 = 10$ \\
+Matrice-Vettore & $A \in \R^{n \times n}, \mathbf{b} \in \R^n$ & $2n^2 - n$ & $\BigO{n^2}$ & $10^2 = 100$ \\
+Matrice-Matrice & $A, B \in \R^{n \times n}$ & $2n^3 - n^2$ & $\BigO{n^3}$ & $10^3 = 1000$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Confronto di complessit\`a computazionale e fattore di scaling per una dilatazione di ordine di grandezza dei dati.}
+\label{tab:confronto-complessita}
+\end{table}
+
+Se un'operazione matrice-matrice con $n = 1000$ impiega $1\text{ secondo}$, la medesima operazione con $n = 10\,000$ richieder\`a $1000\text{ secondi}$ ($\approx 16.6\text{ minuti}$).
+
+\FloatBarrier
+\section{Propriet\`a Fondamentali: Rango, Spazi Fondamentali e Invertibilit\`a}
+
+\subsection{Definizioni degli Spazi Associati a una Matrice}
+
+Sia $A \in \R^{n \times m}$ interpretata come operatore lineare $T_A: \R^m \to \R^n$ tale che $T_A(\mathbf{x}) = A\mathbf{x}$.
+
+\begin{definition}[Rango di una Matrice]
+Il \textbf{rango} di $A$, denotato con $\rank(A)$, \`e la dimensione dello spazio generato dalle sue colonne. Vale il teorema fondamentale per cui il rango per colonne coincide sempre con il rango per righe:
+\begin{equation}
+    \rank(A) = \dim(\mathrm{col}(A)) = \dim(\mathrm{row}(A)) \le \min(n, m).
+\end{equation}
+Se $\rank(A) = \min(n, m)$, la matrice si dice a \textbf{rango pieno} (\textit{full rank}).
+\end{definition}
+
+\begin{definition}[Spazio Nullo o Kernel]
+Il \textbf{nucleo} (\textit{kernel} o \textit{nullspace}) di $A$ \`e il sottospazio di $\R^m$ costituito da tutti i vettori che vengono mappati nel vettore nullo di $\R^n$:
+\begin{equation}
+    \ker(A) = \left\{ \mathbf{x} \in \R^m : A\mathbf{x} = \mathbf{0}_{\R^n} \right\} \subseteq \R^m.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Immagine o Range]
+L'\textbf{immagine} (\textit{image} o \textit{range}) di $A$ \`e il sottospazio di $\R^n$ generato da tutte le combinazioni lineari delle colonne di $A$:
+\begin{equation}
+    \mathrm{Im}(A) = \spanop(\text{colonne di } A) = \left\{ A\mathbf{x} : \mathbf{x} \in \R^m \right\} \subseteq \R^n.
+\end{equation}
+Vale $\dim(\mathrm{Im}(A)) = \rank(A)$.
+\end{definition}
+
+\begin{theorem}[Teorema del Rango-Nullit\`a]
+Per ogni matrice $A \in \R^{n \times m}$ avente $m$ colonne, la somma della dimensione dell'immagine e della dimensione del nucleo eguaglia la dimensione dello spazio di partenza:
+\begin{equation}
+    \dim(\mathrm{Im}(A)) + \dim(\ker(A)) = m.
+\end{equation}
+\end{theorem}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    subspace/.style={thick, rounded corners=6pt},
+    point/.style={circle, fill, inner sep=2pt}]
+
+    % ================= DOMINIO R^m =================
+    \draw[thick, fill=blue!4, draw=blue!50!black] (0, 0) ellipse (2.6 and 3.2);
+    \node[above=6pt, font=\bfseries\large, text=blue!90!black] at (0, 3.2) {Dominio $\R^m$};
+    \node[font=\footnotesize, text=gray!70!black] at (0, 2.7) {$\dim = m$};
+
+    % Sottospazio ortogonale (ker A)^\perp
+    \draw[subspace, fill=blue!12, draw=blue!70!black] (-2.0, 0.4) rectangle (2.0, 2.3);
+    \node[font=\small\bfseries, text=blue!90!black] at (0, 1.9) {$(\ker(A))^\perp$};
+    \node[font=\scriptsize, text=gray!80!black] at (0, 1.45) {$\dim = r$};
+    \node[point, fill=blue!90!black, label={[blue!90!black, left=3pt]:$\mathbf{x}$}] (x) at (0.4, 0.85) {};
+
+    % Simbolo di somma diretta ortogonale
+    \node[font=\scriptsize, text=gray!70!black] at (0, 0.05) {$\oplus \quad (\ker(A) \perp (\ker(A))^\perp)$};
+
+    % Nucleo ker(A)
+    \draw[subspace, fill=red!10, draw=red!70!black] (-2.0, -2.4) rectangle (2.0, -0.3);
+    \node[font=\small\bfseries, text=red!85!black] at (0, -0.7) {$\ker(A)$};
+    \node[font=\scriptsize, text=gray!80!black] at (0, -1.1) {$\dim = m - r$};
+    \node[font=\scriptsize, text=red!70!black] at (0, -1.45) {$\{ \mathbf{v} \in \R^m : A\mathbf{v} = \mathbf{0} \}$};
+    \node[point, fill=red!80!black, label={[red!80!black, left=3pt]:$\mathbf{v}$}] (v) at (0.4, -1.9) {};
+
+    % ================= CODOMINIO R^n =================
+    \begin{scope}[xshift=8.2cm]
+        \draw[thick, fill=green!4, draw=green!50!black] (0, 0) ellipse (2.6 and 3.2);
+        \node[above=6pt, font=\bfseries\large, text=green!80!black] at (0, 3.2) {Codominio $\R^n$};
+        \node[font=\footnotesize, text=gray!70!black] at (0, 2.7) {$\dim = n$};
+
+        % Immagine Im(A)
+        \draw[subspace, fill=green!15, draw=green!70!black] (-2.0, 0.4) rectangle (2.0, 2.3);
+        \node[font=\small\bfseries, text=green!70!black] at (0, 1.9) {$\mathrm{Im}(A)$};
+        \node[font=\scriptsize, text=gray!80!black] at (0, 1.45) {$\dim = r = \rank(A)$};
+        \node[point, fill=green!70!black, label={[green!60!black, right=3pt]:$A\mathbf{x}$}] (Ax) at (-0.4, 0.85) {};
+
+        % Simbolo di somma diretta ortogonale
+        \node[font=\scriptsize, text=gray!70!black] at (0, 0.05) {$\oplus \quad (\mathrm{Im}(A) \perp \ker(A^T))$};
+
+        % Complementare ortogonale dell'immagine: ker(A^T)
+        \draw[subspace, fill=gray!10, draw=gray!50, dashed] (-2.0, -2.4) rectangle (2.0, -0.3);
+        \node[font=\small\bfseries, text=gray!80!black] at (0, -0.7) {$(\mathrm{Im}(A))^\perp = \ker(A^T)$};
+        \node[font=\scriptsize, text=gray!80!black] at (0, -1.1) {$\dim = n - r$};
+        \node[point, fill=red!80!black, label={[red!80!black, right=3pt]:$\mathbf{0}_{\R^n}$}] (zero) at (-0.4, -1.9) {};
+    \end{scope}
+
+    % ================= MAPPE / TRASFORMAZIONI =================
+    % Isomorfismo tra (ker A)^\perp e Im(A)
+    \draw[->, very thick, blue!80!black] (x) to[out=18, in=162] node[midway, above=4pt, font=\small, align=center] {$T_A(\mathbf{x}) = A\mathbf{x}$\\[1pt]\scriptsize (isomorfismo)} (Ax);
+
+    % Mappatura del nucleo verso il vettore nullo
+    \draw[->, thick, dashed, red!80!black] (v) -- node[midway, above=4pt, font=\small] {$A\mathbf{v} = \mathbf{0}$} (zero);
+
+\end{tikzpicture}%
+}
+\caption{Rappresentazione geometrica dei sottospazi fondamentali e del Teorema del Rango-Nullit\`a: $\dim(\ker(A)) + \dim(\mathrm{Im}(A)) = m$. La restrizione di $A$ al sottospazio ortogonale $(\ker(A))^\perp$ mappa biunivocamente su $\mathrm{Im}(A)$.}
+\label{fig:spazi-fondamentali}
+\end{figure}
+
+\subsection{Invertibilit\`a di Matrici Quadrate}
+
+Nel contesto di matrici quadrate $A \in \R^{n \times n}$, le nozioni di rango, nucleo e invertibilit\`a si fondono in un unico teorema di equivalenza.
+
+\begin{definition}[Matrice Invertibile o Non Singolare]
+Una matrice $A \in \R^{n \times n}$ si dice \textbf{invertibile} se esiste un'unica matrice $A^{-1} \in \R^{n \times n}$ tale che:
+\begin{equation}
+    A A^{-1} = I_n \qquad \text{e} \qquad A^{-1} A = I_n.
+\end{equation}
+\end{definition}
+
+\begin{theorem}[Caratterizzazioni Equivalenti di Invertibilit\`a]
+Sia $A \in \R^{n \times n}$. Le seguenti affermazioni sono equivalenti:
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item $A$ \`e invertibile.
+    \item $\rank(A) = n$ ($A$ ha rango massimo).
+    \item $\det(A) \neq 0$.
+    \item $\ker(A) = \{ \mathbf{0}_{\R^n} \}$ (il nucleo contiene esclusivamente il vettore nullo).
+    \item Le colonne di $A$ formano una base di $\R^n$.
+    \item Il sistema lineare $A\mathbf{x} = \mathbf{b}$ ammette una e una sola soluzione $\mathbf{x} = A^{-1}\mathbf{b}$ per ogni $\mathbf{b} \in \R^n$.
+\end{enumerate}
+\end{theorem}
+
+\subsection{Esempio Guidato: Calcolo di Rango, Nucleo e Immagine}
+
+\begin{example}[Analisi Completa di una Matrice $3 \times 3$ Singolare]
+Consideriamo la matrice:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix} \in \R^{3 \times 3}.
+\end{equation}
+
+\paragraph{1. Calcolo del Rango via Eliminazione Gaussiana:}
+Applichiamo l'operazione elementare per righe $R_2 \leftarrow R_2 - 2R_1$:
+\begin{equation}
+    \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix}
+    \xrightarrow{R_2 \to R_2 - 2R_1}
+    \begin{bmatrix} 1 & 2 & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 1 \end{bmatrix}
+    \xrightarrow{R_2 \leftrightarrow R_3}
+    \begin{bmatrix} 1 & 2 & 0 \\ 0 & 0 & 1 \\ 0 & 0 & 0 \end{bmatrix}.
+\end{equation}
+La matrice ridotta a gradini presenta 2 pivot non nulli. Di conseguenza:
+\begin{equation}
+    \rank(A) = 2.
+\end{equation}
+Poich\'e $\rank(A) = 2 < 3$, la matrice $A$ \textbf{non \`e invertibile} ($\det(A) = 0$).
+
+\paragraph{2. Determinazione dell'Immagine $\mathrm{Im}(A)$:}
+Osservando le colonne di $A$:
+\begin{equation}
+    \mathbf{a}_1 = \begin{bmatrix} 1 \\ 2 \\ 0 \end{bmatrix}, \qquad \mathbf{a}_2 = \begin{bmatrix} 2 \\ 4 \\ 0 \end{bmatrix} = 2\mathbf{a}_1, \qquad \mathbf{a}_3 = \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}.
+\end{equation}
+La seconda colonna \`e collineare alla prima ed \`e dunque ridondante. Le colonne $\mathbf{a}_1$ e $\mathbf{a}_3$ sono linearmente indipendenti e costituiscono una base dell'immagine:
+\begin{equation}
+    \mathrm{Im}(A) = \spanop\left\{ \begin{bmatrix} 1 \\ 2 \\ 0 \end{bmatrix}, \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} \right\}, \qquad \dim(\mathrm{Im}(A)) = 2.
+\end{equation}
+
+\paragraph{3. Determinazione del Nucleo $\ker(A)$:}
+Risolviamo il sistema omogeneo $A\mathbf{x} = \mathbf{0}_{\R^3}$ per $\mathbf{x} = [x_1, x_2, x_3]^T$:
+\begin{equation}
+    \begin{bmatrix} 1 & 2 & 0 \\ 2 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix} \begin{bmatrix} x_1 \\ x_2 \\ x_3 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \\ 0 \end{bmatrix} \implies \begin{cases} x_1 + 2x_2 = 0 \\ x_3 = 0 \end{cases} \implies \begin{cases} x_1 = -2x_2 \\ x_3 = 0 \end{cases}.
+\end{equation}
+Assegnando alla variabile libera $x_2$ il parametro $t \in \R$:
+\begin{equation}
+    \mathbf{x} = \begin{bmatrix} -2t \\ t \\ 0 \end{bmatrix} = t \begin{bmatrix} -2 \\ 1 \\ 0 \end{bmatrix} \implies \ker(A) = \spanop\left\{ \begin{bmatrix} -2 \\ 1 \\ 0 \end{bmatrix} \right\}.
+\end{equation}
+La dimensione del nucleo \`e $\dim(\ker(A)) = 1$. Verifichiamo il Teorema del Rango-Nullit\`a:
+\begin{equation}
+    \dim(\mathrm{Im}(A)) + \dim(\ker(A)) = 2 + 1 = 3 = m.
+\end{equation}
+\end{example}
+
+\FloatBarrier
+\section{Ortogonalit\`a e Ortonormalit\`a Vettoriale}
+
+\subsection{Definizioni Fondamentali}
+
+\begin{definition}[Vettori Ortogonali]
+Due vettori $\mathbf{v}, \mathbf{w} \in \R^n$ si dicono \textbf{ortogonali} ($\mathbf{v} \perp \mathbf{w}$) se e solo se il loro prodotto scalare standard \`e nullo:
+\begin{equation}
+    \langle \mathbf{v}, \mathbf{w} \rangle = \mathbf{v}^T \mathbf{w} = 0.
+\end{equation}
+\end{definition}
+
+\begin{definition}[Insieme Ortogonale ed Ortonormale]
+Un insieme di vettori $\{\mathbf{v}_1, \dots, \mathbf{v}_k\} \subset \R^n$ \`e detto:
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Ortogonale} se i vettori sono a due a due ortogonali:
+    \begin{equation}
+        \langle \mathbf{v}_i, \mathbf{v}_j \rangle = 0 \qquad \forall i \neq j.
+    \end{equation}
+    \item \textbf{Ortonormale} se \`e ortogonale e ciascun vettore possiede norma euclidea unitaria:
+    \begin{equation}
+        \langle \mathbf{v}_i, \mathbf{v}_j \rangle = \delta_{ij} = \begin{cases} 1 & \text{se } i = j, \\ 0 & \text{se } i \neq j, \end{cases}
+    \end{equation}
+    dove $\delta_{ij}$ denota la delta di Kronecker.
+\end{enumerate}
+\end{definition}
+
+\subsection{Esercizi Costruttivi di Normalizzazione in \texorpdfstring{$\R^2$}{R2}}
+
+\begin{example}[Costruzione e Normalizzazione di una Coppia Ortogonale]
+\mbox{}\par\nopagebreak
+\begin{enumerate}
+    \item \textbf{Ricerca di un vettore ortogonale:}
+    Sia assegnato il vettore $\mathbf{v}_1 = [2, 1]^T \in \R^2$. Cerchiamo un vettore non nullo $\mathbf{v}_2 = [x, y]^T$ tale che $\langle \mathbf{v}_1, \mathbf{v}_2 \rangle = 0$:
+    \begin{equation}
+        2x + y = 0 \implies y = -2x.
+    \end{equation}
+    Scegliendo $x = 1$, otteniamo $y = -2$, da cui la coppia ortogonale:
+    \begin{equation}
+        \mathbf{v}_1 = \begin{bmatrix} 2 \\ 1 \end{bmatrix}, \qquad \mathbf{v}_2 = \begin{bmatrix} 1 \\ -2 \end{bmatrix}, \qquad \langle \mathbf{v}_1, \mathbf{v}_2 \rangle = 2(1) + 1(-2) = 0.
+    \end{equation}
+    \item \textbf{Normalizzazione euclidea (Ortonormalizzazione):}
+    Dividiamo ciascun vettore per la rispettiva norma euclidea $\ell_2$:
+    \begin{align}
+        \|\mathbf{v}_1\|_2 &= \sqrt{2^2 + 1^2} = \sqrt{5} \implies \mathbf{u}_1 = \frac{\mathbf{v}_1}{\|\mathbf{v}_1\|_2} = \begin{bmatrix} 2/\sqrt{5} \\ 1/\sqrt{5} \end{bmatrix}, \\
+        \|\mathbf{v}_2\|_2 &= \sqrt{1^2 + (-2)^2} = \sqrt{5} \implies \mathbf{u}_2 = \frac{\mathbf{v}_2}{\|\mathbf{v}_2\|_2} = \begin{bmatrix} 1/\sqrt{5} \\ -2/\sqrt{5} \end{bmatrix}.
+    \end{align}
+    Verifichiamo le propriet\`a di ortonormalit\`a:
+    \begin{align}
+        \|\mathbf{u}_1\|_2 &= 1, \qquad \|\mathbf{u}_2\|_2 = 1, \\
+        \langle \mathbf{u}_1, \mathbf{u}_2 \rangle &= \frac{2}{\sqrt{5}}\frac{1}{\sqrt{5}} + \frac{1}{\sqrt{5}}\left(-\frac{2}{\sqrt{5}}\right) = \frac{2}{5} - \frac{2}{5} = 0.
+    \end{align}
+    L'insieme $\{\mathbf{u}_1, \mathbf{u}_2\}$ costituisce una base ortonormale di $\R^2$.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\section{Matrici Ortogonali}
+
+\subsection{Definizione e Propriet\`a della Trasposta}
+
+Richiamiamo che per una generica matrice rettangolare $A \in \R^{n \times m}$, la matrice trasposta $A^T \in \R^{m \times n}$ ha elementi $(A^T)_{ij} = A_{ji}$. Per qualsiasi coppia di matrici compatibili, vale l'inversione dell'ordine nella trasposizione:
+\begin{equation}
+    (AB)^T = B^T A^T.
+\end{equation}
+
+\begin{definition}[Matrice Ortogonale]
+Una matrice quadrata $U \in \R^{n \times n}$ \`e definita \textbf{ortogonale} se e solo se la sua trasposta coincide con la sua inversa:
+\begin{equation}
+    U^T U = U U^T = I_n \iff U^{-1} = U^T.
+\end{equation}
+\end{definition}
+
+\subsection{Caratterizzazione per Colonne e per Righe}
+
+\begin{theorem}[Ortonormalit\`a delle Colonne e delle Righe]
+Una matrice quadrata $U \in \R^{n \times n}$ \`e ortogonale se e solo se le sue colonne formano una base ortonormale di $\R^n$. Equivalentemente, $U$ \`e ortogonale se e solo se le sue righe formano una base ortonormale di $\R^n$.
+\end{theorem}
+
+\begin{proof}
+Partizioniamo $U$ per vettori colonna $\mathbf{u}_1, \mathbf{u}_2, \dots, \mathbf{u}_n \in \R^n$:
+\begin{equation}
+    U = \begin{bmatrix} \mathbf{u}_1 & \mathbf{u}_2 & \dots & \mathbf{u}_n \end{bmatrix}.
+\end{equation}
+La trasposta $U^T$ si esprime mediante le medesime partizioni come matrice a blocchi per righe:
+\begin{equation}
+    U^T = \begin{bmatrix} \mathbf{u}_1^T \\ \mathbf{u}_2^T \\ \vdots \\ \mathbf{u}_n^T \end{bmatrix}.
+\end{equation}
+Eseguiamo la moltiplicazione a blocchi $U^T U$:
+\begin{align}
+    U^T U &= \begin{bmatrix} \mathbf{u}_1^T \\ \mathbf{u}_2^T \\ \vdots \\ \mathbf{u}_n^T \end{bmatrix} \begin{bmatrix} \mathbf{u}_1 & \mathbf{u}_2 & \dots & \mathbf{u}_n \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix}
+        \mathbf{u}_1^T \mathbf{u}_1 & \mathbf{u}_1^T \mathbf{u}_2 & \cdots & \mathbf{u}_1^T \mathbf{u}_n \\
+        \mathbf{u}_2^T \mathbf{u}_1 & \mathbf{u}_2^T \mathbf{u}_2 & \cdots & \mathbf{u}_2^T \mathbf{u}_n \\
+        \vdots & \vdots & \ddots & \vdots \\
+        \mathbf{u}_n^T \mathbf{u}_1 & \mathbf{u}_n^T \mathbf{u}_2 & \cdots & \mathbf{u}_n^T \mathbf{u}_n
+    \end{bmatrix} = \left[ \langle \mathbf{u}_i, \mathbf{u}_j \rangle \right]_{i,j=1}^n.
+\end{align}
+Affinch\'e il prodotto coincida con la matrice identit\`a $I_n$, deve risultare:
+\begin{equation}
+    \langle \mathbf{u}_i, \mathbf{u}_j \rangle = \delta_{ij} \qquad \forall i, j \in \{1, \dots, n\}.
+\end{equation}
+Questo dimostra in modo costruttivo che le colonne sono mutuamente ortogonali e a norma euclidea unitaria. Lo stesso argomento applicato a $U U^T = I_n$ prova l'ortonormalit\`a delle righe.
+\end{proof}
+
+\subsection{Esempio Notevole: Rotazione nel Piano}
+
+\begin{example}[Matrice di Rotazione Piana]
+Sia $\theta \in \R$. Consideriamo la matrice di rotazione:
+\begin{equation}
+    U = \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix}.
+\end{equation}
+Verifichiamo la condizione $U^T U = I_2$:
+\begin{align}
+    U^T U &= \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix} \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix}
+        \cos^2\theta + \sin^2\theta & \cos\theta\sin\theta - \sin\theta\cos\theta \\
+        \sin\theta\cos\theta - \cos\theta\sin\theta & \sin^2\theta + \cos^2\theta
+    \end{bmatrix} = \begin{bmatrix} 1 & 0 \\ 0 & 1 \end{bmatrix} = I_2.
+\end{align}
+La matrice $U$ \`e ortogonale per qualunque valore dell'angolo $\theta$.
+\end{example}
+
+\subsection{Chiusura del Prodotto di Matrici Ortogonali}
+
+\begin{proposition}[Gruppo Ortogonale e Chiusura rispetto al Prodotto]
+Se $U, V \in \R^{n \times n}$ sono matrici ortogonali, il loro prodotto $Q = UV$ \`e anch'esso una matrice ortogonale.
+\end{proposition}
+
+\begin{proof}
+Calcoliamo $Q Q^T$ sfruttando la regola di inversione della trasposta $(UV)^T = V^T U^T$:
+\begin{equation}
+    Q Q^T = (UV)(UV)^T = (UV)(V^T U^T).
+\end{equation}
+Per la propriet\`a associativa del prodotto matriciale:
+\begin{equation}
+    Q Q^T = U (V V^T) U^T.
+\end{equation}
+Poich\'e $V$ \`e ortogonale, $V V^T = I_n$:
+\begin{equation}
+    Q Q^T = U I_n U^T = U U^T = I_n.
+\end{equation}
+In modo del tutto analogo si verifica che $Q^T Q = V^T (U^T U) V = V^T I_n V = I_n$. Pertanto $Q = UV$ \`e ortogonale.
+\end{proof}
+
+\FloatBarrier
+\section{I Quattro Quesiti Notabili sulle Matrici Ortogonali}
+
+\subsection{Quesito 1: Limite Superiore sulle Singole Entrate}
+
+\begin{example}[Gli Elementi di una Matrice Ortogonale Possono Superare 1?]
+\textbf{Domanda:} \`E possibile che una matrice ortogonale $U \in \R^{n \times n}$ contenga un elemento $U_{ij} > 1$?
+
+\textbf{Risposta: NO.} \\
+\textbf{Dimostrazione:} Sia $\mathbf{u}_j$ la $j$-esima colonna di $U$. Poich\'e $U$ \`e ortogonale, $\mathbf{u}_j$ ha norma euclidea unitaria:
+\begin{equation}
+    \|\mathbf{u}_j\|_2^2 = \sum_{k=1}^n U_{kj}^2 = 1.
+\end{equation}
+Poich\'e ogni quadrato $U_{kj}^2 \ge 0$, ogni singolo termine della sommatoria \`e limitato superiormente dalla somma complessiva:
+\begin{equation}
+    U_{ij}^2 \le \sum_{k=1}^n U_{kj}^2 = 1 \implies |U_{ij}| \le 1 \implies -1 \le U_{ij} \le 1.
+\end{equation}
+Nessuna componente di una matrice ortogonale pu\`o superare $1$ in valore assoluto.
+\end{example}
+
+\subsection{Quesito 2: Matrici Diagonali Ortogonali}
+
+\begin{example}[Caratterizzazione delle Matrici Diagonali Ortogonali]
+\textbf{Domanda:} A quali condizioni una matrice diagonale $D \in \R^{n \times n}$ risulta ortogonale?
+
+\textbf{Risoluzione:} Sia $D = \diag(d_1, d_2, \dots, d_n)$. Essendo diagonale, essa coincide con la propria trasposta: $D^T = D$. Calcoliamo $D^T D$:
+\begin{equation}
+    D^T D = D^2 = \diag(d_1^2, d_2^2, \dots, d_n^2).
+\end{equation}
+Affinch\'e $D^T D = I_n$, occorre che:
+\begin{equation}
+    d_i^2 = 1 \iff d_i = \pm 1 \qquad \forall i = 1, \dots, n.
+\end{equation}
+\textbf{Conclusione:} Una matrice diagonale \`e ortogonale se e solo se tutte le entrate diagonali sono pari a $+1$ o $-1$. Esistono esattamente $2^n$ matrici diagonali ortogonali distinte in $\R^{n \times n}$.
+\end{example}
+
+\subsection{Quesito 3: Matrici Triangolari Superiori Ortogonali}
+
+\begin{example}[Caratterizzazione delle Matrici Triangolari Ortogonali]
+\textbf{Domanda:} Quando una matrice triangolare superiore $R \in \R^{n \times n}$ \`e ortogonale?
+
+\textbf{Dimostrazione per induzione sulle colonne:} Sia $R$ triangolare superiore ($R_{ij} = 0$ per ogni $i > j$):
+\begin{equation}
+    R = \begin{bmatrix}
+        r_{11} & r_{12} & r_{13} & \cdots & r_{1n} \\
+        0 & r_{22} & r_{23} & \cdots & r_{2n} \\
+        0 & 0 & r_{33} & \cdots & r_{3n} \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        0 & 0 & 0 & \cdots & r_{nn}
+    \end{bmatrix}.
+\end{equation}
+Poich\'e $R$ \`e ortogonale, le sue colonne $\mathbf{r}_1, \dots, \mathbf{r}_n$ devono formare una base ortonormale:
+\begin{enumerate}
+    \item \textbf{Prima colonna $\mathbf{r}_1 = [r_{11}, 0, \dots, 0]^T$:}
+    La norma unitaria impone $r_{11}^2 = 1 \implies r_{11} = \pm 1$.
+    \item \textbf{Seconda colonna $\mathbf{r}_2 = [r_{12}, r_{22}, 0, \dots, 0]^T$:}
+    L'ortogonalit\`a rispetto a $\mathbf{r}_1$ impone:
+    \begin{equation}
+        \langle \mathbf{r}_1, \mathbf{r}_2 \rangle = r_{11} r_{12} = 0 \implies r_{12} = 0 \quad (\text{poich\'e } r_{11} = \pm 1 \neq 0).
+    \end{equation}
+    Dalla norma unitaria: $\|\mathbf{r}_2\|_2^2 = r_{12}^2 + r_{22}^2 = 0 + r_{22}^2 = 1 \implies r_{22} = \pm 1$.
+    \item \textbf{Terza colonna $\mathbf{r}_3 = [r_{13}, r_{23}, r_{33}, 0, \dots, 0]^T$:}
+    L'ortogonalit\`a verso $\mathbf{r}_1$ e $\mathbf{r}_2$ impone $r_{11} r_{13} = 0 \implies r_{13} = 0$ e $r_{22} r_{23} = 0 \implies r_{23} = 0$. Segue $r_{33} = \pm 1$.
+    \item \textbf{Passo induttivo generale:} Per ogni colonna $j$, tutti gli elementi fuori diagonale si annullano ($r_{ij} = 0$ per ogni $i < j$), mentre gli elementi diagonali valgono $r_{jj} = \pm 1$.
+\end{enumerate}
+\textbf{Conclusione:} Una matrice triangolare superiore \`e ortogonale se e solo se \`e diagonale con entrate $\pm 1$.
+\end{example}
+
+\subsection{Quesito 4: Isometria Euclidea e Preservazione delle Norme}
+
+\begin{theorem}[Propriet\`a di Isometria delle Matrici Ortogonali]
+Le matrici ortogonali preservano rigidamente la norma euclidea e il prodotto scalare di qualsiasi vettore dello spazio:
+\begin{equation}
+    \forall U \in \R^{n \times n} \text{ ortogonale}, \quad \forall \mathbf{x} \in \R^n \implies \|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2.
+\end{equation}
+Inoltre, preservano i prodotti scalari tra coppie di vettori generici:
+\begin{equation}
+    \langle U\mathbf{x}, U\mathbf{y} \rangle = \langle \mathbf{x}, \mathbf{y} \rangle \qquad \forall \mathbf{x}, \mathbf{y} \in \R^n.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Ricordiamo che per ogni vettore $\mathbf{v}$, $\|\mathbf{v}\|_2^2 = \mathbf{v}^T \mathbf{v}$. Ponendo $\mathbf{v} = U\mathbf{x}$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = (U\mathbf{x})^T (U\mathbf{x}).
+\end{equation}
+Applicando la propriet\`a di trasposizione del prodotto $(U\mathbf{x})^T = \mathbf{x}^T U^T$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = \mathbf{x}^T (U^T U) \mathbf{x}.
+\end{equation}
+Essendo $U$ ortogonale, $U^T U = I_n$:
+\begin{equation}
+    \|U\mathbf{x}\|_2^2 = \mathbf{x}^T I_n \mathbf{x} = \mathbf{x}^T \mathbf{x} = \|\mathbf{x}\|_2^2.
+\end{equation}
+Estraendo la radice quadrata aritmetica, si ottiene $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$. Analogamente:
+\begin{equation}
+    \langle U\mathbf{x}, U\mathbf{y} \rangle = (U\mathbf{x})^T (U\mathbf{y}) = \mathbf{x}^T (U^T U) \mathbf{y} = \mathbf{x}^T I_n \mathbf{y} = \mathbf{x}^T \mathbf{y} = \langle \mathbf{x}, \mathbf{y} \rangle.
+\end{equation}
+\end{proof}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Cerchio unitario S_2
+    \draw[dashed, gray!60, thick] (0, 0) circle (2.0);
+    \draw[->, thin, gray] (-2.5, 0) -- (2.5, 0) node[right] {$x_1$};
+    \draw[->, thin, gray] (0, -2.5) -- (0, 2.5) node[above] {$x_2$};
+
+    % Vettore originale x
+    \draw[->, ultra thick, blue!80!black] (0, 0) -- (1.6, 1.2) node[above right] {$\mathbf{x}$};
+    \node[blue!80!black, font=\footnotesize] at (1.0, 0.4) {$\|\mathbf{x}\|_2$};
+
+    % Vettore ruotato Ux
+    \draw[->, ultra thick, red!80!black] (0, 0) -- (-1.2, 1.6) node[above left] {$U\mathbf{x}$};
+    \node[red!80!black, font=\footnotesize] at (-0.4, 1.2) {$\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$};
+
+    % Arco dell'angolo theta
+    \draw[->, thick, orange!80!black] (0.8, 0.6) arc (36.87:126.87:1.0);
+    \node[orange!80!black, above] at (-0.1, 1.0) {$\theta$};
+
+    \node[draw, rounded corners, fill=yellow!10, align=center, font=\scriptsize] at (0, -1.3) {
+        $U$ opera una rotazione rigida: \\
+        non dilata n\'e contrae le lunghezze euclidee.
+    };
+\end{tikzpicture}
+\caption{Isometria euclidea di una trasformazione ortogonale $U$: conservazione della norma e rotazione pura.}
+\label{fig:isometria-ortogonale}
+\end{figure}
+
+\begin{noteblock}{Rilevanza Numerica Fondamentale dell'Isometria}
+L'uguaglianza $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ rappresenta il pilastro teorico dell'analisi di stabilit\`a numerica nell'algebra lineare. Poich\'e le matrici ortogonali non amplificano la norma di alcun vettore, l'applicazione di matrici ortogonali a un vettore affetto da errori di troncamento o rumore:
+\begin{equation}
+    \|U(\mathbf{x} + \mathbf{e}) - U\mathbf{x}\|_2 = \|U\mathbf{e}\|_2 = \|\mathbf{e}\|_2
+\end{equation}
+\textbf{preserva esattamente l'entit\`a dell'errore} senza ingigantirlo. Per questa ragione, algoritmi fondati su trasformazioni ortogonali (es. Householder, rotazioni di Givens e decomposizione QR) offrono eccellenti garanzie di stabilit\`a numerica all'indietro (\textit{backward stability}).
+\end{noteblock}
+
+\clearpage
+\section{Formulario di Sintesi del Capitolo}
+
+La tabella~\ref{tab:riassunto-lezione-2} compendia i risultati analitici, le formule e le propriet\`a studiate nel presente capitolo.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Propriet\`a / Oggetto} & \textbf{Formulazione Matematica} & \textbf{Caratteristica Chiave} \\
+\midrule
+Prodotto Matrice-Matrice & $C_{ij} = \sum_{k=1}^m A_{ik} B_{kj}$ & Richiede $A \in \R^{n \times m}, B \in \R^{m \times p}$ \\
+Costo Prodotto Quadrato & $2n^3 - n^2 \text{ FLOPs} \implies \BigO{n^3}$ & Legge cubica: $T(2n) \approx 8 T(n)$ \\
+Teorema Rango-Nullit\`a & $\dim(\mathrm{Im}(A)) + \dim(\ker(A)) = m$ & $m$ \`e il numero di colonne di $A$ \\
+Vettori Ortonormali & $\langle \mathbf{u}_i, \mathbf{u}_j \rangle = \delta_{ij}$ & Ortogonali con $\|\mathbf{u}_i\|_2 = 1$ \\
+Matrice Ortogonale & $U^T U = U U^T = I_n$ & Equivale a $U^{-1} = U^T$ \\
+Righe e Colonne di $U$ & Formano basi ortonormali di $\R^n$ & Deriva dal calcolo $U^T U = I_n$ \\
+Entrate di $U$ Ortogonale & $-1 \le U_{ij} \le 1$ & Deriva da $\sum_{i=1}^n U_{ij}^2 = 1$ \\
+Matrice Diagonale Ortogonale & $D = \diag(\pm 1, \dots, \pm 1)$ & $2^n$ matrici distinte in $\R^{n \times n}$ \\
+Triangolare Ortogonale & $R = \diag(\pm 1, \dots, \pm 1)$ & Dimostrazione per induzione su colonne \\
+Isometria Euclidea & $\|U\mathbf{x}\|_2 = \|\mathbf{x}\|_2$ & Trasformazione rigida: preserva lunghezze \\
+Invarianza del Prodotto Scalare & $\langle U\mathbf{x}, U\mathbf{y} \rangle = \langle \mathbf{x}, \mathbf{y} \rangle$ & Preserva angoli tra vettori \\
+Trasposta del Prodotto & $(AB)^T = B^T A^T$ & Inverte l'ordine dei fattori \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico delle definizioni, complessit\`a computazionali e propriet\`a delle matrici ortogonali.}
+\label{tab:riassunto-lezione-2}
+\end{table}
