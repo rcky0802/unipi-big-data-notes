@@ -1,6 +1,17 @@
 \chapter{Data Understanding and Data Exploration}
 \label{ch:data-understanding}
 
+\begin{noteblock}{Practical Lab: Interactive Execution on Jupyter Notebook}
+The Python code snippets presented in this chapter correspond to the companion lab notebook:
+\begin{itemize}
+    \item \textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}}
+    \item \textbf{Direct access:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Open in Jupyter Lab]}} \quad (\url{http://localhost:8888})
+    \item \textbf{Quickstart container:} Run from root directory: \texttt{docker compose up jupyter}
+    \item \textbf{Local workspace folder:} \texttt{Data-Mining/notebooks/} (datasets located in \texttt{./data\_notebook/}).
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
 \section{Objectives of Data Understanding}
 
 The data understanding phase (\textit{Data Understanding}) constitutes an indispensable prerequisite for any Data Mining activity. Before selecting or applying any algorithm, the analyst must acquire an overall view of the structure, distribution, and intrinsic quality of the dataset with respect to the project objectives.
@@ -64,7 +75,7 @@ The type of measurement scale of an attribute is defined by the set of algebraic
     \item \textbf{Meaningful ratios} ($*, /$): Presence of an \textbf{intrinsic absolute zero} (indicating the total absence of the measured quantity), which makes the proportional comparison between quantities meaningful.
 \end{enumerate}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \footnotesize
 \begin{tabularx}{\textwidth}{l p{2.2cm} X p{2.6cm} p{3.0cm}}
@@ -176,7 +187,7 @@ Its geometric structure relies on the concept of quantile: given $p \in (0, 100)
     \item The width of the central box represents the interquartile range $\text{IQR} = Q_3 - Q_1$, encompassing the central $50\%$ of the data mass.
 \end{itemize}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=0.9, yscale=0.85]
     % Axis
@@ -210,18 +221,60 @@ The limits of the whiskers are conventionally calculated by extending up to the 
 
 A key extension for bivariate and multivariate exploration is given by \textbf{Conditional Box Plots}: the distribution of a continuous numerical attribute is stratified and displayed by placing box plots side by side for each category of a discrete attribute (typically the target class or a natural clustering). Figure~\ref{fig:conditional-boxplot} illustrates the distribution of \textit{Petal Length} stratified across the three flower species of the Iris dataset, highlighting that \textit{Setosa} is distinctly separable with very low dispersion, whereas \textit{Versicolor} and \textit{Virginica} exhibit a slight overlap in their interquartile ranges.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{iris_conditional_boxplot.pdf}
 \caption{Conditional Box Plot computed on the real Iris dataset: empirical distribution of \textit{Petal Length} stratified across the three flower species, displaying median, quartiles, and individual observations.}
 \label{fig:conditional-boxplot}
 \end{figure}
 
+\subsection{Python Lab: Descriptive Inspection, IQR Calculation, and Box Plots}
+\label{subsec:lab-python-boxplot-en}
+\begin{noteblock}{Run this section in the Interactive Notebook}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Open in Jupyter Lab]}} \\
+\textit{Local server:} \url{http://localhost:8888} \quad (launch command: \texttt{docker compose up jupyter})
+\end{noteblock}
+In the companion notebook \texttt{1\_basics\_and\_understanding.ipynb}, univariate inspection, summary statistics, and Tukey outlier boundaries are implemented using Pandas and Seaborn as shown in Listing~\ref{lst:python-eda-boxplot-en}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Univariate inspection, IQR calculation, and Box Plot visualization with Pandas and Seaborn.}, label={lst:python-eda-boxplot-en}]
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 1. Load the restaurant tips dataset
+data_path = './data_notebook/data/'
+df = pd.read_csv(f'{data_path}correct_tips.csv', index_col=0)
+
+# 2. Comprehensive descriptive statistics
+print(df.describe().T[['mean', 'std', 'min', '25%', '50%', '75%', 'max']])
+
+# 3. Analytical IQR computation and Tukey whisker boundaries for 'tip'
+q25 = df['tip'].quantile(0.25)
+q75 = df['tip'].quantile(0.75)
+iqr = q75 - q25
+lower_whisker = q25 - 1.5 * iqr
+upper_whisker = q75 + 1.5 * iqr
+
+outliers = df[(df['tip'] < lower_whisker) | (df['tip'] > upper_whisker)]
+print(f"IQR = {iqr:.2f} | Whiskers: [{lower_whisker:.2f}, {upper_whisker:.2f}] | Outliers detected: {len(outliers)}")
+
+# 4. Univariate and conditional box plot rendering
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+df.boxplot(column=['tip'], ax=axes[0])
+axes[0].set_title("Univariate Box Plot (Tip)")
+
+sns.boxplot(data=df, x='sex', y='tip', hue='time', ax=axes[1])
+axes[1].set_title("Conditional Box Plot (Tip by Sex and Time)")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
 \begin{alertblock}{Critical Comparison: Box Plot vs Histogram}
 Although the box plot effectively synthesizes position and dispersion, \textbf{it is not able to show the real shape of the distribution}. Two distributions having radically different densities (for example, a uniform unimodal distribution and a strongly bimodal distribution with an empty central valley) can produce identical values of $Q_1$, median, $Q_3$, Minimum, and Maximum, and therefore generate the exact same box plot. The histogram is essential to detect multimodality.
 \end{alertblock}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{minipage}{0.46\textwidth}
 \centering
@@ -271,7 +324,7 @@ Although the box plot effectively synthesizes position and dispersion, \textbf{i
 \subsection{Bar Chart for Categorical Attributes}
 The \textbf{Bar Chart} visually represents the frequency distribution of a qualitative or categorical attribute. Each discrete category is represented by a vertical (or horizontal) bar, whose height corresponds to the absolute count or relative frequency. Unlike histograms, bars are separated by empty spaces to highlight that the modalities do not constitute a numerical continuum.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=1.4, yscale=0.07]
     \draw[thick, -Stealth] (0,0) -- (4.5,0) node[right, font=\small] {Marital Status};
@@ -297,7 +350,7 @@ The \textbf{Bar Chart} visually represents the frequency distribution of a quali
 \subsection{Histograms for Numerical Attributes and Choice of Bins}
 A \textbf{histogram} shows the empirical frequency distribution of a continuous numerical attribute. The domain of variability of the quantity is partitioned (\textit{discretized}) into a predetermined number $k$ of contiguous intervals called \textit{bins} (or class widths). For each bin, the height of the overlying bar is proportional to the number of sample observations that fall within it.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=0.9, yscale=0.08]
     \draw[thick, -Stealth] (0,0) -- (11.5,0) node[right, font=\small] {Age};
@@ -347,7 +400,7 @@ The famous \textit{Iris} dataset (150 samples of flowers belonging to three spec
 The bivariate scatter plot shows that the attributes related to the petal (\textit{Petal Length} vs \textit{Petal Width}) guarantee a clear separation among the species, also allowing the isolation of potential anomalies.
 \end{example}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{iris_scatterplot_real.pdf}
 \caption{Real bivariate Scatter Plot (\textit{Petal Length} vs \textit{Petal Width}) across all 150 samples of the Iris dataset, featuring class-based color and geometric encoding, and visual confirmation of the clear separation of \textit{Setosa} and boundary atypical points.}
@@ -356,12 +409,42 @@ The bivariate scatter plot shows that the attributes related to the petal (\text
 
 To simultaneously explore all pairs of numerical attributes, a \textbf{Scatter Plot Matrix} (SPLOM) is used, which is an $n \times n$ grid where each off-diagonal cell $(i, j)$ displays the scatter plot between attribute $i$ and attribute $j$, while the main diagonal hosts the histograms or univariate density estimations.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{iris_splom_real.pdf}
 \caption{Complete Scatter Plot Matrix (SPLOM) computed across all 150 samples of the Iris dataset for all 4 continuous attributes, showing univariate kernel density estimations (KDE) along the main diagonal and bivariate scatter plots in the outer cells.}
 \label{fig:splom-example}
 \end{figure}
+
+\subsection{Python Lab: Multivariate Scatter Plots and Scatter Matrix}
+\label{subsec:lab-python-scatterplot-en}
+\begin{noteblock}{Run this section in the Interactive Notebook}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Open in Jupyter Lab]}} \\
+\textit{Local server:} \url{http://localhost:8888} \quad (launch command: \texttt{docker compose up jupyter})
+\end{noteblock}
+Bivariate visual representations and the Scatter Plot Matrix are generated with Seaborn and Pandas as illustrated in Listing~\ref{lst:python-scatterplot-en}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Rendering bivariate Scatter Plots and a Scatter Plot Matrix with Seaborn and Pandas.}, label={lst:python-scatterplot-en}]
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('./data_notebook/data/correct_tips.csv', index_col=0)
+
+# 1. Bivariate scatter plot with color and style encoding
+plt.figure(figsize=(7, 4))
+sns.scatterplot(data=df, x='total_bill', y='tip', hue='time', style='sex', s=60)
+plt.title("Total Bill vs Tip (Stratified by Time and Sex)")
+plt.xlabel("Total Bill ($)")
+plt.ylabel("Tip ($)")
+plt.show()
+
+# 2. Scatter Plot Matrix (SPLOM) across numerical features
+numeric_features = ['total_bill', 'tip', 'size', 'age']
+pd.plotting.scatter_matrix(df[numeric_features], figsize=(8, 8), diagonal='kde', alpha=0.7)
+plt.suptitle("Scatter Plot Matrix with Diagonal KDE Estimates", y=1.02)
+plt.show()
+\end{lstlisting}
 
 \subsection{Visualization as a Test and Exploratory Heuristic}
 Visual inspection serves as an irreplaceable preliminary test on data structure, whose sound interpretation requires precise epistemological awareness:
@@ -375,7 +458,7 @@ Visual inspection serves as an irreplaceable preliminary test on data structure,
 \subsubsection{Parallel Coordinates}
 When the number of dimensions exceeds 3, the conventional Cartesian representation becomes inapplicable. \textbf{Parallel Coordinates} replace the orthogonal axes with a set of equidistant vertical parallel axes, each corresponding to an attribute.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{iris_parallel_coordinates.pdf}
 \caption{4-dimensional representation using Parallel Coordinates computed on the real Iris dataset (150 samples normalized to $[0, 1]$): thin curves depict individual flower samples, while thick lines show the distinctive mean profiles per species.}
@@ -392,7 +475,7 @@ When the number of dimensions exceeds 3, the conventional Cartesian representati
 In \textbf{Radar Plots}, the axes start from a common center and radiate out in a star shape at constant angular intervals. The value of each attribute defines a vertex along its own radius; joining the vertices yields a polygon for each instance.
 \textbf{Star Plots} apply the same principle by drawing each object in a separate graph, facilitating comparison for individual profiles.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{iris_radar_plot.pdf}
 \caption{Empirical multivariate Radar Plot computed on the normalized mean profiles of the three Iris species across the 4 morphological attributes.}
@@ -454,7 +537,7 @@ Translating the Cartesian origin to the sample centroid $(\bar{x}, \bar{y})$, th
     \item If observations are uniformly or symmetrically scattered across all four quadrants, positive and negative terms cancel each other out, resulting in a covariance close to zero ($\operatorname{Cov}(X, Y) \approx 0$).
 \end{enumerate}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[scale=0.95]
     % Central cross at mean (x_bar, y_bar)
@@ -526,7 +609,7 @@ Core properties of the Pearson correlation coefficient:
     \item \textbf{Blindness to non-linear dependencies:} As illustrated in Figure~\ref{fig:pearson-cases}(d), zero correlation ($r_{xy} \approx 0$) does not imply statistical independence: deterministic quadratic or sinusoidal relationships may exhibit exactly zero Pearson correlation.
 \end{itemize}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{minipage}{0.47\textwidth}
 \centering
@@ -625,12 +708,43 @@ Essential properties:
 In datasets with multiple continuous attributes, all pairwise bivariate correlations are systematically arranged in a symmetric $p \times p$ \textbf{correlation matrix}.
 In the Iris dataset (Figure~\ref{fig:iris-correlation-heatmap}), for example, the matrix reveals an exceptionally strong linear and monotonic correlation between \textit{Petal Length} and \textit{Petal Width} ($r = 0.96$, $\rho_s = 0.94$), as well as between \textit{Sepal Length} and \textit{Petal Length} ($r = 0.87$, $\rho_s = 0.88$), signaling significant feature redundancy and suggesting that dimensionality reduction or feature selection can discard or combine one of the two without sacrificing model performance.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{iris_correlation_heatmaps.pdf}
 \caption{Bivariate correlation matrices computed on the real Iris dataset: Pearson linear correlation ($r$, left) and Spearman rank correlation ($\rho_s$, right). The visualization clearly shows the strong positive co-dependency among petal attributes and the moderate negative correlation involving sepal width.}
 \label{fig:iris-correlation-heatmap}
 \end{figure}
+
+\subsection{Python Lab: Correlation Matrices and Heatmap Visualization}
+\label{subsec:lab-python-correlation-en}
+\begin{noteblock}{Run this section in the Interactive Notebook}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Open in Jupyter Lab]}} \\
+\textit{Local server:} \url{http://localhost:8888} \quad (launch command: \texttt{docker compose up jupyter})
+\end{noteblock}
+In the companion notebook \texttt{1\_basics\_and\_understanding.ipynb}, comparative correlation coefficients (Pearson, Spearman, Kendall) and annotated heatmaps are produced as shown in Listing~\ref{lst:python-correlation-en}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Comparative correlation matrix calculation (Pearson, Spearman, Kendall) and Heatmaps with Seaborn.}, label={lst:python-correlation-en}]
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('./data_notebook/data/correct_tips.csv', index_col=0)
+
+# 1. Compute pairwise correlation matrices across numerical attributes
+corr_pearson  = df.corr(numeric_only=True, method='pearson')   # linear
+corr_spearman = df.corr(numeric_only=True, method='spearman')  # monotonic
+corr_kendall  = df.corr(numeric_only=True, method='kendall')   # rank concordance
+
+# 2. Side-by-side comparative heatmap visualization
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+sns.heatmap(corr_pearson, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=axes[0])
+axes[0].set_title("Pearson Linear Correlation (r)")
+
+sns.heatmap(corr_spearman, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=axes[1])
+axes[1].set_title("Spearman Rank Correlation (rho_s)")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
 
 \section{Handling Outliers and Missing Values}
 
@@ -672,6 +786,43 @@ Frequently, a missing value is not explicitly stored as \texttt{NULL} or \texttt
 Unless intercepted during Data Understanding, analytics software treats these sentinel numbers as true physical measurements, severely biasing means, standard deviations, correlations, and classification models.
 \end{alertblock}
 
+\subsection{Python Lab: Missing Values Detection, Sentinel Unmasking, and Imputation}
+\label{subsec:lab-python-missing-en}
+\begin{noteblock}{Run this section in the Interactive Notebook}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Open in Jupyter Lab]}} \\
+\textit{Local server:} \url{http://localhost:8888} \quad (launch command: \texttt{docker compose up jupyter})
+\end{noteblock}
+In the companion notebook \texttt{1\_basics\_and\_understanding.ipynb}, missing value diagnostics, sentinel unmasking, and imputation algorithms (univariate and KNN-based) are implemented using Pandas and Scikit-learn as displayed in Listing~\ref{lst:python-missing-en}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Missing values detection, sentinel cleaning, and imputation strategies with Scikit-learn (SimpleImputer and KNNImputer).}, label={lst:python-missing-en}]
+import numpy as np
+import pandas as pd
+from sklearn.impute import SimpleImputer, KNNImputer
+
+df = pd.read_csv('./data_notebook/data/tips.csv', index_col=0)
+
+# 1. Inspect explicit missing values per attribute
+print("Missing values per column:\n", df.isnull().sum())
+
+# 2. Detect and unmask sentinel zeros (e.g., recorded age == 0)
+zero_ages = (df['age'] == 0).sum()
+print(f"Records with sentinel age == 0: {zero_ages}")
+df['age'] = df['age'].replace(0, np.nan)
+
+# 3. Univariate statistical imputation (median for numeric, mode for categorical)
+median_imputer = SimpleImputer(strategy='median')
+df['age_imputed'] = median_imputer.fit_transform(df[['age']])
+
+freq_imputer = SimpleImputer(strategy='most_frequent')
+df['smoker_imputed'] = freq_imputer.fit_transform(df[['smoker']]).ravel()
+
+# 4. Multivariate k-Nearest Neighbors imputation
+knn_imputer = KNNImputer(n_neighbors=3, weights='distance')
+num_cols = ['total_bill', 'tip', 'age', 'size']
+df[num_cols] = knn_imputer.fit_transform(df[num_cols])
+print("Remaining missing entries after KNN imputation:", df[num_cols].isnull().sum().sum())
+\end{lstlisting}
+
 \section{Operational Checklist for Data Understanding}
 Upon concluding the exploration stage, the analyst must have methodically executed the following operational verifications:
 \begin{enumerate}
@@ -682,3 +833,4 @@ Upon concluding the exploration stage, the analyst must have methodically execut
     \item \textbf{Verify Domain-Specific Assumptions:} Test distributional premises required by downstream models or heuristics (e.g., verifying whether an attribute follows an approximately normal distribution before applying Sturges' rule or parametric tests).
     \item \textbf{Compare Statistics with Expected Behavior:} Ensure that empirical means, medians, skewness, and spreads align consistently with domain expertise and business context expectations.
 \end{enumerate}
+

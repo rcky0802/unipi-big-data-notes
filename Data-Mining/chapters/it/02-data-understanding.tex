@@ -1,6 +1,17 @@
 \chapter{Data Understanding ed Esplorazione dei Dati}
 \label{ch:data-understanding}
 
+\begin{noteblock}{Laboratorio Pratico: Esecuzione Interattiva su Jupyter Notebook}
+I codici Python presentati in questo capitolo corrispondono al notebook di laboratorio:
+\begin{itemize}
+    \item \textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}}
+    \item \textbf{Accesso diretto:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Apri su Jupyter Lab]}} \quad (\url{http://localhost:8888})
+    \item \textbf{Avvio rapido del container:} Da terminale nella radice del progetto: \texttt{docker compose up jupyter}
+    \item \textbf{Cartella di lavoro locale:} \texttt{Data-Mining/notebooks/} (dataset posizionati in \texttt{./data\_notebook/}).
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
 \section{Obiettivi del Data Understanding}
 
 La fase di comprensione dei dati (\textit{Data Understanding}) costituisce un prerequisito indispensabile per qualsiasi attività di Data Mining. Prima di selezionare o applicare qualsiasi algoritmo, l'analista deve acquisire una visione complessiva della struttura, della distribuzione e della qualità intrinseca del dataset rispetto agli obiettivi del progetto.
@@ -64,7 +75,7 @@ Il tipo di scala di misura di un attributo è definito dall'insieme di propriet�
     \item \textbf{Rapporti significativi} ($*, /$): Presenza di uno \textbf{zero assoluto intrinseco} (indicante la totale assenza della grandezza misurata), che rende significativo il confronto proporzionale tra grandezze.
 \end{enumerate}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \footnotesize
 \begin{tabularx}{\textwidth}{l p{2.2cm} X p{2.6cm} p{3.0cm}}
@@ -176,7 +187,7 @@ La costruzione geometrica si fonda sul concetto di quantile: dato $p \in (0, 100
     \item La larghezza della scatola centrale riflette l'intervallo interquartile $\text{IQR} = Q_3 - Q_1$, racchiudendo il $50\%$ centrale della massa dei dati.
 \end{itemize}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=0.9, yscale=0.85]
     % Axis
@@ -210,18 +221,60 @@ I limiti dei baffi sono calcolati convenzionalmente estendendosi fino al valore 
 
 Un'estensione fondamentale per l'analisi bivariata e multivariata \`e costituita dai \textbf{Box Plot Condizionali} (\textit{Conditional Box Plots}): la distribuzione di un attributo numerico continuo viene stratificata e visualizzata affiancando i box plot per ciascuna modalit\`a o categoria di una variabile discreta (tipicamente la classe target o un raggruppamento naturale). In Figura~\ref{fig:conditional-boxplot} \`e illustrata la distribuzione della lunghezza del petalo (\textit{Petal Length}) stratificata sulle tre specie del dataset Iris: il grafico evidenzia visivamente che la specie \textit{Setosa} \`e nettamente separabile dalle restanti due con variabilit\`a molto ridotta, mentre \textit{Versicolor} e \textit{Virginica} presentano una parziale sovrapposizione nei rispettivi intervalli interquartili.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{iris_conditional_boxplot.pdf}
 \caption{Box Plot Condizionale calcolato sui dati reali del dataset Iris: distribuzione empirica della lunghezza del petalo (\textit{Petal Length}) stratificata sulle tre specie, con evidenza della mediana, dei quartili e dei singoli campioni osservati.}
 \label{fig:conditional-boxplot}
 \end{figure}
 
+\subsection{Laboratorio Python: Ispezione Descrittiva, Calcolo di IQR e Box Plot}
+\label{subsec:lab-python-boxplot}
+\begin{noteblock}{Esegui questo blocco nel Notebook Interattivo}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Apri su Jupyter Lab]}} \\
+\textit{Server locale:} \url{http://localhost:8888} \quad (comando di avvio: \texttt{docker compose up jupyter})
+\end{noteblock}
+Nel notebook didattico \texttt{1\_basics\_and\_understanding.ipynb}, l'ispezione univariata, il calcolo delle statistiche sintetiche e l'identificazione degli outlier tramite la regola di Tukey sono implementati con Pandas e Seaborn come illustrato nel Listing~\ref{lst:python-eda-boxplot}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Ispezione univariata, calcolo di IQR e tracciamento di Box Plot con Pandas e Seaborn.}, label={lst:python-eda-boxplot}]
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 1. Caricamento del dataset delle mance (Tips)
+data_path = './data_notebook/data/'
+df = pd.read_csv(f'{data_path}correct_tips.csv', index_col=0)
+
+# 2. Statistiche descrittive aggregate
+print(df.describe().T[['mean', 'std', 'min', '25%', '50%', '75%', 'max']])
+
+# 3. Calcolo analitico dell'IQR e soglie di Tukey per la feature 'tip'
+q25 = df['tip'].quantile(0.25)
+q75 = df['tip'].quantile(0.75)
+iqr = q75 - q25
+lower_whisker = q25 - 1.5 * iqr
+upper_whisker = q75 + 1.5 * iqr
+
+outliers = df[(df['tip'] < lower_whisker) | (df['tip'] > upper_whisker)]
+print(f"IQR = {iqr:.2f} | Baffi: [{lower_whisker:.2f}, {upper_whisker:.2f}] | Outlier trovati: {len(outliers)}")
+
+# 4. Tracciamento di Box Plot univariato e condizionale
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+df.boxplot(column=['tip'], ax=axes[0])
+axes[0].set_title("Box Plot Univariato (Tip)")
+
+sns.boxplot(data=df, x='sex', y='tip', hue='time', ax=axes[1])
+axes[1].set_title("Box Plot Condizionale (Tip per Sesso e Fascia Oraria)")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
 \begin{alertblock}{Confronto Critico: Box Plot vs Istogramma}
 Sebbene il box plot sintetizzi efficacemente posizione e dispersione, \textbf{non \`e in grado di mostrare la reale forma della distribuzione}. Due distribuzioni aventi densit\`a radicalmente differenti (ad esempio, una distribuzione unimodale uniforme e una distribuzione fortemente bimodale con una valle centrale vuota) possono produrre identici valori di $Q_1$, mediana, $Q_3$, Minimo e Massimo, e generare pertanto lo stesso identico box plot. L'istogramma \`e indispensabile per rilevare la multimodalit\`a.
 \end{alertblock}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{minipage}{0.46\textwidth}
 \centering
@@ -271,7 +324,7 @@ Sebbene il box plot sintetizzi efficacemente posizione e dispersione, \textbf{no
 \subsection{Bar Chart per Attributi Categorici}
 Il \textbf{Bar Chart} (grafico a barre) rappresenta visivamente la distribuzione di frequenza di un attributo qualitativo o categorico. Ciascuna categoria discreta \`e rappresentata da una barra verticale (o orizzontale), la cui altezza corrisponde al conteggio assoluto o alla frequenza relativa. A differenza degli istogrammi, le barre sono separate da spazi vuoti per evidenziare che le modalit\`a non costituiscono un continuo numerico.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=1.4, yscale=0.07]
     \draw[thick, -Stealth] (0,0) -- (4.5,0) node[right, font=\small] {Stato Civile};
@@ -297,7 +350,7 @@ Il \textbf{Bar Chart} (grafico a barre) rappresenta visivamente la distribuzione
 \subsection{Istogrammi per Attributi Numerici e Scelta dei Bin}
 Un \textbf{istogramma} mostra la distribuzione empirica di frequenza di un attributo numerico continuo. Il dominio di variabilit\`a della grandezza viene partizionato (\textit{discretizzato}) in un numero prefissato $k$ di intervalli contigui detti \textit{bin} (o classi di ampiezza). Per ciascun bin, l'altezza della barra sovrastante \`e proporzionale al numero di osservazioni campionarie che cadono al suo interno.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[xscale=0.9, yscale=0.08]
     \draw[thick, -Stealth] (0,0) -- (11.5,0) node[right, font=\small] {Et\`a};
@@ -347,7 +400,7 @@ Il celebre dataset \textit{Iris} (150 campioni di fiori appartenenti a tre speci
 Lo scatter plot bivariato mostra che gli attributi relativi al petalo (\textit{Petal Length} vs \textit{Petal Width}) garantiscono una separazione netta tra le specie, consentendo inoltre di isolare eventuali anomalie.
 \end{example}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{iris_scatterplot_real.pdf}
 \caption{Scatter Plot bivariato reale (\textit{Petal Length} vs \textit{Petal Width}) per tutti i 150 campioni del dataset Iris, con codifica cromatica e geometrica per classe e identificazione visiva della netta separazione di \textit{Setosa} e dei punti atipici di confine.}
@@ -356,12 +409,42 @@ Lo scatter plot bivariato mostra che gli attributi relativi al petalo (\textit{P
 
 Per esplorare simultaneamente tutte le coppie di attributi numerici, si impiega una \textbf{Scatter Plot Matrix} (SPLOM), ovvero una griglia $n \times n$ in cui ogni cella non diagonale $(i, j)$ visualizza il grafico di dispersione tra l'attributo $i$ e l'attributo $j$, mentre la diagonale principale ospita gli istogrammi o le stime di densit\`a univariate.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{iris_splom_real.pdf}
 \caption{Scatter Plot Matrix (SPLOM) calcolata su tutti i 150 campioni del dataset Iris attraverso i 4 attributi continui, con stima di densit\`a univariata (KDE) sulla diagonale principale e grafici di dispersione bivariati nelle celle esterne.}
 \label{fig:splom-example}
 \end{figure}
+
+\subsection{Laboratorio Python: Scatter Plot Multivariati e Matrice di Dispersione}
+\label{subsec:lab-python-scatterplot}
+\begin{noteblock}{Esegui questo blocco nel Notebook Interattivo}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Apri su Jupyter Lab]}} \\
+\textit{Server locale:} \url{http://localhost:8888} \quad (comando di avvio: \texttt{docker compose up jupyter})
+\end{noteblock}
+La rappresentazione visiva bivariata e la Scatter Plot Matrix sono generate con Seaborn e Pandas tramite il Listing~\ref{lst:python-scatterplot}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Tracciamento di Scatter Plot bivariati e Scatter Matrix multivariata con Seaborn e Pandas.}, label={lst:python-scatterplot}]
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('./data_notebook/data/correct_tips.csv', index_col=0)
+
+# 1. Scatter plot bivariato con codifica cromatica e di stile
+plt.figure(figsize=(7, 4))
+sns.scatterplot(data=df, x='total_bill', y='tip', hue='time', style='sex', s=60)
+plt.title("Relazione tra Conto Totale e Mancia (per Orario e Sesso)")
+plt.xlabel("Conto Totale ($)")
+plt.ylabel("Mancia ($)")
+plt.show()
+
+# 2. Scatter Plot Matrix (SPLOM) sulle feature numeriche
+numeric_features = ['total_bill', 'tip', 'size', 'age']
+pd.plotting.scatter_matrix(df[numeric_features], figsize=(8, 8), diagonal='kde', alpha=0.7)
+plt.suptitle("Scatter Plot Matrix con stime di densita' KDE diagonali", y=1.02)
+plt.show()
+\end{lstlisting}
 
 \subsection{La Visualizzazione come Test ed Euristica Esplorativa}
 L'ispezione visiva rappresenta un primo insostituibile test esplorativo sulla presenza di struttura nei dati, la cui corretta interpretazione richiede una precisa consapevolezza metodologica:
@@ -375,7 +458,7 @@ L'ispezione visiva rappresenta un primo insostituibile test esplorativo sulla pr
 \subsubsection{Coordinate Parallele (Parallel Coordinates)}
 Quando il numero di dimensioni supera 3, la rappresentazione cartesiana convenzionale risulta inapplicabile. Le \textbf{Coordinate Parallele} sostituiscono gli assi ortogonali con un insieme di assi paralleli verticali equidistanti, ciascuno corrispondente a un attributo.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{iris_parallel_coordinates.pdf}
 \caption{Rappresentazione a 4 dimensioni mediante Coordinate Parallele calcolata sui dati reali del dataset Iris (150 campioni normalizzati in $[0, 1]$): le curve sottili rappresentano le singole osservazioni, mentre le linee marcate evidenziano i profili medi distintivi di ciascuna specie.}
@@ -392,7 +475,7 @@ Quando il numero di dimensioni supera 3, la rappresentazione cartesiana convenzi
 Nei \textbf{Radar Plot}, gli assi partono da un centro comune e si irradiano a stella a intervalli angolari costanti. Il valore di ciascun attributo definisce un vertice lungo il proprio raggio; congiungendo i vertici si ottiene un poligono per ogni istanza.
 Gli \textbf{Star Plot} applicano il medesimo principio disegnando ciascun oggetto in un grafico separato, facilitando il confronto per profili individuali.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.62\textwidth]{iris_radar_plot.pdf}
 \caption{Radar Plot empirico multivariato calcolato sui profili medi normalizzati delle tre specie di Iris sui 4 attributi morfologici.}
@@ -454,7 +537,7 @@ Traslando l'origine cartesiana nel baricentro $(\bar{x}, \bar{y})$, lo spazio vi
     \item Se i punti sono dispersi in modo uniforme o simmetrico tra i quattro quadranti, i termini positivi e negativi si elidono reciprocamente, generando una covarianza prossima a zero ($\operatorname{Cov}(X, Y) \approx 0$).
 \end{enumerate}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[scale=0.95]
     % Central cross at mean (x_bar, y_bar)
@@ -526,7 +609,7 @@ Propriet\`a cardine del coefficiente di Pearson:
     \item \textbf{Cecit\`a alle relazioni non lineari:} Come illustrato in Figura~\ref{fig:pearson-cases}(d), un coefficiente nullo ($r_{xy} \approx 0$) non dimostra affatto indipendenza: relazioni deterministiche paraboliche o quadratiche possono avere correlazione lineare esattamente pari a zero.
 \end{itemize}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{minipage}{0.47\textwidth}
 \centering
@@ -625,12 +708,43 @@ Propriet\`a essenziali:
 In dataset con molteplici attributi continui, si calcolano tutte le correlazioni bivariate a coppie organizzandole in una \textbf{matrice di correlazione} simmetrica $p \times p$.
 Nell'analisi del dataset Iris (Figura~\ref{fig:iris-correlation-heatmap}), ad esempio, la matrice evidenzia una fortissima correlazione sia lineare che monotonica tra \textit{Petal Length} e \textit{Petal Width} ($r = 0.96$, $\rho_s = 0.94$), e tra \textit{Sepal Length} e \textit{Petal Length} ($r = 0.87$, $\rho_s = 0.88$), segnalando una rilevante ridondanza informativa che suggerisce la possibilit\`a di fondere o selezionare solo uno dei due attributi per l'addestramento di classificatori e modelli predittivi.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{iris_correlation_heatmaps.pdf}
 \caption{Matrici di correlazione bivariata calcolate sul dataset Iris: a sinistra la correlazione lineare di Pearson ($r$), a destra la correlazione di rango di Spearman ($\rho_s$). Si evidenzia visivamente l'intensa associazione positiva tra le dimensioni dei petali e l'associazione moderatamente negativa tra la larghezza del sepalo e le restanti feature.}
 \label{fig:iris-correlation-heatmap}
 \end{figure}
+
+\subsection{Laboratorio Python: Calcolo delle Matrici di Correlazione e Heatmap}
+\label{subsec:lab-python-correlation}
+\begin{noteblock}{Esegui questo blocco nel Notebook Interattivo}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Apri su Jupyter Lab]}} \\
+\textit{Server locale:} \url{http://localhost:8888} \quad (comando di avvio: \texttt{docker compose up jupyter})
+\end{noteblock}
+Nel notebook didattico \texttt{1\_basics\_and\_understanding.ipynb}, il confronto tra i coefficienti di correlazione (Pearson, Spearman, Kendall) e la relativa visualizzazione su mappa termica sono implementati come riportato nel Listing~\ref{lst:python-correlation}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Calcolo comparativo delle matrici di correlazione (Pearson, Spearman, Kendall) e Heatmap con Seaborn.}, label={lst:python-correlation}]
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('./data_notebook/data/correct_tips.csv', index_col=0)
+
+# 1. Calcolo delle matrici di correlazione per attributi numerici
+corr_pearson  = df.corr(numeric_only=True, method='pearson')   # lineare
+corr_spearman = df.corr(numeric_only=True, method='spearman')  # monotonica
+corr_kendall  = df.corr(numeric_only=True, method='kendall')   # concordanza di ranghi
+
+# 2. Visualizzazione comparativa tramite Heatmap annotata
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+sns.heatmap(corr_pearson, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=axes[0])
+axes[0].set_title("Correlazione Lineare di Pearson (r)")
+
+sns.heatmap(corr_spearman, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=axes[1])
+axes[1].set_title("Correlazione di Rango di Spearman (rho_s)")
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
 
 \section{Gestione di Outlier e Valori Mancanti}
 
@@ -672,6 +786,43 @@ Spesso un valore mancante non viene salvato con codifica esplicita (\texttt{NULL
 Se non intercettati nella fase di Data Understanding, tali numeri vengono trattati acriticamente dai software come misurazioni reali, distorcendo gravemente medie, deviazioni standard e modelli di classificazione.
 \end{alertblock}
 
+\subsection{Laboratorio Python: Rilevamento Valori Nulli, Smascheramento e Imputazione}
+\label{subsec:lab-python-missing}
+\begin{noteblock}{Esegui questo blocco nel Notebook Interattivo}
+\textbf{Notebook:} \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\texttt{1\_basics\_and\_understanding.ipynb}} \hfill \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{[Apri su Jupyter Lab]}} \\
+\textit{Server locale:} \url{http://localhost:8888} \quad (comando di avvio: \texttt{docker compose up jupyter})
+\end{noteblock}
+Nel notebook didattico \texttt{1\_basics\_and\_understanding.ipynb}, la gestione dei valori mancanti, l'identificazione di valori camuffati e l'imputazione (univariata e basata su KNN) sono svolte con Pandas e Scikit-learn come mostrato nel Listing~\ref{lst:python-missing}:
+
+\begin{lstlisting}[language=Python, style=code, caption={Rilevamento di valori nulli/camuffati e strategie di imputazione con Scikit-learn (SimpleImputer e KNNImputer).}, label={lst:python-missing}]
+import numpy as np
+import pandas as pd
+from sklearn.impute import SimpleImputer, KNNImputer
+
+df = pd.read_csv('./data_notebook/data/tips.csv', index_col=0)
+
+# 1. Ispezione dei valori mancanti espliciti
+print("Conteggio valori nulli per colonna:\n", df.isnull().sum())
+
+# 2. Rilevamento e smascheramento di valori camuffati (es. eta' pari a 0)
+zero_ages = (df['age'] == 0).sum()
+print(f"Record con eta' pari a zero (valore camuffato): {zero_ages}")
+df['age'] = df['age'].replace(0, np.nan)
+
+# 3. Imputazione statistica univariata (mediana per numerici, moda per categorici)
+median_imputer = SimpleImputer(strategy='median')
+df['age_imputed'] = median_imputer.fit_transform(df[['age']])
+
+freq_imputer = SimpleImputer(strategy='most_frequent')
+df['smoker_imputed'] = freq_imputer.fit_transform(df[['smoker']]).ravel()
+
+# 4. Imputazione multivariata basata sui k-Nearest Neighbors
+knn_imputer = KNNImputer(n_neighbors=3, weights='distance')
+num_cols = ['total_bill', 'tip', 'age', 'size']
+df[num_cols] = knn_imputer.fit_transform(df[num_cols])
+print("Missing residui dopo KNN Imputation:", df[num_cols].isnull().sum().sum())
+\end{lstlisting}
+
 \section{Checklist Operativa di Data Understanding}
 Al termine della fase di esplorazione, l'analista deve aver completato sistematicamente le seguenti verifiche:
 \begin{enumerate}
@@ -682,3 +833,4 @@ Al termine della fase di esplorazione, l'analista deve aver completato sistemati
     \item \textbf{Verifica di Ipotesi e Assunzioni Specifiche del Dominio:} Controllare assunzioni applicative e distributive (ad esempio verificare se un attributo segue una distribuzione approssimativamente normale per l'uso della regola di Sturges o di stimatori parametrici).
     \item \textbf{Confronto delle Statistiche con il Comportamento Atteso:} Verificare che medie, mediane, asimmetrie e dispersione riflettano coerentemente la conoscenza di dominio e i pattern attesi nel contesto applicativo.
 \end{enumerate}
+

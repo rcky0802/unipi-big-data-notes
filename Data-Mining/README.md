@@ -79,19 +79,20 @@ Data-Mining/
 ├── config/
 │   └── preamble.tex            # Packages and shared configuration
 ├── datasets/                   # Sample datasets
-├── playground/                 # Python playground (EDA, Preprocessing, Outliers)
-│   ├── README.md               # Guide to the playground environment
+├── notebooks/                  # Interactive Jupyter notebooks & figure scripts
+│   ├── README.md               # Guide to notebooks environment
 │   ├── requirements.txt        # Python dependencies
-│   └── *.py                    # Runnable Python scripts
+│   ├── generate_dispensa_figures.py # Script for dispensa figures
+│   └── *.ipynb                 # Interactive Jupyter notebooks
 ├── .gitignore                  # Unversioned artifacts
 ├── main.tex                    # Entry point
 ├── references.bib              # Bibliographic sources
 └── README.md                   # This guide
 ```
 
-## Python Playground
+## Python & Jupyter Notebooks
 
-A dedicated Python playground is available in [playground/](playground/README.md) to explore the course concepts interactively (univariate and multivariate statistics, outlier detection, missing value imputation, normalization, and discretization). Refer to [playground/README.md](playground/README.md) for quickstart and setup instructions.
+A dedicated environment is available in [notebooks/](notebooks/README.md) containing the interactive Jupyter lab notebooks for data understanding, EDA, feature engineering, and dimensionality reduction, as well as the vector figure generator for the lecture notes.
 
 ## Adding a Chapter
 

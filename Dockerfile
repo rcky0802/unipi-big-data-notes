@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 
 # Copia i requisiti Python e installa le dipendenze scientifiche
-COPY Data-Mining/playground/requirements.txt /tmp/requirements.txt
+COPY Data-Mining/notebooks/requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
 # Entrypoint default: shell interattiva bash
