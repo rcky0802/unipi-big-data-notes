@@ -18,7 +18,7 @@ Dalla radice del progetto, eseguire:
 ```bash
 docker compose up jupyter
 ```
-oppure utilizzare lo script rapido con doppio clic `start-jupyter.cmd` (o `start-jupyter.ps1` da PowerShell).
+oppure utilizzare lo script rapido con doppio clic `scripts/start-jupyter.cmd` (o `.\scripts\start-jupyter.ps1` da PowerShell).
 
 Una volta avviato il container, aprire nel browser:
 ```text

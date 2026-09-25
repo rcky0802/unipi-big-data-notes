@@ -49,8 +49,11 @@ Note/
 │   └── README.md               # Scheda descrittiva della materia
 ├── .vscode/tasks.json          # Task unificati per VS Code (Ctrl + Shift + B)
 ├── tasks.vs.json               # Task unificati per Visual Studio
-├── build.ps1                   # Motore di Smart Build differenziale su Docker
-├── clean.ps1                   # Pulizia dei file ausiliari LaTeX
+├── scripts/                    # Script PowerShell e CMD unificati
+│   ├── build.ps1               # Motore di Smart Build differenziale su Docker
+│   ├── clean.ps1               # Pulizia dei file ausiliari LaTeX
+│   ├── start-jupyter.ps1       # Avvio rapido Jupyter Lab in Docker
+│   └── start-jupyter.cmd       # Launcher con doppio clic per Windows
 └── README.md                   # Hub principale con link ai PDF
 ```
 
@@ -69,6 +72,7 @@ Premi **`Ctrl + Shift + B`** per accedere al menu dei task:
 - **Forza Compilazione Totale (Force All)**: ricompila tutti i documenti da zero.
 - **Aggiorna Figure Data-Mining (Python)**: rigenera i grafici vettoriali dai dati reali.
 - **Pulisci File Temporanei LaTeX (Clean All)**: elimina i file ausiliari (`.aux`, `.log`, `.toc`, ecc.).
+- **Avvia Jupyter Lab (Docker)**: avvia il server Jupyter e apre il browser.
 
 ### Metodo B: Da Visual Studio ("Apri cartella")
 Clic destro sulla cartella o dal menu Compila:
@@ -82,20 +86,24 @@ Dalla radice del progetto:
 
 ```powershell
 # Smart Build differenziale (compila solo le dispense modificate)
-.\build.ps1
+.\scripts\build.ps1
 
 # Compila solo una specifica lingua
-.\build.ps1 -Lang IT
-.\build.ps1 -Lang EN
+.\scripts\build.ps1 -Lang IT
+.\scripts\build.ps1 -Lang EN
 
 # Compila solo una specifica materia
-.\build.ps1 -Subject "Data-Mining" -Lang IT
+.\scripts\build.ps1 -Subject "Data-Mining" -Lang IT
 
 # Selezione interattiva con menu a terminale
-.\build.ps1 -Interactive
+.\scripts\build.ps1 -Interactive
 
 # Pulizia dei file temporanei
-.\clean.ps1
+.\scripts\clean.ps1
+
+# Avvio rapido Jupyter Lab
+.\scripts\start-jupyter.ps1
+# oppure doppio clic su .\scripts\start-jupyter.cmd
 ```
 
 ### Metodo D: Tramite Docker Compose Diretto (qualsiasi OS / shell Linux)
@@ -123,7 +131,7 @@ Tutti i PDF finali vengono automaticamente sincronizzati in [`pdf/<Materia>-<Lin
 - **Parità Bilingue:** Ogni modifica o nuovo capitolo deve essere inserito sia in `chapters/it/` sia in `chapters/en/`, mantenendo struttura e formule matematiche sincronizzate.
 - **Anonimato:** Non inserire nomi o riferimenti all'autore in codice, file o messaggi di commit.
 - **Aggiungere una Nuova Materia:**  
-  Crea una nuova cartella con la struttura standard sopra descritta. [`build.ps1`](./build.ps1) la rileverà automaticamente senza necessità di configurazioni aggiuntive. Aggiungi poi i link in [`README.md`](./README.md) e l'opzione in [`.vscode/tasks.json`](./.vscode/tasks.json).
+  Crea una nuova cartella con la struttura standard sopra descritta. [`scripts/build.ps1`](./scripts/build.ps1) la rileverà automaticamente senza necessità di configurazioni aggiuntive. Aggiungi poi i link in [`README.md`](./README.md) e l'opzione in [`.vscode/tasks.json`](./.vscode/tasks.json).
 
 ---
 
@@ -134,4 +142,4 @@ Tutti i PDF finali vengono automaticamente sincronizzati in [`pdf/<Materia>-<Lin
 | `Il daemon di Docker non e' in esecuzione` | Docker Desktop non è avviato | Avvia Docker Desktop e attendi che l'icona diventi verde. |
 | `docker non trovato` | Docker non è installato nel PATH | Installa Docker Desktop da [docker.com](https://www.docker.com/products/docker-desktop). |
 | Errore `ExecutionPolicy` | Policy di esecuzione script Windows | Esegui una tantum: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| Errori su file obsoleti | Cache ausiliaria non allineata (`.aux`, `.toc`) | Esegui `.\clean.ps1` e ricompila con `.\build.ps1 -Force`. |
+| Errori su file obsoleti | Cache ausiliaria non allineata (`.aux`, `.toc`) | Esegui `.\scripts\clean.ps1` e ricompila con `.\scripts\build.ps1 -Force`. |

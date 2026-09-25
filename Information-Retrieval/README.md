@@ -37,19 +37,19 @@ During the first compilation, allow MiKTeX to install missing packages automatic
 You can compile using the repository unified build script from PowerShell:
 
 ```powershell
-.\build.ps1 -Subject "Information-Retrieval"
+.\scripts\build.ps1 -Subject "Information-Retrieval"
 ```
 
 To compile only the Italian version:
 
 ```powershell
-.\build.ps1 -Subject "Information-Retrieval" -Lang IT
+.\scripts\build.ps1 -Subject "Information-Retrieval" -Lang IT
 ```
 
 To compile only the English version:
 
 ```powershell
-.\build.ps1 -Subject "Information-Retrieval" -Lang EN
+.\scripts\build.ps1 -Subject "Information-Retrieval" -Lang EN
 ```
 
 Or from within the `Information-Retrieval` folder with `latexmk`:

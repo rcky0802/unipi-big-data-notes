@@ -40,7 +40,7 @@ param(
     [switch]$DistributeToPdfFolder = $true
 )
 
-$rootDir = $PSScriptRoot
+$rootDir = Split-Path $PSScriptRoot -Parent
 $pdfOutDir = Join-Path $rootDir "pdf"
 
 if ($DistributeToPdfFolder -and -not (Test-Path $pdfOutDir)) {

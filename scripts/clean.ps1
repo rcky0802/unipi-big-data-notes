@@ -1,5 +1,5 @@
 # Script di pulizia artefatti temporanei per tutte le materie (Docker-based & PowerShell)
-$rootDir = $PSScriptRoot
+$rootDir = Split-Path $PSScriptRoot -Parent
 
 $subjectDirs = Get-ChildItem -Path $rootDir -Directory | Where-Object {
     (Test-Path (Join-Path $_.FullName "main.tex")) -or

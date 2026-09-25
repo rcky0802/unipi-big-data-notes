@@ -21,7 +21,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$rootDir = $PSScriptRoot
+$rootDir = Split-Path $PSScriptRoot -Parent
 Set-Location $rootDir
 
 Write-Host "[1/3] Avvio del container Jupyter in background..." -ForegroundColor Yellow
