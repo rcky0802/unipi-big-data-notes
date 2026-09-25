@@ -11,5 +11,6 @@ I PDF aggiornati sono disponibili nella directory [`pdf/`](./pdf/).
 | Materia | Italiano | English |
 | --- | --- | --- |
 | Algorithm Engineering | [Scarica PDF](./pdf/Algorithm-Engineering-IT.pdf) | [Download PDF](./pdf/Algorithm-Engineering-EN.pdf) |
+| Computational Mathematics | [Scarica PDF](./pdf/Computational-Mathematics-IT.pdf) | [Download PDF](./pdf/Computational-Mathematics-EN.pdf) |
 | Data Mining | [Scarica PDF](./pdf/Data-Mining-IT.pdf) | [Download PDF](./pdf/Data-Mining-EN.pdf) |
 | Information Retrieval | [Scarica PDF](./pdf/Information-Retrieval-IT.pdf) | [Download PDF](./pdf/Information-Retrieval-EN.pdf) |
