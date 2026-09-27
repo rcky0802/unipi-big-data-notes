@@ -1,0 +1,691 @@
+\chapter{Elementary Univariate Optimization Problems}
+\label{chap:simple-optimization-problems}
+
+\FloatBarrier
+\section{Introduction, Motivation, and Learning Objectives}
+\label{sec:opt-intro-motivation}
+
+Mathematical optimization constitutes, alongside numerical linear algebra, the second computational pillar of machine learning and data science~\cite{boyd2004convex,nocedal2006numerical}. In practical machine learning pipelines, virtually every model---from linear regression to deep neural architectures parameterizing hundreds of billions of weights---is conceptually formalized as the minimization of an empirical loss augmented by regularizing penalties over a designated admissible domain:
+\begin{equation}
+\min_{w \in \mathcal{W}} \mathcal{L}(w; \mathcal{D}) + \lambda \Omega(w)
+\end{equation}
+where $\mathcal{L}$ represents the empirical loss over dataset $\mathcal{D}$, $\Omega$ imposes geometric regularization, and $\mathcal{W}$ delimits the feasible parameter set.
+
+However, generic non-linear optimization is an intrinsically intractable endeavor: devoid of structural assumptions, locating the global minimum of an arbitrary function is formally unsolvable within finite time. To build a robust computational foundation, the pedagogical methodology adopted in this second part of the course follows an incremental, modular paradigm:
+\begin{enumerate}
+    \item \textbf{Elementary univariate problem analysis:} examining linear and quadratic functions over $\R$, endowed with analytical structures so transparent that they admit closed-form solutions with $\BigO{1}$ computational complexity.
+    \item \textbf{Developing geometric and algebraic intuition:} gaining deep insight into gradients, curvatures, level sets, and the active influence of boundary constraints.
+    \item \textbf{Identifying boundaries of computational tractability:} understanding precisely how relaxing a structural assumption or expanding into multidimensional spaces transforms elementary decisions into NP-hard challenges.
+    \item \textbf{Simple problems as algorithmic building blocks:} in virtually all state-of-the-art algorithms for non-linear and large-scale optimization (such as Newton, Quasi-Newton, Sequential Quadratic Programming, and line search techniques), the inner computational core repeatedly solves an elementary local approximation (linear or quadratic) of the complex global objective.
+\end{enumerate}
+
+\begin{noteblock}{Methodological Philosophy}
+Mastering univariate linear and quadratic optimization is not merely an introductory exercise: it represents the foundational vocabulary in which advanced numerical algorithms for modern machine learning are written.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Fundamental Definitions: Spaces, Functions, Graphs, and Level Sets}
+\label{sec:opt-fundamental-definitions}
+
+\subsection{Input and Output Spaces}
+Consider the simplest scalar unconstrained setting:
+\begin{itemize}
+    \item \textbf{Input space:} $x \in \R$
+    \item \textbf{Output space:} $y \in \R$
+\end{itemize}
+A scalar mapping $f: \R \to \R$ assigns to each input value $x$ a unique real output $y = f(x)$.
+
+\subsection{Graph of a Function}
+\begin{definition}[Graph]
+Given a scalar function $f: \R \to \R$, the \textbf{graph} of $f$, denoted by $\operatorname{gr}(f)$, is the subset of the two-dimensional Cartesian product space $\R^2$ defined as:
+\begin{equation}
+\operatorname{gr}(f) = \left\{ (x, f(x)) \in \R^2 : x \in \R \right\} \subset \R^2
+\end{equation}
+\end{definition}
+Geometrically, for univariate functions, $\operatorname{gr}(f)$ traces a planar curve in the $(x, y)$ coordinate plane.
+
+\subsection{Image (Effective Codomain)}
+\begin{definition}[Image]
+The \textbf{image} of a function $f$, denoted by $\operatorname{im}(f)$, is the set of all real output values achieved by the mapping:
+\begin{equation}
+\operatorname{im}(f) = \left\{ y \in \R : \exists x \in \R \text{ such that } y = f(x) \right\} = f(\R) \subseteq \R
+\end{equation}
+\end{definition}
+Geometrically, $\operatorname{im}(f)$ corresponds to the orthogonal projection of the graph $\operatorname{gr}(f)$ onto the vertical ordinate axis ($y$-axis).
+
+\subsection{Level Sets and Sublevel Sets}
+\begin{definition}[Level Set]
+Given a target value $v \in \R$, the \textbf{level set} at value $v$, denoted by $L(f, v)$, is the pre-image of $v$ within the domain:
+\begin{equation}
+L(f, v) = \left\{ x \in \R : f(x) = v \right\} \subset \R
+\end{equation}
+\end{definition}
+
+The geometric interpretation is direct: $L(f, v)$ represents the intersection between the curve $\operatorname{gr}(f)$ and the horizontal line $y = v$, projected onto the abscissa axis ($x$-axis).
+
+\begin{remark}[Roots or Zeros of a Function]
+The special case where $v = 0$ identifies the set of roots of the function:
+\begin{equation}
+\operatorname{roots}(f) = L(f, 0) = \{ x \in \R : f(x) = 0 \}
+\end{equation}
+\end{remark}
+
+\begin{definition}[Sublevel Set]
+Given a threshold $v \in \R$, the \textbf{sublevel set} at level $v$, denoted by $S(f, v)$, is defined as:
+\begin{equation}
+S(f, v) = \left\{ x \in \R : f(x) \le v \right\} \subset \R
+\end{equation}
+\end{definition}
+Sublevel sets play a central role in convexity characterizations and convergence proofs for descent algorithms.
+
+
+\FloatBarrier
+\section{The Unconstrained Univariate Optimization Problem}
+\label{sec:opt-unconstrained-problem}
+
+\subsection{Formal Problem Statement}
+Given an objective function $f: \R \to \R$, the unconstrained univariate minimization problem is formally stated as:
+\begin{equation}
+(P) \quad f^* = \min \{ f(x) : x \in \R \}
+\end{equation}
+
+\subsection{Optimal Value vs Optimal Solution}
+A rigorous conceptual distinction must be maintained between the optimal value and an optimal minimizer:
+
+\begin{definition}[Optimal Value]
+The \textbf{optimal value} (denoted by $f^* \in \R$ or $\nu(P)$) is the scalar representing the infimum achieved by the image of the objective function:
+\begin{equation}
+f^* = \min(\operatorname{im}(f)) = \min \{ v \in \R : L(f, v) \neq \emptyset \}
+\end{equation}
+If the minimum exists, the optimal value $f^*$ is \textbf{strictly unique}.
+\end{definition}
+
+\begin{definition}[Optimal Solution or Minimizer]
+An \textbf{optimal solution} (denoted by $x^*$) is a point in the domain $x^* \in \R$ at which the function attains its optimal value:
+\begin{equation}
+f(x^*) = f^* \quad \Longleftrightarrow \quad f(x^*) \le f(x), \quad \forall x \in \R
+\end{equation}
+The set of all minimizers is denoted using the set-valued $\argmin$ operator:
+\begin{equation}
+X^* = \argmin \{ f(x) : x \in \R \} = L(f, f^*)
+\end{equation}
+\end{definition}
+
+\begin{property}[Non-Uniqueness of Minimizers]
+While the optimal value $f^*$ is always a unique scalar, the set of minimizers $X^*$ may:
+\begin{enumerate}
+    \item Be empty ($X^* = \emptyset$, when the minimum is not attained).
+    \item Contain a single isolated point ($|X^*| = 1$, unique global minimizer).
+    \item Contain a discrete set of multiple points (e.g., $f(x) = \sin(x)$ with $f^* = -1$ and $X^* = \{ -\pi/2 + 2k\pi : k \in \mathbb{Z} \}$).
+    \item Contain a continuum of points (e.g., a constant function over an interval).
+\end{enumerate}
+\end{property}
+
+\subsection{Indifference Between Equivalent Minimizers}
+From an optimization perspective:
+\begin{equation}
+\forall x_1^*, x_2^* \in X^* \implies f(x_1^*) = f(x_2^*) = f^*
+\end{equation}
+All points within $X^*$ are perfectly indistinguishable to the objective function. Barring secondary criteria or explicit regularizations (such as minimal $\ell_2$-norm or $\ell_1$-sparsity preferences), any numerical solver is mathematically authorized to return an arbitrary element of $X^*$.
+
+
+\FloatBarrier
+\section{Simple Reformulations and Equivalence}
+\label{sec:opt-reformulations-equivalence}
+
+Two optimization problems are termed \textbf{equivalent} if solving one directly yields the solution of the other without requiring non-trivial iterative computations.
+
+\subsection{Min--Max Duality}
+Without loss of generality (w.l.o.g.), optimization theory can be formulated strictly in terms of minimization problems. Any maximization problem can be transformed by negating the objective function:
+\begin{align}
+\min \{ f(x) : x \in \R \} &= - \max \{ -f(x) : x \in \R \} \\
+\argmin \{ f(x) : x \in \R \} &= \argmax \{ -f(x) : x \in \R \}
+\end{align}
+
+\begin{alertblock}{Conceptual Caution}
+Do not confuse this equivalence with the relationship between $\min f(x)$ and $\max f(x)$: minimizing $f(x)$ and maximizing $f(x)$ are fundamentally distinct problems with opposite convexity and curvature properties. The equivalence holds exclusively between minimizing $f(x)$ and maximizing $-f(x)$.
+\end{alertblock}
+
+\subsection{Invariance Under Vertical Shifts (Additive Constant)}
+Adding an arbitrary real constant $c \in \R$ shifts the graph vertically along the ordinate axis:
+\begin{align}
+\min \{ f(x) + c : x \in \R \} &= \min \{ f(x) : x \in \R \} + c = f^* + c \\
+\argmin \{ f(x) + c : x \in \R \} &= \argmin \{ f(x) : x \in \R \} = X^*
+\end{align}
+The optimal value shifts by $c$, while the set of optimal minimizers $X^*$ remains invariant.
+
+\subsection{Invariance Under Positive Scaling (Multiplicative Constant)}
+Multiplying the objective by a strictly positive scalar $c > 0$ vertically dilates or compresses the graph:
+\begin{align}
+\min \{ c \cdot f(x) : x \in \R \} &= c \cdot \min \{ f(x) : x \in \R \} = c f^* \quad (c > 0) \\
+\argmin \{ c \cdot f(x) : x \in \R \} &= \argmin \{ f(x) : x \in \R \} = X^*
+\end{align}
+If $c < 0$, the negative scalar inverts the orientation, turning minimization into maximization:
+\begin{equation}
+\min \{ c \cdot f(x) : x \in \R \} = c \cdot \max \{ f(x) : x \in \R \} = - |c| \max \{ f(x) : x \in \R \}
+\end{equation}
+
+
+\FloatBarrier
+\section{Constrained Optimization and the Feasible Region}
+\label{sec:opt-constrained-feasible-region}
+
+\subsection{General Formulation of Constrained Optimization}
+In engineering applications and machine learning, decision parameters are bounded by physical limitations, resource budgets, or algorithmic stability bounds. We define the \textbf{feasible region} $X \subseteq \R$:
+\begin{equation}
+(P_X) \quad f^* = \min \{ f(x) : x \in X \}
+\end{equation}
+\begin{itemize}
+    \item A point $x \in X$ is a \textbf{feasible solution}.
+    \item A point $x \in \R \setminus X$ is an \textbf{infeasible solution}.
+    \item The constrained optimal value is $f^* = \min(\operatorname{im}(X, f)) = \min \{ f(x) : x \in X \}$.
+    \item The constrained optimal solution set is given by:
+    \begin{equation}
+    X^* = L(f, f^*) \cap X
+    \end{equation}
+\end{itemize}
+
+\subsection{Monotone Non-Improvement Under Constraint Restriction}
+\begin{theorem}[Fundamental Constraint Inequality]
+Let $X_1 \subseteq X_2 \subseteq \R$ be nested feasible regions. Then:
+\begin{equation}
+\min_{x \in X_1} f(x) \ge \min_{x \in X_2} f(x)
+\end{equation}
+In particular, for any constrained set $X \subseteq \R$:
+\begin{equation}
+\min_{x \in X} f(x) \ge \min_{x \in \R} f(x)
+\end{equation}
+\end{theorem}
+\begin{proof}
+Let $x_1^* \in \argmin_{x \in X_1} f(x)$. Since $X_1 \subseteq X_2$, it follows that $x_1^* \in X_2$. By definition of global minimization over $X_2$, $f(x) \ge \min_{z \in X_2} f(z)$ for any $x \in X_2$. Evaluating at $x = x_1^*$ completes the proof.
+\end{proof}
+
+\begin{noteblock}{Operational Insight}
+Imposing additional constraints can never improve the optimal objective value in a minimization problem; it can only leave it unchanged or worsen it (i.e., increase it).
+\end{noteblock}
+
+\subsection{Taxonomy of Redundant Constraints}
+Given a constrained problem $\min_{x \in X} f(x)$ with unconstrained minimizer set $X^*_{\text{free}} = \argmin_{x \in \R} f(x)$:
+\begin{itemize}
+    \item \textbf{Completely redundant (inactive) constraint:} occurs when $X^*_{\text{free}} \subseteq X$. The constrained optimal value equals the unconstrained value ($f^*_X = f^*_{\R}$) and the set of optimal solutions is unchanged.
+    \item \textbf{Partially redundant constraint:} occurs when $X^*_{\text{free}} \cap X \neq \emptyset$, but $X^*_{\text{free}} \not\subseteq X$. The constraint eliminates some alternative optimal solutions without worsening the optimal value ($f^*_X = f^*_{\R}$ remains intact, while $X^*_X \subset X^*_{\text{free}}$ shrinks).
+    \item \textbf{Active and essential constraint:} occurs when $X^*_{\text{free}} \cap X = \emptyset$. The constraint forces the solution onto the boundary of $X$, strictly increasing the optimal value ($f^*_X > f^*_{\R}$).
+\end{itemize}
+
+\subsection{Functional Representation of Feasible Sets}
+In computational practice, the set $X$ is not defined as an abstract collection, but via systems of algebraic equations and inequalities based on constraint functions $g_i: \R \to \R$:
+\begin{enumerate}
+    \item \textbf{Equality Constraints:}
+    \begin{equation}
+    g(x) = v \quad \Longleftrightarrow \quad X = L(g, v)
+    \end{equation}
+    In canonical homogeneous form:
+    \begin{equation}
+    g(x) = 0
+    \end{equation}
+    \item \textbf{Inequality Constraints:}
+    \begin{equation}
+    g(x) \le v \quad \Longleftrightarrow \quad X = S(g, v) = \{ x \in \R : g(x) \le v \}
+    \end{equation}
+    In canonical normalized form:
+    \begin{equation}
+    g(x) \le 0
+    \end{equation}
+    When the constraint is originally given as $g(x) \ge 0$, multiplying by $-1$ recovers the canonical format $-g(x) \le 0$.
+    \item \textbf{Conjunction of Multiple Constraints:}
+    Multiple constraints correspond to the intersection of their respective sublevel sets:
+    \begin{equation}
+    \begin{cases} g_1(x) \le 0 \\ g_2(x) \le 0 \end{cases} \quad \Longleftrightarrow \quad X = S(g_1, 0) \cap S(g_2, 0)
+    \end{equation}
+    \item \textbf{Box Constraints (Closed Intervals):}
+    Representing the fundamental class in univariate optimization:
+    \begin{equation}
+    x_- \le x \le x_+ \quad \Longleftrightarrow \quad X = [x_-, x_+]
+    \end{equation}
+    which is canonicalized as the two-inequality system:
+    \begin{equation}
+    \begin{cases} x - x_+ \le 0 \\ x_- - x \le 0 \end{cases}
+    \end{equation}
+\end{enumerate}
+
+
+\FloatBarrier
+\section{Why Optimization is Difficult: Theory vs Computational Practice}
+\label{sec:opt-difficulty-theory-practice}
+
+\subsection{Modes of Non-Existence of the Minimum}
+An optimization problem can fail to admit an optimal minimizer due to two distinct topological reasons:
+
+\subsubsection{Case 1: Unbounded Below Problem ($f^* = -\infty$)}
+The objective decreases indefinitely across the domain:
+\begin{equation}
+\forall M \in \R, \quad \exists x \in X \quad \text{such that} \quad f(x) \le M
+\end{equation}
+A canonical example is $f(x) = x$ as $x \to -\infty$. In this setting, we write $f^* = -\infty$ and $\argmin f(x) = \emptyset$.
+
+\subsubsection{Case 2: Finite Infimum Not Attained ($f^*$ finite, but $x^* \notin X$)}
+The image $\operatorname{im}(f)$ is bounded below in $\R$, but the infimum does not belong to the image:
+\begin{equation}
+\inf \{ f(x) : x \in X \} > -\infty \quad \text{yet} \quad \nexists x^* \in X \text{ such that } f(x^*) = \inf_{x \in X} f(x)
+\end{equation}
+Two typical manifestations include:
+\begin{itemize}
+    \item \textbf{Smooth asymptotic settings:} $f(x) = e^x$ on $X = \R$. The infimum is $\inf_{x \in \R} e^x = 0$, but $e^x = 0$ has no finite solution in $\R$. The minimum is approached only asymptotically as $x \to -\infty$.
+    \item \textbf{Discontinuous pathological settings:}
+    \begin{equation}
+    f(x) = \begin{cases} 1 & \text{if } x = 0 \\ |x| & \text{if } x \neq 0 \end{cases}
+    \end{equation}
+    The infimum is $0$, but at the natural candidate $x = 0$ the function jumps to $1$. No point attains $f(x) = 0$.
+\end{itemize}
+
+\subsection[Formalization via Extended Real Numbers]{Formalization via Extended Real Numbers $\overline{\R}$}
+To mathematically handle these asymptotic limits, real space is extended by incorporating infinity:
+\begin{equation}
+\overline{\R} = \R \cup \{-\infty, +\infty\}
+\end{equation}
+In $\overline{\R}$, every subset $S \subseteq \R$ \textbf{always} possesses both an infimum and a supremum:
+\begin{align}
+\inf S &= \max \{ v \in \overline{\R} : v \le s, \; \forall s \in S \} \\
+\sup S &= \min \{ v \in \overline{\R} : v \ge s, \; \forall s \in S \}
+\end{align}
+With empty set conventions:
+\begin{equation}
+\inf \emptyset = +\infty, \quad \sup \emptyset = -\infty
+\end{equation}
+
+\subsection[Optimization in Floating-Point Arithmetic]{Optimization in Finite-Precision Floating-Point Arithmetic}
+In computational hardware (modern CPUs and GPUs), the continuous real line $\R$ does not exist: algorithms operate strictly in finite-precision floating-point arithmetic (IEEE 754 standard `double` 64-bit, `single` 32-bit, or reduced formats like FP8/INT4 in deep learning accelerators).
+
+This imposes key algorithmic realities:
+\begin{enumerate}
+    \item \textbf{Finite discrete grid:} between any two consecutive representable numbers lies an indivisible gap determined by machine precision ($\varepsilon_{\text{mach}} \approx 10^{-16}$ in `double`).
+    \item \textbf{Impossibility of exact zero-error convergence:} seeking an exact minimizer $x^*$ is computationally meaningless. Stopping criteria must accept an $\varepsilon$-approximate solution (\textbf{$\varepsilon$-optimum}):
+    \begin{equation}
+    f^* \le f(x_\varepsilon) \le f^* + \varepsilon
+    \end{equation}
+\end{enumerate}
+
+\subsection{Error Metrics: Absolute Gap vs Relative Gap}
+To assess solution accuracy:
+\begin{definition}[Absolute Gap]
+\begin{equation}
+A(x) = f(x) - f^* \ge 0
+\end{equation}
+\end{definition}
+\textbf{Limitation:} absolute error is scale-dependent. If $f^* = 10^7$, an error $A(x) = 1$ is exceptional; if $f^* = 10^{-7}$, $A(x) = 1$ renders the solution completely useless.
+
+\begin{definition}[Normalized Relative Gap]
+\begin{equation}
+R(x) = \frac{f(x) - f^*}{\max(|f^*|, 1)} \ge 0
+\end{equation}
+\end{definition}
+\textbf{Advantages:} dimension-free and invariant to positive scaling of the objective. The term $\max(|f^*|, 1)$ in the denominator guards against numerical division-by-zero when $f^* \to 0$.
+
+\subsection{The Impossibility of Generic Black-Box Optimization}
+Suppose an objective $f: [x_-, x_+] \to \R$ is accessible solely through a black-box oracle: given input $x$, the oracle returns only the scalar value $f(x)$, with zero access to gradients or structural properties.
+
+\begin{theorem}[Informal Impossibility Theorem for Adversarial Oracles]
+It is impossible to identify the global minimum of an arbitrary continuous function on a bounded interval $[x_-, x_+]$ in a finite number of oracle queries.
+\end{theorem}
+
+\begin{proof}[Adversarial Oracle Argument (\textit{Needle in a Haystack})]
+Consider an interval $[x_-, x_+]$ and a function identically zero $f(x) = 0$ everywhere except at an unknown single point $x_0$, where it exhibits a sharp negative spike:
+\begin{equation}
+f(x_0) = -1, \quad f(x) = 0 \quad \forall x \neq x_0
+\end{equation}
+Any algorithm querying a finite sample $\{x_1, \dots, x_K\}$ receives return value $0$. An adversarial oracle can always place $x_0$ in $[x_-, x_+] \setminus \{x_1, \dots, x_K\}$.
+
+Even if we enforce continuity by connecting $(x_0, -1)$ via a very narrow cusp of base width $\delta > 0$, any discrete sampling step $\Delta x > \delta$ fails to detect the spike.
+\end{proof}
+
+\begin{noteblock}{Necessary Condition for Computational Tractability}
+Optimization becomes computationally viable only when the objective function exhibits \textbf{exploitable mathematical structure}: Lipschitz continuity, differentiability, convexity, or linearity.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Univariate Linear Optimization}
+\label{sec:opt-linear-case}
+
+\subsection{Geometric and Analytical Properties}
+The simplest non-constant univariate function is the homogeneous linear function:
+\begin{equation}
+f(x) = bx, \quad b \in \R
+\end{equation}
+The parameter $b$ defines the \textbf{slope}:
+\begin{itemize}
+    \item \textbf{If $b > 0$:} $f$ is \textit{strictly increasing}:
+    \begin{equation}
+    x_1 > x_2 \iff x_1 - x_2 > 0 \implies b(x_1 - x_2) > 0 \iff f(x_1) > f(x_2)
+    \end{equation}
+    \item \textbf{If $b < 0$:} $f$ is \textit{strictly decreasing}.
+    \item \textbf{If $b = 0$:} $f$ degenerates to the constant zero function $f(x) = 0$.
+\end{itemize}
+
+\subsection[Unconstrained Optimization on R]{Unconstrained Optimization over $\R$}
+The unconstrained problem $\min_{x \in \R} bx$ is trivial:
+\begin{itemize}
+    \item If $b > 0$: $\lim_{x \to -\infty} bx = -\infty \implies f^* = -\infty$ (unbounded below).
+    \item If $b < 0$: $\lim_{x \to +\infty} bx = -\infty \implies f^* = -\infty$ (unbounded below).
+    \item If $b = 0$: $f^* = 0$, $X^* = \R$ (every real point is an optimal minimizer).
+\end{itemize}
+
+\subsection[Optimization Over a Bounded Box]{Optimization Over a Bounded Box $[x_-, x_+]$}
+Consider the constrained problem over a closed bounded interval $[x_-, x_+]$:
+\begin{equation}
+\min \{ bx : x \in [x_-, x_+] \}
+\end{equation}
+Owing to global strict monotonicity, the minimum and maximum necessarily lie on the boundary points. The decision rule operates in $\BigO{1}$ time:
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{c Y Y Y Y}
+\toprule
+\textbf{Condition} & \textbf{Minimum $x^*$} & \textbf{Min Value $f^*$} & \textbf{Maximum $x^*_{\max}$} & \textbf{Max Value $f^*_{\max}$} \\
+\midrule
+$b > 0$ & $x_-$ & $b x_-$ & $x_+$ & $b x_+$ \\
+$b < 0$ & $x_+$ & $b x_+$ & $x_-$ & $b x_-$ \\
+$b = 0$ & Indifferent & $0$ & Indifferent & $0$ \\
+\bottomrule
+\end{tabularx}
+\caption{Decision rules at $\BigO{1}$ computational cost for box-constrained linear optimization.}
+\label{tab:linear-box-en}
+\end{table}
+
+
+\FloatBarrier
+\section{The Illusion of Open Sets in Numerical Computation}
+\label{sec:opt-open-sets}
+
+\subsection{The Analytical Failure of Open Intervals}
+Consider an open feasible interval:
+\begin{equation}
+X = (x_-, x_+) = \{ x \in \R : x_- < x < x_+ \}
+\end{equation}
+Assuming $b > 0$, the function $f(x) = bx$ has infimum $\inf_{x \in X} f(x) = b x_-$. However:
+\begin{equation}
+\nexists x \in (x_-, x_+) \quad \text{such that} \quad f(x) = b x_-
+\end{equation}
+In pure analysis, the problem \textbf{has no solution}.
+
+\subsection{The Practical Numerical Resolution}
+In applied numerical computation:
+\begin{enumerate}
+    \item \textbf{Physical parameters do not possess infinite precision:} no engineering constraint requires $x > x_-$ without an explicit safety tolerance.
+    \item \textbf{Floating-point arithmetic contains no open sets:} between $x_-$ and the adjacent machine number $x_- + \varepsilon_{\text{mach}}$, no values exist.
+    \item \textbf{Formulation with explicit buffer tolerances:} boundaries are backed off via a positive numerical threshold:
+    \begin{equation}
+    X = [x_- + \varepsilon_-, \; x_+ - \varepsilon_+]
+    \end{equation}
+\end{enumerate}
+
+\begin{noteblock}{Golden Methodological Principle}
+Throughout this course, feasible regions and box constraints will always be modeled as \textbf{closed and bounded}.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Univariate Optimization: The Homogeneous Quadratic Case}
+\label{sec:opt-homogeneous-quadratic}
+
+\subsection{Definition and Curvature}
+A homogeneous quadratic function is given by:
+\begin{equation}
+f(x) = ax^2, \quad a \in \R
+\end{equation}
+The parameter $a$ represents the \textbf{curvature}:
+\begin{itemize}
+    \item \textbf{$a > 0$ (Convex Function):} the parabola curves upwards. The function is strictly decreasing for $x \le 0$ and strictly increasing for $x \ge 0$. The vertex $(0, 0)$ is the global minimum. As $a$ grows, the parabola steepens; as $a \to 0^+$, it flattens.
+    \item \textbf{$a < 0$ (Concave Function):} the parabola curves downwards with vertex $(0, 0)$ as the global maximum.
+    \item \textbf{$a = 0$:} the function collapses to the constant zero line.
+\end{itemize}
+
+\subsection[Unconstrained Optimization on R]{Unconstrained Optimization over $\R$}
+\begin{itemize}
+    \item If $a > 0$: $x^* = 0$, $f^* = 0$, with $\max_{x \in \R} ax^2 = +\infty$.
+    \item If $a < 0$: $x^*_{\max} = 0$, $f^*_{\max} = 0$, with $\min_{x \in \R} ax^2 = -\infty$.
+    \item If $a = 0$: $f^* = 0$, any point $x \in \R$ is optimal.
+\end{itemize}
+
+\subsection[Box-Constrained Optimization]{Box-Constrained Optimization $[x_-, x_+]$ (for $a > 0$)}
+For a closed bounded interval $[x_-, x_+]$, the position of the vertex ($x = 0$) relative to the interval defines three mutually exclusive configurations:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small]
+
+    % Case 1: Entirely to the left of zero
+    \begin{scope}[xshift=-6cm]
+        \draw[->, thick, color=gray!60!black] (-3, 0) -- (1.5, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-2.4:1.2, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (-2.2, 0) -- (-0.8, 0);
+        \filldraw[red!80!black] (-2.2, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (-0.8, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[blue!80!black] (0, 0) circle (2pt) node[below=3pt] {$0$};
+        \filldraw[teal!80!black] (-0.8, {0.8*(-0.8)*(-0.8)}) circle (2.5pt) node[above right] {$x^* = x_+$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (-0.8, -1.2) {Case 1: $x_+ < 0$\\(\textit{Decreasing on box})};
+    \end{scope}
+
+    % Case 2: Entirely to the right of zero
+    \begin{scope}[xshift=0cm]
+        \draw[->, thick, color=gray!60!black] (-1.5, 0) -- (3, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-1.2:2.4, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (0.8, 0) -- (2.2, 0);
+        \filldraw[blue!80!black] (0, 0) circle (2pt) node[below=3pt] {$0$};
+        \filldraw[red!80!black] (0.8, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (2.2, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[teal!80!black] (0.8, {0.8*(0.8)*(0.8)}) circle (2.5pt) node[above left] {$x^* = x_-$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (1.2, -1.2) {Case 2: $x_- > 0$\\(\textit{Increasing on box})};
+    \end{scope}
+
+    % Case 3: Zero is contained in the box
+    \begin{scope}[xshift=6cm]
+        \draw[->, thick, color=gray!60!black] (-2.5, 0) -- (2.5, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-2.0:2.0, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (-1.8, 0) -- (1.2, 0);
+        \filldraw[red!80!black] (-1.8, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (1.2, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[teal!80!black] (0, 0) circle (2.5pt) node[above right=3pt] {$x^* = 0$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (0, -1.2) {Case 3: $x_- \le 0 \le x_+$\\(\textit{Interior minimum})};
+    \end{scope}
+
+\end{tikzpicture}%
+}
+\caption{The three topological configurations for box-constrained homogeneous quadratic optimization over $[x_-, x_+]$.}
+\label{fig:parabola-cases-box-en}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Strictly Negative Configuration ($x_+ < 0$):} the entire box lies to the left of the vertex. The convex parabola is strictly decreasing across the box:
+    \begin{align}
+    x^* &= x_+, \quad f^* = a (x_+)^2 \\
+    x^*_{\max} &= x_-, \quad f^*_{\max} = a (x_-)^2
+    \end{align}
+    \item \textbf{Strictly Positive Configuration ($x_- > 0$):} the entire box lies to the right of the vertex. The objective is strictly increasing:
+    \begin{align}
+    x^* &= x_-, \quad f^* = a (x_-)^2 \\
+    x^*_{\max} &= x_+, \quad f^*_{\max} = a (x_+)^2
+    \end{align}
+    \item \textbf{Interior Vertex Configuration ($x_- \le 0 \le x_+$):} the vertex is feasible, so the constrained minimum equals the unconstrained global minimum:
+    \begin{align}
+    x^* &= 0, \quad f^* = 0
+    \end{align}
+    The maximum is achieved at whichever boundary point lies furthest from the origin:
+    \begin{equation}
+    x^*_{\max} = \argmax \{ a(x_-)^2, a(x_+)^2 \} = \begin{cases} x_- & \text{if } |x_-| > |x_+| \\ x_+ & \text{if } |x_+| > |x_-| \end{cases}
+    \end{equation}
+\end{enumerate}
+
+
+\FloatBarrier
+\section[Univariate Optimization: Non-Homogeneous Quadratic Case]{Univariate Optimization:\\ The Non-Homogeneous Quadratic Case}
+\label{sec:opt-non-homogeneous-quadratic}
+
+\subsection{Definition and Non-Separability of the Minimum Operator}
+Consider the complete quadratic scalar function with a linear term:
+\begin{equation}
+f(x) = ax^2 + bx, \quad a, b \in \R, \quad a \neq 0, \; b \neq 0
+\end{equation}
+
+\begin{alertblock}{Fundamental Non-Additivity of the Minimum Operator}
+In general, minimization does not distribute over sums:
+\begin{equation}
+\min \{ ax^2 + bx \} \neq \min \{ ax^2 \} + \min \{ bx \}
+\end{equation}
+The minimum of the sum of two functions does not equal the sum of their individual minima, unless they happen to share the exact same minimizer (which is violated here because the linear term $bx$ has no finite minimum on $\R$).
+\end{alertblock}
+
+\subsection{The Coordinate Translation Principle (Origin Shift)}
+To solve this problem without relying on differential calculus, we apply one of the most powerful algebraic techniques in optimization: \textbf{coordinate translation}.
+We define a shifted variable $z$ around a center $\bar{x} \in \R$ to be determined:
+\begin{equation}
+z = x - \bar{x} \quad \Longleftrightarrow \quad x = z + \bar{x}
+\end{equation}
+such that, when expressed in terms of $z$, the quadratic function becomes \textbf{purely homogeneous} (canceling the linear term in $z$).
+
+\subsection{Step-by-Step Algebraic Derivation}
+Substituting $x = z + \bar{x}$ into $f(x)$:
+\begin{align}
+f(z + \bar{x}) &= a(z + \bar{x})^2 + b(z + \bar{x}) \nonumber\\
+&= a\left(z^2 + 2z\bar{x} + \bar{x}^2\right) + bz + b\bar{x} \nonumber\\
+&= az^2 + 2a\bar{x}z + a\bar{x}^2 + bz + b\bar{x}
+\end{align}
+Grouping terms by descending powers of $z$:
+\begin{equation}
+f(z + \bar{x}) = az^2 + (2a\bar{x} + b)z + \left(a\bar{x}^2 + b\bar{x}\right)
+\end{equation}
+Notice that the constant term independent of $z$ is exactly the value of the original function evaluated at $\bar{x}$:
+\begin{equation}
+a\bar{x}^2 + b\bar{x} = f(\bar{x})
+\end{equation}
+Thus the transformed function is written as:
+\begin{equation}
+f(z + \bar{x}) = az^2 + (2a\bar{x} + b)z + f(\bar{x})
+\end{equation}
+
+To eliminate the linear term and render the function homogeneous in $z$, we set the coefficient of $z$ to zero:
+\begin{equation}
+2a\bar{x} + b = 0 \quad \Longrightarrow \quad \bar{x} = -\frac{b}{2a}
+\end{equation}
+
+\subsection{Solution in Shifted Coordinates and Inverse Mapping}
+Setting $\bar{x} = -\frac{b}{2a}$, the function in $z$ becomes decoupled:
+\begin{equation}
+g(z) = f(z + \bar{x}) = az^2 + f(\bar{x})
+\end{equation}
+Since $f(\bar{x})$ is an additive constant independent of the optimization variable $z$:
+\begin{equation}
+\argmin_{z \in \R} g(z) = \argmin_{z \in \R} \left( az^2 + f(\bar{x}) \right) = \argmin_{z \in \R} \left( az^2 \right)
+\end{equation}
+
+For $a > 0$ (convex parabola), the minimizer in shifted space is immediate:
+\begin{equation}
+z^* = 0
+\end{equation}
+Mapping back to the original coordinate space:
+\begin{equation}
+x^* = z^* + \bar{x} = 0 + \bar{x} = -\frac{b}{2a}
+\end{equation}
+The optimal value is found by evaluating $f$ at $x^* = \bar{x}$:
+\begin{align}
+f^* = f(\bar{x}) &= a\left(-\frac{b}{2a}\right)^2 + b\left(-\frac{b}{2a}\right) \nonumber\\
+&= a\frac{b^2}{4a^2} - \frac{b^2}{2a} = \frac{b^2}{4a} - \frac{2b^2}{4a} = -\frac{b^2}{4a}
+\end{align}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small]
+
+    % Coordinate axes
+    \draw[->, thick, color=gray!60!black] (-4, 0) -- (3, 0) node[right] {$x$};
+    \draw[->, thick, color=gray!60!black] (0, -2.5) -- (0, 3) node[above] {$y$};
+
+    % Original parabola f(x) = x^2 + 2x = x(x+2), roots 0 and -2, vertex (-1, -1)
+    \draw[domain=-3.2:1.2, smooth, variable=\x, blue!75!black, very thick] plot ({\x}, {\x*\x + 2*\x});
+    \node[blue!80!black, font=\bfseries] at (-2.8, 2.5) {$f(x) = ax^2 + bx$};
+
+    % Roots
+    \filldraw[black] (0, 0) circle (2pt) node[above right] {$x_1 = 0$};
+    \filldraw[black] (-2, 0) circle (2pt) node[above left] {$x_2 = -b/a$};
+
+    % Vertex and midpoint
+    \draw[dashed, color=purple!70!black, thick] (-1, 0) -- (-1, -1) -- (0, -1);
+    \filldraw[purple!80!black] (-1, -1) circle (2.5pt) node[below left=2pt] {$x^* = -\frac{b}{2a}, \; f^* = -\frac{b^2}{4a}$};
+    \filldraw[purple!80!black] (-1, 0) circle (2pt) node[above=3pt] {$\bar{x} = \frac{x_1 + x_2}{2}$};
+
+    % Shifted homogeneous parabola g(z) = z^2 - 1
+    \draw[domain=-2.2:2.2, smooth, variable=\z, teal!75!black, thick, dashed] plot ({\z}, {\z*\z - 1});
+    \node[teal!80!black, font=\footnotesize] at (2.2, 1.8) {$g(z) = az^2 + f(\bar{x})$};
+
+    % Shift arrow
+    \draw[->, thick, draw=purple!80!black] (0, -0.4) -- (-1, -0.4) node[midway, below, font=\scriptsize] {Shift $\bar{x} = -\frac{b}{2a}$};
+
+\end{tikzpicture}%
+}
+\caption{Geometric visualization of coordinate translation for the non-homogeneous parabola: the vertex $x^*$ lies precisely at the midpoint between the two roots $x_1$ and $x_2$.}
+\label{fig:coordinate-shift-parabola-en}
+\end{figure}
+
+\subsection{Geometric Interpretation: The Midpoint of the Roots}
+The quadratic function $f(x) = ax^2 + bx = x(ax + b)$ always possesses two real roots (when $b \neq 0$):
+\begin{equation}
+x_1 = 0, \quad x_2 = -\frac{b}{a}
+\end{equation}
+The optimal minimizer derived via coordinate shift lies exactly at the \textbf{midpoint} of the roots:
+\begin{equation}
+\bar{x} = \frac{x_1 + x_2}{2} = \frac{0 + (-b/a)}{2} = -\frac{b}{2a}
+\end{equation}
+This universal symmetry property reflects the fact that the derivative of a degree-two polynomial is an affine line intersecting the horizontal axis at the exact arithmetic mean of its real zeros.
+
+\subsection[Box-Constrained General Quadratic Optimization]{Box-Constrained Optimization\\ for General Quadratic Functions}
+Under a box constraint $x \in [x_-, x_+]$, coordinate translation directly shifts the boundary endpoints for variable $z$:
+\begin{equation}
+x \in [x_-, x_+] \quad \Longleftrightarrow \quad z \in [x_- - \bar{x}, \; x_+ - \bar{x}]
+\end{equation}
+Setting $z_- = x_- - \bar{x}$ and $z_+ = x_+ - \bar{x}$, the problem reduces to the homogeneous quadratic problem over $[z_-, z_+]$ solved in Section~\ref{sec:opt-homogeneous-quadratic}:
+\begin{equation}
+z^* = \begin{cases}
+z_+ & \text{if } z_+ < 0 \\
+z_- & \text{if } z_- > 0 \\
+0 & \text{if } z_- \le 0 \le z_+
+\end{cases}
+\end{equation}
+recovering the original variable solution via $x^* = z^* + \bar{x}$.
+
+
+\FloatBarrier
+\section{Synoptic Formula Reference of Univariate Optimization}
+\label{sec:opt-synoptic-reference}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c l X c}
+\toprule
+\textbf{Class} & \textbf{Form} & \textbf{Condition} & \textbf{Minimum $x^*$} & \textbf{Value $f^*$} \\
+\midrule
+\textbf{Linear} & $bx$ & $b > 0$ & Does not exist ($x \to -\infty$) & $-\infty$ \\
+                &      & $b < 0$ & Does not exist ($x \to +\infty$) & $-\infty$ \\
+                &      & $b = 0$ (degenerate) & Indifferent ($\forall x \in \R$) & $0$ \\
+\midrule
+\textbf{Homogeneous} & $ax^2$ & $a > 0$ (convex) & $x^* = 0$ (unique) & $0$ \\
+\textbf{quadratic}   &        & $a < 0$ (concave) & Does not exist ($x \to \pm\infty$) & $-\infty$ \\
+                     &        & $a = 0$ (degenerate) & Indifferent ($\forall x \in \R$) & $0$ \\
+\midrule
+\textbf{General}   & $ax^2 + bx$ & $a > 0$ (convex) & $x^* = -b/(2a)$ (vertex) & $-b^2/(4a)$ \\
+\textbf{quadratic} &             & $a < 0$ (concave) & Does not exist ($x \to \pm\infty$) & $-\infty$ \\
+                   &             & $a = 0, \; b \neq 0$ & Does not exist (linear reduction) & $-\infty$ \\
+\bottomrule
+\end{tabularx}
+\caption{Comprehensive synoptic summary of univariate unconstrained optimization.}
+\label{tab:synoptic-univariate-en}
+\end{table}

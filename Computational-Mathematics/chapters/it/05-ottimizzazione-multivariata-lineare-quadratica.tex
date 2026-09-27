@@ -1,0 +1,811 @@
+\chapter{Ottimizzazione Multivariata: Geometria, Funzioni Lineari e Forme Quadratiche}
+\label{chap:opt-multivariata-lineare-quadratica}
+
+\section{Dall'Univariato al Multivariato: La Dimensionalit\`a dello Spazio \texorpdfstring{$\R^n$}{R\textasciicircum n}}
+\label{sec:opt-dimensionalita-rn}
+
+\subsection{Lo Spazio di Input Multivariato}
+Nelle applicazioni reali della scienza dei dati, dell'apprendimento automatico e dell'ingegneria computazionale, i modelli decisionali dipendono quasi universalmente da una molteplicit\`a di variabili interconnesse. L'oggetto fondamentale d'indagine diviene la funzione scalare multivariata:
+\begin{equation}
+f: \R^n \to \R, \quad f(x) = f(x_1, x_2, \dots, x_n)
+\end{equation}
+dove l'argomento $x$ \`e un vettore colonna strutturato di $n$ componenti reali:
+\begin{equation}
+x = \begin{bmatrix} x_1 \\ x_2 \\ \vdots \\ x_n \end{bmatrix} = [x_i]_{i=1}^n \in \R^n
+\end{equation}
+
+La dimensione vettoriale $n$ copre ordini di grandezza radicalmente disomogenei:
+\begin{itemize}
+    \item \textbf{Piccola scala ($n \in \{2, 3, 10^2\}$):} modelli geometrici euclidei, cinematica inversa, allocazione elementare di risorse.
+    \item \textbf{Media e grande scala ($n \in \{10^4, 10^5\}$):} elaborazione di segnali e immagini, calcolo strutturale, flussi di rete e logistica integrata.
+    \item \textbf{Scala mostruosa (\textit{heinously large}, $n \in \{10^9, 10^{11}\}$):} addestramento di reti neurali profonde e modelli linguistici di grandi dimensioni (LLM), dove $n$ enumera i pesi sinaptici e i parametri di attenzione del trasformatore.
+\end{itemize}
+
+\subsection{La Maledizione della Dimensionalit\`a}
+Lo spazio vettoriale continuo $\R^n$ \`e definito come il prodotto cartesiano di $\R$ iterato $n$ volte:
+\begin{equation}
+\R^n = \underbrace{\R \times \R \times \dots \times \R}_{n \text{ volte}}
+\end{equation}
+
+\begin{noteblock}{L'Espansione Volumetrica Esponenziale}
+La quantit\`a di spazio racchiusa in $\R^n$ cresce esponenzialmente rispetto alla dimensione $n$. L'introduzione di variabili addizionali in un modello non costituisce mai un'operazione computazionalmente neutra, bens\`i altera la densit\`a geometrica dello spazio esplorabile.
+\end{noteblock}
+
+Per quantificare rigorosamente l'esplosione combinatoria generata dalla dimensionalit\`a, si consideri la semplificazione pi\`u drastica possibile:
+\begin{enumerate}
+    \item Si limiti il dominio continuo a un ipercubo unitario compatto (\textit{box}):
+    \begin{equation}
+    X = \{x \in \R^n : 0 \le x_i \le 1, \; i = 1, \dots, n\} = [0, 1]^n
+    \end{equation}
+    \item Si rinunci interamente alla continuit\`a interna, campionando unicamente i valori estremi discreti per ciascuna variabile, ossia $x_i \in \{0, 1\}$.
+\end{enumerate}
+
+L'insieme discreto risultante coincide con i vertici dell'\textbf{ipercubo booleano} $\{0, 1\}^n$, con cardinalit\`a:
+\begin{equation}
+|V| = 2^n \text{ vertici}
+\end{equation}
+Anche per dimensioni apparentemente modeste (ad esempio $n = 100$), si ottiene $2^{100} \approx 1.26 \times 10^{30}$ configurazioni discrete. Tale numero supera di svariati ordini di grandezza la capacit\`a di calcolo di qualsiasi supercomputer, rendendo l'esplorazione esaustiva (\textit{brute-force}) impraticabile.
+
+
+\FloatBarrier
+\section[Ottimizzazione Vettoriale e Multi-Obiettivo]{Ottimizzazione Vettoriale\\ e Multi-Obiettivo}
+\label{sec:opt-vettoriale-multiobiettivo}
+
+\subsection{La Criticit\`a dell'Unico Obiettivo Scalare}
+L'ipotesi fondante dell'ottimizzazione classica risiede nella comprimibilit\`a dell'intero valore di una decisione $x \in X$ in un singolo valore scalare $f(x) \in \R$. 
+
+Poich\'e la retta reale $\R$ \`e dotata di un \textbf{ordinamento totale}:
+\begin{equation}
+\forall a, b \in \R \implies a \le b \quad \lor \quad b \le a
+\end{equation}
+dati due punti distinti $x'$ e $x''$, \`e sempre possibile stabilire in modo univoco e oggettivo quale configurazione sia preferibile confrontando $f(x')$ con $f(x'')$.
+
+Nelle applicazioni empiriche, tuttavia, i processi decisionali complessi richiedono il bilanciamento di criteri multipli, intrinsecamente contrastanti e privi di una metrica comune (\textit{incommensurabili}):
+\begin{itemize}
+    \item \textbf{Acquisto di un autoveicolo:} costo d'acquisto vs consumo di carburante vs sicurezza passiva vs estetica.
+    \item \textbf{Apprendimento automatico:} minimizzazione della funzione di perdita empirica sui dati $\mathcal{L}(w)$ vs minimizzazione della complessit\`a strutturale del modello $R(w)$ per prevenire il sovradattamento (\textit{overfitting}).
+\end{itemize}
+
+Un problema di \textbf{ottimizzazione multi-obiettivo} (o vettoriale) si formula come:
+\begin{equation}
+\min_{x \in X} F(x) = \begin{bmatrix} f_1(x) \\ f_2(x) \\ \vdots \\ f_k(x) \end{bmatrix}, \quad F: X \to \R^k, \; k \ge 2
+\end{equation}
+
+\subsection{Esempio Didattico: La Selezione di Portafoglio di Markowitz}
+Si consideri un investitore finanziario che alloca il proprio capitale su un paniere di asset:
+\begin{itemize}
+    \item \textbf{Obiettivo 1 (Rendimento atteso):} $f_1(x) \in \R$, da massimizzare (ovvero $-f_1(x)$ da minimizzare).
+    \item \textbf{Obiettivo 2 (Rischio finanziario / Volatilit\`a):} $f_2(x) \in \R$ (varianza della distribuzione dei rendimenti), da minimizzare.
+\end{itemize}
+Gli asset a basso rischio (es. titoli di stato a breve termine) offrono rendimenti minimi, mentre gli asset ad alto potenziale di rendimento comportano oscillazioni marcate. Non esiste alcun portafoglio che minimizzi contemporaneamente la varianza e massimizzi il rendimento assoluto.
+
+\subsection{Ordinamento Parziale e Frontiera di Pareto}
+Lo spazio vettoriale $\R^k$ con $k \ge 2$ non possiede un ordinamento totale naturale, bens\`i un \textbf{ordinamento parziale} indotto dal cono ortante non negativo:
+\begin{equation}
+u \le v \iff u_i \le v_i \quad \forall i = 1, \dots, k
+\end{equation}
+
+\begin{definition}[Dominanza di Pareto]
+Si assuma per convenzione che tutti i $k$ criteri siano da minimizzare. Un punto ammissibile $x' \in X$ \textbf{domina in senso paretiano} un punto $x'' \in X$ (notazione: $x' \succ_P x''$) se e solo se:
+\begin{equation}
+f_i(x') \le f_i(x'') \quad \forall i \in \{1, \dots, k\} \quad \land \quad \exists j \in \{1, \dots, k\} : f_j(x') < f_j(x'')
+\end{equation}
+\end{definition}
+
+\begin{definition}[Soluzione Non Dominata o Pareto-Ottima]
+Un punto $x^* \in X$ si definisce \textbf{Pareto-ottimo} (o non dominato) se non esiste alcun altro vettore $x \in X$ che domini $x^*$. L'insieme di tutte le immagini $F(x^*)$ nello spazio degli obiettivi costituisce la \textbf{Frontiera di Pareto}.
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.15]
+    % Background Feasible Area
+    \fill[teal!6, draw=teal!30, dashed, thin]
+        (1.0, 1.2) 
+        to[out=10, in=200] (3.2, 1.8) 
+        to[out=20, in=215] (5.0, 2.8) 
+        to[out=35, in=230] (7.2, 4.8) 
+        to[out=50, in=240] (8.4, 6.6)
+        -- (8.4, 6.8) -- (1.0, 6.8) -- cycle;
+    \node[teal!70!black, font=\small\bfseries] at (2.6, 6.4) {Regione Obiettivo Ammissibile};
+
+    % Axes
+    \draw[->, thick] (0,0) -- (10.2,0) node[below=5pt] {Rendimento atteso $f_1(x)$ (da massimizzare) $\longrightarrow$};
+    \draw[->, thick] (0,0) -- (0,7.2) node[above=4pt, align=center] {$\longleftarrow$ Rischio / Varianza $f_2(x)$\\(da minimizzare)};
+    \draw[help lines, color=gray!20, dashed] (0.5,0.5) grid (9.8,6.8);
+
+    % Dominance region from A (feasible points dominating A)
+    \fill[green!20, draw=green!60!black, dashed, thin] 
+        (3.2, 4.8) -- (7.2, 4.8) 
+        to[out=230, in=35] (5.0, 2.8) 
+        to[out=215, in=20] (3.2, 1.8) -- cycle;
+    \node[green!50!black, font=\footnotesize\bfseries, align=center] at (4.8, 3.8) {Soluzioni che\\dominano $A$};
+
+    % Pareto Frontier Curve (Convex lower boundary)
+    \draw[line width=1.8pt, teal!80!black] 
+        (1.0, 1.2) 
+        to[out=10, in=200] (3.2, 1.8) 
+        to[out=20, in=215] (5.0, 2.8) 
+        to[out=35, in=230] (7.2, 4.8) 
+        to[out=50, in=240] (8.4, 6.6);
+
+    % Frontier Title Callout (in upper right section)
+    \node[teal!80!black, font=\small\bfseries, anchor=west] (pareto_label) at (8.1, 5.6) {Frontiera di Pareto};
+    \draw[->, thick, teal!80!black] (pareto_label.west) -- (7.7, 5.3);
+
+    % Frontier Extreme Points
+    \filldraw[teal!80!black] (1.0, 1.2) circle (2.5pt);
+    \node[below=4pt, font=\scriptsize, fill=white, inner sep=1pt] at (1.0, 1.2) {$P_{\text{min}}$ (Min rischio)};
+
+    \filldraw[teal!80!black] (8.4, 6.6) circle (2.5pt);
+    \node[above=4pt, font=\scriptsize, fill=white, inner sep=1pt] at (8.4, 6.6) {$P_{\text{max}}$ (Max resa)};
+
+    % Frontier Comparison Points B and C
+    \coordinate (B) at (3.2, 1.8);
+    \coordinate (C) at (7.2, 4.8);
+
+    \filldraw[teal!80!black] (B) circle (2.5pt);
+    \node[below=6pt, font=\footnotesize\bfseries, teal!80!black, fill=white, inner sep=1.5pt] at (B) {$B$ (Pareto-ottimo)};
+
+    \filldraw[teal!80!black] (C) circle (2.5pt);
+    \node[right=6pt, font=\footnotesize\bfseries, teal!80!black, fill=white, inner sep=1.5pt] at (C) {$C$ (Pareto-ottimo)};
+
+    % Dominated point A
+    \coordinate (A) at (3.2, 4.8);
+    \filldraw[red!80!black] (A) circle (3pt);
+    \node[anchor=east, font=\footnotesize\bfseries, red!80!black, fill=white, inner sep=2pt] at (2.9, 4.8) {$A$ (Soluzione dominata)};
+
+    % Comparison arrows from A
+    % 1. Downward to B (same return, lower risk)
+    \draw[->, >=Stealth, line width=1.5pt, red!75!black] (3.2, 4.5) -- (3.2, 2.1);
+    \node[left=6pt, font=\scriptsize, red!75!black, align=right, fill=white, inner sep=2pt] at (3.2, 3.3) {Minor rischio\\(stessa resa)};
+
+    % 2. Rightward to C (same risk, higher return)
+    \draw[->, >=Stealth, line width=1.5pt, blue!75!black] (3.5, 4.8) -- (6.9, 4.8);
+    \node[above=5pt, font=\scriptsize, blue!75!black, fill=white, inner sep=2pt] at (5.2, 4.8) {Maggior resa (stesso rischio)};
+\end{tikzpicture}%
+}
+\caption{Rappresentazione geometrica della Frontiera di Pareto nel problema di selezione di portafoglio di Markowitz.}
+\label{fig:pareto-frontier}
+\end{figure}
+
+Un algoritmo di ottimizzazione matematico non possiede la prerogativa intrinseca di selezionare un singolo punto sulla frontiera di Pareto: la scelta finale appartiene al decisore umano in base alle preferenze soggettive (propensione al rischio vs orizzonte temporale).
+
+\subsection{Tecniche Operative di Riduzione a Singolo Obiettivo}
+Per applicare gli algoritmi di ottimizzazione continua a problemi multi-obiettivo, si impiegano due strategie fondamentali:
+\begin{enumerate}
+    \item \textbf{Scalarizzazione (\textit{Scalarization}):} Si aggregano i criteri mediante una combinazione lineare pesata:
+    \begin{equation}
+    \min_{x \in X} \left\{ f_1(x) + \alpha f_2(x) \right\}, \quad \alpha > 0
+    \end{equation}
+    Il coefficiente $\alpha$ funge da \textit{tasso di cambio}: quantifica quanto peggioramento di $f_1$ si accetta di tollerare per guadagnare un'unit\`a di miglioramento su $f_2$. Al variare di $\alpha \in (0, +\infty)$, la risoluzione genera i punti della frontiera di Pareto. Nel machine learning, la minimizzazione della perdita regolarizzata:
+    \begin{equation}
+    \min_w \left\{ \mathcal{L}(w) + \lambda R(w) \right\}
+    \end{equation}
+    rappresenta esattamente una scalarizzazione, dove il parametro di trade-off $\lambda$ viene identificato empiricamente tramite validazione incrociata.
+    
+    \item \textbf{Metodo dei Vincoli (\textit{Budgeting}):} Si elegge un unico criterio come obiettivo primario, declassando tutti gli altri a vincoli limitati da soglie prefissate (budget):
+    \begin{equation}
+    \min_{x \in X} \{ f_1(x) : f_2(x) \le \beta_2, \; \dots, \; f_k(x) \le \beta_k \}
+    \end{equation}
+    Campionando sistematicamente i vettori soglia $\beta$, si traccia la frontiera non dominata.
+\end{enumerate}
+
+\begin{noteblock}{Convenzione Standard}
+Salvo esplicita menzione contraria, si presuppone che la fase di formulazione abbia gi\`a ricondotto il problema a una singola funzione obiettivo scalare $f: \R^n \to \R$.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Geometria Euclidea in \texorpdfstring{$\R^n$}{R\textasciicircum n} e Tomografia di Funzione}
+\label{sec:opt-geometria-euclidea-tomografia}
+
+\subsection{Prodotto Scalare Canonico e Norma Indotta}
+Dati due vettori $x, z \in \R^n$, il \textbf{prodotto scalare euclideo canonico} \`e definito da:
+\begin{equation}
+\langle x, z \rangle = x^T z = \sum_{i=1}^n x_i z_i = x_1 z_1 + x_2 z_2 + \dots + x_n z_n
+\end{equation}
+Il prodotto scalare soddisfa gli assiomi fondamentali di simmetria ($\langle x, z \rangle = \langle z, x \rangle$), bilinearit\`a e positivit\`a definita ($\langle x, x \rangle > 0$ per ogni $x \neq 0$).
+
+La \textbf{norma euclidea} (norma $\ell_2$) indotta dal prodotto scalare misura la lunghezza geometrica del vettore:
+\begin{equation}
+\|x\| = \sqrt{\langle x, x \rangle} = \sqrt{\sum_{i=1}^n x_i^2}
+\end{equation}
+
+\subsection{Interpretazione Angolare e Disuguaglianza di Cauchy-Schwarz}
+Geometricamente, il prodotto scalare codifica l'angolo convesso $\theta \in [0, \pi]$ sotteso dai vettori $x$ e $z$:
+\begin{equation}
+\langle x, z \rangle = \|x\| \|z\| \cos(\theta)
+\end{equation}
+Da cui derivano le configurazioni spaziali:
+\begin{itemize}
+    \item $\langle x, z \rangle > 0 \iff \theta \in [0, \pi/2)$: i vettori puntano nella medesima direzione generale (angolo acuto).
+    \item $\langle x, z \rangle = 0 \iff \theta = \pi/2$: i vettori sono reciprocamente \textbf{ortogonali} ($x \perp z$).
+    \item $\langle x, z \rangle < 0 \iff \theta \in (\pi/2, \pi]$: i vettori puntano in direzioni opposte (angolo ottuso).
+\end{itemize}
+
+Poich\'e $|\cos(\theta)| \le 1$, discende direttamente la fondamentale \textbf{disuguaglianza di Cauchy-Schwarz}:
+\begin{equation}
+|\langle x, z \rangle| \le \|x\| \|z\|, \quad \forall x, z \in \R^n
+\end{equation}
+con uguaglianza stretta $|\langle x, z \rangle| = \|x\| \|z\|$ se e solo se $x$ e $z$ sono collineari ($x = \gamma z$ con $\gamma \in \R$).
+
+\subsection{Il Concetto di Tomografia di una Funzione}
+Nello spazio multivariato con $n \ge 3$, il grafo di una funzione $\text{gr}(f) = \{(x, f(x)) : x \in \R^n\} \subset \R^{n+1}$ non \`e visualizzabile. Lo strumento analitico primario per comprenderne il comportamento locale e globale \`e la \textbf{tomografia}.
+
+\begin{definition}[Tomografia Direzionale]
+Dato un punto di ancoraggio $x \in \R^n$ e una direzione vettoriale non nulla $d \in \R^n \setminus \{0\}$, la \textbf{tomografia} di $f$ da $x$ lungo la direzione $d$ \`e la funzione univariata $\phi_{x, d}: \R \to \R$ definita da:
+\begin{equation}
+\phi_{x, d}(\alpha) = f(x + \alpha d), \quad \alpha \in \R
+\end{equation}
+\end{definition}
+
+Lo scalare $\alpha$ quantifica l'ampiezza dello spostamento con segno lungo la retta passante per $x$ ed orientata secondo $d$. 
+
+La lunghezza della direzione funge unicamente da fattore di scala per il parametro $\alpha$:
+\begin{equation}
+\phi_{x, \beta d}(\alpha) = f(x + \alpha (\beta d)) = \phi_{x, d}(\alpha \beta)
+\end{equation}
+Pertanto, per rimuovere qualsiasi arbitrariet\`a di scala, \`e norma analitica fissare la direzione di esplorazione unitaria:
+\begin{equation}
+\|d\| = 1
+\end{equation}
+
+
+\FloatBarrier
+\section{Funzioni Lineari Multivariate}
+\label{sec:opt-funzioni-lineari-multivariate}
+
+\subsection{Definizione e Propriet\`a di Separabilit\`a}
+Una funzione multivariata $f: \R^n \to \R$ si definisce \textbf{lineare} se \`e esprimibile mediante il prodotto scalare con un vettore costante assegnato $b \in \R^n$:
+\begin{equation}
+f(x) = \langle b, x \rangle = b^T x = \sum_{i=1}^n b_i x_i
+\end{equation}
+
+Una funzione lineare \`e intrinsecamente \textbf{separabile}: coincide esattamente con la somma di $n$ funzioni lineari univariate indipendenti:
+\begin{equation}
+f(x) = \sum_{i=1}^n f_i(x_i), \quad \text{con } f_i(x_i) = b_i x_i
+\end{equation}
+L'operazione non presenta accoppiamenti bilineari tra variabili distinte.
+
+\subsection{Geometria del Grafo e degli Insiemi di Livello}
+\begin{itemize}
+    \item \textbf{Grafo:} $\text{gr}(f) = \{(x, b^T x) : x \in \R^n\}$ \`e un iperpiano vettoriale di dimensione $n$ immerso nello spazio $\R^{n+1}$, passante per l'origine.
+    \item \textbf{Insiemi di Livello:} Fissato un valore $v \in \R$, l'insieme di livello \`e definito da:
+    \begin{equation}
+    L(f, v) = \{x \in \R^n : b^T x = v\}
+    \end{equation}
+    Tale insieme costituisce un iperpiano affine di dimensione $n-1$ in $\R^n$. Al variare di $v$, gli insiemi di livello formano una famiglia infinita di iperpiani paralleli ed equidistanti.
+\end{itemize}
+
+\begin{theorem}[Ortogonalit\`a del Vettore $b$ agli Insiemi di Livello]
+Il vettore dei coefficienti $b$ \`e ortogonale a ogni direzione tangente agli insiemi di livello $L(f, v)$, per qualsiasi valore $v \in \R$.
+\end{theorem}
+
+\begin{proof}
+Siano $x, z \in L(f, v)$ due punti arbitrari appartenenti al medesimo insieme di livello. Per definizione:
+\begin{equation}
+b^T x = v \quad \land \quad b^T z = v
+\end{equation}
+Sottraendo membro a membro:
+\begin{equation}
+b^T z - b^T x = 0 \iff b^T (z - x) = 0 \iff \langle b, z - x \rangle = 0
+\end{equation}
+Il vettore differenza $z - x$ rappresenta una generica direzione tangente all'iperpiano di livello. Poich\'e $b$ risulta perpendicolare a qualsiasi vettore di spostamento interno all'insieme di livello, si conclude che $b \perp L(f, v)$.
+\end{proof}
+
+
+\FloatBarrier
+\section{Tomografia Lineare e Direzione di Massima Discesa}
+\label{sec:opt-tomografia-lineare-antigradiente}
+
+\subsection{Calcolo della Sezione Tomografica}
+Fissata l'origine $x = 0$ e una direzione unitaria $\|d\| = 1$, la tomografia di una funzione lineare $f(x) = b^T x$ si riduce a:
+\begin{equation}
+\phi_{0, d}(\alpha) = f(0 + \alpha d) = b^T (\alpha d) = \alpha \langle b, d \rangle = \alpha \|b\| \|d\| \cos(\theta) = \alpha \|b\| \cos(\theta)
+\end{equation}
+dove $\theta$ rappresenta l'angolo geometrico tra il vettore caratteristico $b$ e la direzione di campionamento $d$.
+
+La tomografia \`e una \textbf{retta univariata} passante per l'origine, la cui pendenza costante \`e dettata dal prodotto scalare $\langle b, d \rangle$.
+
+\subsection{Analisi Direzionale: L'Analogia dello Schermo Radar}
+Ruotando la direzione $d$ lungo l'angolo giro (in analogia con il fascio rotante di un radar), si evidenziano cinque regimi analitici fondamentali:
+\begin{enumerate}
+    \item \textbf{$d$ perfettamente concorde con $b$ ($\theta = 0 \implies \cos(\theta) = 1$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = \alpha \|b\|
+    \end{equation}
+    La retta esibisce la massima pendenza positiva possibile. Spostandosi lungo $d$, la funzione cresce alla massima velocit\`a ammissibile (\textbf{massima salita}).
+    
+    \item \textbf{$d$ acuto rispetto a $b$ ($\theta \in (0, \pi/2) \implies \cos(\theta) > 0$):}
+    La pendenza \`e strettamente positiva ma inferiore a $\|b\|$.
+    
+    \item \textbf{$d$ ortogonale a $b$ ($\theta = \pi/2 \implies \cos(\theta) = 0$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = 0, \quad \forall \alpha \in \R
+    \end{equation}
+    La tomografia \`e una retta orizzontale identicamente nulla. Muoversi lungo una direzione ortogonale a $b$ equivale a muoversi parallelamente all'iperpiano di livello $L(f, 0)$, mantenendo il valore della funzione invariato.
+    
+    \item \textbf{$d$ ottuso rispetto a $b$ ($\theta \in (\pi/2, \pi) \implies \cos(\theta) < 0$):}
+    La retta ha pendenza negativa: procedendo per valori positivi di $\alpha$, la funzione decresce.
+    
+    \item \textbf{$d$ opposto a $b$ ($\theta = \pi \implies \cos(\theta) = -1$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = -\alpha \|b\|
+    \end{equation}
+    La retta raggiunge la massima pendenza negativa (\textbf{massima discesa}).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.90\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.05]
+    % Left panel: Radar circle
+    \draw[thick, gray!40] (0,0) circle (2.2cm);
+    \draw[help lines, color=gray!30, dashed] (-2.5,0) -- (2.5,0);
+    \draw[help lines, color=gray!30, dashed] (0,-2.5) -- (0,2.5);
+
+    % Level set line (orthogonal to b)
+    \draw[thick, dashed, blue!70!black] (0,-2.4) -- (0,2.4) node[above, font=\small] {$L(f, 0) \perp b$};
+
+    % Vector b
+    \draw[->, very thick, red!80!black] (0,0) -- (2.0,0) node[right=2pt] {$b$};
+
+    % Direction d1 (steepest descent)
+    \draw[->, very thick, teal] (0,0) -- (-2.0,0) node[left=2pt] {$d^* = -\frac{b}{\|b\|}$};
+
+    % Direction d2 (steepest ascent)
+    \draw[->, thick, purple] (0,0) -- (1.41, 1.41) node[above right] {$d_{\text{acuto}}$};
+    \draw[->, thick, orange!80!black] (0,0) -- (-1.41, 1.41) node[above left] {$d_{\text{ottuso}}$};
+
+    % Center
+    \filldraw (0,0) circle (1.5pt) node[below left=2pt] {$0$};
+    \node[below] at (0,-2.7) {\textbf{(a) Spazio delle Direzioni Unitarie $\|d\|=1$}};
+
+    % Right panel: Tomography profiles
+    \begin{scope}[shift={(6.5, 0)}]
+        \draw[->, thick] (-2.2,0) -- (2.5,0) node[right] {$\alpha$};
+        \draw[->, thick] (0,-2.2) -- (0,2.2) node[above] {$\phi_{0, d}(\alpha)$};
+
+        % Max ascent
+        \draw[thick, red!80!black] (-1.8,-1.8) -- (1.8,1.8) node[right, font=\footnotesize] {$\theta = 0$ (Max Salita)};
+        % Moderate ascent
+        \draw[thick, purple] (-1.8,-1.0) -- (1.8,1.0) node[right, font=\footnotesize] {$\theta < \pi/2$};
+        % Flat
+        \draw[thick, blue!80!black] (-2.0,0) -- (2.0,0) node[right, font=\footnotesize] {$\theta = \pi/2$ (Piatta)};
+        % Moderate descent
+        \draw[thick, orange!80!black] (-1.8,1.0) -- (1.8,-1.0) node[right, font=\footnotesize] {$\theta > \pi/2$};
+        % Max descent
+        \draw[very thick, teal] (-1.8,1.8) -- (1.8,-1.8) node[right, font=\footnotesize] {$\theta = \pi$ (Max Discesa)};
+
+        \node[below] at (0,-2.7) {\textbf{(b) Profili Tomografici Univariati}};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Visualizzazione tomografica di una funzione lineare: rotazione della direzione esplorativa ed identificazione delle pendenze estreme.}
+\label{fig:tomografia-lineare}
+\end{figure}
+
+\subsection{Derivazione Formale della Direzione di Massima Discesa}
+Si supponga di trovarsi nell'origine e di poter compiere un unico passo di lunghezza fissata $\|\Delta x\| = \varepsilon > 0$. La variazione indotta sul valore dell'obiettivo \`e:
+\begin{equation}
+\Delta f = f(\varepsilon d) - f(0) = \varepsilon \langle b, d \rangle = \varepsilon \|b\| \cos(\theta)
+\end{equation}
+Per indurre la massima riduzione possibile di valore ($\Delta f < 0$ minimo), con $\varepsilon > 0$ e $\|d\| = 1$, si deve risolvere:
+\begin{equation}
+\min_{\|d\| = 1} \langle b, d \rangle = \min_{\|d\|=1} \|b\| \cos(\theta)
+\end{equation}
+Il valore minimo del coseno \`e $-1$, conseguito univocamente per $\theta = \pi$. Ne deriva la regola fondamentale:
+\begin{equation}
+d^* = -\frac{b}{\|b\|}
+\end{equation}
+
+\begin{noteblock}{Principio dell'Antigradiente}
+La direzione lungo la quale una funzione lineare sperimenta la massima velocit\`a istantanea di decrescita \`e rigorosamente l'\textbf{antigradiente} $-b$, ovvero la direzione opposta al vettore dei coefficienti.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Dalle Funzioni Lineari alle Funzioni Quadratiche: Il Caso Separabile}
+\label{sec:opt-quadratico-separabile}
+
+\subsection{Funzioni Quadratiche Separabili}
+Il modo pi\`u elementare per estendere il concetto di funzione quadratica univariata a $n$ variabili consiste nel comporre additivamente $n$ parabole indipendenti:
+\begin{equation}
+f(x) = \sum_{i=1}^n \left( a_i x_i^2 + b_i x_i \right), \quad a, b \in \R^n
+\end{equation}
+
+Quando $a_i = 1$ e $b_i = 0$ per ogni $i$, la funzione coincide con il quadrato della norma euclidea:
+\begin{equation}
+f(x) = \sum_{i=1}^n x_i^2 = \|x\|^2
+\end{equation}
+In tal caso la funzione \`e isotropa: gli insiemi di livello $L(f, v) = \{x \in \R^n : \|x\|^2 = v\}$ sono le ipersfere euclidee centrate nell'origine di raggio $r = \sqrt{v}$.
+
+\subsection{Curvatura Anisotropa ed Eccentricit\`a}
+Si consideri il caso in dimensione $n = 2$, ponendo $b = 0$, $a_2 = 1$ e variando il parametro $a_1 = a > 0$:
+\begin{equation}
+f(x_1, x_2) = a x_1^2 + x_2^2
+\end{equation}
+Gli insiemi di livello corrispondenti a un valore target $v > 0$ descrivono l'equazione:
+\begin{equation}
+a x_1^2 + x_2^2 = v \iff \frac{x_1^2}{v/a} + \frac{x_2^2}{v} = 1
+\end{equation}
+La geometria dell'ellisse dipende dal rapporto delle curvature:
+\begin{itemize}
+    \item \textbf{Se $a = 1$:} i semiassi coincidono ($\sqrt{v/a} = \sqrt{v}$): l'insieme di livello \`e una circonferenza perfetta.
+    \item \textbf{Se $a > 1$:} la funzione cresce pi\`u rapidamente lungo $x_1$ che lungo $x_2$. I punti che raggiungono il livello $v$ si trovano pi\`u vicini all'origine lungo l'asse $x_1$ ($|x_1| = \sqrt{v/a} < \sqrt{v}$). L'ellisse si presenta \textbf{allungata verticalmente}.
+    \item \textbf{Se $0 < a < 1$:} la curvatura lungo $x_1$ \`e pi\`u blanda: l'ellisse si presenta \textbf{allungata orizzontalmente}.
+    \item \textbf{Al tendere di $a \to 0^+$:} la curvatura lungo l'asse orizzontale svanisce. Il semiasse orizzontale $\sqrt{v/a} \to +\infty$: l'ellisse degenera in due rette parallele orizzontali $x_2 = \pm \sqrt{v}$.
+\end{itemize}
+
+
+\FloatBarrier
+\section{La Forma Quadratica Generale Omogenea e la Simmetrizzazione}
+\label{sec:opt-forma-quadratica-generale-simmetrizzazione}
+
+\subsection{Definizione e Termini Incrociati}
+Una funzione quadratica omogenea generale ammette termini bilineari misti $x_i x_j$ con $i \neq j$:
+\begin{equation}
+f(x) = \frac{1}{2} x^T Q x = \frac{1}{2} \sum_{i=1}^n \sum_{j=1}^n Q_{ij} x_i x_j = \frac{1}{2} \sum_{i=1}^n Q_{ii} x_i^2 + \frac{1}{2} \sum_{i=1}^n \sum_{j \neq i} Q_{ij} x_i x_j
+\end{equation}
+dove $Q \in \R^{n \times n}$ \`e una matrice quadrata assegnata. Il coefficiente $1/2$ \`e introdotto per convenzione analitica affinch\'e la matrice Hessiana della funzione coincida esattamente con $Q$.
+
+I coefficienti diagonali $Q_{ii}$ determinano la curvatura pura lungo le direzioni canoniche, mentre i coefficienti fuori diagonale $Q_{ij}$ introducono accoppiamento e rotazione degli assi principali.
+
+\begin{example}[Calcolo di Forma Quadratica in Dimensione 2]
+Si consideri la matrice non simmetrica e il vettore:
+\begin{equation}
+Q = \begin{bmatrix} 1 & 3 \\ 2 & 2 \end{bmatrix}, \quad x = \begin{bmatrix} x_1 \\ x_2 \end{bmatrix}
+\end{equation}
+Calcolando il prodotto per passi successivi:
+\begin{enumerate}
+    \item Vettore intermedio $Qx$:
+    \begin{equation}
+    Qx = \begin{bmatrix} 1 & 3 \\ 2 & 2 \end{bmatrix} \begin{bmatrix} x_1 \\ x_2 \end{bmatrix} = \begin{bmatrix} x_1 + 3x_2 \\ 2x_1 + 2x_2 \end{bmatrix}
+    \end{equation}
+    \item Prodotto a sinistra per $x^T$:
+    \begin{align}
+    x^T Q x &= \begin{bmatrix} x_1 & x_2 \end{bmatrix} \begin{bmatrix} x_1 + 3x_2 \\ 2x_1 + 2x_2 \end{bmatrix} = x_1(x_1 + 3x_2) + x_2(2x_1 + 2x_2) \nonumber \\
+    &= x_1^2 + 3x_1 x_2 + 2x_1 x_2 + 2x_2^2 = x_1^2 + 5x_1 x_2 + 2x_2^2
+    \end{align}
+\end{enumerate}
+I valori fuori diagonale ($Q_{12} = 3$ e $Q_{21} = 2$) si fondono in un unico termine simmetrico bilineare avente coefficiente $3 + 2 = 5$.
+\end{example}
+
+\subsection{Teorema di Simmetrizzazione}
+\begin{theorem}[Invarianza per Simmetrizzazione]
+Sia $Q \in \R^{n \times n}$ una generica matrice reale quadrata non simmetrica ($Q \neq Q^T$). La funzione quadratica $f(x) = \frac{1}{2} x^T Q x$ coincide identicamente su tutto $\R^n$ con la funzione generata dalla matrice simmetrizzata:
+\begin{equation}
+Q_{\text{sym}} = \frac{Q + Q^T}{2}
+\end{equation}
+ovvero:
+\begin{equation}
+\frac{1}{2} x^T Q x = \frac{1}{2} x^T Q_{\text{sym}} x, \quad \forall x \in \R^n
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La quantit\`a $x^T Q x$ \`e uno scalare, ovvero una matrice di dimensione $1 \times 1$. Poich\'e uno scalare coincide identicamente con la propria trasposta:
+\begin{equation}
+x^T Q x = (x^T Q x)^T
+\end{equation}
+Applicando la regola di trasposizione del prodotto di matrici $(A B C)^T = C^T B^T A^T$:
+\begin{equation}
+(x^T Q x)^T = x^T Q^T (x^T)^T = x^T Q^T x
+\end{equation}
+Esprimendo $x^T Q x$ come semisomma aritmetica di se stesso e del suo trasposto:
+\begin{equation}
+x^T Q x = \frac{x^T Q x + x^T Q^T x}{2} = x^T \left( \frac{Q + Q^T}{2} \right) x = x^T Q_{\text{sym}} x
+\end{equation}
+Moltiplicando per il fattore scalare $1/2$ si ottiene l'uguaglianza funzionale esatta.
+\end{proof}
+
+\begin{noteblock}{Vantaggio Computazionale e Convenzione Universale}
+Una matrice simmetrica di dimensione $n \times n$ richiede la memorizzazione di soli $n(n+1)/2$ coefficienti distinti anzich\'e $n^2$, dimezzando i requisiti di memoria per modelli di grandi dimensioni. 
+
+\textbf{Convenzione Operativa:} In tutta la trattazione seguente dell'ottimizzazione continua, ogni matrice quadratica $Q$ \`e rigorosamente assunta \textbf{simmetrica}:
+\begin{equation}
+Q = Q^T
+\end{equation}
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Decomposizione Spettrale e Tassonomia delle Matrici}
+\label{sec:opt-decomposizione-spettrale-tassonomia}
+
+\subsection{Simmetria Centrale e Tomografia}
+Poich\'e $(-x)^T Q (-x) = (-1)^2 x^T Q x = x^T Q x$, ogni forma quadratica omogenea \`e dotata di simmetria centrale rispetto all'origine:
+\begin{equation}
+f(-x) = f(x), \quad \forall x \in \R^n
+\end{equation}
+L'origine $x = 0$ \`e sempre un punto stazionario di riferimento. Fissata una direzione unitaria $\|d\| = 1$, la tomografia condotta dall'origine vale:
+\begin{equation}
+\phi_{0, d}(\alpha) = \frac{1}{2} (\alpha d)^T Q (\alpha d) = \frac{1}{2} \alpha^2 (d^T Q d)
+\end{equation}
+La sezione tomografica \`e sempre una \textbf{parabola omogenea univariata}, la cui curvatura \`e governata dallo scalare:
+\begin{equation}
+a_d = d^T Q d
+\end{equation}
+
+\subsection{Il Teorema Spettrale per Matrici Reali Simmetriche}
+La curvatura $a_d$ al variare dell'orientamento di $d$ \`e interamente codificata dalla struttura spettrale di $Q$. In virt\`u della simmetria di $Q = Q^T \in \R^{n \times n}$:
+\begin{enumerate}
+    \item \textbf{Realt\`a dello Spettro:} Tutti gli $n$ autovalori $\lambda_1, \lambda_2, \dots, \lambda_n$ sono numeri \textbf{strettamente reali}.
+    \item \textbf{Base Ortonormale di Autovettori:} Esiste una base di $\R^n$ costituita da $n$ autovettori mutuamente ortogonali e normalizzati:
+    \begin{equation}
+    H_i^T H_j = \begin{cases} 1 & \text{se } i = j \\ 0 & \text{se } i \neq j \end{cases}
+    \end{equation}
+    \item \textbf{Fattorizzazione Spettrale:} Definita la matrice ortogonale degli autovettori $H = [H_1, \dots, H_n] \in \R^{n \times n}$ (con $H^T H = H H^T = I$) e la matrice diagonale $\Lambda = \text{diag}(\lambda_1, \dots, \lambda_n)$:
+    \begin{equation}
+    Q = H \Lambda H^T = \sum_{i=1}^n \lambda_i H_i H_i^T
+    \end{equation}
+\end{enumerate}
+
+\begin{noteblock}{Ordinamento degli Autovalori}
+Si adotta la convenzione di ordinamento decrescente:
+\begin{equation}
+\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_n
+\end{equation}
+dove $\lambda_{\max} = \lambda_1$ e $\lambda_{\min} = \lambda_n$.
+\end{noteblock}
+
+\subsection{Caratterizzazione Variazionale: Il Quoziente di Rayleigh}
+Per qualsiasi vettore non nullo $d \in \R^n \setminus \{0\}$, il \textbf{quoziente di Rayleigh} \`e delimitato dall'autovalore minimo e massimo:
+\begin{equation}
+\lambda_n \le \frac{d^T Q d}{\|d\|^2} \le \lambda_1
+\end{equation}
+In particolare, per direzioni unitarie $\|d\| = 1$:
+\begin{align}
+\max_{\|d\|=1} d^T Q d &= \lambda_1 = H_1^T Q H_1 \\
+\min_{\|d\|=1} d^T Q d &= \lambda_n = H_n^T Q H_n
+\end{align}
+
+\subsection{Tassonomia della Definitezza delle Matrici}
+Il segno degli autovalori classifica in modo esaustivo il comportamento della forma quadratica:
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c c X}
+\toprule
+\textbf{Classe} & \textbf{Notazione} & \textbf{Spettro} & \textbf{Curvatura $d^T Q d$ ($\forall d \neq 0$)} \\
+\midrule
+\textbf{Definita Positiva} & $Q \succ 0$ & $\lambda_n > 0$ & $d^T Q d > 0$ (strettamente convessa) \\
+\textbf{Semidefinita Positiva} & $Q \succeq 0$ & $\lambda_n = 0 \land \lambda_1 > 0$ & $d^T Q d \ge 0$ (convessa degenere) \\
+\textbf{Definita Negativa} & $Q \prec 0$ & $\lambda_1 < 0$ & $d^T Q d < 0$ (strettamente concava) \\
+\textbf{Semidefinita Negativa} & $Q \preceq 0$ & $\lambda_1 = 0 \land \lambda_n < 0$ & $d^T Q d \le 0$ (concava degenere) \\
+\textbf{Indefinita} & $Q \succ\prec 0$ & $\lambda_1 > 0 \land \lambda_n < 0$ & Assume sia valori positivi che negativi \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro tassonomico della definitezza per matrici simmetriche reali.}
+\label{tab:definitezza-matrici}
+\end{table}
+
+
+\FloatBarrier
+\section{Tomografia Spettrale nei Quattro Regimi}
+\label{sec:opt-tomografia-quattro-regimi}
+
+Selezionando una direzione di campionamento $d$ coincidente con un autovettore normalizzato $H_i$, la tomografia assume la formulazione analitica pura:
+\begin{equation}
+\phi_{H_i}(\alpha) = \frac{1}{2} \alpha^2 (H_i^T Q H_i) = \frac{1}{2} \alpha^2 (H_i^T (\lambda_i H_i)) = \frac{1}{2} \lambda_i \alpha^2
+\end{equation}
+
+Esaminiamo i quattro casi strutturali mediante le configurazioni discusse a lezione.
+
+\subsection{Caso I: Matrice Definita Positiva (\texorpdfstring{$Q \succ 0$}{Q > 0})}
+Si consideri la matrice simmetrica con autovalori positivi:
+\begin{equation}
+Q = \begin{bmatrix} 6 & -2 \\ -2 & 6 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ 4 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item Lungo $d = \pm H_1$: la tomografia \`e $\phi(\alpha) = 4\alpha^2$ (parabola a massima ripidezza).
+    \item Lungo $d = \pm H_2$: la tomografia \`e $\phi(\alpha) = 2\alpha^2$ (parabola a minima ripidezza).
+    \item Per qualsiasi direzione intermedia, la curvatura varia con continuit\`a nell'intervallo $[4, 8] > 0$.
+    \item \textbf{Ottimizzazione:} La funzione \`e strettamente convessa. Il minimo globale libero \`e \textbf{unico}:
+    \begin{equation}
+    x^* = 0, \quad f^* = 0, \quad \lim_{\|x\| \to \infty} f(x) = +\infty
+    \end{equation}
+\end{itemize}
+
+\subsection{Caso II: Matrice Semidefinita Positiva (\texorpdfstring{$Q \succeq 0$}{Q >= 0})}
+Si consideri la configurazione singolare con autovalore nullo:
+\begin{equation}
+Q = \begin{bmatrix} 4 & -4 \\ -4 & 4 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ 0 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item L'autovalore $\lambda_2 = 0$ individua il nucleo della matrice: $\ker(Q) = \text{span}(H_2)$.
+    \item Lungo $d = \pm H_1$: tomografia parabolica convessa $\phi(\alpha) = 4\alpha^2$.
+    \item Lungo $d = \pm H_2$: poich\'e $\lambda_2 = 0$, si ottiene:
+    \begin{equation}
+    \phi_{H_2}(\alpha) = 0, \quad \forall \alpha \in \R
+    \end{equation}
+    La tomografia \`e una retta orizzontale identicamente piatta.
+    \item \textbf{Ottimizzazione:} Il valore ottimo \`e $f^* = 0$, ma l'insieme delle soluzioni ottime \`e \textbf{infinito}:
+    \begin{equation}
+    X^* = \ker(Q) = \{x \in \R^2 : x = \gamma H_2, \; \gamma \in \R\}
+    \end{equation}
+    L'intero asse identificato dall'autovettore $H_2$ \`e costituito da minimi globali equivalenti.
+\end{itemize}
+
+\subsection{Caso III: Matrice Indefinita (\texorpdfstring{$Q \succ\prec 0$}{Q ind})}
+Si consideri una matrice con autovalori di segno discorde:
+\begin{equation}
+Q = \begin{bmatrix} 3 & -5 \\ -5 & 3 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ -2 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item Lungo $d = \pm H_1$: parabola convessa rivolta verso l'alto ($\phi(\alpha) = 4\alpha^2 \to +\infty$).
+    \item Lungo $d = \pm H_2$: parabola concava rivolta verso il basso ($\phi(\alpha) = -\alpha^2 \to -\infty$).
+    \item Lungo le direzioni asintotiche per cui $d^T Q d = 0$, la sezione tomografica degenera a una retta piatta.
+    \item \textbf{Ottimizzazione:} La funzione \`e illimitata sia inferiormente che superiormente:
+    \begin{equation}
+    \inf_{x \in \R^n} f(x) = -\infty, \quad \sup_{x \in \R^n} f(x) = +\infty
+    \end{equation}
+    Il punto stazionario $x = 0$ non \`e n\'e un minimo n\'e un massimo, bens\`i un \textbf{punto di sella} (\textit{saddle point}).
+\end{itemize}
+
+\subsection{Caso IV: Matrice Definita Negativa (\texorpdfstring{$Q \prec 0$}{Q < 0})}
+Si consideri una matrice con autovalori strettamente negativi:
+\begin{equation}
+Q = \begin{bmatrix} -6 & -2 \\ -2 & -6 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} -4 \\ -8 \end{bmatrix}
+\end{equation}
+La funzione \`e strettamente concava:
+\begin{equation}
+x^*_{\max} = 0, \quad f^*_{\max} = 0, \quad \inf_{x \in \R^n} f(x) = -\infty
+\end{equation}
+
+
+\FloatBarrier
+\section{Geometria degli Insiemi di Livello}
+\label{sec:opt-geometria-insiemi-livello}
+
+\subsection{Diagonalizzazione e Cambio di Base Ortonormale}
+Si consideri l'insieme di livello a valore unitario:
+\begin{equation}
+L(f, 1) = \left\{x \in \R^n : \frac{1}{2} x^T Q x = 1\right\}
+\end{equation}
+Applicando la decomposizione spettrale $Q = H \Lambda H^T$ ed effettuando la rotazione ortonormale di coordinate:
+\begin{equation}
+y = H^T x \iff x = H y
+\end{equation}
+l'equazione assume forma canonica diagonale priva di termini misti:
+\begin{equation}
+\frac{1}{2} (H y)^T Q (H y) = 1 \iff \frac{1}{2} y^T (H^T Q H) y = 1 \iff \frac{1}{2} y^T \Lambda y = 1
+\end{equation}
+Espressa esplicitamente in coordinate $y$:
+\begin{equation}
+\sum_{i=1}^n \frac{1}{2} \lambda_i y_i^2 = 1 \iff \sum_{i=1}^n \frac{y_i^2}{\frac{2}{\lambda_i}} = 1
+\end{equation}
+
+\subsection{Teorema dei Semiassi dell'Ellissoide}
+\begin{theorem}[Orientamento e Lunghezza dei Semiassi]
+Sia $Q \succ 0$ definita positiva. L'insieme di livello $L(f, 1)$ \`e un ellissoide $n$-dimensionale compatto avente:
+\begin{enumerate}
+    \item Gli \textbf{assi di simmetria} allineati esattamente lungo le direzioni degli autovettori ortonormali $H_i$.
+    \item La \textbf{lunghezza del semiasse} lungo la direzione $H_i$ pari a:
+    \begin{equation}
+    \text{semiasse}_i = \sqrt{\frac{2}{\lambda_i}}
+    \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Intersecando l'ellissoide con la retta dell'autovettore $H_i$, ponendo $x = \alpha H_i$:
+\begin{equation}
+\phi_{H_i}(\alpha) = 1 \iff \frac{1}{2} \lambda_i \alpha^2 = 1 \iff \alpha^2 = \frac{2}{\lambda_i} \iff \alpha = \sqrt{\frac{2}{\lambda_i}}
+\end{equation}
+che identifica la distanza euclidea del vertice dall'origine lungo l'asse dell'autovettore.
+\end{proof}
+
+\begin{noteblock}{Relazione Inversa tra Curvatura e Lunghezza dell'Asse}
+La lunghezza del semiasse \`e inversamente proporzionale alla radice dell'autovalore:
+\begin{itemize}
+    \item $\lambda_i$ grande $\implies$ alta curvatura / rapida crescita $\implies$ \textbf{semiasse corto}.
+    \item $\lambda_i$ piccolo $\implies$ bassa curvatura / lenta crescita $\implies$ \textbf{semiasse lungo}.
+\end{itemize}
+\end{noteblock}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, scale=1.15]
+    % Axes
+    \draw[help lines, color=gray!30, dashed] (-3.8,-3.8) grid (3.8,3.8);
+    \draw[->, thick, gray!60] (-3.6,0) -- (3.6,0) node[right, font=\footnotesize] {$x_1$};
+    \draw[->, thick, gray!60] (0,-3.6) -- (0,3.6) node[above, font=\footnotesize] {$x_2$};
+
+    % Rotated coordinate system along eigenvectors H1 and H2
+    % Angle = 45 degrees
+    \draw[->, very thick, teal] (-3.0, -3.0) -- (3.0, 3.0) node[above right] {$H_2 \quad (\lambda_2 = 4)$};
+    \draw[->, very thick, red!80!black] (-2.2, 2.2) -- (2.2, -2.2) node[below right] {$H_1 \quad (\lambda_1 = 8)$};
+
+    % Ellipse rotated by 45 degrees
+    % Semi-major axis along H2 (angle 45 deg): a = sqrt(2/4) * scale = sqrt(0.5) * 3 = 0.707 * 3 = 2.12
+    % Semi-minor axis along H1 (angle -45 deg): b = sqrt(2/8) * scale = sqrt(0.25) * 3 = 0.5 * 3 = 1.5
+    \draw[very thick, blue!80!black, rotate=45] (0,0) ellipse (2.12cm and 1.5cm);
+
+    % Semi-axis annotations
+    \draw[<->, thick, teal] (0,0) -- (1.5, 1.5) node[midway, above left, font=\footnotesize] {$\sqrt{\frac{2}{\lambda_2}} = \frac{\sqrt{2}}{2}$};
+    \draw[<->, thick, red!80!black] (0,0) -- (-1.06, 1.06) node[midway, below left, font=\footnotesize] {$\sqrt{\frac{2}{\lambda_1}} = \frac{1}{2}$};
+
+    % Level set label
+    \node[blue!80!black, font=\small] at (1.8, 2.3) {$L(f, 1)$};
+    \filldraw (0,0) circle (2pt) node[below=3pt] {$0$};
+\end{tikzpicture}
+\caption{Geometria dell'insieme di livello $L(f, 1)$ per matrice definita positiva: allineamento con gli autovettori ortonormali $H_1, H_2$ e proporzionalit\`a inversa dei semiassi.}
+\label{fig:ellisse-autovettori}
+\end{figure}
+
+\subsection{Degenerazione a Cilindro Ellittico Aperto (\texorpdfstring{$\lambda_i \to 0$}{lambda -> 0})}
+Al tendere di un autovalore a zero ($\lambda_i \to 0^+$):
+\begin{equation}
+\lim_{\lambda_i \to 0^+} \text{semiasse}_i = \lim_{\lambda_i \to 0^+} \sqrt{\frac{2}{\lambda_i}} = +\infty
+\end{equation}
+In dimensione $n = 3$, con autovalori $\lambda_1 > 0$, $\lambda_2 > 0$ e $\lambda_3 \to 0^+$, l'ellissoide compatto si allunga progressivamente lungo la direzione dell'autovettore $H_3$. Al limite $\lambda_3 = 0$, l'ellissoide si apre all'infinito trasformandosi in un \textbf{cilindro ellittico cavo} a sezione costante allineato a $H_3$.
+
+\subsection{Sintesi delle Geometrie di Livello}
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l X X}
+\toprule
+\textbf{Regime Spettrale} & \textbf{Geometria del Grafo $\text{gr}(f)$} & \textbf{Insiemi di Livello $L(f, v)$} \\
+\midrule
+$Q \succ 0$ & Paraboloide convesso & Ellissoidi compatti ($v > 0$) \\
+$Q \succeq 0$ ($\exists \lambda_i = 0$) & Paraboloide degenere a doccia & Cilindri ellittici aperti ($\infty$) \\
+$Q \succ\prec 0$ & Paraboloide iperbolico (Sella) & Iperboloidi a una o due falde \\
+$Q \prec 0$ & Paraboloide concavo rovesciato & Ellissoidi compatti ($v < 0$) \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro riassuntivo delle geometrie spaziali per forme quadratiche omogenee.}
+\label{tab:geometrie-livello}
+\end{table}
+
+
+\FloatBarrier
+\section{Ottimizzazione Quadratica: Libera vs Vincolata su Box}
+\label{sec:opt-quadratica-libera-vs-box-np}
+
+\subsection{Il Caso Non Vincolato: Risoluzione Analitica Immediata}
+Nel problema non vincolato:
+\begin{equation}
+\min_{x \in \R^n} \frac{1}{2} x^T Q x
+\end{equation}
+l'analisi spettrale fornisce una risposta completa ed esaustiva:
+\begin{itemize}
+    \item Se $Q \succ 0$: soluzione unica $x^* = 0$, $f^* = 0$.
+    \item Se $Q \succeq 0$: sottospazio di soluzioni ottime $X^* = \ker(Q)$, $f^* = 0$.
+    \item Se esiste almeno un autovalore strettamente negativo ($\lambda_n < 0$): $f^* = -\infty$.
+\end{itemize}
+
+\subsection{Il Caso Vincolato su Box: Transizione di Complessit\`a e \texorpdfstring{$\mathcal{NP}$}{NP}-Durezza}
+Si consideri ora il problema vincolato su un iper-rettangolo limitato:
+\begin{equation}
+(P_{\text{box}}) \quad \min \left\{ \frac{1}{2} x^T Q x : x \in X = [x_-, x_+] \subset \R^n \right\}
+\end{equation}
+dove $[x_-, x_+] = \{x \in \R^n : x_i^- \le x_i \le x_i^+, \; i = 1, \dots, n\}$.
+
+Mentre nel caso scalare univariato ($n = 1$) l'ottimizzazione vincolata su intervallo si risolveva a costo $\BigO{1}$, in dimensione arbitraria si assiste a una brusca transizione computazionale:
+
+\begin{enumerate}
+    \item \textbf{Se $Q \succeq 0$ (Problema Convesso):}
+    Il problema ammette un unico minimo globale (o un insieme convesso compatto di minimi equivalenti). Pu\`o essere risolto in tempo polinomiale mediante metodi di punto interno (\textit{interior-point methods}) o algoritmi di gradiente proiettato~\cite{boyd2004convex, nocedal2006numerical}. Tuttavia, \textbf{non esiste alcuna formula analitica in forma chiusa}: la soluzione esige procedure iterative computazionali.
+    
+    \item \textbf{Se $Q$ \`e Indefinita ($Q \succ\prec 0$) o Definita Negativa ($Q \prec 0$) (Problema Non Convesso):}
+    Lungo le direzioni a curvatura negativa la funzione \`e concava, respingendo i punti di minimo verso la frontiera estrema della regione ammissibile. I minimi locali e globali si concentrano esclusivamente sui \textbf{vertici dell'iper-rettangolo}:
+    \begin{equation}
+    x^* \in \text{vertici}(X) = \prod_{i=1}^n \{x_i^-, x_i^+\}
+    \end{equation}
+    Poich\'e l'ipercubo possiede $2^n$ vertici, la ricerca esaustiva \`e intrattabile.
+\end{enumerate}
+
+\begin{theorem}[Teorema di Complessit\`a per QP su Box~\cite{deklerk2008complexity}]
+Il problema di programmazione quadratica vincolato su box $(P_{\text{box}})$ con matrice $Q$ generica non semidefinita positiva \`e $\mathcal{NP}$-difficile.
+\end{theorem}
+
+\begin{alertblock}{Il Paradosso Didattico dell'Ottimizzazione}
+L'introduzione di vincoli apparentemente banali (semplici intervalli coordinata per coordinata $x_i \in [x_i^-, x_i^+]$) su una forma quadratica omogenea trasforma un problema risolubile istantaneamente all'origine in un problema appartenente alla classe dei problemi $\mathcal{NP}$-difficili.
+\end{alertblock}

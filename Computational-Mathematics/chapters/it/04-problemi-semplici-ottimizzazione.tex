@@ -1,0 +1,691 @@
+\chapter{Problemi Elementari di Ottimizzazione Univariata}
+\label{chap:problemi-semplici-ottimizzazione}
+
+\FloatBarrier
+\section{Introduzione, Motivazione e Obiettivi Didattici}
+\label{sec:opt-intro-motivazione}
+
+L'ottimizzazione matematica costituisce, assieme all'algebra lineare numerica, il secondo pilastro computazionale dell'apprendimento automatico e della scienza dei dati~\cite{boyd2004convex,nocedal2006numerical}. Nella pratica del machine learning, la quasi totalit\`a dei modelli (dalla regressione lineare alle reti neurali profonde con centinaia di miliardi di parametri) si riduce concettualmente alla formulazione e risoluzione di un problema di ottimo vincolato o libero:
+\begin{equation}
+\min_{w \in \mathcal{W}} \mathcal{L}(w; \mathcal{D}) + \lambda \Omega(w)
+\end{equation}
+dove $\mathcal{L}$ rappresenta la funzione di perdita empirica sui dati $\mathcal{D}$, $\Omega$ definisce un regolarizzatore geometrico e $\mathcal{W}$ delimita l'insieme dei parametri ammissibili.
+
+Tuttavia, l'ottimizzazione non lineare generale \`e un dominio teoricamente intrattabile: in assenza di propriet\`a strutturali forti, trovare il minimo globale di una funzione arbitraria \`e un problema formalmente insolubile in tempo finito. Per costruire un percorso computazionale solido e rigoroso, la metodologia adottata in questa seconda parte del corso segue un paradigma costruttivo e modulare:
+\begin{enumerate}
+    \item \textbf{Analisi di problemi elementari univariati:} si studiano funzioni lineari e quadratiche nello spazio $\R$, caratterizzate da strutture analitiche cos\`i elementari da ammettere formule risolutive chiuse a costo computazionale $\BigO{1}$.
+    \item \textbf{Sviluppo dell'intuizione geometrica e algebrica:} comprendere a fondo il comportamento delle derivate, delle curvature, degli insiemi di livello e l'impatto dei vincoli di frontiera.
+    \item \textbf{Identificazione dei confini di trattabilit\`a:} analizzare esattamente in quali punti la rimozione di un'ipotesi o l'estensione a dimensioni multiple trasforma un problema banale in una sfida computazionalmente ardua.
+    \item \textbf{I problemi semplici come sottomodelli algoritmici:} nella quasi totalit\`a degli algoritmi avanzati per l'ottimizzazione vincolata e su larga scala (come i metodi di Newton, Quasi-Newton, Sequential Quadratic Programming e le tecniche di ricerca lineare univariata o \textit{line search}), il nucleo computazionale fondamentale consiste nel risolvere ripetutamente a ogni iterazione un'approssimazione locale elementare (lineare o quadratica) del problema reale.
+\end{enumerate}
+
+\begin{noteblock}{Filosofia Metodologica}
+La comprensione viscerale dei problemi univariati lineari e quadratici non \`e un mero esercizio propedeutico: costituisce l'alfabeto con cui sono scritti gli algoritmi numerici pi\`u sofisticati impiegati nell'addestramento dei modelli di intelligenza artificiale.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Definizioni Fondamentali: Spazi, Funzioni, Grafi e Insiemi di Livello}
+\label{sec:opt-definizioni-fondamentali}
+
+\subsection{Spazi di Input e Output}
+Consideriamo l'ambiente analitico univariato pi\`u essenziale:
+\begin{itemize}
+    \item \textbf{Spazio di ingresso (input space):} $x \in \R$
+    \item \textbf{Spazio di uscita (output space):} $y \in \R$
+\end{itemize}
+Una funzione scalare $f: \R \to \R$ assegna a ogni elemento del dominio un unico valore reale $y = f(x)$.
+
+\subsection{Grafo di una Funzione}
+\begin{definition}[Grafo]
+Dato un operatore scalare $f: \R \to \R$, il \textbf{grafo} di $f$, denotato con $\operatorname{gr}(f)$, \`e il sottoinsieme dello spazio cartesiano bidimensionale $\R^2$ definito da:
+\begin{equation}
+\operatorname{gr}(f) = \left\{ (x, f(x)) \in \R^2 : x \in \R \right\} \subset \R^2
+\end{equation}
+\end{definition}
+Dal punto di vista geometrico, $\operatorname{gr}(f)$ \`e una curva piana continua o discontinua che giace nel piano $(x, y)$.
+
+\subsection{Immagine (Codominio Effettivo)}
+\begin{definition}[Immagine]
+L'\textbf{immagine} di una funzione $f$, denotata con $\operatorname{im}(f)$, \`e il sottoinsieme di $\R$ costituito da tutti i valori di output effettivamente generati dalla funzione:
+\begin{equation}
+\operatorname{im}(f) = \left\{ y \in \R : \exists x \in \R \text{ tale che } y = f(x) \right\} = f(\R) \subseteq \R
+\end{equation}
+\end{definition}
+Geometricamente, $\operatorname{im}(f)$ coincide esattamente con la proiezione ortogonale del grafo $\operatorname{gr}(f)$ sull'asse verticale delle ordinate (asse $y$).
+
+\subsection{Insiemi di Livello e Insiemi di Sottolivello}
+\begin{definition}[Insieme di Livello]
+Dato un valore bersaglio $v \in \R$, l'\textbf{insieme di livello} (o \textit{level set}) a valore $v$, indicato con $L(f, v)$, \`e la controimmagine di $v$ nel dominio:
+\begin{equation}
+L(f, v) = \left\{ x \in \R : f(x) = v \right\} \subset \R
+\end{equation}
+\end{definition}
+
+L'interpretazione geometrica \`e immediata: $L(f, v)$ rappresenta l'intersezione tra la curva del grafo $\operatorname{gr}(f)$ e la retta orizzontale $y = v$, proiettata sull'asse orizzontale delle ascisse $x$.
+
+\begin{remark}[Radici o Zeri di una Funzione]
+Il caso notevole in cui il valore di livello \`e nullo ($v = 0$) identifica l'insieme delle radici della funzione:
+\begin{equation}
+\operatorname{roots}(f) = L(f, 0) = \{ x \in \R : f(x) = 0 \}
+\end{equation}
+\end{remark}
+
+\begin{definition}[Insieme di Sottolivello]
+Dato un valore $v \in \R$, l'\textbf{insieme di sottolivello} (o \textit{sublevel set}) a soglia $v$, indicato con $S(f, v)$, \`e definito come:
+\begin{equation}
+S(f, v) = \left\{ x \in \R : f(x) \le v \right\} \subset \R
+\end{equation}
+\end{definition}
+Gli insiemi di sottolivello giocano un ruolo strutturale cardine nell'analisi della convessit\`a e nella convergenza degli algoritmi iterativi di discesa.
+
+
+\FloatBarrier
+\section{Il Problema di Ottimizzazione Univariato Libero}
+\label{sec:opt-problema-libero}
+
+\subsection{Formulazione Formale}
+Dato un obiettivo reale $f: \R \to \R$, il problema di minimizzazione scalare non vincolato si denota con:
+\begin{equation}
+(P) \quad f^* = \min \{ f(x) : x \in \R \}
+\end{equation}
+
+\subsection{Valore Ottimo vs Soluzione Ottima}
+In ottimizzazione matematica \`e fondamentale mantenere una rigorosa distinzione concettuale e notazionale tra due entit\`a distinte:
+
+\begin{definition}[Valore Ottimo]
+Il \textbf{valore ottimo} (denotato con $f^* \in \R$ oppure con $\nu(P)$) \`e lo scalare che rappresenta l'estremo inferiore raggiunto dall'immagine della funzione:
+\begin{equation}
+f^* = \min(\operatorname{im}(f)) = \min \{ v \in \R : L(f, v) \neq \emptyset \}
+\end{equation}
+Se il minimo esiste, il valore ottimo $f^*$ \`e \textbf{strettamente unico}.
+\end{definition}
+
+\begin{definition}[Soluzione Ottima o Minimizzatore]
+Una \textbf{soluzione ottima} (denotata con $x^*$) \`e un punto del dominio $x^* \in \R$ in cui la funzione assume il valore ottimo:
+\begin{equation}
+f(x^*) = f^* \quad \Longleftrightarrow \quad f(x^*) \le f(x), \quad \forall x \in \R
+\end{equation}
+L'insieme di tutti i punti minimizzatori \`e denotato con l'operatore insiemistico $\argmin$:
+\begin{equation}
+X^* = \argmin \{ f(x) : x \in \R \} = L(f, f^*)
+\end{equation}
+\end{definition}
+
+\begin{property}[Non Unicit\`a dei Minimizzatori]
+Mentre il valore ottimo $f^*$ \`e invariabilmente uno scalare unico, l'insieme dei punti di minimo $X^*$ pu\`o:
+\begin{enumerate}
+    \item Essere vuoto ($X^* = \emptyset$, quando il minimo non \`e raggiunto).
+    \item Contenere un singolo punto isolato ($|X^*| = 1$, minimo unico).
+    \item Contenere un insieme discreto o finito di punti multipli (es. $f(x) = \sin(x)$ con $f^* = -1$ e $X^* = \{ -\pi/2 + 2k\pi : k \in \mathbb{Z} \}$).
+    \item Contenere un continuo di punti (es. una funzione costante su un intervallo).
+\end{enumerate}
+\end{property}
+
+\subsection{Indifferenza Algoritmica tra Ottimi Equivalenti}
+Dal punto di vista dell'analisi di ottimizzazione pura:
+\begin{equation}
+\forall x_1^*, x_2^* \in X^* \implies f(x_1^*) = f(x_2^*) = f^*
+\end{equation}
+Tutti i punti appartenenti a $X^*$ risultano perfettamente indistinguibili rispetto alla funzione obiettivo. A meno di vincoli secondari o regolarizzazioni aggiuntive (quali la preferenza per norme minime $\norm{x}_2$ o parsimonia $\ell_1$), qualsiasi algoritmo numerico \`e matematicamente autorizzato a restituire un qualunque elemento arbitrario dell'insieme $X^*$.
+
+
+\FloatBarrier
+\section{Riformulazioni Semplici ed Equivalenza di Problemi}
+\label{sec:opt-riformulazioni-equivalenza}
+
+Due problemi di ottimizzazione si definiscono \textbf{equivalenti} se la conoscenza della soluzione dell'uno consente di determinare immediatamente l'insieme dei minimizzatori $X^*$ dell'altro, senza richiedere computazioni iterate non banali.
+
+\subsection{Dualit\`a Minimo--Massimo}
+Senza perdita di generalit\`a (\textit{without loss of generality}, w.l.o.g.), l'intera teoria dell'ottimizzazione pu\`o essere formalizzata unicamente per problemi di minimizzazione. Qualsiasi istanza di massimizzazione pu\`o essere trasformata invertendo il segno della funzione obiettivo:
+\begin{align}
+\min \{ f(x) : x \in \R \} &= - \max \{ -f(x) : x \in \R \} \\
+\argmin \{ f(x) : x \in \R \} &= \argmax \{ -f(x) : x \in \R \}
+\end{align}
+
+\begin{alertblock}{Attenzione Concettuale}
+Non confondere l'equivalenza sopra esposta con la relazione tra $\min f(x)$ e $\max f(x)$: massimizzare $f(x)$ e minimizzare $f(x)$ definiscono problemi radicalmente differenti, con insiemi di soluzioni e propriet\`a di curvatura diametralmente opposte. L'equivalenza sussiste esclusivamente tra minimizzare $f(x)$ e massimizzare $-f(x)$.
+\end{alertblock}
+
+\subsection{Invarianza per Traslazione Verticale (Costante Additiva)}
+L'addizione di una costante reale arbitraria $c \in \R$ sposta rigidamente il grafo lungo l'asse delle ordinate:
+\begin{align}
+\min \{ f(x) + c : x \in \R \} &= \min \{ f(x) : x \in \R \} + c = f^* + c \\
+\argmin \{ f(x) + c : x \in \R \} &= \argmin \{ f(x) : x \in \R \} = X^*
+\end{align}
+Il valore ottimo viene traslato di $c$, mentre l'insieme dei punti di minimo $X^*$ resta rigorosamente invariato.
+
+\subsection{Invarianza per Scalatura Positiva (Costante Moltiplicativa)}
+La moltiplicazione della funzione per uno scalare strettamente positivo $c > 0$ comprime o dilata verticalmente il profilo geometrico del grafo:
+\begin{align}
+\min \{ c \cdot f(x) : x \in \R \} &= c \cdot \min \{ f(x) : x \in \R \} = c f^* \quad (c > 0) \\
+\argmin \{ c \cdot f(x) : x \in \R \} &= \argmin \{ f(x) : x \in \R \} = X^*
+\end{align}
+Se $c < 0$, il fattore moltiplicativo negativo ribalta il grafo rispetto all'asse delle ascisse, invertendo l'orientamento della ricerca da minimo a massimo:
+\begin{equation}
+\min \{ c \cdot f(x) : x \in \R \} = c \cdot \max \{ f(x) : x \in \R \} = - |c| \max \{ f(x) : x \in \R \}
+\end{equation}
+
+
+\FloatBarrier
+\section{Ottimizzazione Vincolata e Regione Ammissibile}
+\label{sec:opt-vincolata-regione-ammissibile}
+
+\subsection{Formulazione Generale del Problema Vincolato}
+Nei contesti applicativi dell'ingegneria e dell'apprendimento automatico le variabili decisionali sono vincolate da risorse finite, requisiti fisici o vincoli di sicurezza. Si definisce la \textbf{regione ammissibile} (o \textit{feasible region}) $X \subseteq \R$:
+\begin{equation}
+(P_X) \quad f^* = \min \{ f(x) : x \in X \}
+\end{equation}
+\begin{itemize}
+    \item Un punto $x \in X$ si definisce \textbf{soluzione ammissibile}.
+    \item Un punto $x \in \R \setminus X$ si definisce \textbf{soluzione inammissibile}.
+    \item Il valore ottimo vincolato \`e $f^* = \min(\operatorname{im}(X, f)) = \min \{ f(x) : x \in X \}$.
+    \item L'insieme delle soluzioni ottime vincolate \`e dato da:
+    \begin{equation}
+    X^* = L(f, f^*) \cap X
+    \end{equation}
+\end{itemize}
+
+\subsection{Principio di Peggioramento Monotono per Restrizione}
+\begin{theorem}[Disuguaglianza Fondamentale dei Vincoli]
+Siano $X_1 \subseteq X_2 \subseteq \R$ due regioni ammissibili annidate. Allora:
+\begin{equation}
+\min_{x \in X_1} f(x) \ge \min_{x \in X_2} f(x)
+\end{equation}
+In particolare, per ogni insieme ammissibile $X \subseteq \R$:
+\begin{equation}
+\min_{x \in X} f(x) \ge \min_{x \in \R} f(x)
+\end{equation}
+\end{theorem}
+\begin{proof}
+Sia $x_1^* \in \argmin_{x \in X_1} f(x)$. Poich\'e $X_1 \subseteq X_2$, ne consegue che $x_1^* \in X_2$. Dalla definizione di minimo globale su $X_2$, $f(x) \ge \min_{z \in X_2} f(z)$ per qualsiasi $x \in X_2$. Valutando in $x = x_1^*$ si ottiene la tesi.
+\end{proof}
+
+\begin{noteblock}{Interpretazione Operativa}
+L'introduzione di vincoli aggiuntivi non pu\`o mai migliorare il valore ottimo di un problema di minimizzazione; pu\`o unicamente lasciarlo invariato oppure peggiorarlo (ossia incrementarlo).
+\end{noteblock}
+
+\subsection{Tassonomia dei Vincoli Ridondanti}
+Dato il problema $\min_{x \in X} f(x)$ avente ottimo libero $X^*_{\text{libero}} = \argmin_{x \in \R} f(x)$:
+\begin{itemize}
+    \item \textbf{Vincolo completamente inutile (o inattivo):} si verifica quando $X^*_{\text{libero}} \subseteq X$. In tal caso il valore ottimo vincolato coincide perfettamente con quello libero ($f^*_X = f^*_{\R}$) e l'insieme delle soluzioni ottime non subisce alcuna alterazione.
+    \item \textbf{Vincolo parzialmente inutile:} si verifica quando $X^*_{\text{libero}} \cap X \neq \emptyset$, ma $X^*_{\text{libero}} \not\subseteq X$. Il vincolo elimina alcune soluzioni ottime alternative senza peggiorare il valore ottimo ($f^*_X = f^*_{\R}$ rimane inalterato, ma $X^*_X \subset X^*_{\text{libero}}$ si riduce).
+    \item \textbf{Vincolo attivo ed essenziale:} quando $X^*_{\text{libero}} \cap X = \emptyset$. Il vincolo costringe la soluzione a spostarsi sulla frontiera di $X$, causando un incremento strettamente positivo del valore ottimo ($f^*_X > f^*_{\R}$).
+\end{itemize}
+
+\subsection{Rappresentazione Funzionale della Regione Ammissibile}
+Nella prassi matematica e algoritmica, l'insieme $X$ non viene espresso come una collezione insiemistica astratta, bens\`i mediante un sistema di equazioni e disequazioni basate su funzioni vincolo $g_i: \R \to \R$:
+\begin{enumerate}
+    \item \textbf{Vincoli di Uguaglianza:}
+    \begin{equation}
+    g(x) = v \quad \Longleftrightarrow \quad X = L(g, v)
+    \end{equation}
+    In forma canonica omogenea (traslando la costante nella funzione):
+    \begin{equation}
+    g(x) = 0
+    \end{equation}
+    \item \textbf{Vincoli di Disuguaglianza:}
+    \begin{equation}
+    g(x) \le v \quad \Longleftrightarrow \quad X = S(g, v) = \{ x \in \R : g(x) \le v \}
+    \end{equation}
+    In forma canonica normalizzata a zero:
+    \begin{equation}
+    g(x) \le 0
+    \end{equation}
+    Qualora il vincolo originale sia formulato come $g(x) \ge 0$, si moltiplica ambo i membri per $-1$, ottenendo la forma canonica $-g(x) \le 0$.
+    \item \textbf{Congiunzione di Vincoli Multipli:}
+    Pi\`u vincoli simultanei corrispondono all'intersezione dei rispettivi sub-level set:
+    \begin{equation}
+    \begin{cases} g_1(x) \le 0 \\ g_2(x) \le 0 \end{cases} \quad \Longleftrightarrow \quad X = S(g_1, 0) \cap S(g_2, 0)
+    \end{equation}
+    \item \textbf{Vincoli di Box (Intervalli Chiusi):}
+    Costituiscono la classe fondamentale nell'ottimizzazione univariata:
+    \begin{equation}
+    x_- \le x \le x_+ \quad \Longleftrightarrow \quad X = [x_-, x_+]
+    \end{equation}
+    esprimibile in forma canonica mediante il sistema a due disequazioni:
+    \begin{equation}
+    \begin{cases} x - x_+ \le 0 \\ x_- - x \le 0 \end{cases}
+    \end{equation}
+\end{enumerate}
+
+
+\FloatBarrier
+\section{Perch\'e l'Ottimizzazione \`e Difficile: Teoria vs Pratica Numerica}
+\label{sec:opt-difficolta-teoria-pratica}
+
+\subsection{I Casi di Non Esistenza del Minimo}
+Un problema di ottimizzazione pu\`o fallire nell'ammettere un minimo per due ragioni topologiche distinte:
+
+\subsubsection{Caso 1: Problema Illimitato Inferiormente ($f^* = -\infty$)}
+La funzione decresce senza alcun limite inferiore nel dominio:
+\begin{equation}
+\forall M \in \R, \quad \exists x \in X \quad \text{tale che} \quad f(x) \le M
+\end{equation}
+L'esempio canonico \`e la retta $f(x) = x$ per $x \to -\infty$. In tale circostanza si scrive convenzionalmente $f^* = -\infty$ e $\argmin f(x) = \emptyset$.
+
+\subsubsection{Caso 2: Infimo Finito Non Raggiunto ($f^*$ finito, ma $x^* \notin X$)}
+L'immagine $\operatorname{im}(f)$ \`e limitata inferiormente nel senso dei reali, ma l'estremo inferiore non \`e un punto dell'immagine:
+\begin{equation}
+\inf \{ f(x) : x \in X \} > -\infty \quad \text{ma} \quad \nexists x^* \in X \text{ tale che } f(x^*) = \inf_{x \in X} f(x)
+\end{equation}
+Si distinguono due manifestazioni tipiche:
+\begin{itemize}
+    \item \textbf{Casi regolari asintotici:} $f(x) = e^x$ su $X = \R$. L'estremo inferiore \`e $\inf_{x \in \R} e^x = 0$, ma l'equazione $e^x = 0$ non ammette alcuna soluzione finita in $\R$. Il minimo viene approssimato asintoticamente per $x \to -\infty$.
+    \item \textbf{Casi discontinui patologici:}
+    \begin{equation}
+    f(x) = \begin{cases} 1 & \text{se } x = 0 \\ |x| & \text{se } x \neq 0 \end{cases}
+    \end{equation}
+    L'infimo della funzione \`e $0$, ma in corrispondenza del candidato naturale $x = 0$ la funzione salta al valore $1$. Non esiste alcun punto in cui $f(x) = 0$.
+\end{itemize}
+
+\subsection[Formalizzazione nei Numeri Reali Estesi]{Formalizzazione nei Numeri Reali Estesi $\overline{\R}$}
+Per gestire analiticamente le configurazioni limite, si estende il corpo dei reali introducendo i simboli di infinito:
+\begin{equation}
+\overline{\R} = \R \cup \{-\infty, +\infty\}
+\end{equation}
+In $\overline{\R}$, ogni sottoinsieme $S \subseteq \R$ ammette \textbf{sempre} sia un infimo che un supremo:
+\begin{align}
+\inf S &= \max \{ v \in \overline{\R} : v \le s, \; \forall s \in S \} \\
+\sup S &= \min \{ v \in \overline{\R} : v \ge s, \; \forall s \in S \}
+\end{align}
+Con le convenzioni standard per gli insiemi vuoti:
+\begin{equation}
+\inf \emptyset = +\infty, \quad \sup \emptyset = -\infty
+\end{equation}
+
+\subsection{L'Ottimizzazione nell'Aritmetica Floating Point}
+Nell'hardware di calcolo (CPU e GPU moderne), il continuo reale $\R$ non esiste: si opera esclusivamente attraverso l'aritmetica floating point a precisione finita (standard IEEE 754 in formato `double' a 64 bit, `single' a 32 bit, o formati a precisione ridotta FP8/INT4 nei tensori per deep learning).
+
+Le conseguenze algoritmiche sono categoriche:
+\begin{enumerate}
+    \item \textbf{Risoluzione discreta finita:} tra due numeri macchina consecutivi esiste una distanza minima invalicabile, governata dall'epsilon macchina ($\varepsilon_{\text{mach}} \approx 10^{-16}$ nel formato `double').
+    \item \textbf{Impossibilit\`a della convergenza esatta:} cercare la soluzione esatta $x^*$ \`e matematicamente privo di senso sul calcolatore. Qualsiasi criterio d'arresto deve accettare una soluzione $\varepsilon$-approssimata (\textbf{$\varepsilon$-optimum}):
+    \begin{equation}
+    f^* \le f(x_\varepsilon) \le f^* + \varepsilon
+    \end{equation}
+\end{enumerate}
+
+\subsection{Metriche di Errore: Gap Assoluto vs Gap Relativo}
+Per valutare l'accuratezza di una soluzione approssimata $x$:
+\begin{definition}[Gap Assoluto]
+\begin{equation}
+A(x) = f(x) - f^* \ge 0
+\end{equation}
+\end{definition}
+\textbf{Criticit\`a:} il gap assoluto \`e sensibile all'ordine di grandezza del problema. Se $f^* = 10^7$, un errore $A(x) = 1$ indica una precisione impeccabile; se $f^* = 10^{-7}$, un errore $A(x) = 1$ rende la soluzione priva di qualsiasi significato fisico.
+
+\begin{definition}[Gap Relativo Normalizzato]
+\begin{equation}
+R(x) = \frac{f(x) - f^*}{\max(|f^*|, 1)} \ge 0
+\end{equation}
+\end{definition}
+\textbf{Vantaggi:} fornisce una misura adimensionale e invariante rispetto a riscalature positive della funzione. L'inserimento del termine $\max(|f^*|, 1)$ al denominatore evita la singolarit\`a numerica quando $f^* \to 0$.
+
+\subsection{L'Impossibilit\`a dell'Ottimizzazione Black-Box Generica}
+Supponiamo che una funzione $f: [x_-, x_+] \to \R$ sia accessibile unicamente come una scatola nera (\textit{black-box oracle}): fornendo un input $x$, l'oracolo restituisce esclusivamente il valore scalare $f(x)$, senza fornire informazioni analitiche, gradienti o curvature.
+
+\begin{theorem}[Teorema Informale di Impossibilit\`a per Oracolo Avversario]
+\`E teoricamente e praticamente impossibile identificare il minimo globale di una funzione continua arbitraria su un intervallo limitato $[x_-, x_+]$ in un numero finito di interrogazioni all'oracolo.
+\end{theorem}
+
+\begin{proof}[Argomento dell'Oracolo Avversario (\textit{Needle in a Haystack})]
+Si consideri un intervallo $[x_-, x_+]$ e una funzione identicamente nulla $f(x) = 0$ per ogni $x$, eccetto che in un singolo punto $x_0$ non noto a priori, in cui la funzione presenta una buca profondissima (\textit{l'ago nel pagliaio}):
+\begin{equation}
+f(x_0) = -1, \quad f(x) = 0 \quad \forall x \neq x_0
+\end{equation}
+Qualsiasi algoritmo deterministico o casuale che esegua $K$ interrogazioni $x_1, \dots, x_K$ ricever\`a come risposta il valore $0$. L'oracolo, operando da avversario malevolo, potr\`a sempre collocare $x_0$ in uno degli infiniti punti non campionati di $[x_-, x_+] \setminus \{x_1, \dots, x_K\}$.
+
+Anche qualora si imponga che la funzione sia continua, collegando il punto $(x_0, -1)$ a zero tramite una cuspide strettissima di base $\delta > 0$, nessun algoritmo con passo di campionamento discreto $\Delta x > \delta$ potr\`a mai rilevare la presenza della buca.
+\end{proof}
+
+\begin{noteblock}{Condizione Necessaria per l'Efficienza Computazionale}
+L'ottimizzazione matematica diventa possibile e scalabile esclusivamente quando la funzione obiettivo possiede \textbf{struttura analitica sfruttabile}: regolarit\`a lipschitziana, differenziabilit\`a, convessit\`a o linearit\`a.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Ottimizzazione Univariata: Il Caso Lineare}
+\label{sec:opt-caso-lineare}
+
+\subsection{Propriet\`a Geometriche ed Analitiche}
+La funzione univariata pi\`u elementare non costante \`e la retta omogenea:
+\begin{equation}
+f(x) = bx, \quad b \in \R
+\end{equation}
+Il coefficiente $b$ definisce il coefficiente angolare o \textbf{pendenza} (\textit{slope}):
+\begin{itemize}
+    \item \textbf{Se $b > 0$:} la funzione \`e \textit{strettamente crescente}:
+    \begin{equation}
+    x_1 > x_2 \iff x_1 - x_2 > 0 \implies b(x_1 - x_2) > 0 \iff f(x_1) > f(x_2)
+    \end{equation}
+    \item \textbf{Se $b < 0$:} la funzione \`e \textit{strettamente decrescente}.
+    \item \textbf{Se $b = 0$:} la funzione collassa sulla retta costante identicamente nulla $f(x) = 0$.
+\end{itemize}
+
+\subsection[Ottimizzazione Non Vincolata su R]{Ottimizzazione Non Vincolata su $\R$}
+Il problema libero $\min_{x \in \R} bx$ \`e computazionalmente triviale:
+\begin{itemize}
+    \item Se $b > 0$: $\lim_{x \to -\infty} bx = -\infty \implies f^* = -\infty$ (illimitato inferiormente).
+    \item Se $b < 0$: $\lim_{x \to +\infty} bx = -\infty \implies f^* = -\infty$ (illimitato inferiormente).
+    \item Se $b = 0$: $f^* = 0$, $X^* = \R$ (ogni punto \`e soluzione ottima indifferente).
+\end{itemize}
+
+\subsection[Ottimizzazione su Box Vincolato]{Ottimizzazione su Box Vincolato $[x_-, x_+]$}
+Si consideri il problema vincolato su un intervallo limitato chiuso $[x_-, x_+]$:
+\begin{equation}
+\min \{ bx : x \in [x_-, x_+] \}
+\end{equation}
+Grazie alla monotonia globale della funzione lineare, il minimo e il massimo si collocano inderogabilmente sui punti di frontiera del box. La regola decisionale opera a costo $\BigO{1}$:
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{c Y Y Y Y}
+\toprule
+\textbf{Condizione} & \textbf{Minimo $x^*$} & \textbf{Valore Min $f^*$} & \textbf{Massimo $x^*_{\max}$} & \textbf{Valore Max $f^*_{\max}$} \\
+\midrule
+$b > 0$ & $x_-$ & $b x_-$ & $x_+$ & $b x_+$ \\
+$b < 0$ & $x_+$ & $b x_+$ & $x_-$ & $b x_-$ \\
+$b = 0$ & Indifferente & $0$ & Indifferente & $0$ \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro decisionale a costo computazionale $\BigO{1}$ per l'ottimizzazione lineare vincolata.}
+\label{tab:lineare-box}
+\end{table}
+
+
+\FloatBarrier
+\section{L'Illusione degli Insiemi Aperti nel Calcolo Numerico}
+\label{sec:opt-insiemi-aperti}
+
+\subsection{Il Paradosso Analitico degli Intervalli Aperti}
+Cosa accadrebbe se la regione ammissibile fosse definita come un intervallo aperto:
+\begin{equation}
+X = (x_-, x_+) = \{ x \in \R : x_- < x < x_+ \}
+\end{equation}
+Supponendo $b > 0$, la funzione $f(x) = bx$ ammette infimo $\inf_{x \in X} f(x) = b x_-$. Tuttavia:
+\begin{equation}
+\nexists x \in (x_-, x_+) \quad \text{tale che} \quad f(x) = b x_-
+\end{equation}
+La teoria matematica pura decreta che il problema \textbf{non ammette soluzione ottima}.
+
+\subsection{La Risoluzione Pratica nell'Informatica Computazionale}
+Dal punto di vista dell'analisi numerica applicata:
+\begin{enumerate}
+    \item \textbf{I parametri fisici non hanno precisione infinita:} nessuna variabile ingegneristica (corrente, peso, concentrazione) pu\`o richiedere un vincolo stretto $x > x_-$ senza un margine finito di sicurezza.
+    \item \textbf{L'aritmetica di macchina non ammette aperti:} tra il numero $x_-$ e il numero floating point immediatamente successivo $x_- + \varepsilon_{\text{mach}}$ non esiste alcun valore rappresentabile.
+    \item \textbf{Formulazione con margine $\varepsilon$:} per evitare di toccare la frontiera vietata, si arretra il vincolo introducendo una tolleranza numerica esplicita:
+    \begin{equation}
+    X = [x_- + \varepsilon_-, \; x_+ - \varepsilon_+]
+    \end{equation}
+\end{enumerate}
+
+\begin{noteblock}{Regola Metodologica Aurea}
+In tutta la trattazione di questo corso, le regioni ammissibili e i vincoli di box saranno considerati rigorosamente \textbf{chiusi e limitati}.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Ottimizzazione Univariata: Il Caso Quadratico Omogeneo}
+\label{sec:opt-caso-quadratico-omogeneo}
+
+\subsection{Definizione e Curvatura}
+La forma quadratica omogenea univariata \`e definita da:
+\begin{equation}
+f(x) = ax^2, \quad a \in \R
+\end{equation}
+Il coefficiente $a$ definisce la \textbf{curvatura} della parabola:
+\begin{itemize}
+    \item \textbf{$a > 0$ (Funzione Convessa):} la parabola volge la concavit\`a verso l'alto. La funzione \`e strettamente decrescente per $x \le 0$ e strettamente crescente per $x \ge 0$. Il vertice $(0, 0)$ rappresenta il punto di minimo assoluto. All'aumentare di $a$, la parabola diviene pi\`u stretta e ripida; al tendere di $a \to 0^+$, la parabola si appiattisce.
+    \item \textbf{$a < 0$ (Funzione Concava):} la parabola volge la concavit\`a verso il basso. Il vertice $(0, 0)$ rappresenta il punto di massimo assoluto.
+    \item \textbf{$a = 0$:} la funzione degenera sulla retta costante identicamente nulla.
+\end{itemize}
+
+\subsection[Risoluzione Libera su R]{Risoluzione Libera su $\R$}
+\begin{itemize}
+    \item Se $a > 0$: $x^* = 0$, $f^* = 0$, con $\max_{x \in \R} ax^2 = +\infty$.
+    \item Se $a < 0$: $x^*_{\max} = 0$, $f^*_{\max} = 0$, con $\min_{x \in \R} ax^2 = -\infty$.
+    \item Se $a = 0$: $f^* = 0$, ogni punto $x \in \R$ \`e soluzione ottima.
+\end{itemize}
+
+\subsection[Risoluzione su Box Vincolato]{Risoluzione su Box Vincolato $[x_-, x_+]$ (per $a > 0$)}
+Dato un intervallo limitato chiuso $[x_-, x_+]$, la posizione relativa dello zero (il vertice della parabola) individua tre configurazioni mutuamente esclusive:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small]
+
+    % Caso 1: Tutto a sinistra dello zero
+    \begin{scope}[xshift=-6cm]
+        \draw[->, thick, color=gray!60!black] (-3, 0) -- (1.5, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-2.4:1.2, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (-2.2, 0) -- (-0.8, 0);
+        \filldraw[red!80!black] (-2.2, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (-0.8, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[blue!80!black] (0, 0) circle (2pt) node[below=3pt] {$0$};
+        \filldraw[teal!80!black] (-0.8, {0.8*(-0.8)*(-0.8)}) circle (2.5pt) node[above right] {$x^* = x_+$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (-0.8, -1.2) {Caso 1: $x_+ < 0$\\(\textit{Decrescente sul box})};
+    \end{scope}
+
+    % Caso 2: Tutto a destra dello zero
+    \begin{scope}[xshift=0cm]
+        \draw[->, thick, color=gray!60!black] (-1.5, 0) -- (3, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-1.2:2.4, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (0.8, 0) -- (2.2, 0);
+        \filldraw[blue!80!black] (0, 0) circle (2pt) node[below=3pt] {$0$};
+        \filldraw[red!80!black] (0.8, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (2.2, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[teal!80!black] (0.8, {0.8*(0.8)*(0.8)}) circle (2.5pt) node[above left] {$x^* = x_-$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (1.2, -1.2) {Caso 2: $x_- > 0$\\(\textit{Crescente sul box})};
+    \end{scope}
+
+    % Caso 3: Lo zero Ã¨ contenuto nel box
+    \begin{scope}[xshift=6cm]
+        \draw[->, thick, color=gray!60!black] (-2.5, 0) -- (2.5, 0) node[right] {$x$};
+        \draw[->, thick, color=gray!60!black] (0, -0.3) -- (0, 2.5) node[above] {$y$};
+        \draw[domain=-2.0:2.0, smooth, variable=\x, blue!70!black, thick] plot ({\x}, {0.8*\x*\x});
+        \draw[very thick, red!80!black] (-1.8, 0) -- (1.2, 0);
+        \filldraw[red!80!black] (-1.8, 0) circle (2pt) node[below=3pt] {$x_-$};
+        \filldraw[red!80!black] (1.2, 0) circle (2pt) node[below=3pt] {$x_+$};
+        \filldraw[teal!80!black] (0, 0) circle (2.5pt) node[above right=3pt] {$x^* = 0$};
+        \node[align=center, font=\footnotesize\bfseries, color=gray!80!black] at (0, -1.2) {Caso 3: $x_- \le 0 \le x_+$\\(\textit{Minimo interno})};
+    \end{scope}
+
+\end{tikzpicture}%
+}
+\caption{Le tre configurazioni topologiche per l'ottimizzazione quadratica omogenea vincolata su box $[x_-, x_+]$.}
+\label{fig:parabola-casi-box}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Configurazione Strettamente Negativa ($x_+ < 0$):} l'intero intervallo giace a sinistra del vertice. In tale regione la parabola convessa \`e strettamente decrescente:
+    \begin{align}
+    x^* &= x_+, \quad f^* = a (x_+)^2 \\
+    x^*_{\max} &= x_-, \quad f^*_{\max} = a (x_-)^2
+    \end{align}
+    \item \textbf{Configurazione Strettamente Positiva ($x_- > 0$):} l'intero intervallo giace a destra del vertice. La funzione \`e strettamente crescente:
+    \begin{align}
+    x^* &= x_-, \quad f^* = a (x_-)^2 \\
+    x^*_{\max} &= x_+, \quad f^*_{\max} = a (x_+)^2
+    \end{align}
+    \item \textbf{Configurazione con Vertice Interno ($x_- \le 0 \le x_+$):} il vertice appartiene alla regione ammissibile, per cui il minimo vincolato coincide con il minimo globale libero:
+    \begin{align}
+    x^* &= 0, \quad f^* = 0
+    \end{align}
+    Il punto di massimo si colloca invece sulla frontiera del box pi\`u distante dall'origine:
+    \begin{equation}
+    x^*_{\max} = \argmax \{ a(x_-)^2, a(x_+)^2 \} = \begin{cases} x_- & \text{se } |x_-| > |x_+| \\ x_+ & \text{se } |x_+| > |x_-| \end{cases}
+    \end{equation}
+\end{enumerate}
+
+
+\FloatBarrier
+\section{Ottimizzazione Univariata: Caso Quadratico Non Omogeneo}
+\label{sec:opt-caso-quadratico-non-omogeneo}
+
+\subsection{Definizione e Non Separabilit\`a dell'Operatore Minimo}
+Si consideri la funzione quadratica scalare completa, provvista di termine lineare:
+\begin{equation}
+f(x) = ax^2 + bx, \quad a, b \in \R, \quad a \neq 0, \; b \neq 0
+\end{equation}
+
+\begin{alertblock}{Propriet\`a Fondamentale di Non Linearit\`a dell'Operatore Minimo}
+In generale, l'operatore di minimo non \`e additivo:
+\begin{equation}
+\min \{ ax^2 + bx \} \neq \min \{ ax^2 \} + \min \{ bx \}
+\end{equation}
+Il minimo della somma di due funzioni non coincide con la somma dei rispettivi minimi, tranne nel caso eccezionale in cui le due funzioni condividano esattamente il medesimo punto di minimo (ipotesi qui violata, poich\'e il termine lineare $bx$ non ammette minimo finito su $\R$).
+\end{alertblock}
+
+\subsection{Il Principio del Cambio di Coordinate (Shift dell'Origine)}
+Per risolvere il problema senza ricorrere al calcolo differenziale, si applica una delle tecniche algebriche pi\`u eleganti e feconde dell'ottimizzazione: il \textbf{cambio di coordinate per traslazione}.
+L'obiettivo \`e definire una nuova variabile traslata $z$ attorno a uno spostamento dell'origine $\bar{x} \in \R$ da determinare:
+\begin{equation}
+z = x - \bar{x} \quad \Longleftrightarrow \quad x = z + \bar{x}
+\end{equation}
+in modo che, espressa in funzione di $z$, la funzione quadratica divenga \textbf{omogenea puro} (annullando il termine lineare moltiplicato per $z$).
+
+\subsection{Derivazione Algebrica Passo-Passo}
+Sostituendo l'espressione $x = z + \bar{x}$ nella funzione $f(x)$:
+\begin{align}
+f(z + \bar{x}) &= a(z + \bar{x})^2 + b(z + \bar{x}) \nonumber\\
+&= a\left(z^2 + 2z\bar{x} + \bar{x}^2\right) + bz + b\bar{x} \nonumber\\
+&= az^2 + 2a\bar{x}z + a\bar{x}^2 + bz + b\bar{x}
+\end{align}
+Raccogliendo i termini rispetto alle potenze decrescenti di $z$:
+\begin{equation}
+f(z + \bar{x}) = az^2 + (2a\bar{x} + b)z + \left(a\bar{x}^2 + b\bar{x}\right)
+\end{equation}
+Si osservi che il termine costante indipendente da $z$ corrisponde esattamente al valore della funzione originaria calcolata nel punto di traslazione $\bar{x}$:
+\begin{equation}
+a\bar{x}^2 + b\bar{x} = f(\bar{x})
+\end{equation}
+Pertanto la funzione trasformata si riscrive esattamente come:
+\begin{equation}
+f(z + \bar{x}) = az^2 + (2a\bar{x} + b)z + f(\bar{x})
+\end{equation}
+
+Per eliminare la componente lineare e rendere la funzione omogenea rispetto alla nuova variabile $z$, imponiamo che il coefficiente di $z$ sia identicamente nullo:
+\begin{equation}
+2a\bar{x} + b = 0 \quad \Longrightarrow \quad \bar{x} = -\frac{b}{2a}
+\end{equation}
+
+\subsection{Risoluzione nello Spazio Traslato e Mappatura Inversa}
+Ponendo $\bar{x} = -\frac{b}{2a}$, la funzione espressa in $z$ assume la forma canonica omogenea disaccoppiata:
+\begin{equation}
+g(z) = f(z + \bar{x}) = az^2 + f(\bar{x})
+\end{equation}
+Poich\'e $f(\bar{x})$ \`e una costante additiva indipendente dalla variabile di ottimizzazione $z$:
+\begin{equation}
+\argmin_{z \in \R} g(z) = \argmin_{z \in \R} \left( az^2 + f(\bar{x}) \right) = \argmin_{z \in \R} \left( az^2 \right)
+\end{equation}
+
+Per $a > 0$ (parabola convessa), la soluzione ottima nello spazio trasformato \`e immediata:
+\begin{equation}
+z^* = 0
+\end{equation}
+Riconvertendo la soluzione nello spazio originario delle variabili $x$:
+\begin{equation}
+x^* = z^* + \bar{x} = 0 + \bar{x} = -\frac{b}{2a}
+\end{equation}
+Il valore ottimo si determina valutando la funzione in $x^* = \bar{x}$:
+\begin{align}
+f^* = f(\bar{x}) &= a\left(-\frac{b}{2a}\right)^2 + b\left(-\frac{b}{2a}\right) \nonumber\\
+&= a\frac{b^2}{4a^2} - \frac{b^2}{2a} = \frac{b^2}{4a} - \frac{2b^2}{4a} = -\frac{b^2}{4a}
+\end{align}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, font=\small]
+
+    % Assi cartesiani
+    \draw[->, thick, color=gray!60!black] (-4, 0) -- (3, 0) node[right] {$x$};
+    \draw[->, thick, color=gray!60!black] (0, -2.5) -- (0, 3) node[above] {$y$};
+
+    % Parabola originale f(x) = x^2 + 2x = x(x+2), radici 0 e -2, vertice (-1, -1)
+    \draw[domain=-3.2:1.2, smooth, variable=\x, blue!75!black, very thick] plot ({\x}, {\x*\x + 2*\x});
+    \node[blue!80!black, font=\bfseries] at (-2.8, 2.5) {$f(x) = ax^2 + bx$};
+
+    % Radici
+    \filldraw[black] (0, 0) circle (2pt) node[above right] {$x_1 = 0$};
+    \filldraw[black] (-2, 0) circle (2pt) node[above left] {$x_2 = -b/a$};
+
+    % Vertice e punto medio
+    \draw[dashed, color=purple!70!black, thick] (-1, 0) -- (-1, -1) -- (0, -1);
+    \filldraw[purple!80!black] (-1, -1) circle (2.5pt) node[below left=2pt] {$x^* = -\frac{b}{2a}, \; f^* = -\frac{b^2}{4a}$};
+    \filldraw[purple!80!black] (-1, 0) circle (2pt) node[above=3pt] {$\bar{x} = \frac{x_1 + x_2}{2}$};
+
+    % Parabola traslata omogeneizzata g(z) = z^2 (centrata in 0, senza costante)
+    \draw[domain=-2.2:2.2, smooth, variable=\z, teal!75!black, thick, dashed] plot ({\z}, {\z*\z - 1});
+    \node[teal!80!black, font=\footnotesize] at (2.2, 1.8) {$g(z) = az^2 + f(\bar{x})$};
+
+    % Freccia di shift
+    \draw[->, thick, draw=purple!80!black] (0, -0.4) -- (-1, -0.4) node[midway, below, font=\scriptsize] {Shift $\bar{x} = -\frac{b}{2a}$};
+
+\end{tikzpicture}%
+}
+\caption{Visualizzazione geometrica del cambio di coordinate per la parabola non omogenea: il vertice $x^*$ si colloca esattamente a met\`a strada tra le due radici $x_1$ e $x_2$.}
+\label{fig:cambio-coordinate-parabola}
+\end{figure}
+
+\subsection{Interpretazione Geometrica: La Mediana delle Radici}
+La funzione quadratica $f(x) = ax^2 + bx = x(ax + b)$ ammette sempre due radici reali distinte (se $b \neq 0$):
+\begin{equation}
+x_1 = 0, \quad x_2 = -\frac{b}{a}
+\end{equation}
+Il punto di ottimo calcolato con il cambio di coordinate coincide esattamente con il \textbf{punto medio (o mediana geometrica)} delle radici:
+\begin{equation}
+\bar{x} = \frac{x_1 + x_2}{2} = \frac{0 + (-b/a)}{2} = -\frac{b}{2a}
+\end{equation}
+Questa propriet\`a di simmetria \`e universale per qualsiasi parabola univariata e riflette il fatto che la derivata di un polinomio di secondo grado \`e una retta che interseca l'asse delle ascisse esattamente nel punto mediano dei suoi zeri reali.
+
+\subsection{Ottimizzazione su Box Vincolato per Funzione Generale}
+Nel caso in cui sia presente il vincolo $x \in [x_-, x_+]$, il cambio di coordinate trasla con identico rigore anche gli estremi dell'intervallo ammissibile per la variabile $z$:
+\begin{equation}
+x \in [x_-, x_+] \quad \Longleftrightarrow \quad z \in [x_- - \bar{x}, \; x_+ - \bar{x}]
+\end{equation}
+Posti $z_- = x_- - \bar{x}$ e $z_+ = x_+ - \bar{x}$, il problema si riduce esattamente alla minimizzazione quadratica omogenea vincolata sul box $[z_-, z_+]$ risolta nella Sezione~\ref{sec:opt-caso-quadratico-omogeneo}:
+\begin{equation}
+z^* = \begin{cases}
+z_+ & \text{se } z_+ < 0 \\
+z_- & \text{se } z_- > 0 \\
+0 & \text{se } z_- \le 0 \le z_+
+\end{cases}
+\end{equation}
+da cui si ricava la soluzione originale risostituendo $x^* = z^* + \bar{x}$.
+
+
+\FloatBarrier
+\section{Formulario Sinottico dei Risultati Univariati}
+\label{sec:opt-formulario-sinottico}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c l X c}
+\toprule
+\textbf{Classe} & \textbf{Forma} & \textbf{Condizione} & \textbf{Minimo Libero $x^*$} & \textbf{Valore $f^*$} \\
+\midrule
+\textbf{Lineare} & $bx$ & $b > 0$ & Non esiste ($x \to -\infty$) & $-\infty$ \\
+                 &      & $b < 0$ & Non esiste ($x \to +\infty$) & $-\infty$ \\
+                 &      & $b = 0$ (degenere) & Indifferente ($\forall x \in \R$) & $0$ \\
+\midrule
+\textbf{Quadratica} & $ax^2$ & $a > 0$ (convessa) & $x^* = 0$ (unico) & $0$ \\
+\textbf{omogenea}   &        & $a < 0$ (concava)  & Non esiste ($x \to \pm\infty$) & $-\infty$ \\
+                    &        & $a = 0$ (degenere) & Indifferente ($\forall x \in \R$) & $0$ \\
+\midrule
+\textbf{Quadratica} & $ax^2 + bx$ & $a > 0$ (convessa) & $x^* = -b/(2a)$ (vertice) & $-b^2/(4a)$ \\
+\textbf{generale}   &             & $a < 0$ (concava)  & Non esiste ($x \to \pm\infty$) & $-\infty$ \\
+                    &             & $a = 0, \; b \neq 0$  & Non esiste (lineare) & $-\infty$ \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro sinottico comparativo dell'ottimizzazione univariata libera.}
+\label{tab:sinottico-univariato}
+\end{table}

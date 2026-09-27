@@ -1,0 +1,808 @@
+\chapter{Multivariate Optimization: Geometry, Linear Functions, and Quadratic Forms}
+\label{chap:opt-multivariate-linear-quadratic}
+
+\section{From Univariate to Multivariate: Dimensionality of \texorpdfstring{$\R^n$}{R\textasciicircum n}}
+\label{sec:opt-dimensionality-rn-en}
+
+\subsection{Multivariate Input Space}
+In modern data science, machine learning, and computational engineering, models almost universally depend on a collection of mutually interacting variables. The primary mathematical object of study is the real-valued multivariate scalar function:
+\begin{equation}
+f: \R^n \to \R, \quad f(x) = f(x_1, x_2, \dots, x_n)
+\end{equation}
+where the input argument $x$ is a structured column vector of $n$ real numbers:
+\begin{equation}
+x = \begin{bmatrix} x_1 \\ x_2 \\ \vdots \\ x_n \end{bmatrix} = [x_i]_{i=1}^n \in \R^n
+\end{equation}
+
+Vector dimension $n$ spans radically disparate orders of magnitude across application domains:
+\begin{itemize}
+    \item \textbf{Small scale ($n \in \{2, 3, 10^2\}$):} Euclidean geometric models, inverse kinematics, elementary resource allocation.
+    \item \textbf{Medium and large scale ($n \in \{10^4, 10^5\}$):} image and signal processing, finite element structural mechanics, network flow logistics.
+    \item \textbf{Monstrous scale (\textit{heinously large}, $n \in \{10^9, 10^{11}\}$):} training deep neural networks and Large Language Models (LLMs), where $n$ enumerates synaptic weights and attention matrices.
+\end{itemize}
+
+\subsection{The Curse of Dimensionality}
+The continuous vector space $\R^n$ is formally defined as the Cartesian product of $\R$ taken $n$ times:
+\begin{equation}
+\R^n = \underbrace{\R \times \R \times \dots \times \R}_{n \text{ times}}
+\end{equation}
+
+\begin{noteblock}{Exponential Volumetric Expansion}
+The volume of available space within $\R^n$ grows exponentially with dimension $n$. Adding variables to an optimization model is never computationally neutral: it fundamentally changes the geometric density of the searchable space.
+\end{noteblock}
+
+To quantitatively demonstrate this combinatorial explosion, consider a drastic simplification:
+\begin{enumerate}
+    \item Restrict the continuous domain to a compact unit hypercube (\textit{box}):
+    \begin{equation}
+    X = \{x \in \R^n : 0 \le x_i \le 1, \; i = 1, \dots, n\} = [0, 1]^n
+    \end{equation}
+    \item Discard interior continuity entirely, sampling only the extreme discrete corner values for each coordinate, $x_i \in \{0, 1\}$.
+\end{enumerate}
+
+The resulting set coincides with the vertices of the \textbf{Boolean hypercube} $\{0, 1\}^n$, whose cardinality is:
+\begin{equation}
+|V| = 2^n \text{ vertices}
+\end{equation}
+Even for modest dimensions (such as $n = 100$), $2^{100} \approx 1.26 \times 10^{30}$. This number dwarfs the processing capacity of all existing computing clusters, rendering brute-force grid enumeration information-theoretically impossible.
+
+
+\FloatBarrier
+\section{Vector and Multi-Objective Optimization}
+\label{sec:opt-vector-multiobjective-en}
+
+\subsection{The Limitation of a Single Scalar Objective}
+Standard optimization assumes that the overall merit of any decision $x \in X$ can be collapsed into a single real number $f(x) \in \R$. 
+
+Because the real line $\R$ is endowed with a \textbf{total order}:
+\begin{equation}
+\forall a, b \in \R \implies a \le b \quad \lor \quad b \le a
+\end{equation}
+any two candidate solutions $x'$ and $x''$ can always be unambiguously ranked by comparing $f(x')$ with $f(x'')$.
+
+In practice, complex decision problems require balancing multiple competing, incommensurable criteria (comparing ``apples to oranges''):
+\begin{itemize}
+    \item \textbf{Vehicle procurement:} capital cost vs fuel economy vs safety ratings vs styling appeal.
+    \item \textbf{Machine learning:} minimizing empirical data loss $\mathcal{L}(w)$ vs minimizing model complexity $R(w)$ to prevent overfitting.
+\end{itemize}
+
+A formal \textbf{multi-objective} (or vector) optimization problem is posed as:
+\begin{equation}
+\min_{x \in X} F(x) = \begin{bmatrix} f_1(x) \\ f_2(x) \\ \vdots \\ f_k(x) \end{bmatrix}, \quad F: X \to \R^k, \; k \ge 2
+\end{equation}
+
+\subsection{Illustrative Example: Markowitz Portfolio Selection}
+Consider an investor distributing capital across a set of financial assets:
+\begin{itemize}
+    \item \textbf{Objective 1 (Expected Return):} $f_1(x) \in \R$, to be maximized (or $-f_1(x)$ minimized).
+    \item \textbf{Objective 2 (Financial Risk / Volatility):} $f_2(x) \in \R$ (return variance), to be minimized.
+\end{itemize}
+Safe assets (e.g., short-term government bonds) deliver low returns, whereas high-yield equities carry significant volatility. No single portfolio simultaneously minimizes variance and maximizes return.
+
+\subsection{Partial Ordering and the Pareto Frontier}
+For $k \ge 2$, vector space $\R^k$ lacks a natural total ordering. Instead, it is governed by a \textbf{partial ordering} induced by the non-negative orthant cone:
+\begin{equation}
+u \le v \iff u_i \le v_i \quad \forall i = 1, \dots, k
+\end{equation}
+
+\begin{definition}[Pareto Dominance]
+Assuming by convention that all $k$ objectives are to be minimized, a feasible point $x' \in X$ \textbf{Pareto-dominates} $x'' \in X$ (denoted $x' \succ_P x''$) if and only if:
+\begin{equation}
+f_i(x') \le f_i(x'') \quad \forall i \in \{1, \dots, k\} \quad \land \quad \exists j \in \{1, \dots, k\} : f_j(x') < f_j(x'')
+\end{equation}
+\end{definition}
+
+\begin{definition}[Non-Dominated or Pareto-Optimal Solution]
+A point $x^* \in X$ is \textbf{Pareto-optimal} (or non-dominated) if no other point $x \in X$ dominates $x^*$. The collection of all objective values $F(x^*)$ forms the \textbf{Pareto Frontier}.
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.15]
+    % Background Feasible Area
+    \fill[teal!6, draw=teal!30, dashed, thin]
+        (1.0, 1.2) 
+        to[out=10, in=200] (3.2, 1.8) 
+        to[out=20, in=215] (5.0, 2.8) 
+        to[out=35, in=230] (7.2, 4.8) 
+        to[out=50, in=240] (8.4, 6.6)
+        -- (8.4, 6.8) -- (1.0, 6.8) -- cycle;
+    \node[teal!70!black, font=\small\bfseries] at (2.6, 6.4) {Feasible Objective Region};
+
+    % Axes
+    \draw[->, thick] (0,0) -- (10.2,0) node[below=5pt] {Expected Return $f_1(x)$ (to maximize) $\longrightarrow$};
+    \draw[->, thick] (0,0) -- (0,7.2) node[above=4pt, align=center] {$\longleftarrow$ Risk / Variance $f_2(x)$\\(to minimize)};
+    \draw[help lines, color=gray!20, dashed] (0.5,0.5) grid (9.8,6.8);
+
+    % Dominance region from A (feasible points dominating A)
+    \fill[green!20, draw=green!60!black, dashed, thin] 
+        (3.2, 4.8) -- (7.2, 4.8) 
+        to[out=230, in=35] (5.0, 2.8) 
+        to[out=215, in=20] (3.2, 1.8) -- cycle;
+    \node[green!50!black, font=\footnotesize\bfseries, align=center] at (4.8, 3.8) {Decisions\\dominating $A$};
+
+    % Pareto Frontier Curve (Convex lower boundary)
+    \draw[line width=1.8pt, teal!80!black] 
+        (1.0, 1.2) 
+        to[out=10, in=200] (3.2, 1.8) 
+        to[out=20, in=215] (5.0, 2.8) 
+        to[out=35, in=230] (7.2, 4.8) 
+        to[out=50, in=240] (8.4, 6.6);
+
+    % Frontier Title Callout (in upper right section)
+    \node[teal!80!black, font=\small\bfseries, anchor=west] (pareto_label) at (8.1, 5.6) {Pareto Frontier};
+    \draw[->, thick, teal!80!black] (pareto_label.west) -- (7.7, 5.3);
+
+    % Frontier Extreme Points
+    \filldraw[teal!80!black] (1.0, 1.2) circle (2.5pt);
+    \node[below=4pt, font=\scriptsize, fill=white, inner sep=1pt] at (1.0, 1.2) {$P_{\text{min}}$ (Min risk)};
+
+    \filldraw[teal!80!black] (8.4, 6.6) circle (2.5pt);
+    \node[above=4pt, font=\scriptsize, fill=white, inner sep=1pt] at (8.4, 6.6) {$P_{\text{max}}$ (Max return)};
+
+    % Frontier Comparison Points B and C
+    \coordinate (B) at (3.2, 1.8);
+    \coordinate (C) at (7.2, 4.8);
+
+    \filldraw[teal!80!black] (B) circle (2.5pt);
+    \node[below=6pt, font=\footnotesize\bfseries, teal!80!black, fill=white, inner sep=1.5pt] at (B) {$B$ (Pareto-optimal)};
+
+    \filldraw[teal!80!black] (C) circle (2.5pt);
+    \node[right=6pt, font=\footnotesize\bfseries, teal!80!black, fill=white, inner sep=1.5pt] at (C) {$C$ (Pareto-optimal)};
+
+    % Dominated point A
+    \coordinate (A) at (3.2, 4.8);
+    \filldraw[red!80!black] (A) circle (3pt);
+    \node[anchor=east, font=\footnotesize\bfseries, red!80!black, fill=white, inner sep=2pt] at (2.9, 4.8) {$A$ (Dominated solution)};
+
+    % Comparison arrows from A
+    % 1. Downward to B (same return, lower risk)
+    \draw[->, >=Stealth, line width=1.5pt, red!75!black] (3.2, 4.5) -- (3.2, 2.1);
+    \node[left=6pt, font=\scriptsize, red!75!black, align=right, fill=white, inner sep=2pt] at (3.2, 3.3) {Lower risk\\(same return)};
+
+    % 2. Rightward to C (same risk, higher return)
+    \draw[->, >=Stealth, line width=1.5pt, blue!75!black] (3.5, 4.8) -- (6.9, 4.8);
+    \node[above=5pt, font=\scriptsize, blue!75!black, fill=white, inner sep=2pt] at (5.2, 4.8) {Higher return (same risk)};
+\end{tikzpicture}%
+}
+\caption{Geometric representation of the Pareto Frontier in Markowitz portfolio selection.}
+\label{fig:pareto-frontier-en}
+\end{figure}
+
+An optimization algorithm cannot objectively choose a single point on the Pareto frontier: the final selection rests with human decision-makers and their risk preferences.
+
+\subsection{Operational Reduction Techniques: Scalarization and Budgeting}
+To apply continuous optimization solvers to multi-objective problems, two strategies are standard:
+\begin{enumerate}
+    \item \textbf{Scalarization:} Formulate a weighted linear or convex combination of objectives:
+    \begin{equation}
+    \min_{x \in X} \left\{ f_1(x) + \alpha f_2(x) \right\}, \quad \alpha > 0
+    \end{equation}
+    Here $\alpha$ serves as an \textit{exchange rate}: how much degradation in $f_1$ is tolerated to gain one unit of improvement in $f_2$. Sweeping $\alpha \in (0, +\infty)$ traces the Pareto frontier. In machine learning, regularized empirical risk minimization:
+    \begin{equation}
+    \min_w \left\{ \mathcal{L}(w) + \lambda R(w) \right\}
+    \end{equation}
+    is a classic scalarization, where trade-off parameter $\lambda$ is selected via cross-validation.
+    
+    \item \textbf{Constraint Method (\textit{Budgeting}):} Designate a primary objective to optimize, downgrading all other criteria to upper/lower bound constraints (budgets):
+    \begin{equation}
+    \min_{x \in X} \{ f_1(x) : f_2(x) \le \beta_2, \; \dots, \; f_k(x) \le \beta_k \}
+    \end{equation}
+    Systematically varying the budget vector $\beta$ traces the non-dominated set.
+\end{enumerate}
+
+\begin{noteblock}{Standard Convention}
+Unless stated otherwise, modeling is assumed to have already consolidated the problem into a single scalar objective $f: \R^n \to \R$.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Euclidean Geometry in \texorpdfstring{$\R^n$}{R\textasciicircum n} and Function Tomography}
+\label{sec:opt-euclidean-geometry-tomography-en}
+
+\subsection{Standard Inner Product and Induced Norm}
+For any two vectors $x, z \in \R^n$, the \textbf{standard Euclidean inner product} is:
+\begin{equation}
+\langle x, z \rangle = x^T z = \sum_{i=1}^n x_i z_i = x_1 z_1 + x_2 z_2 + \dots + x_n z_n
+\end{equation}
+The inner product satisfies symmetry ($\langle x, z \rangle = \langle z, x \rangle$), bilinearity, and positive definiteness ($\langle x, x \rangle > 0$ for all $x \neq 0$).
+
+The \textbf{Euclidean norm} ($\ell_2$-norm) measures geometric length:
+\begin{equation}
+\|x\| = \sqrt{\langle x, x \rangle} = \sqrt{\sum_{i=1}^n x_i^2}
+\end{equation}
+
+\subsection{Angular Representation and the Cauchy-Schwarz Inequality}
+Geometrically, the inner product relates lengths to the angle $\theta \in [0, \pi]$ between $x$ and $z$:
+\begin{equation}
+\langle x, z \rangle = \|x\| \|z\| \cos(\theta)
+\end{equation}
+yielding three geometric orientations:
+\begin{itemize}
+    \item $\langle x, z \rangle > 0 \iff \theta \in [0, \pi/2)$: acute angle (pointing in the same general direction).
+    \item $\langle x, z \rangle = 0 \iff \theta = \pi/2$: \textbf{orthogonal} vectors ($x \perp z$).
+    \item $\langle x, z \rangle < 0 \iff \theta \in (\pi/2, \pi]$: obtuse angle (pointing in opposing directions).
+\end{itemize}
+
+Since $|\cos(\theta)| \le 1$, the fundamental \textbf{Cauchy-Schwarz inequality} follows directly:
+\begin{equation}
+|\langle x, z \rangle| \le \|x\| \|z\|, \quad \forall x, z \in \R^n
+\end{equation}
+with equality holding if and only if $x$ and $z$ are collinear ($x = \gamma z$ for some $\gamma \in \R$).
+
+\subsection{The Concept of Function Tomography}
+In multivariate space ($n \ge 3$), the graph $\text{gr}(f) = \{(x, f(x)) : x \in \R^n\} \subset \R^{n+1}$ cannot be visualized. The central analytical tool used to investigate its local and global behavior is \textbf{tomography}.
+
+\begin{definition}[Directional Tomography]
+Given a base point $x \in \R^n$ and a non-zero directional vector $d \in \R^n \setminus \{0\}$, the \textbf{tomography} of $f$ from $x$ along direction $d$ is the univariate function $\phi_{x, d}: \R \to \R$:
+\begin{equation}
+\phi_{x, d}(\alpha) = f(x + \alpha d), \quad \alpha \in \R
+\end{equation}
+\end{definition}
+
+Scalar $\alpha$ represents the signed displacement step along the line through $x$ oriented by $d$.
+
+Directional norm $\|d\|$ simply scales the parameter $\alpha$:
+\begin{equation}
+\phi_{x, \beta d}(\alpha) = f(x + \alpha (\beta d)) = \phi_{x, d}(\alpha \beta)
+\end{equation}
+To eliminate scaling ambiguity, it is standard practice to normalize the search direction:
+\begin{equation}
+\|d\| = 1
+\end{equation}
+
+
+\FloatBarrier
+\section{Multivariate Linear Functions}
+\label{sec:opt-multivariate-linear-functions-en}
+
+\subsection{Definition and Separability}
+A multivariate function $f: \R^n \to \R$ is \textbf{linear} if it can be represented as an inner product with a fixed coefficient vector $b \in \R^n$:
+\begin{equation}
+f(x) = \langle b, x \rangle = b^T x = \sum_{i=1}^n b_i x_i
+\end{equation}
+
+Every multivariate linear function is inherently \textbf{separable}: it is the sum of $n$ independent univariate linear functions:
+\begin{equation}
+f(x) = \sum_{i=1}^n f_i(x_i), \quad \text{with } f_i(x_i) = b_i x_i
+\end{equation}
+There are no bilinear cross-terms between different variables.
+
+\subsection{Geometry of Graph and Level Sets}
+\begin{itemize}
+    \item \textbf{Graph:} $\text{gr}(f) = \{(x, b^T x) : x \in \R^n\}$ is an $n$-dimensional hyperplane in $\R^{n+1}$ passing through the origin.
+    \item \textbf{Level Sets:} For any target value $v \in \R$, the level set is:
+    \begin{equation}
+    L(f, v) = \{x \in \R^n : b^T x = v\}
+    \end{equation}
+    This set forms an $(n-1)$-dimensional affine hyperplane in $\R^n$. As $v$ varies, level sets form an infinite family of parallel hyperplanes.
+\end{itemize}
+
+\begin{theorem}[Orthogonality of Vector $b$ to Level Sets]
+The coefficient vector $b$ is strictly orthogonal to any tangent direction within the level sets $L(f, v)$, for all $v \in \R$.
+\end{theorem}
+
+\begin{proof}
+Let $x, z \in L(f, v)$ be two arbitrary points on the same level set. By definition:
+\begin{equation}
+b^T x = v \quad \land \quad b^T z = v
+\end{equation}
+Subtracting these expressions yields:
+\begin{equation}
+b^T z - b^T x = 0 \iff b^T (z - x) = 0 \iff \langle b, z - x \rangle = 0
+\end{equation}
+Vector $z - x$ represents an arbitrary displacement tangent to the level hyperplane. Because $b$ is orthogonal to every displacement within the level set, $b \perp L(f, v)$.
+\end{proof}
+
+
+\FloatBarrier
+\section{Linear Tomography and Steepest Descent Direction}
+\label{sec:opt-linear-tomography-steepest-descent-en}
+
+\subsection{Tomographic Cross-Section Computation}
+Fixing the origin $x = 0$ and a unit direction $\|d\| = 1$, the tomography of linear function $f(x) = b^T x$ is:
+\begin{equation}
+\phi_{0, d}(\alpha) = f(0 + \alpha d) = b^T (\alpha d) = \alpha \langle b, d \rangle = \alpha \|b\| \|d\| \cos(\theta) = \alpha \|b\| \cos(\theta)
+\end{equation}
+where $\theta$ is the angle between coefficient vector $b$ and direction $d$.
+
+The tomography is a \textbf{univariate line} through the origin whose slope is governed by $\langle b, d \rangle$.
+
+\subsection{Directional Analysis: The Radar Screen Analogy}
+Rotating direction $d$ through all angles reveals five fundamental behaviors:
+\begin{enumerate}
+    \item \textbf{$d$ perfectly aligned with $b$ ($\theta = 0 \implies \cos(\theta) = 1$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = \alpha \|b\|
+    \end{equation}
+    The line exhibits maximum positive slope: the function increases at the highest possible rate (\textbf{steepest ascent}).
+    
+    \item \textbf{$d$ acute to $b$ ($\theta \in (0, \pi/2) \implies \cos(\theta) > 0$):}
+    Positive slope, strictly bounded above by $\|b\|$.
+    
+    \item \textbf{$d$ orthogonal to $b$ ($\theta = \pi/2 \implies \cos(\theta) = 0$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = 0, \quad \forall \alpha \in \R
+    \end{equation}
+    The tomography is identically flat. Moving orthogonally to $b$ corresponds to walking along the level set $L(f, 0)$, leaving the objective value unchanged.
+    
+    \item \textbf{$d$ obtuse to $b$ ($\theta \in (\pi/2, \pi) \implies \cos(\theta) < 0$):}
+    Negative slope: advancing along positive $\alpha$ decreases the function.
+    
+    \item \textbf{$d$ opposite to $b$ ($\theta = \pi \implies \cos(\theta) = -1$):}
+    \begin{equation}
+    \phi_{0, d}(\alpha) = -\alpha \|b\|
+    \end{equation}
+    The line achieves the steepest negative slope (\textbf{steepest descent}).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.90\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.05]
+    % Left panel: Radar circle
+    \draw[thick, gray!40] (0,0) circle (2.2cm);
+    \draw[help lines, color=gray!30, dashed] (-2.5,0) -- (2.5,0);
+    \draw[help lines, color=gray!30, dashed] (0,-2.5) -- (0,2.5);
+
+    % Level set line (orthogonal to b)
+    \draw[thick, dashed, blue!70!black] (0,-2.4) -- (0,2.4) node[above, font=\small] {$L(f, 0) \perp b$};
+
+    % Vector b
+    \draw[->, very thick, red!80!black] (0,0) -- (2.0,0) node[right=2pt] {$b$};
+
+    % Direction d1 (steepest descent)
+    \draw[->, very thick, teal] (0,0) -- (-2.0,0) node[left=2pt] {$d^* = -\frac{b}{\|b\|}$};
+
+    % Direction d2 (steepest ascent)
+    \draw[->, thick, purple] (0,0) -- (1.41, 1.41) node[above right] {$d_{\text{acute}}$};
+    \draw[->, thick, orange!80!black] (0,0) -- (-1.41, 1.41) node[above left] {$d_{\text{obtuse}}$};
+
+    % Center
+    \filldraw (0,0) circle (1.5pt) node[below left=2pt] {$0$};
+    \node[below] at (0,-2.7) {\textbf{(a) Unit Direction Space $\|d\|=1$}};
+
+    % Right panel: Tomography profiles
+    \begin{scope}[shift={(6.5, 0)}]
+        \draw[->, thick] (-2.2,0) -- (2.5,0) node[right] {$\alpha$};
+        \draw[->, thick] (0,-2.2) -- (0,2.2) node[above] {$\phi_{0, d}(\alpha)$};
+
+        % Max ascent
+        \draw[thick, red!80!black] (-1.8,-1.8) -- (1.8,1.8) node[right, font=\footnotesize] {$\theta = 0$ (Max Ascent)};
+        % Moderate ascent
+        \draw[thick, purple] (-1.8,-1.0) -- (1.8,1.0) node[right, font=\footnotesize] {$\theta < \pi/2$};
+        % Flat
+        \draw[thick, blue!80!black] (-2.0,0) -- (2.0,0) node[right, font=\footnotesize] {$\theta = \pi/2$ (Flat)};
+        % Moderate descent
+        \draw[thick, orange!80!black] (-1.8,1.0) -- (1.8,-1.0) node[right, font=\footnotesize] {$\theta > \pi/2$};
+        % Max descent
+        \draw[very thick, teal] (-1.8,1.8) -- (1.8,-1.8) node[right, font=\footnotesize] {$\theta = \pi$ (Max Descent)};
+
+        \node[below] at (0,-2.7) {\textbf{(b) Univariate Tomographic Profiles}};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Tomographic inspection of a linear function: rotating search directions and identifying slope bounds.}
+\label{fig:linear-tomography-en}
+\end{figure}
+
+\subsection{Formal Derivation of the Steepest Descent Direction}
+Suppose an algorithm stands at the origin and takes a single step of fixed length $\|\Delta x\| = \varepsilon > 0$. The resulting change in objective value is:
+\begin{equation}
+\Delta f = f(\varepsilon d) - f(0) = \varepsilon \langle b, d \rangle = \varepsilon \|b\| \cos(\theta)
+\end{equation}
+To achieve maximal reduction ($\Delta f < 0$ minimized), with $\varepsilon > 0$ and $\|d\| = 1$, one solves:
+\begin{equation}
+\min_{\|d\| = 1} \langle b, d \rangle = \min_{\|d\|=1} \|b\| \cos(\theta)
+\end{equation}
+Cosine reaches its absolute minimum $-1$ uniquely at $\theta = \pi$, producing the canonical result:
+\begin{equation}
+d^* = -\frac{b}{\|b\|}
+\end{equation}
+
+\begin{noteblock}{Antigradient Principle}
+The direction yielding the greatest instantaneous rate of decrease for a linear objective is strictly the \textbf{antigradient} $-b$.
+\end{noteblock}
+
+
+\FloatBarrier
+\section{From Linear to Quadratic Functions: The Separable Case}
+\label{sec:opt-separable-quadratic-en}
+
+\subsection{Separable Quadratic Functions}
+The most direct extension of univariate quadratic functions to $n$ dimensions sums $n$ independent scalar parabolas:
+\begin{equation}
+f(x) = \sum_{i=1}^n \left( a_i x_i^2 + b_i x_i \right), \quad a, b \in \R^n
+\end{equation}
+
+When $a_i = 1$ and $b_i = 0$ for all $i$, the function is the squared Euclidean norm:
+\begin{equation}
+f(x) = \sum_{i=1}^n x_i^2 = \|x\|^2
+\end{equation}
+Its level sets $L(f, v) = \{x \in \R^n : \|x\|^2 = v\}$ are concentric hyperspheres of radius $r = \sqrt{v}$.
+
+\subsection{Anisotropic Curvature and Eccentricity}
+In dimension $n = 2$, setting $b = 0$, $a_2 = 1$ and varying parameter $a_1 = a > 0$:
+\begin{equation}
+f(x_1, x_2) = a x_1^2 + x_2^2
+\end{equation}
+Level sets for a positive value $v > 0$ satisfy:
+\begin{equation}
+a x_1^2 + x_2^2 = v \iff \frac{x_1^2}{v/a} + \frac{x_2^2}{v} = 1
+\end{equation}
+The geometry depends directly on the curvature ratio:
+\begin{itemize}
+    \item \textbf{If $a = 1$:} equal semi-axes ($\sqrt{v/a} = \sqrt{v}$): the level set is a circle.
+    \item \textbf{If $a > 1$:} curvature is higher along $x_1$. Level curves reach $v$ closer to the origin along $x_1$ ($|x_1| = \sqrt{v/a} < \sqrt{v}$): the ellipse is \textbf{vertically elongated}.
+    \item \textbf{If $0 < a < 1$:} curvature along $x_1$ is gentler: the ellipse is \textbf{horizontally elongated}.
+    \item \textbf{As $a \to 0^+$:} horizontal curvature vanishes; semi-axis $\sqrt{v/a} \to +\infty$: the ellipse degenerates into two parallel lines $x_2 = \pm \sqrt{v}$.
+\end{itemize}
+
+
+\FloatBarrier
+\section{General Homogeneous Quadratic Forms and Symmetrization}
+\label{sec:opt-general-quadratic-symmetrization-en}
+
+\subsection{Definition and Cross-Terms}
+General homogeneous quadratic functions contain bilinear cross-terms $x_i x_j$ with $i \neq j$:
+\begin{equation}
+f(x) = \frac{1}{2} x^T Q x = \frac{1}{2} \sum_{i=1}^n \sum_{j=1}^n Q_{ij} x_i x_j = \frac{1}{2} \sum_{i=1}^n Q_{ii} x_i^2 + \frac{1}{2} \sum_{i=1}^n \sum_{j \neq i} Q_{ij} x_i x_j
+\end{equation}
+where $Q \in \R^{n \times n}$ is a given square matrix. The $1/2$ prefactor ensures the Hessian matrix equals $Q$.
+
+Diagonal elements $Q_{ii}$ dictate curvature along coordinate axes, while off-diagonal elements $Q_{ij}$ couple coordinates and rotate principal axes.
+
+\begin{example}[Evaluation in 2D Space]
+Let $Q$ be non-symmetric and let $x$ be an arbitrary vector:
+\begin{equation}
+Q = \begin{bmatrix} 1 & 3 \\ 2 & 2 \end{bmatrix}, \quad x = \begin{bmatrix} x_1 \\ x_2 \end{bmatrix}
+\end{equation}
+Step-by-step evaluation yields:
+\begin{enumerate}
+    \item Intermediate product $Qx$:
+    \begin{equation}
+    Qx = \begin{bmatrix} 1 & 3 \\ 2 & 2 \end{bmatrix} \begin{bmatrix} x_1 \\ x_2 \end{bmatrix} = \begin{bmatrix} x_1 + 3x_2 \\ 2x_1 + 2x_2 \end{bmatrix}
+    \end{equation}
+    \item Left multiplication by $x^T$:
+    \begin{align}
+    x^T Q x &= \begin{bmatrix} x_1 & x_2 \end{bmatrix} \begin{bmatrix} x_1 + 3x_2 \\ 2x_1 + 2x_2 \end{bmatrix} = x_1(x_1 + 3x_2) + x_2(2x_1 + 2x_2) \nonumber \\
+    &= x_1^2 + 3x_1 x_2 + 2x_1 x_2 + 2x_2^2 = x_1^2 + 5x_1 x_2 + 2x_2^2
+    \end{align}
+\end{enumerate}
+Off-diagonal entries ($Q_{12} = 3$ and $Q_{21} = 2$) aggregate into a single term with coefficient $3 + 2 = 5$.
+\end{example}
+
+\subsection{Symmetrization Theorem}
+\begin{theorem}[Invariance Under Symmetrization]
+Let $Q \in \R^{n \times n}$ be an arbitrary non-symmetric square matrix ($Q \neq Q^T$). The quadratic form $f(x) = \frac{1}{2} x^T Q x$ is identical across all of $\R^n$ to the form defined by its symmetric part:
+\begin{equation}
+Q_{\text{sym}} = \frac{Q + Q^T}{2}
+\end{equation}
+that is:
+\begin{equation}
+\frac{1}{2} x^T Q x = \frac{1}{2} x^T Q_{\text{sym}} x, \quad \forall x \in \R^n
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Quantity $x^T Q x$ is a scalar ($1 \times 1$ matrix). Since a scalar equals its own transpose:
+\begin{equation}
+x^T Q x = (x^T Q x)^T
+\end{equation}
+Applying the transpose rule $(A B C)^T = C^T B^T A^T$:
+\begin{equation}
+(x^T Q x)^T = x^T Q^T (x^T)^T = x^T Q^T x
+\end{equation}
+Expressing $x^T Q x$ as the average of itself and its transpose:
+\begin{equation}
+x^T Q x = \frac{x^T Q x + x^T Q^T x}{2} = x^T \left( \frac{Q + Q^T}{2} \right) x = x^T Q_{\text{sym}} x
+\end{equation}
+Multiplying by $1/2$ establishes functional identity.
+\end{proof}
+
+\begin{noteblock}{Memory Efficiency and Course Convention}
+A symmetric $n \times n$ matrix stores only $n(n+1)/2$ entries rather than $n^2$, halving memory requirements at large scale.
+
+\textbf{Standard Convention:} Throughout continuous optimization, every quadratic matrix $Q$ is assumed to be \textbf{symmetric}:
+\begin{equation}
+Q = Q^T
+\end{equation}
+\end{noteblock}
+
+
+\FloatBarrier
+\section{Spectral Decomposition and Matrix Taxonomy}
+\label{sec:opt-spectral-decomposition-taxonomy-en}
+
+\subsection{Central Symmetry and Tomography}
+Because $(-x)^T Q (-x) = (-1)^2 x^T Q x = x^T Q x$, homogeneous quadratic forms are centrally symmetric about the origin:
+\begin{equation}
+f(-x) = f(x), \quad \forall x \in \R^n
+\end{equation}
+The origin $x = 0$ is always a stationary point. For unit direction $\|d\| = 1$, the tomography from the origin is:
+\begin{equation}
+\phi_{0, d}(\alpha) = \frac{1}{2} (\alpha d)^T Q (\alpha d) = \frac{1}{2} \alpha^2 (d^T Q d)
+\end{equation}
+This is a \textbf{homogeneous scalar parabola} whose curvature is determined by:
+\begin{equation}
+a_d = d^T Q d
+\end{equation}
+
+\subsection{The Spectral Theorem for Real Symmetric Matrices}
+Directional curvature $a_d$ is fully governed by the spectral decomposition of $Q$. Since $Q = Q^T \in \R^{n \times n}$:
+\begin{enumerate}
+    \item \textbf{Real Spectrum:} All $n$ eigenvalues $\lambda_1, \dots, \lambda_n$ are \textbf{strictly real}.
+    \item \textbf{Orthonormal Eigenvector Basis:} $\R^n$ admits an orthonormal basis of eigenvectors:
+    \begin{equation}
+    H_i^T H_j = \begin{cases} 1 & \text{if } i = j \\ 0 & \text{if } i \neq j \end{cases}
+    \end{equation}
+    \item \textbf{Spectral Factorization:} With orthogonal matrix $H = [H_1, \dots, H_n] \in \R^{n \times n}$ ($H^T H = H H^T = I$) and diagonal matrix $\Lambda = \text{diag}(\lambda_1, \dots, \lambda_n)$:
+    \begin{equation}
+    Q = H \Lambda H^T = \sum_{i=1}^n \lambda_i H_i H_i^T
+    \end{equation}
+\end{enumerate}
+
+\begin{noteblock}{Eigenvalue Ordering}
+Eigenvalues are arranged in descending order:
+\begin{equation}
+\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_n
+\end{equation}
+where $\lambda_{\max} = \lambda_1$ and $\lambda_{\min} = \lambda_n$.
+\end{noteblock}
+
+\subsection{Variational Characterization: The Rayleigh Quotient}
+For any non-zero vector $d \in \R^n \setminus \{0\}$, the \textbf{Rayleigh quotient} is bounded by extreme eigenvalues:
+\begin{equation}
+\lambda_n \le \frac{d^T Q d}{\|d\|^2} \le \lambda_1
+\end{equation}
+For unit vectors $\|d\| = 1$:
+\begin{align}
+\max_{\|d\|=1} d^T Q d &= \lambda_1 = H_1^T Q H_1 \\
+\min_{\|d\|=1} d^T Q d &= \lambda_n = H_n^T Q H_n
+\end{align}
+
+\subsection{Taxonomy of Matrix Definiteness}
+Eigenvalue signs systematically characterize quadratic behavior:
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c c X}
+\toprule
+\textbf{Class} & \textbf{Notation} & \textbf{Spectrum} & \textbf{Curvature $d^T Q d$ ($\forall d \neq 0$)} \\
+\midrule
+\textbf{Positive Definite} & $Q \succ 0$ & $\lambda_n > 0$ & $d^T Q d > 0$ (strictly convex) \\
+\textbf{Positive Semidefinite} & $Q \succeq 0$ & $\lambda_n = 0 \land \lambda_1 > 0$ & $d^T Q d \ge 0$ (degenerate convex) \\
+\textbf{Negative Definite} & $Q \prec 0$ & $\lambda_1 < 0$ & $d^T Q d < 0$ (strictly concave) \\
+\textbf{Negative Semidefinite} & $Q \preceq 0$ & $\lambda_1 = 0 \land \lambda_n < 0$ & $d^T Q d \le 0$ (degenerate concave) \\
+\textbf{Indefinite} & $Q \succ\prec 0$ & $\lambda_1 > 0 \land \lambda_n < 0$ & Assumes both positive and negative values \\
+\bottomrule
+\end{tabularx}
+\caption{Definiteness taxonomy for real symmetric matrices.}
+\label{tab:matrix-definiteness-en}
+\end{table}
+
+
+\FloatBarrier
+\section[Spectral Tomography Across Four Regimes]{Spectral Tomography\\ Across Four Regimes}
+\label{sec:opt-spectral-tomography-four-regimes-en}
+
+Selecting direction $d$ along an orthonormal eigenvector $H_i$ yields the pure form:
+\begin{equation}
+\phi_{H_i}(\alpha) = \frac{1}{2} \alpha^2 (H_i^T Q H_i) = \frac{1}{2} \alpha^2 (H_i^T (\lambda_i H_i)) = \frac{1}{2} \lambda_i \alpha^2
+\end{equation}
+
+We examine the four spectral regimes using classroom benchmarks:
+
+\subsection{Case I: Positive Definite Matrix (\texorpdfstring{$Q \succ 0$}{Q > 0})}
+Consider the positive definite configuration:
+\begin{equation}
+Q = \begin{bmatrix} 6 & -2 \\ -2 & 6 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ 4 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item Along $d = \pm H_1$: $\phi(\alpha) = 4\alpha^2$ (maximum curvature).
+    \item Along $d = \pm H_2$: $\phi(\alpha) = 2\alpha^2$ (minimum curvature).
+    \item For intermediate directions, curvature varies continuously within $[4, 8] > 0$.
+    \item \textbf{Optimization:} Strictly convex. Global unconstrained minimizer is \textbf{unique}:
+    \begin{equation}
+    x^* = 0, \quad f^* = 0, \quad \lim_{\|x\| \to \infty} f(x) = +\infty
+    \end{equation}
+\end{itemize}
+
+\subsection{Case II: Positive Semidefinite Matrix (\texorpdfstring{$Q \succeq 0$}{Q >= 0})}
+Consider the singular case with a zero eigenvalue:
+\begin{equation}
+Q = \begin{bmatrix} 4 & -4 \\ -4 & 4 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ 0 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item Eigenvalue $\lambda_2 = 0$ defines the nullspace: $\ker(Q) = \text{span}(H_2)$.
+    \item Along $d = \pm H_1$: strictly convex parabola $\phi(\alpha) = 4\alpha^2$.
+    \item Along $d = \pm H_2$: since $\lambda_2 = 0$:
+    \begin{equation}
+    \phi_{H_2}(\alpha) = 0, \quad \forall \alpha \in \R
+    \end{equation}
+    The tomography is a horizontal flat line.
+    \item \textbf{Optimization:} Optimal value is $f^* = 0$, but optimal minimizers are \textbf{non-unique}:
+    \begin{equation}
+    X^* = \ker(Q) = \{x \in \R^2 : x = \gamma H_2, \; \gamma \in \R\}
+    \end{equation}
+    The entire $H_2$ axis consists of equivalent global minimizers.
+\end{itemize}
+
+\subsection{Case III: Indefinite Matrix (\texorpdfstring{$Q \succ\prec 0$}{Q ind})}
+Consider a matrix with mixed-sign eigenvalues:
+\begin{equation}
+Q = \begin{bmatrix} 3 & -5 \\ -5 & 3 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} 8 \\ -2 \end{bmatrix}
+\end{equation}
+\begin{itemize}
+    \item Along $d = \pm H_1$: convex upward parabola ($\phi(\alpha) = 4\alpha^2 \to +\infty$).
+    \item Along $d = \pm H_2$: concave downward parabola ($\phi(\alpha) = -\alpha^2 \to -\infty$).
+    \item Along asymptotic directions with $d^T Q d = 0$, the profile is flat.
+    \item \textbf{Optimization:} Unbounded both above and below:
+    \begin{equation}
+    \inf_{x \in \R^n} f(x) = -\infty, \quad \sup_{x \in \R^n} f(x) = +\infty
+    \end{equation}
+    The origin $x = 0$ is a \textbf{saddle point}.
+\end{itemize}
+
+\subsection{Case IV: Negative Definite Matrix (\texorpdfstring{$Q \prec 0$}{Q < 0})}
+Consider strictly negative eigenvalues:
+\begin{equation}
+Q = \begin{bmatrix} -6 & -2 \\ -2 & -6 \end{bmatrix}, \quad H = \frac{\sqrt{2}}{2} \begin{bmatrix} -1 & 1 \\ 1 & 1 \end{bmatrix}, \quad \lambda = \begin{bmatrix} -4 \\ -8 \end{bmatrix}
+\end{equation}
+The function is strictly concave:
+\begin{equation}
+x^*_{\max} = 0, \quad f^*_{\max} = 0, \quad \inf_{x \in \R^n} f(x) = -\infty
+\end{equation}
+
+
+\FloatBarrier
+\section{Geometry of Level Sets}
+\label{sec:opt-level-set-geometry-en}
+
+\subsection{Diagonalization and Orthonormal Coordinate Rotation}
+Consider the unit level set:
+\begin{equation}
+L(f, 1) = \left\{x \in \R^n : \frac{1}{2} x^T Q x = 1\right\}
+\end{equation}
+Applying spectral decomposition $Q = H \Lambda H^T$ and rotating coordinates via:
+\begin{equation}
+y = H^T x \iff x = H y
+\end{equation}
+the equation assumes canonical decoupled form:
+\begin{equation}
+\frac{1}{2} (H y)^T Q (H y) = 1 \iff \frac{1}{2} y^T (H^T Q H) y = 1 \iff \frac{1}{2} y^T \Lambda y = 1
+\end{equation}
+Explicitly in coordinates $y$:
+\begin{equation}
+\sum_{i=1}^n \frac{1}{2} \lambda_i y_i^2 = 1 \iff \sum_{i=1}^n \frac{y_i^2}{\frac{2}{\lambda_i}} = 1
+\end{equation}
+
+\subsection{Semi-Axis Theorem for Ellipsoids}
+\begin{theorem}[Orientation and Length of Semi-Axes]
+Let $Q \succ 0$ be positive definite. Level set $L(f, 1)$ is a compact $n$-dimensional ellipsoid satisfying:
+\begin{enumerate}
+    \item Principal \textbf{symmetry axes} align with the orthonormal eigenvectors $H_i$.
+    \item The \textbf{semi-axis length} along direction $H_i$ equals:
+    \begin{equation}
+    \text{semi-axis}_i = \sqrt{\frac{2}{\lambda_i}}
+    \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Intersecting the ellipsoid with the line spanned by $H_i$ ($x = \alpha H_i$):
+\begin{equation}
+\phi_{H_i}(\alpha) = 1 \iff \frac{1}{2} \lambda_i \alpha^2 = 1 \iff \alpha^2 = \frac{2}{\lambda_i} \iff \alpha = \sqrt{\frac{2}{\lambda_i}}
+\end{equation}
+identifying the Euclidean distance from origin to vertex along the eigenvector.
+\end{proof}
+
+\begin{noteblock}{Inverse Relation Between Curvature and Axis Length}
+Semi-axis length is inversely proportional to the square root of the eigenvalue:
+\begin{itemize}
+    \item Large $\lambda_i \implies$ high curvature / rapid growth $\implies$ \textbf{short semi-axis}.
+    \item Small $\lambda_i \implies$ low curvature / gentle growth $\implies$ \textbf{long semi-axis}.
+\end{itemize}
+\end{noteblock}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, scale=1.15]
+    % Axes
+    \draw[help lines, color=gray!30, dashed] (-3.8,-3.8) grid (3.8,3.8);
+    \draw[->, thick, gray!60] (-3.6,0) -- (3.6,0) node[right, font=\footnotesize] {$x_1$};
+    \draw[->, thick, gray!60] (0,-3.6) -- (0,3.6) node[above, font=\footnotesize] {$x_2$};
+
+    % Rotated coordinate system along eigenvectors H1 and H2
+    \draw[->, very thick, teal] (-3.0, -3.0) -- (3.0, 3.0) node[above right] {$H_2 \quad (\lambda_2 = 4)$};
+    \draw[->, very thick, red!80!black] (-2.2, 2.2) -- (2.2, -2.2) node[below right] {$H_1 \quad (\lambda_1 = 8)$};
+
+    % Ellipse rotated by 45 degrees
+    \draw[very thick, blue!80!black, rotate=45] (0,0) ellipse (2.12cm and 1.5cm);
+
+    % Semi-axis annotations
+    \draw[<->, thick, teal] (0,0) -- (1.5, 1.5) node[midway, above left, font=\footnotesize] {$\sqrt{\frac{2}{\lambda_2}} = \frac{\sqrt{2}}{2}$};
+    \draw[<->, thick, red!80!black] (0,0) -- (-1.06, 1.06) node[midway, below left, font=\footnotesize] {$\sqrt{\frac{2}{\lambda_1}} = \frac{1}{2}$};
+
+    % Level set label
+    \node[blue!80!black, font=\small] at (1.8, 2.3) {$L(f, 1)$};
+    \filldraw (0,0) circle (2pt) node[below=3pt] {$0$};
+\end{tikzpicture}
+\caption{Geometry of level set $L(f, 1)$ for a positive definite matrix: alignment along orthonormal eigenvectors $H_1, H_2$ and inverse semi-axis proportionality.}
+\label{fig:ellipsoid-eigenvectors-en}
+\end{figure}
+
+\subsection{Degeneration into Open Elliptic Cylinders (\texorpdfstring{$\lambda_i \to 0$}{lambda -> 0})}
+As an eigenvalue tends to zero ($\lambda_i \to 0^+$):
+\begin{equation}
+\lim_{\lambda_i \to 0^+} \text{semi-axis}_i = \lim_{\lambda_i \to 0^+} \sqrt{\frac{2}{\lambda_i}} = +\infty
+\end{equation}
+In 3D space with $\lambda_1 > 0$, $\lambda_2 > 0$, and $\lambda_3 \to 0^+$, the compact ellipsoid elongates along $H_3$. At the exact limit $\lambda_3 = 0$, the surface opens to infinity, forming a hollow \textbf{elliptic cylinder}.
+
+\subsection{Summary of Level Geometries}
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l X X}
+\toprule
+\textbf{Spectral Regime} & \textbf{Graph Geometry $\text{gr}(f)$} & \textbf{Level Sets $L(f, v)$} \\
+\midrule
+$Q \succ 0$ & Convex paraboloid & Compact ellipsoids ($v > 0$) \\
+$Q \succeq 0$ ($\exists \lambda_i = 0$) & Parabolic trough / gutter & Open elliptic cylinders ($\infty$) \\
+$Q \succ\prec 0$ & Hyperbolic paraboloid (Saddle) & One- or two-sheeted hyperboloids \\
+$Q \prec 0$ & Inverted concave paraboloid & Compact ellipsoids ($v < 0$) \\
+\bottomrule
+\end{tabularx}
+\caption{Summary of geometric profiles for homogeneous quadratic forms.}
+\label{tab:level-geometries-en}
+\end{table}
+
+
+\FloatBarrier
+\section{Quadratic Optimization: Unconstrained vs Box-Constrained}
+\label{sec:opt-quadratic-unconstrained-vs-box-np-en}
+
+\subsection{Unconstrained Optimization: Immediate Analytical Solution}
+For the unconstrained problem:
+\begin{equation}
+\min_{x \in \R^n} \frac{1}{2} x^T Q x
+\end{equation}
+spectral analysis provides a complete characterization:
+\begin{itemize}
+    \item If $Q \succ 0$: unique minimizer $x^* = 0$, $f^* = 0$.
+    \item If $Q \succeq 0$: optimal subspace $X^* = \ker(Q)$, $f^* = 0$.
+    \item If any eigenvalue is strictly negative ($\lambda_n < 0$): $f^* = -\infty$.
+\end{itemize}
+
+\subsection[Box-Constrained Optimization: Complexity Shift]{Box-Constrained Optimization:\\ Complexity Shift and \texorpdfstring{$\mathcal{NP}$}{NP}-Hardness}
+Consider the identical objective restricted to a bounded hyper-rectangle:
+\begin{equation}
+(P_{\text{box}}) \quad \min \left\{ \frac{1}{2} x^T Q x : x \in X = [x_-, x_+] \subset \R^n \right\}
+\end{equation}
+where $[x_-, x_+] = \{x \in \R^n : x_i^- \le x_i \le x_i^+, \; i = 1, \dots, n\}$.
+
+While univariate box-constrained optimization ($n = 1$) admitted an immediate $\BigO{1}$ solution, in general dimension a dramatic complexity transition occurs:
+
+\begin{enumerate}
+    \item \textbf{If $Q \succeq 0$ (Convex Problem):}
+    The problem possesses a unique global minimum (or a compact convex set of equivalent minima). It can be solved in polynomial time via interior-point methods or projected gradient algorithms~\cite{boyd2004convex, nocedal2006numerical}. However, \textbf{no closed-form formula exists}: solutions require iterative numerical algorithms.
+    
+    \item \textbf{If $Q$ is Indefinite ($Q \succ\prec 0$) or Negative Definite ($Q \prec 0$) (Non-Convex Problem):}
+    Negative curvature pushes minima to the outer boundary of the feasible domain. Local and global minima reside strictly on the \textbf{vertices of the box}:
+    \begin{equation}
+    x^* \in \text{vertices}(X) = \prod_{i=1}^n \{x_i^-, x_i^+\}
+    \end{equation}
+    Since the hypercube possesses $2^n$ vertices, brute-force search is computationally intractable.
+\end{enumerate}
+
+\begin{theorem}[Complexity of Box-Constrained QP~\cite{deklerk2008complexity}]
+Box-constrained quadratic programming $(P_{\text{box}})$ with a general non-positive semidefinite matrix $Q$ is $\mathcal{NP}$-hard.
+\end{theorem}
+
+\begin{alertblock}{The Didactic Paradox of Optimization}
+Imposing seemingly trivial coordinate-wise bounds $x_i \in [x_i^-, x_i^+]$ on an elementary quadratic function elevates an instantly solvable problem into the class of $\mathcal{NP}$-hard computational problems.
+\end{alertblock}
