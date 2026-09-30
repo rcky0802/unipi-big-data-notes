@@ -1,0 +1,665 @@
+\chapter[Ottimizzazione Quadratica Non Omogenea e GMQ]{Ottimizzazione Quadratica Non Omogenea,\\Condizioni di Ottimalit\`a e Metodo del Gradiente}
+\label{chap:ottimizzazione-quadratica-non-omogenea-gmq}
+
+Il presente capitolo estende lo studio dell'ottimizzazione quadratica multivariata al caso generale non omogeneo, introducendo un termine lineare che trasla il centro della funzione rispetto all'origine. Vengono analizzati in dettaglio sia il caso in cui la matrice dell'Hessiano sia non singolare sia il caso singolare, caratterizzando rigorosamente l'esistenza di minimi tramite la decomposizione ortogonale e la compatibilit\`a del sistema gradiente. Si formalizza quindi il ponte concettuale fondamentale tra algebra lineare numerica e ottimizzazione continua, motivando il passaggio dai metodi diretti agli schemi iterativi. Infine, si introduce e si analizza l'algoritmo del Gradiente per Funzioni Quadratiche (GMQ) con ricerca esatta del passo (\textit{exact line search}), dimostrandone le propriet\`a di convergenza, l'ottimizzazione del costo per iterazione e la dinamica sperimentale a zig-zag al variare del condizionamento spettrale.
+
+\FloatBarrier
+\section{Ottimizzazione Quadratica Non Omogenea: Il Caso Non Singolare}
+\label{sec:quadratica-non-omogenea-non-singolare}
+
+\subsection{Introduzione e Motivazione}
+Nel capitolo precedente \`e stata esaminata in dettaglio la forma quadratica puramente omogenea:
+\begin{equation}
+    f_0(x) = \frac{1}{2} x^T Q x, \quad Q \in \R^{n \times n} \text{ simmetrica}.
+\end{equation}
+In tale contesto, sotto l'ipotesi di stretta convessit\`a ($Q \succ 0$), il problema ammette un unico punto di minimo globale banale posizionato esattamente nell'origine dello spazio vettoriale:
+\begin{equation}
+    x^* = 0, \quad f_0(x^*) = 0.
+\end{equation}
+
+Nelle applicazioni reali della scienza dei dati, dell'ingegneria e dell'apprendimento automatico (in particolare nella regressione ai minimi quadrati lineari e nei modelli di classificazione a margine), il centro di gravit\`a della funzione obiettivo non si trova quasi mai nell'origine. Risulta pertanto essenziale introdurre un termine lineare $q^T x$ che produca una traslazione rigida:
+\begin{equation}
+    f(x) = \frac{1}{2} x^T Q x + q^T x, \quad Q = Q^T \in \R^{n \times n}, \; q \in \R^n.
+    \label{eq:quadratica-non-omogenea}
+\end{equation}
+
+In questa prima trattazione si assume che la matrice $Q$ sia \textbf{non singolare}:
+\begin{equation}
+    \det(Q) \neq 0 \iff \lambda_i \neq 0 \quad \forall i \in \{1, \dots, n\} \iff \exists Q^{-1}.
+\end{equation}
+Non si impone a priori che tutti gli autovalori abbiano lo stesso segno, ma si esclude rigorosamente la presenza di autovalori nulli nello spettro di $Q$.
+
+\subsection{Il Principio del Cambio di Coordinate Multivariato}
+Per minimizzare la funzione non omogenea~\eqref{eq:quadratica-non-omogenea}, si generalizza a $n$ dimensioni il principio algebrico del completamento del quadrato gi\`a impiegato nel caso scalare univariato: \textbf{applicare una traslazione rigida dello spazio vettoriale} al fine di riassorbire il termine lineare $q^T x$ e ricondurre la funzione a una forma puramente omogenea in una nuova variabile $z$.
+
+Si introduce la trasformazione affine di coordinate:
+\begin{equation}
+    z = x - \bar{x} \iff x = z + \bar{x},
+    \label{eq:cambio-coordinate-z}
+\end{equation}
+dove $\bar{x} \in \R^n$ rappresenta il nuovo baricentro (vettore di traslazione) da determinare analiticamente.
+
+\subsection{Derivazione Algebrica Dettagliata}
+Sostituendo l'espressione $x = z + \bar{x}$ nella formulazione di $f(x)$, si ottiene:
+\begin{equation}
+    f(x) = f(z + \bar{x}) = \frac{1}{2} (z + \bar{x})^T Q (z + \bar{x}) + q^T (z + \bar{x}).
+\end{equation}
+
+Sviluppiamo la forma bilineare sfruttando la linearit\`a e la distributivit\`a del prodotto matriciale:
+\begin{equation}
+    \frac{1}{2} (z + \bar{x})^T Q (z + \bar{x}) = \frac{1}{2} \left( z^T Q z + z^T Q \bar{x} + \bar{x}^T Q z + \bar{x}^T Q \bar{x} \right).
+\end{equation}
+Poich\'e $Q$ \`e simmetrica ($Q = Q^T$), i termini misti scalari risultano identici:
+\begin{equation}
+    z^T Q \bar{x} = (z^T Q \bar{x})^T = \bar{x}^T Q^T z = \bar{x}^T Q z.
+\end{equation}
+Di conseguenza:
+\begin{equation}
+    \frac{1}{2} (z + \bar{x})^T Q (z + \bar{x}) = \frac{1}{2} z^T Q z + \bar{x}^T Q z + \frac{1}{2} \bar{x}^T Q \bar{x}.
+\end{equation}
+
+Espandendo analogamente il termine lineare:
+\begin{equation}
+    q^T (z + \bar{x}) = q^T z + q^T \bar{x}.
+\end{equation}
+
+Raggruppando i termini rispetto alla variabile $z$:
+\begin{equation}
+    f(z + \bar{x}) = \frac{1}{2} z^T Q z + \left( \bar{x}^T Q z + q^T z \right) + \left( \frac{1}{2} \bar{x}^T Q \bar{x} + q^T \bar{x} \right).
+\end{equation}
+
+\begin{noteblock}{Coerenza Dimensionale e Raccoglimento}
+Facendo attenzione alle dimensioni vettoriali: $\bar{x}^T Q$ \`e un vettore riga $1 \times n$, mentre $z$ \`e un vettore colonna $n \times 1$. Possiamo raccogliere il vettore $z$ a destra:
+\begin{equation}
+    \bar{x}^T Q z + q^T z = (Q \bar{x})^T z + q^T z = (Q \bar{x} + q)^T z.
+\end{equation}
+Inoltre, la somma delle quantit\`a indipendenti da $z$ coincide esattamente con il valore assunto dalla funzione originale calcolata nel centro di traslazione $\bar{x}$:
+\begin{equation}
+    \frac{1}{2} \bar{x}^T Q \bar{x} + q^T \bar{x} = f(\bar{x}).
+\end{equation}
+\end{noteblock}
+
+Riassemblando l'identit\`a fondamentale:
+\begin{equation}
+    f(z + \bar{x}) = \frac{1}{2} z^T Q z + (Q \bar{x} + q)^T z + f(\bar{x}).
+    \label{eq:identita-traslazione-fondamentale}
+\end{equation}
+
+\subsection{Annullamento del Termine Lineare e Centro di Traslazione}
+Affinch\'e la funzione espressa nelle coordinate $z$ si riduca a una forma quadratica omogenea pura a meno di una costante additiva, imponiamo che il coefficiente vettoriale del termine lineare in $z$ sia identicamente nullo:
+\begin{equation}
+    Q \bar{x} + q = 0 \iff Q \bar{x} = -q.
+\end{equation}
+
+Poich\'e la matrice $Q$ \`e non singolare per ipotesi ($\det(Q) \neq 0$), l'inversa $Q^{-1}$ esiste ed \`e univocamente determinata. Il vettore di traslazione ottimale \`e dunque:
+\begin{equation}
+    \bar{x} = -Q^{-1} q.
+    \label{eq:centro-traslazione-ottimo}
+\end{equation}
+
+Definendo la funzione traslata $g(z) \coloneqq f(z + \bar{x})$, essa assume la struttura canonica:
+\begin{equation}
+    g(z) = \frac{1}{2} z^T Q z + f(\bar{x}),
+\end{equation}
+dove lo scalare $f(\bar{x}) \in \R$ costituisce un offset verticale fisso che non incide sulla collocazione geometrica dell'argomento di minimo:
+\begin{equation}
+    \argmin_{z \in \R^n} g(z) = \argmin_{z \in \R^n} \left\{ \frac{1}{2} z^T Q z \right\}.
+\end{equation}
+
+\subsection{Soluzione Ottima e Valore Ottimo}
+Dall'analisi delle forme quadratiche omogenee, sappiamo che se la matrice $Q$ \`e definita positiva ($Q \succ 0$), l'unico punto di minimo globale per la variabile traslata $z$ \`e l'origine:
+\begin{equation}
+    z^* = 0.
+\end{equation}
+Tornando al sistema di coordinate originario $x$ mediante la relazione~\eqref{eq:cambio-coordinate-z}:
+\begin{equation}
+    x^* = z^* + \bar{x} = 0 + \bar{x} = \bar{x} = -Q^{-1} q.
+\end{equation}
+
+Il valore ottimo $f^* \coloneqq f(x^*)$ si calcola sostituendo $x^*$ in $f(x)$:
+\begin{equation}
+    f^* = f(x^*) = \frac{1}{2} (-Q^{-1} q)^T Q (-Q^{-1} q) + q^T (-Q^{-1} q).
+\end{equation}
+Sfruttando la simmetria di $Q$, si ha $(Q^{-1})^T = Q^{-1}$, da cui:
+\begin{equation}
+    f^* = \frac{1}{2} q^T Q^{-1} Q Q^{-1} q - q^T Q^{-1} q = \frac{1}{2} q^T Q^{-1} q - q^T Q^{-1} q = -\frac{1}{2} q^T Q^{-1} q.
+    \label{eq:valore-ottimo-non-singolare}
+\end{equation}
+
+\subsection{Caratterizzazione al Variare dello Spettro di \texorpdfstring{$Q$}{Q}}
+Al variare dei segni degli autovalori di $Q$ (tutti non nulli), si delineano tre scenari esaustivi:
+\begin{enumerate}
+    \item \textbf{$Q \succ 0$ (Definita Positiva):}
+    \begin{itemize}
+        \item Tutti gli autovalori sono strettamente positivi ($\lambda_i > 0$).
+        \item Esiste un \textbf{unico minimo globale} $x^* = -Q^{-1} q$.
+        \item Il valore ottimo finito \`e $f^* = -\frac{1}{2} q^T Q^{-1} q$.
+        \item La funzione \`e superiormente illimitata: $\sup_{x \in \R^n} f(x) = +\infty$.
+    \end{itemize}
+    \item \textbf{$Q \prec 0$ (Definita Negativa):}
+    \begin{itemize}
+        \item Tutti gli autovalori sono strettamente negativi ($\lambda_i < 0$).
+        \item Esiste un \textbf{unico massimo globale} $x_{\max}^* = -Q^{-1} q$.
+        \item La funzione \`e inferiormente illimitata: $\inf_{x \in \R^n} f(x) = -\infty$.
+    \end{itemize}
+    \item \textbf{$Q \succ\prec 0$ (Indefinita):}
+    \begin{itemize}
+        \item Coesistono autovalori strettamente positivi e strettamente negativi.
+        \item Il punto stazionario $\bar{x} = -Q^{-1} q$ costituisce un \textbf{punto di sella}.
+        \item La funzione \`e simultaneamente illimitata sia inferiormente che superiormente:
+        \begin{equation}
+            \inf_{x \in \R^n} f(x) = -\infty, \qquad \sup_{x \in \R^n} f(x) = +\infty.
+        \end{equation}
+    \end{itemize}
+\end{enumerate}
+
+
+\FloatBarrier
+\section{Ottimizzazione Quadratica Non Omogenea: Il Caso Singolare}
+\label{sec:quadratica-non-omogenea-singolare}
+
+\subsection{La Singolarit\`a di \texorpdfstring{$Q$}{Q} e la Rottura della Formula Chiusa}
+Cosa accade se la matrice simmetrica $Q$ presenta uno o pi\`u autovalori nulli?
+\begin{equation}
+    \exists i \in \{1, \dots, n\} : \lambda_i = 0 \iff \det(Q) = 0 \iff Q \text{ \`e singolare}.
+\end{equation}
+In questo scenario, la matrice inversa $Q^{-1}$ non esiste e il sistema lineare $Q \bar{x} = -q$ non pu\`o essere risolto tramite inversione diretta.
+
+Per analizzare la geometria del problema, partizioniamo l'insieme degli indici dello spettro $I = \{1, 2, \dots, n\}$ in base alla nullit\`a degli autovalori:
+\begin{equation}
+    I^0 = \{i \in I : \lambda_i = 0\}, \quad k = |I^0| > 0,
+\end{equation}
+\begin{equation}
+    I^+ = \{i \in I : \lambda_i \neq 0\}, \quad h = |I^+| > 0, \quad k + h = n.
+\end{equation}
+
+Gli autovettori ortonormali $\{H_i\}_{i=1}^n$ di $Q$ individuano due sottospazi ortogonali fondamentali di $\R^n$:
+\begin{enumerate}
+    \item \textbf{Il Nucleo (\textit{Kernel} o Spazio Nullo):}
+    \begin{equation}
+        \ker(Q) = \{v \in \R^n : Qv = 0\} = \spanop\left(\{H_i\}_{i \in I^0}\right), \quad \dim(\ker(Q)) = k.
+    \end{equation}
+    \item \textbf{L'Immagine (\textit{Image} o Spazio Colonna):}
+    \begin{align}
+        \operatorname{im}(Q) &= \{w \in \R^n : \exists x \in \R^n, \; Qx = w\} \nonumber \\
+        &= \spanop(\{H_i\}_{i \in I^+}), \quad \dim(\operatorname{im}(Q)) = h.
+    \end{align}
+\end{enumerate}
+
+Poich\'e la base spettrale $H$ \`e ortonormale, vale il fondamentale \textbf{teorema di decomposizione ortogonale}:
+\begin{equation}
+    \R^n = \operatorname{im}(Q) \oplus \ker(Q), \quad \text{con } \operatorname{im}(Q) \perp \ker(Q).
+\end{equation}
+Ogni vettore dello spazio pu\`o essere decomposto in modo unico nella somma di una componente nell'immagine e di una nel nucleo.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, scale=0.95]
+    % Background subtle grid
+    \draw[help lines, color=gray!18, dashed] (-0.8, -0.6) grid (6.4, 4.6);
+
+    % Orthogonal Subspaces: im(Q) vertical, ker(Q) horizontal
+    \draw[->, very thick, blue!80!black] (0, -0.6) -- (0, 4.4) node[above=4pt, font=\small\bfseries, align=center] {$\operatorname{im}(Q) = \spanop\{H_i : \lambda_i \neq 0\}$\\{\scriptsize (Spazio Colonna)}};
+    \draw[->, very thick, red!80!black] (-0.8, 0) -- (5.8, 0) node[right=4pt, font=\small\bfseries, align=left] {$\ker(Q) = \spanop\{H_i : \lambda_i = 0\}$\\{\scriptsize (Nucleo / Spazio Nullo)}};
+
+    % Coordinates of decomposition
+    \coordinate (O) at (0, 0);
+    \coordinate (Qvec) at (4.0, 3.0);
+    \coordinate (Qplus) at (0, 3.0);
+    \coordinate (Qzero) at (4.0, 0);
+
+    % Shaded decomposition rectangle
+    \fill[purple!5] (O) rectangle (Qvec);
+
+    % Dashed projection lines with distinct color
+    \draw[dashed, gray!60, line width=0.9pt] (Qplus) -- (Qvec);
+    \draw[dashed, gray!60, line width=0.9pt] (Qzero) -- (Qvec);
+
+    % Right-angle markers at axes and projection corners
+    \draw[thick, gray!75] (0, 0.35) -- (0.35, 0.35) -- (0.35, 0);
+    \draw[thick, gray!75] (4.0, 0.35) -- (3.65, 0.35) -- (3.65, 0);
+    \draw[thick, gray!75] (0.35, 3.0) -- (0.35, 2.65) -- (0, 2.65);
+
+    % Component Vectors (q+ in im(Q), q0 in ker(Q))
+    \draw[->, line width=2.0pt, teal!80!black] (O) -- (Qplus);
+    \node[left=6pt, fill=white, fill opacity=0.9, text opacity=1, inner sep=2pt, rounded corners=2pt, font=\small\bfseries, text=teal!90!black] at (0, 1.5) {$q^+ \in \operatorname{im}(Q)$};
+
+    \draw[->, line width=2.0pt, orange!90!black] (O) -- (Qzero);
+    \node[below=7pt, fill=white, fill opacity=0.9, text opacity=1, inner sep=2pt, rounded corners=2pt, font=\small\bfseries, text=orange!90!black] at (2.0, 0) {$q^0 \in \ker(Q)$};
+
+    % Resultant Vector q = q+ + q0
+    \draw[->, line width=2.2pt, purple!85!black] (O) -- (Qvec);
+    \node[above right=4pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=2.5pt, rounded corners=3pt, font=\normalsize\bfseries, text=purple!90!black] at (Qvec) {$q = q^+ + q^0$};
+
+    % Origin marker
+    \filldraw (O) circle (2pt);
+    \node[below left=3pt, fill=white, fill opacity=0.9, text opacity=1, inner sep=1pt, rounded corners=2pt, font=\footnotesize\bfseries] at (O) {$0$};
+\end{tikzpicture}
+\caption{Decomposizione ortogonale dello spazio $\R^n = \operatorname{im}(Q) \oplus \ker(Q)$: il termine lineare $q$ si scompone in modo unico nella somma $q = q^+ + q^0$, con $q^+ \perp q^0$.}
+\label{fig:decomposizione-ortogonale-q}
+\end{figure}
+
+\subsection{Competizione Funzionale: Termine Quadratico vs Termine Lineare}
+Esaminiamo la tomografia della funzione lungo una direzione appartenente al nucleo $v \in \ker(Q)$:
+\begin{equation}
+    f(v) = \frac{1}{2} v^T Q v + q^T v = \frac{1}{2} v^T (0) + q^T v = q^T v.
+\end{equation}
+Lungo il sottospazio nullo, la componente quadratica di secondo grado svanisce completamente. La funzione degenera in una \textbf{funzione puramente lineare}:
+\begin{equation}
+    \phi_{0, v}(\alpha) = \alpha (q^T v).
+\end{equation}
+
+Da questa propriet\`a scaturisce un dilemma strutturale:
+\begin{itemize}
+    \item Una retta non costante su $\R$ ($\alpha \mapsto c\alpha$ con $c \neq 0$) non ammette mai minimo globale, poich\'e tende a $-\infty$ verso una delle due direzioni.
+    \item L'unico modo per impedire alla funzione di precipitare a $-\infty$ lungo il nucleo \`e che la retta sia orizzontale, ovvero:
+    \begin{equation}
+        q^T v = 0 \quad \forall v \in \ker(Q) \iff q \perp \ker(Q).
+    \end{equation}
+    \item Essendo $\operatorname{im}(Q) \perp \ker(Q)$, la condizione di ortogonalit\`a al nucleo equivale rigorosamente a:
+    \begin{equation}
+        q \in \operatorname{im}(Q).
+    \end{equation}
+\end{itemize}
+
+\subsection{Decomposizione di \texorpdfstring{$q$}{q} e Condizioni di Esistenza del Minimo}
+Decomponiamo il vettore $q$ secondo la partizione ortogonale:
+\begin{equation}
+    q = q^+ + q^0, \quad \text{con } q^+ \in \operatorname{im}(Q), \; q^0 \in \ker(Q), \; q^+ \perp q^0.
+\end{equation}
+
+Sostituendo tale scomposizione nello sviluppo traslato~\eqref{eq:identita-traslazione-fondamentale}:
+\begin{equation}
+    f(z + \bar{x}) = \frac{1}{2} z^T Q z + (Q \bar{x} + q^+ + q^0)^T z + f(\bar{x}).
+\end{equation}
+Poich\'e $q^+ \in \operatorname{im}(Q)$, per definizione di immagine di un'applicazione lineare esiste sempre almeno un vettore $\bar{x} \in \R^n$ che soddisfa:
+\begin{equation}
+    Q \bar{x} = -q^+ \iff Q \bar{x} + q^+ = 0.
+\end{equation}
+Fissando un tale vettore $\bar{x}$, l'espressione si riduce a:
+\begin{equation}
+    f(z + \bar{x}) = \frac{1}{2} z^T Q z + (q^0)^T z + f(\bar{x}).
+    \label{eq:ridotta-singolare}
+\end{equation}
+
+Si determinano ora due scenari mutualmente esclusivi ed esaustivi:
+
+\paragraph{Scenario A: $q^0 \neq 0 \iff q \notin \operatorname{im}(Q)$ (Problema Illimitato Inferiormente).}
+Se il termine lineare $q$ possiede una componente non nulla lungo il nucleo di $Q$, scegliamo come direzione $d = q^0 \in \ker(Q)$ e muoviamoci lungo $z = -\alpha q^0$ con $\alpha > 0$:
+\begin{equation}
+    g(-\alpha q^0) = \frac{1}{2} (-\alpha q^0)^T Q (-\alpha q^0) + (q^0)^T (-\alpha q^0) + f(\bar{x}).
+\end{equation}
+Poich\'e $Q q^0 = 0$:
+\begin{equation}
+    g(-\alpha q^0) = 0 - \alpha \|q^0\|^2 + f(\bar{x}).
+\end{equation}
+Facendo crescere indefinitamente il passo $\alpha \to +\infty$:
+\begin{equation}
+    \lim_{\alpha \to +\infty} g(-\alpha q^0) = -\infty \implies f^* = -\infty.
+\end{equation}
+La funzione \`e illimitata inferiormente e non ammette minimo.
+
+\paragraph{Scenario B: $q^0 = 0 \iff q \in \operatorname{im}(Q)$ (Esistenza di Infiniti Minimi Globali).}
+Se la componente nel nucleo \`e nulla, il sistema lineare:
+\begin{equation}
+    Q \bar{x} = -q
+\end{equation}
+\`e \textbf{compatibile} per il Teorema di Rouch\'e-Capelli. La funzione traslata~\eqref{eq:ridotta-singolare} diventa puramente omogenea:
+\begin{equation}
+    g(z) = \frac{1}{2} z^T Q z + f(\bar{x}).
+\end{equation}
+Ipotizzando $Q \succeq 0$ (semidefinita positiva):
+\begin{itemize}
+    \item Il minimo della parte omogenea $\frac{1}{2} z^T Q z$ \`e zero, raggiunto per qualsiasi vettore $z \in \ker(Q)$.
+    \item Nello spazio originario, l'insieme delle soluzioni ottime \`e la variet\`a affine:
+    \begin{equation}
+        X^* = \bar{x} + \ker(Q) = \{x \in \R^n : x = \bar{x} + v, \; v \in \ker(Q)\}.
+    \end{equation}
+    \item Tutti i punti dell'insieme $X^*$ condividono \textbf{esattamente il medesimo valore obiettivo}:
+    \begin{align}
+        f(\bar{x} + v) &= \frac{1}{2} (\bar{x} + v)^T Q (\bar{x} + v) + q^T (\bar{x} + v) \nonumber \\
+        &= \frac{1}{2} \bar{x}^T Q \bar{x} + q^T \bar{x} + \underbrace{\bar{x}^T Q v}_{= 0} + \underbrace{\frac{1}{2} v^T Q v}_{= 0} + \underbrace{q^T v}_{= 0} \nonumber \\
+        &= f(\bar{x}) \quad (\text{essendo } v \in \ker(Q) \text{ e } q \perp v).
+    \end{align}
+\end{itemize}
+
+\begin{theorem}[Esistenza del Minimo per Funzioni Quadratiche Semidefinite Positive]
+\label{thm:esistenza-minimo-quadratica}
+Sia $f(x) = \frac{1}{2} x^T Q x + q^T x$ con $Q \succeq 0$. La funzione ammette minimo finito se e solo se il sistema lineare $Qx = -q$ ammette soluzione, ovvero se e solo se $q \in \operatorname{im}(Q)$.
+In tal caso, l'insieme dei minimi globali \`e dato dal sottospazio affine $X^* = \bar{x} + \ker(Q)$ e il valore ottimo finito vale $f^* = f(\bar{x}) = -\frac{1}{2} q^T \bar{x}$.
+\end{theorem}
+
+
+\FloatBarrier
+\section{La Condizione di Ottimalit\`a e il Legame con l'Algebra Lineare}
+\label{sec:condizione-ottimalita-algebra-lineare}
+
+\subsection{Il Gradiente della Funzione Quadratica}
+Calcoliamo il vettore gradiente di $f(x) = \frac{1}{2} x^T Q x + q^T x$ tramite differenziazione vettoriale:
+\begin{equation}
+    \nabla f(x) = Qx + q.
+\end{equation}
+La condizione di stazionariet\`a di primo ordine (necessaria per ogni punto di estremo e sufficiente per il minimo globale in presenza di convessit\`a $Q \succeq 0$) impone l'annullamento del gradiente:
+\begin{equation}
+    \nabla f(x^*) = 0 \iff Q x^* + q = 0 \iff Q x^* = -q.
+\end{equation}
+
+\subsection{Il Ponte Concettuale tra Algebra Lineare e Ottimizzazione}
+Questa equivalenza algebrica costituisce il baricentro concettuale dell'intero corso di Computational Mathematics:
+\begin{equation}
+    \underbrace{Qx = -q}_{\text{Algebra Lineare Numerica}} \iff \underbrace{\min_{x \in \R^n} \left(\frac{1}{2}x^T Qx + q^T x\right)}_{\text{Ottimizzazione Continua}}
+\end{equation}
+Ogni problema di risoluzione di sistemi lineari simmetrici semidefiniti positivi ammette un'interpretazione variazionale identica come minimizzazione di un'energia quadratica convessa.
+
+\subsection{Il Limite Computazionale dei Metodi Diretti}
+Di fronte a tale equivalenza, una domanda sorge spontanea: perch\'e non risolvere sistematicamente il problema tramite i metodi diretti classici dell'algebra lineare numerica (eliminazione gaussiana, fattorizzazione $LU$ o fattorizzazione di Cholesky $Q = L L^T$)?
+
+Le ragioni risiedono nella scalabilit\`a computazionale ed energetica:
+\begin{enumerate}
+    \item \textbf{Complessit\`a Temporale Asintotica $\BigO{n^3}$:}
+    La risoluzione esatta diretta di un sistema lineare denso di ordine $n$ richiede:
+    \begin{equation}
+        \frac{1}{3} n^3 \text{ FLOPs (Cholesky)} \quad \text{oppure} \quad \frac{2}{3} n^3 \text{ FLOPs (Gauss/LU)}.
+    \end{equation}
+    \begin{itemize}
+        \item Per $n \approx 10^2$: $n^3 = 10^6$ FLOPs $\longrightarrow$ frazioni di millisecondo.
+        \item Per $n \approx 10^4$: $n^3 = 10^{12}$ FLOPs $\longrightarrow$ svariati secondi o minuti.
+        \item Per $n \approx 10^9$ (modelli linguistici e deep learning): $n^3 = 10^{27}$ FLOPs $\longrightarrow$ infattibile su qualsiasi scala temporale umana.
+    \end{itemize}
+
+    \item \textbf{Complessit\`a di Memoria e Fenomeno del Fill-in:}
+    Anche quando la matrice dei dati $Q$ \`e altamente sparsa (cio\`e memorizzabile con soli $\BigO{n}$ elementi non nulli), i fattori triangolari $L$ calcolati durante l'eliminazione gaussiana subiscono il fenomeno del \textbf{fill-in} (generazione di elementi non nulli in posizioni originariamente nulle). Ci\`o distrugge la sparsit\`a e richiede $\BigO{n^2}$ parole di memoria, esaurendo istantaneamente la RAM di calcolo.
+\end{enumerate}
+
+
+\FloatBarrier
+\section{Algoritmi Iterativi e il Metodo del Gradiente (GMQ)}
+\label{sec:algoritmi-iterativi-gmq}
+
+\subsection{La Filosofia degli Algoritmi Iterativi}
+Per aggirare la barriera asintotica $\BigO{n^3}$, l'ottimizzazione continua si affida a \textbf{schemi iterativi}:
+\begin{enumerate}
+    \item Si sceglie un punto di innesco iniziale $x^0 \in \R^n$ (spesso $x^0 = 0$).
+    \item Si costruisce una mappa di transizione $x^k \to x^{k+1}$ che genera una sequenza $\{x^k\}_{k=0, 1, 2, \dots}$.
+    \item Si richiede che i valori della funzione obiettivo costituiscano una \textbf{successione monotona decrescente}:
+    \begin{equation}
+        f(x^{k+1}) < f(x^k) \quad \forall k \ge 0.
+    \end{equation}
+\end{enumerate}
+Poich\'e ogni successione reale monotona decrescente e inferiormente limitata converge necessariamente a un limite finito, l'algoritmo converger\`a verso l'infimo della funzione.
+
+\subsection{Il Vettore Residuo come Direzione di Discesa}
+Assegnata l'iterata corrente $x^k$, definiamo il \textbf{vettore residuo} (che coincide con il gradiente istantaneo):
+\begin{equation}
+    g^k \coloneqq \nabla f(x^k) = Q x^k + q.
+\end{equation}
+
+Se $\|g^k\| \le \varepsilon$ per una tolleranza numerica prefissata $\varepsilon > 0$, la condizione di stazionariet\`a \`e soddisfatta e l'algoritmo si arresta.
+Se invece $\|g^k\| > \varepsilon$, consideriamo la tomografia lungo la direzione dell'\textbf{antigradiente} $d = -g^k$:
+\begin{equation}
+    \phi_{x^k, -g^k}(\alpha) = f(x^k - \alpha g^k) - f(x^k).
+\end{equation}
+
+Sviluppiamo esplicitamente l'incremento univariato $\phi(\alpha)$:
+\begin{align}
+    \phi(\alpha) &= \frac{1}{2} (x^k - \alpha g^k)^T Q (x^k - \alpha g^k) + q^T (x^k - \alpha g^k) - \left( \frac{1}{2} (x^k)^T Q x^k + q^T x^k \right) \nonumber \\
+    &= \frac{1}{2} \alpha^2 (g^k)^T Q g^k - \alpha (g^k)^T Q x^k - \alpha q^T g^k \nonumber \\
+    &= \frac{1}{2} \alpha^2 (g^k)^T Q g^k - \alpha (g^k)^T (Q x^k + q).
+\end{align}
+Riconoscendo che $Q x^k + q = g^k$, otteniamo la fondamentale \textbf{formula della tomografia di discesa}:
+\begin{equation}
+    \phi_{x^k, -g^k}(\alpha) = \frac{1}{2} \alpha^2 (g^k)^T Q g^k - \alpha \|g^k\|^2.
+    \label{eq:tomografia-antigradiente}
+\end{equation}
+
+Esaminando i segni dei coefficienti:
+\begin{itemize}
+    \item Se $Q \succ 0$, la curvatura \`e strettamente positiva: $(g^k)^T Q g^k > 0$.
+    \item Essendo $g^k \neq 0$, la pendenza nell'origine \`e strettamente negativa: $-\|g^k\|^2 < 0$.
+\end{itemize}
+Per valori sufficientemente piccoli di $\alpha > 0$, il termine lineare $-\alpha \|g^k\|^2$ domina rigorosamente sulla componente quadratica di ordine superiore $\frac{1}{2} \alpha^2 (g^k)^T Q g^k$. Ne consegue che:
+\begin{equation}
+    \exists \alpha > 0 : \phi_{x^k, -g^k}(\alpha) < 0 \iff f(x^k - \alpha g^k) < f(x^k).
+\end{equation}
+
+\begin{noteblock}{La Duplice Valenza del Gradiente}
+Il gradiente istantaneo $g^k = Q x^k + q$ riveste due ruoli complementari:
+\begin{enumerate}
+    \item Se non nullo, funge da \textbf{certificato di non ottimalit\`a} dello stato corrente.
+    \item Fornisce una \textbf{direzione costruttiva di discesa}: il vettore opposto $-g^k$ garantisce sempre una riduzione locale del valore obiettivo.
+\end{enumerate}
+\end{noteblock}
+
+\subsection{Calcolo Esatto del Passo Ottimale (\textit{Exact Line Search})}
+Anzich\'e scegliere $\alpha$ euristicamente, possiamo determinare in forma analitica chiusa il valore $\alpha_k$ che massimizza la diminuzione di $f$, minimizzando la parabola convessa $\phi(\alpha)$ data in~\eqref{eq:tomografia-antigradiente}:
+\begin{equation}
+    \min_{\alpha > 0} \left\{ \frac{1}{2} \left( (g^k)^T Q g^k \right) \alpha^2 - \left( \|g^k\|^2 \right) \alpha \right\}.
+\end{equation}
+
+Derivando rispetto ad $\alpha$ e azzerando la derivata prima:
+\begin{equation}
+    \frac{d\phi}{d\alpha} = \alpha (g^k)^T Q g^k - \|g^k\|^2 = 0 \iff \alpha_k = \frac{\|g^k\|^2}{(g^k)^T Q g^k}.
+    \label{eq:stepsize-ottimale}
+\end{equation}
+
+\begin{property}[Limitazione Spettrale del Passo]
+Dalla propriet\`a variazionale del quoziente di Rayleigh per matrici simmetriche definite positive:
+\begin{equation}
+    \lambda_n \le \frac{(g^k)^T Q g^k}{\|g^k\|^2} \le \lambda_1.
+\end{equation}
+Invertendo i rapporti, lo stepsize ottimale $\alpha_k$ risulta rigorosamente limitato dalle quantit\`a spettrali estreme:
+\begin{equation}
+    \frac{1}{\lambda_1} \le \alpha_k \le \frac{1}{\lambda_n}.
+\end{equation}
+\end{property}
+
+\subsection{Algoritmo GMQ e Ottimizzazione del Costo Computazionale}
+L'algoritmo del Gradiente per Funzioni Quadratiche (\textbf{GMQ}) implementa tale strategia iterativa. A prima vista, sembrerebbe richiedere due prodotti matrice-vettore a ogni passo: il calcolo del nuovo gradiente $Q x^{k+1}$ e la forma quadratica a denominatore $(g^k)^T Q g^k$. Ciascun prodotto costa $\BigO{n^2}$.
+
+Tuttavia, tramite un elegante accorgimento algebrico, \`e possibile ridurre il costo a \textbf{un solo prodotto matrice-vettore per iterazione}:
+\begin{enumerate}
+    \item Si calcola il vettore ausiliario:
+    \begin{equation}
+        v^k = Q g^k \quad [\text{costo } \BigO{n^2}].
+    \end{equation}
+    \item Il denominatore del passo diviene un semplice prodotto scalare:
+    \begin{equation}
+        (g^k)^T Q g^k = \langle g^k, v^k \rangle \quad [\text{costo } \BigO{n}].
+    \end{equation}
+    \item L'aggiornamento della soluzione vale:
+    \begin{equation}
+        x^{k+1} = x^k - \alpha_k g^k \quad [\text{costo } \BigO{n}].
+    \end{equation}
+    \item Il gradiente successivo pu\`o essere aggiornato per via ricorsiva:
+    \begin{equation}
+        g^{k+1} = Q x^{k+1} + q = Q(x^k - \alpha_k g^k) + q = (Q x^k + q) - \alpha_k Q g^k = g^k - \alpha_k v^k.
+    \end{equation}
+    Tale aggiornamento vettoriale richiede unicamente $\BigO{n}$ FLOPs, eliminando del tutto la necessit\`a di calcolare $Q x^{k+1}$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Metodo del Gradiente per Funzioni Quadratiche (GMQ Ottimizzato)}
+\label{alg:gmq-ottimizzato}
+\KwInput{Matrice $Q = Q^T \succeq 0 \in \R^{n \times n}$, vettore $q \in \R^n$, stima iniziale $x^0 \in \R^n$, tolleranza $\varepsilon > 0$, max iterazioni $K_{\max}$}
+\KwOutput{Punto stazionario $x^* \approx -Q^{-1}q$}
+$x \gets x^0$\;
+$g \gets Q x + q$\;
+$k \gets 0$\;
+\While{$\|g\| > \varepsilon$ \textbf{e} $k < K_{\max}$}{
+    $v \gets Q g$\; \tcp{Unico prodotto matrice-vettore per iterazione}
+    $\alpha \gets \frac{\|g\|^2}{\langle g, v \rangle}$\; \tcp{Calcolo esatto del passo ottimale}
+    $x \gets x - \alpha g$\; \tcp{Aggiornamento dello stato}
+    $g \gets g - \alpha v$\; \tcp{Aggiornamento ricorsivo del gradiente}
+    $k \gets k + 1$\;
+}
+\Return{$x$}
+\end{algorithm}
+
+Se l'algoritmo converge in $K \ll n$ iterazioni, la complessit\`a complessiva risulta $\BigO{K n^2}$ FLOPs, risultando incomparabilmente pi\`u vantaggiosa rispetto agli $\BigO{n^3}$ dei metodi diretti. Nel caso di matrici fortemente sparse con numero costante di elementi non nulli per riga, il costo di ciascun prodotto matrice-vettore scende a $\BigO{n}$, portando il costo globale a $\BigO{K n}$.
+
+
+\FloatBarrier
+\section{Analisi Sperimentale e Dinamica delle Iterate}
+\label{sec:analisi-sperimentale-gmq}
+
+\subsection{Geometria del Passo e Fenomeno dello Zig-Zag}
+Una propriet\`a fondamentale della ricerca esatta del passo consiste nella \textbf{ortogonalit\`a tra gradienti consecutivi}:
+\begin{proposition}[Ortogonalit\`a dei Gradienti Consecutivi]
+In ogni iterazione del metodo GMQ con passo ottimale analitico vale:
+\begin{equation}
+    \langle g^{k+1}, g^k \rangle = 0 \iff g^{k+1} \perp g^k.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Sfruttando la formula di aggiornamento del gradiente $g^{k+1} = g^k - \alpha_k Q g^k$:
+\begin{align}
+    \langle g^{k+1}, g^k \rangle &= (g^{k+1})^T g^k = (g^k - \alpha_k Q g^k)^T g^k \nonumber \\
+    &= \|g^k\|^2 - \alpha_k (g^k)^T Q g^k.
+\end{align}
+Sostituendo l'espressione di $\alpha_k = \frac{\|g^k\|^2}{(g^k)^T Q g^k}$:
+\begin{equation}
+    \langle g^{k+1}, g^k \rangle = \|g^k\|^2 - \frac{\|g^k\|^2}{(g^k)^T Q g^k} (g^k)^T Q g^k = \|g^k\|^2 - \|g^k\|^2 = 0.
+\end{equation}
+\end{proof}
+
+Geometricamente, la traiettoria generata dal gradiente compie ad ogni iterazione una \textbf{svolta ad angolo retto esatto ($90^\circ$)}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.15]
+    % Axes and subtle background grid
+    \draw[help lines, color=gray!18, dashed] (0, -0.2) grid (9.6, 5.8);
+    \draw[->, thick, gray!60] (0.2, 0) -- (9.5, 0) node[right=3pt, font=\small, text=gray!80!black] {$x_1$};
+    \draw[->, thick, gray!60] (0, 0.2) -- (0, 5.6) node[above=3pt, font=\small, text=gray!80!black] {$x_2$};
+
+    % Center (minimum): x* = (6.0, 3.2), tilt theta = 25 deg
+    % Concentric elliptical level sets with shaded translucent fillings
+    \fill[teal!4, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (5.40cm and 2.20cm);
+    \draw[teal!30, thick, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (5.40cm and 2.20cm);
+
+    \fill[teal!8, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (3.80cm and 1.55cm);
+    \draw[teal!45, thick, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (3.80cm and 1.55cm);
+
+    \fill[teal!12, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (2.30cm and 0.94cm);
+    \draw[teal!65, thick, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (2.30cm and 0.94cm);
+
+    \fill[teal!18, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (1.20cm and 0.49cm);
+    \draw[teal!85, thick, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (1.20cm and 0.49cm);
+
+    \draw[teal!90!black, thick, rotate around={25:(6.0, 3.2)}] (6.0, 3.2) ellipse (0.45cm and 0.18cm);
+
+    % Level set callout
+    \node[teal!80!black, font=\footnotesize\bfseries, align=left, fill=white, fill opacity=0.85, text opacity=1, inner sep=2pt, rounded corners=2pt] at (8.0, 5.3) {Insiemi di livello\\$f(x) = c_0 > c_1 > c_2 \dots$};
+
+    % Mathematically exact GMQ iterate coordinates
+    \coordinate (x0) at (1.20, 0.60);
+    \coordinate (x1) at (3.81, 3.19);
+    \coordinate (x2) at (4.57, 2.42);
+    \coordinate (x3) at (5.35, 3.20);
+    \coordinate (x4) at (5.57, 2.97);
+    \coordinate (x5) at (5.80, 3.20);
+    \coordinate (xstar) at (6.00, 3.20);
+
+    % Right-angle markers (showing exact 90-degree orthogonality between consecutive steps)
+    % Angle at x1 between (x0 -> x1) and (x1 -> x2)
+    % Vector x0->x1 is (2.61, 2.59), direction is roughly (1, 1)/sqrt(2), unit: (0.71, 0.70)
+    % Vector x1->x2 is (0.76, -0.77), unit: (0.70, -0.71)
+    \draw[gray!70, thick] ($(x1) + (-0.22, -0.22)$) -- ++(0.20, -0.20) -- ++(0.22, 0.22);
+    \node[font=\tiny\bfseries, text=gray!80!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1pt, rounded corners=1pt] at (3.45, 3.48) {$90^\circ$};
+
+    % Angle at x2 between (x1 -> x2) and (x2 -> x3)
+    \draw[gray!70, thick] ($(x2) + (-0.16, 0.16)$) -- ++(0.16, 0.16) -- ++(0.16, -0.16);
+    \node[font=\tiny\bfseries, text=gray!80!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1pt, rounded corners=1pt] at (4.45, 2.05) {$90^\circ$};
+
+    % Descent steps (arrows)
+    \draw[->, line width=1.6pt, purple!85!black] (x0) -- (x1);
+    \draw[->, line width=1.5pt, purple!85!black] (x1) -- (x2);
+    \draw[->, line width=1.4pt, purple!85!black] (x2) -- (x3);
+    \draw[->, line width=1.2pt, purple!85!black] (x3) -- (x4);
+    \draw[->, line width=1.0pt, purple!85!black] (x4) -- (x5);
+    \draw[->, thick, dashed, purple!80!black] (x5) -- (xstar);
+
+    % Descent vector labels (positioned along segments with clean badges)
+    \node[fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\scriptsize\bfseries, text=purple!90!black] at (2.25, 2.15) {$-\alpha_0 g^0$};
+    \node[fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\scriptsize\bfseries, text=purple!90!black] at (4.45, 2.75) {$-\alpha_1 g^1$};
+    \node[fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\scriptsize\bfseries, text=purple!90!black] at (5.25, 2.70) {$-\alpha_2 g^2$};
+
+    % Iterates (points and labels)
+    \filldraw[blue!85!black] (x0) circle (2.8pt);
+    \node[below left=4pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\footnotesize\bfseries, text=blue!90!black] at (x0) {$x^0$ (Inizio)};
+
+    \filldraw[blue!85!black] (x1) circle (2.5pt);
+    \node[above=5pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\footnotesize\bfseries, text=blue!90!black] at (x1) {$x^1$};
+
+    \filldraw[blue!85!black] (x2) circle (2.5pt);
+    \node[below=5pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\footnotesize\bfseries, text=blue!90!black] at (x2) {$x^2$};
+
+    \filldraw[blue!85!black] (x3) circle (2.5pt);
+    \node[above=5pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=1.5pt, rounded corners=2pt, font=\footnotesize\bfseries, text=blue!90!black] at (x3) {$x^3$};
+
+    \filldraw[blue!85!black] (x4) circle (2pt);
+    \filldraw[blue!85!black] (x5) circle (1.8pt);
+
+    % Global optimum
+    \filldraw[red!85!black] (xstar) circle (3.2pt);
+    \node[right=7pt, fill=white, fill opacity=0.95, text opacity=1, inner sep=2pt, rounded corners=2pt, font=\small\bfseries, text=red!85!black] at (xstar) {$x^*$ (Minimo)};
+\end{tikzpicture}%
+}
+\caption{Traiettoria a zig-zag del metodo GMQ su insiemi di livello ellittici: la scelta analitica del passo ottimale impone la perfetta ortogonalit\`a tra direzioni successive ($\langle g^{k+1}, g^k \rangle = 0$), costringendo le iterate a compiere svolte ad angolo retto esatto ($90^\circ$).}
+\label{fig:zig-zag-gmq}
+\end{figure}
+
+\subsection{Rassegna dei Casi Sperimentali}
+L'analisi al calcolatore in dimensione $n = 2$ mette in luce come il comportamento di convergenza dipenda criticamente dal condizionamento spettrale di $Q$:
+
+\subsubsection{Esperimento 1: Matrice Identit\`a ($Q = I$)}
+Ponendo $Q = I_2$, gli autovalori coincidono: $\lambda_1 = \lambda_2 = 1$. Gli insiemi di livello sono circonferenze perfette.
+Dato $q = [10, 5]^T$ e punto iniziale $x^0 = [0, 0]^T$:
+\begin{equation}
+    g^0 = Q x^0 + q = q = \begin{bmatrix} 10 \\ 5 \end{bmatrix}, \quad \|g^0\|^2 = 125, \quad (g^0)^T Q g^0 = \|g^0\|^2 = 125.
+\end{equation}
+Il passo vale esattamente $\alpha_0 = 1$. L'aggiornamento restituisce:
+\begin{equation}
+    x^1 = x^0 - 1 \cdot g^0 = \begin{bmatrix} -10 \\ -5 \end{bmatrix}.
+\end{equation}
+Al passo successivo $g^1 = Q x^1 + q = [-10, -5]^T + [10, 5]^T = 0$.
+L'algoritmo converge all'ottimo esatto in \textbf{1 sola iterazione}. Geometricamente, per insiemi di livello sferici l'antigradiente punta direttamente verso il centro.
+
+\subsubsection{Esperimento 2: Matrice Ben Condizionata ($Q \succ 0$)}
+Con $Q = \begin{bmatrix} 6 & -2 \\ -2 & 6 \end{bmatrix}$, gli autovalori valgono $\lambda_1 = 8$ e $\lambda_2 = 4$, con rapporto di condizionamento $\kappa(Q) = \lambda_1 / \lambda_2 = 2$.
+Gli insiemi di livello sono ellissi poco eccentriche. L'algoritmo genera la caratteristica traiettoria a zig-zag ortogonale e raggiunge la tolleranza numerica $\|g\| \le 10^{-6}$ in sole \textbf{12 iterazioni}.
+
+\subsubsection{Esperimento 3: Matrice Mal Condizionata (Allungamento Spettrale)}
+Riducendo progressivamente l'autovalore minimo ($\lambda_2 \to 0^+$), il condizionamento $\kappa(Q)$ diverge verso valori elevati. Gli insiemi di livello si stirano formando strette gole o canaloni (\textit{ravines}).
+In questo scenario, il rimbalzo a $90^\circ$ fa oscillare violentemente le iterate tra le pareti ripide della valle, producendo avanzamenti impercettibili lungo la direzione di fondo gola. Il numero di iterazioni cresce vistosamente, degradando l'efficienza complessiva.
+
+\subsubsection{Esperimento 4: Matrice Singolare Compatibile ($Q \succeq 0, q \in \operatorname{im}(Q)$)}
+Con autovalore nullo ($\lambda_2 = 0$) e termine lineare ortogonale al nucleo, esiste un'intera retta affine di minimi equivalenti. Il metodo GMQ riduce la norma del gradiente fino alla tolleranza prefissata, arrestandosi con successo sul punto ottimo della retta pi\`u prossimo alla traiettoria seguita.
+
+\subsubsection{Esperimento 5: Matrice Singolare Incompatibile ($Q \succeq 0, q \notin \operatorname{im}(Q)$)}
+Quando $q$ possiede una componente non nulla lungo il nucleo ($q^0 \neq 0$), la funzione decresce indefinitamente ad ogni passo: $f(x^k) \to -\infty$. La norma del gradiente non tende mai a zero, bens\`i rimane confinata attorno a un valore positivo non nullo. L'algoritmo non termina mai spontaneamente, riflettendo l'illimitatezza inferiore del problema analitico.
+
+\FloatBarrier
+\section{Quadro Sinottico Comparativo}
+\label{sec:quadro-sinottico-ottimizzazione-quadratica}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}p{2.6cm} Y >{\raggedright\arraybackslash}p{3.1cm}}
+\toprule
+\textbf{Regime di $Q$} & \textbf{Vincolo su $q$} & \textbf{Soluzioni Ottime $X^*$ e Valore $f^*$} & \textbf{Comportamento Dinamico GMQ} \\
+\midrule
+$Q \succ 0$ & Qualsiasi $q \in \R^n$ & Unico minimo $x^* = -Q^{-1}q$, $f^* = -\frac{1}{2}q^T Q^{-1}q$ & Convergenza lineare a $x^*$ (1 passo se $Q=I$) \\
+$Q \succeq 0$ ($\det Q = 0$) & $q \in \operatorname{im}(Q)$ & Infiniti minimi $X^* = \bar{x} + \ker(Q)$, $f^* = -\frac{1}{2}q^T \bar{x}$ & Converge a una soluzione ottima in $X^*$ \\
+$Q \succeq 0$ ($\det Q = 0$) & $q \notin \operatorname{im}(Q)$ & Nessun minimo ($f^* = -\infty$, illimitata) & Divergenza: $f(x^k) \to -\infty$, $\|g^k\| \not\to 0$ \\
+$Q \succ\prec 0$ & Qualsiasi $q \in \R^n$ & Nessun minimo né massimo (Punto di sella) & Non converge (può divergere a seconda di $x^0$) \\
+$Q \prec 0$ & Qualsiasi $q \in \R^n$ & Unico massimo, nessun minimo ($f^* = -\infty$) & Diverge a $-\infty$ lungo l'antigradiente \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro riassuntivo del comportamento dell'ottimizzazione quadratica non omogenea e del metodo iterativo GMQ.}
+\label{tab:sinottico-quadratica-gmq}
+\end{table}

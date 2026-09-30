@@ -1,0 +1,817 @@
+\chapter[Singular Value Decomposition (SVD)]{Singular Value Decomposition (SVD): Theory, Geometry, and Applications}
+\label{chap:singular-value-decomposition-svd}
+
+This chapter opens the advanced monograph on modern numerical linear algebra by introducing the \textbf{Singular Value Decomposition} (SVD). After outlining the overarching framework of computational methods (matrix factorizations, linear systems, least-squares problems, eigenvalue algorithms, and floating-point stability), we formalize the SVD in both its extended (\textit{Full SVD}) and compact (\textit{Thin SVD}) formulations. We then develop the rigorous constructive derivation based on the spectral decomposition of the associated symmetric positive semidefinite Gram matrices $A^T A$ and $A A^T$. Finally, we analyze the structure of the four fundamental subspaces and study a series of theoretical and applied problems central to data science and machine learning~\cite{golub2013matrix,trefethen1997numerical,strang2019linear}.
+
+\FloatBarrier
+\section{Overview of Numerical Linear Algebra and Lecture Outline}
+\label{sec:svd-overview-outline-en}
+
+Numerical linear algebra forms the computational backbone of data science, scientific computing, and optimization~\cite{demmel1997applied,trefethen1997numerical}. In practical engineering and machine learning workflows, physical and statistical models rarely present themselves in closed scalar forms: they almost invariably translate into large-scale matrix operations. This monograph focuses on six essential algorithmic pillars:
+
+\begin{enumerate}
+    \item \textbf{Singular Value Decomposition (SVD):} the paramount foundational tool for the spectral analysis of general, rectangular, and rank-deficient matrices. It identifies optimal orthonormal coordinate bases for domain and codomain, quantifies numerical rank, and provides the best low-rank approximation via the Eckart-Young-Mirsky Theorem.
+
+    \item \textbf{QR Factorization:} decomposes any matrix $A \in \R^{n \times m}$ into $A = QR$, where $Q$ has orthonormal columns and $R$ is upper triangular. It guarantees unconditional numerical stability in solving linear least-squares problems and serves as the core iterative engine for computing eigenvalues.
+
+    \item \textbf{Numerical Methods for Linear Systems ($A\mathbf{x} = \mathbf{b}$):}
+    \begin{itemize}
+        \item \textbf{General formulation:} given a coefficient matrix $A \in \R^{n \times n}$ and a right-hand side vector $\mathbf{b} \in \R^n$, compute the unknown vector $\mathbf{x} \in \R^n$.
+        \item \textbf{Direct Methods:} based on triangular or orthogonal factorizations ($LU$, Cholesky $LL^T$, $QR$). In exact arithmetic, they yield the exact solution in a finite, deterministic sequence of steps (with typical complexity $\BigO{n^3}$).
+        \item \textbf{Iterative Methods:} suited for sparse matrices of very high dimension ($n \gg 10^5$). They generate successive approximations $\{\mathbf{x}^{(k)}\}_{k \ge 0}$ from an initial guess $\mathbf{x}^{(0)}$, stopping once the relative residual $\|\mathbf{b} - A\mathbf{x}^{(k)}\|_2 / \|\mathbf{b}\|_2$ drops below a preset tolerance $\epsilon_{\text{tol}}$.
+    \end{itemize}
+
+    \item \textbf{Numerical Methods for Least-Squares Problems:}
+    \begin{equation}
+        \min_{\mathbf{x} \in \R^m} \|A\mathbf{x} - \mathbf{b}\|_2,
+    \end{equation}
+    where $A \in \R^{n \times m}$ is typically overdetermined ($n > m$, geometrically ``tall and thin'') and $\mathbf{b} \in \R^n$. Both direct formulations (normal equations $A^T A \mathbf{x} = A^T \mathbf{b}$, $QR$, SVD) and iterative formulations are examined.
+
+    \item \textbf{Numerical Methods for Eigenvalues and Eigenvectors:} specialized algorithms for the secular problem $A\mathbf{v} = \lambda \mathbf{v}$, including power iteration, inverse iteration, deflation, and the shifted QR algorithm.
+
+    \item \textbf{Conditioning and Numerical Stability:}
+    \begin{itemize}
+        \item \textbf{Finite precision arithmetic:} standard modern computing uses the IEEE 754 standard for 64-bit floating-point arithmetic (double precision), introducing at each elementary operation a relative roundoff error bounded by the machine epsilon:
+        \begin{equation}
+            \epsilon_{\text{mach}} = 2^{-53} \approx 1.11 \times 10^{-16}.
+        \end{equation}
+        \item \textbf{Problem sensitivity vs algorithmic instability:} we formally investigate whether error accumulation stems from the intrinsic sensitivity of the mathematical model to input data perturbations (quantified by the \textit{condition number} $\kappa(A)$) or from destructive error propagation inside the chosen algorithmic scheme.
+    \end{itemize}
+\end{enumerate}
+
+\begin{alertblock}{Guiding Principle of Numerical Linear Algebra}
+An algorithm that is mathematically exact in exact arithmetic may become completely useless on a digital computer if it is not numerically stable. The systematic use of orthogonal matrices (which preserve Euclidean lengths) is the primary line of defense against catastrophic roundoff amplification.
+\end{alertblock}
+
+\FloatBarrier
+\section{Definition of the Singular Value Decomposition (Full SVD)}
+\label{sec:svd-definition-full-en}
+
+The spectral decomposition for symmetric matrices discussed in the previous chapter ($A = QDQ^T$) suffers from an insurmountable structural limitation: it strictly requires the matrix to be square and symmetric. The Singular Value Decomposition completely overcomes this limitation, extending the concepts of eigenvalues and orthonormal coordinate systems to \textbf{any real matrix of arbitrary dimensions}.
+
+\subsection{Formal Mathematical Definition}
+
+\begin{definition}[Full Singular Value Decomposition (Full SVD)]
+\label{def:full-svd-en}
+Let $A \in \R^{n \times m}$ be an arbitrary real matrix. A \textbf{Singular Value Decomposition (Full SVD)} of $A$ is a factorization of the form:
+\begin{equation}
+    A = U \Sigma V^T,
+\end{equation}
+where the three factors satisfy the following rigorous properties:
+\begin{enumerate}
+    \item $U \in \R^{n \times n}$ is a square orthogonal matrix:
+    \begin{equation}
+        U^T U = U U^T = I_n.
+    \end{equation}
+    The columns of $U = [\mathbf{u}_1, \mathbf{u}_2, \dots, \mathbf{u}_n]$, with $\mathbf{u}_i \in \R^n$, are called \textbf{left singular vectors} and form an orthonormal basis of $\R^n$.
+
+    \item $V \in \R^{m \times m}$ is a square orthogonal matrix:
+    \begin{equation}
+        V^T V = V V^T = I_m.
+    \end{equation}
+    The columns of $V = [\mathbf{v}_1, \mathbf{v}_2, \dots, \mathbf{v}_m]$, with $\mathbf{v}_j \in \R^m$, are called \textbf{right singular vectors} and form an orthonormal basis of $\R^m$.
+
+    \item $\Sigma \in \R^{n \times m}$ is a rectangular diagonal matrix matching the dimensions of $A$, whose only non-zero entries may lie on the main diagonal:
+    \begin{equation}
+        \Sigma_{ii} = \sigma_i \quad \text{for } i = 1, \dots, \min\{n, m\}, \qquad \Sigma_{ij} = 0 \quad \text{if } i \neq j.
+    \end{equation}
+    The scalars $\sigma_i$ are called \textbf{singular values} of $A$ and satisfy non-negativity and descending order:
+    \begin{equation}
+        \sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_{\min\{n, m\}} \ge 0.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+\subsection{Geometric and Algebraic Meaning of Orthogonality}
+
+The orthogonality of $U$ and $V$ ensures that their columns are pairwise orthonormal under the standard Euclidean inner product:
+\begin{equation}
+    \langle \mathbf{u}_i, \mathbf{u}_j \rangle = \mathbf{u}_i^T \mathbf{u}_j = \delta_{ij}, \qquad \langle \mathbf{v}_i, \mathbf{v}_j \rangle = \mathbf{v}_i^T \mathbf{v}_j = \delta_{ij}.
+\end{equation}
+Geometrically, the action of $A$ on an input vector $\mathbf{x} \in \R^m$ decomposes into a sequence of three canonical linear transformations:
+\begin{equation}
+    \mathbf{x} \;\xrightarrow{\quad V^T \quad}\; \tilde{\mathbf{x}} = V^T \mathbf{x} \;\xrightarrow{\quad \Sigma \quad}\; \tilde{\mathbf{y}} = \Sigma \tilde{\mathbf{x}} \;\xrightarrow{\quad U \quad}\; \mathbf{y} = U \tilde{\mathbf{y}} = A\mathbf{x}.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Rotation / reflection in $\R^m$ ($V^T$):} the vector $\mathbf{x}$ is projected onto the orthonormal coordinate system formed by the right singular vectors $\{\mathbf{v}_j\}$. Because $V$ is orthogonal, this preserves Euclidean norms ($\|V^T \mathbf{x}\|_2 = \|\mathbf{x}\|_2$).
+    \item \textbf{Coordinate stretching ($\Sigma$):} each coordinate is scaled independently by the corresponding singular value $\sigma_i$. When dimensions differ ($n \neq m$), $\Sigma$ also performs embedding or dimension reduction.
+    \item \textbf{Rotation / reflection in $\R^n$ ($U$):} the scaled vector is rotated into the codomain $\R^n$ along the orthonormal system of the left singular vectors $\{\mathbf{u}_i\}$.
+\end{itemize}
+
+\subsection{Block Structure of \texorpdfstring{$\Sigma$}{Sigma} and Matrix Morphology}
+
+Depending on the relationship between $n$ and $m$, the matrix $\Sigma \in \R^{n \times m}$ takes one of three canonical block forms:
+
+\begin{enumerate}
+    \item \textbf{Square Matrix Case ($n = m$):}
+    All factors are $n \times n$. The matrix $\Sigma$ is purely diagonal:
+    \begin{equation}
+        \Sigma = \begin{bmatrix}
+            \sigma_1 & & 0 \\
+            & \ddots & \\
+            0 & & \sigma_n
+        \end{bmatrix} \in \R^{n \times n}.
+    \end{equation}
+
+    \item \textbf{Short and Wide Matrix Case ($n < m$):}
+    Underdetermined system (fewer constraints than variables). $U \in \R^{n \times n}$ is small and square, while $V \in \R^{m \times m}$ is large and square. $\Sigma$ partitions into an $n \times n$ diagonal block followed by a zero block:
+    \begin{equation}
+        \Sigma = \begin{bmatrix} \Sigma_1 & 0_{n \times (m - n)} \end{bmatrix} = \begin{bmatrix}
+            \sigma_1 & & 0 & 0 & \dots & 0 \\
+            & \ddots & & \vdots & \ddots & \vdots \\
+            0 & & \sigma_n & 0 & \dots & 0
+        \end{bmatrix} \in \R^{n \times m},
+    \end{equation}
+    with $\Sigma_1 = \diag(\sigma_1, \dots, \sigma_n) \in \R^{n \times n}$.
+
+    \item \textbf{Tall and Thin Matrix Case ($n > m$):}
+    Overdetermined system typical of data fitting ($n$ samples, $m$ features). $U \in \R^{n \times n}$ is large and square, while $V \in \R^{m \times m}$ is small and square. $\Sigma$ partitions vertically into an $m \times m$ diagonal block and a bottom zero block of size $(n - m) \times m$:
+    \begin{equation}
+        \Sigma = \begin{bmatrix} \Sigma_1 \\ 0_{(n - m) \times m} \end{bmatrix} = \begin{bmatrix}
+            \sigma_1 & & 0 \\
+            & \ddots & \\
+            0 & & \sigma_m \\
+            0 & \dots & 0 \\
+            \vdots & \ddots & \vdots \\
+            0 & \dots & 0
+        \end{bmatrix} \in \R^{n \times m},
+    \end{equation}
+    with $\Sigma_1 = \diag(\sigma_1, \dots, \sigma_m) \in \R^{m \times m}$.
+\end{enumerate}
+
+\subsection{Dyadic Form (Outer Product Expansion)}
+
+Recall the general column-partitioned matrix product: given $B = [\mathbf{b}_1, \dots, \mathbf{b}_k]$ and $C = [\mathbf{c}_1, \dots, \mathbf{c}_k]$, their product expands into a sum of $k$ rank-one outer products:
+\begin{equation}
+    B C^T = \sum_{j=1}^k \mathbf{b}_j \mathbf{c}_j^T.
+\end{equation}
+Applying this to the SVD factorization, because $\Sigma$ simply multiplies the $j$-th column of $U$ by the scalar $\sigma_j$, the linear operator $A$ can be written compactly as:
+\begin{equation}
+\label{eq:svd-dyadic-form-en}
+    A = \sum_{j=1}^{\min\{n, m\}} \sigma_j \mathbf{u}_j \mathbf{v}_j^T = \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T + \sigma_2 \mathbf{u}_2 \mathbf{v}_2^T + \dots + \sigma_p \mathbf{u}_p \mathbf{v}_p^T,
+\end{equation}
+where $p = \min\{n, m\}$. Each term $\mathbf{u}_j \mathbf{v}_j^T \in \R^{n \times m}$ is an \textbf{orthonormal rank-one matrix}. The dyadic expansion therefore decomposes $A$ into a weighted sum of rank-one structures, where the weights are the non-increasing singular values $\sigma_j \ge 0$.
+
+\FloatBarrier
+\section{Existence and Construction of the SVD}
+\label{sec:svd-existence-construction-en}
+
+\subsection{Fundamental Existence Theorem}
+
+\begin{theorem}[Global Existence of the SVD]
+\label{thm:existence-svd-en}
+For every real matrix $A \in \R^{n \times m}$, of arbitrary dimensions and arbitrary rank, there exist two orthogonal matrices $U \in \R^{n \times n}$ and $V \in \R^{m \times m}$ and a rectangular diagonal matrix $\Sigma \in \R^{n \times m}$ with ordered non-negative diagonal elements $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_{\min\{n,m\}} \ge 0$ such that:
+\begin{equation}
+    A = U \Sigma V^T.
+\end{equation}
+\end{theorem}
+
+\subsection{Constructive Derivation via Reverse Engineering}
+
+To reveal where $U, \Sigma, V$ naturally arise, consider a constructive reverse-engineering strategy. Assume tentatively that the factorization $A = U \Sigma V^T$ exists, and compute the associated symmetric Gram matrix $A^T A \in \R^{m \times m}$:
+\begin{align}
+    A^T A &= (U \Sigma V^T)^T (U \Sigma V^T) \nonumber \\
+          &= (V \Sigma^T U^T)(U \Sigma V^T) \nonumber \\
+          &= V \Sigma^T (U^T U) \Sigma V^T.
+\end{align}
+Because $U$ is orthogonal, $U^T U = I_n$. Hence:
+\begin{equation}
+    A^T A = V (\Sigma^T \Sigma) V^T.
+\end{equation}
+When $n = m$, $\Sigma$ is square and diagonal ($\Sigma^T = \Sigma$), which yields $\Sigma^T \Sigma = \Sigma^2 = \diag(\sigma_1^2, \dots, \sigma_n^2)$. 
+The identity:
+\begin{equation}
+    A^T A = V \Sigma^2 V^T
+\end{equation}
+matches exactly the \textbf{spectral decomposition} of the real symmetric matrix $A^T A$. This yields two crucial insights:
+\begin{itemize}
+    \item The columns of $V$ must be the orthonormal eigenvectors of $A^T A$.
+    \item The squared singular values $\sigma_j^2$ of $A$ must equal the eigenvalues of $A^T A$:
+    \begin{equation}
+        \lambda_j(A^T A) = \sigma_j^2 \implies \sigma_j = \sqrt{\lambda_j(A^T A)}.
+    \end{equation}
+\end{itemize}
+
+Symmetrically, computing $A A^T \in \R^{n \times n}$:
+\begin{equation}
+    A A^T = (U \Sigma V^T)(V \Sigma^T U^T) = U (\Sigma \Sigma^T) U^T = U \Sigma^2 U^T,
+\end{equation}
+we see that the columns of $U$ are the orthonormal eigenvectors of $A A^T$.
+
+\subsection{Rigorous Proof for Square Invertible Matrices}
+
+We now prove Theorem~\ref{thm:existence-svd-en} constructively in the case where $A \in \R^{n \times n}$ is square and non-singular ($\det(A) \neq 0$).
+
+\begin{proof}
+The proof proceeds in five structured steps:
+
+\paragraph{Step 1: Algebraic properties of $A^T A$.}
+Let $M = A^T A \in \R^{n \times n}$.
+\begin{enumerate}
+    \item $M$ is symmetric: $M^T = (A^T A)^T = A^T A = M$.
+    \item $M$ is symmetric positive definite (SPD). Indeed, for any non-zero $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$:
+    \begin{equation}
+        \mathbf{x}^T M \mathbf{x} = \mathbf{x}^T (A^T A) \mathbf{x} = (A\mathbf{x})^T (A\mathbf{x}) = \|A\mathbf{x}\|_2^2.
+    \end{equation}
+    Since $A$ is invertible by hypothesis, $\ker(A) = \{\mathbf{0}\}$; thus $\mathbf{x} \neq \mathbf{0} \implies A\mathbf{x} \neq \mathbf{0}$, which gives $\|A\mathbf{x}\|_2^2 > 0$.
+\end{enumerate}
+
+\paragraph{Step 2: Spectral decomposition of $A^T A$.}
+Since $A^T A$ is real, symmetric, and positive definite, the Spectral Theorem yields an orthogonal matrix $Q \in \R^{n \times n}$ ($Q^T Q = I_n$) and a diagonal matrix $D \in \R^{n \times n}$ such that:
+\begin{equation}
+    A^T A = Q D Q^T,
+\end{equation}
+where the eigenvalues along the diagonal of $D$ are strictly positive and sorted non-increasingly:
+\begin{equation}
+    D = \begin{bmatrix}
+        d_1 & & 0 \\
+        & \ddots & \\
+        0 & & d_n
+    \end{bmatrix}, \qquad d_1 \ge d_2 \ge \dots \ge d_n > 0.
+\end{equation}
+
+\paragraph{Step 3: Definition of factors $V$ and $\Sigma$.}
+Following the reverse-engineering derivation, define:
+\begin{align}
+    V &:= Q \in \R^{n \times n} \quad (\implies V \text{ is orthogonal: } V^T V = I_n), \\
+    \Sigma &:= D^{1/2} = \begin{bmatrix}
+        \sqrt{d_1} & & 0 \\
+        & \ddots & \\
+        0 & & \sqrt{d_n}
+    \end{bmatrix} \in \R^{n \times n}.
+\end{align}
+Because each $d_j > 0$, the quantities $\sigma_j := \sqrt{d_j}$ are well-defined, strictly positive real numbers:
+\begin{equation}
+    \sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n > 0.
+\end{equation}
+
+\paragraph{Step 4: Algebraic formulation of matrix $U$.}
+Requiring the factorization $A = U \Sigma V^T$ to hold, substitute our defined factors:
+\begin{equation}
+    A = U D^{1/2} Q^T.
+\end{equation}
+Multiplying both sides on the right by $Q$ and using $Q^T Q = I_n$:
+\begin{equation}
+    A Q = U D^{1/2}.
+\end{equation}
+Since all diagonal entries of $D^{1/2}$ are strictly positive ($\sigma_j > 0$), $D^{1/2}$ is invertible with:
+\begin{equation}
+    D^{-1/2} = \begin{bmatrix}
+        \frac{1}{\sqrt{d_1}} & & 0 \\
+        & \ddots & \\
+        0 & & \frac{1}{\sqrt{d_n}}
+    \end{bmatrix}.
+\end{equation}
+Hence, we can solve for $U$:
+\begin{equation}
+\label{eq:svd-construct-U-en}
+    U := A Q D^{-1/2}.
+\end{equation}
+
+\paragraph{Step 5: Verifying the orthogonality of $U$.}
+We must confirm that $U$ is orthogonal, namely $U^T U = I_n$.
+Evaluating the product explicitly:
+\begin{align}
+    U^T U &= \left( A Q D^{-1/2} \right)^T \left( A Q D^{-1/2} \right) \nonumber \\
+          &= \left( D^{-1/2} \right)^T Q^T A^T A Q D^{-1/2}.
+\end{align}
+Because $D^{-1/2}$ is diagonal, $(D^{-1/2})^T = D^{-1/2}$. Substituting $A^T A = Q D Q^T$:
+\begin{align}
+    U^T U &= D^{-1/2} Q^T (Q D Q^T) Q D^{-1/2} \nonumber \\
+          &= D^{-1/2} (Q^T Q) D (Q^T Q) D^{-1/2}.
+\end{align}
+Since $Q$ is orthogonal ($Q^T Q = I_n$):
+\begin{align}
+    U^T U &= D^{-1/2} I_n D I_n D^{-1/2} \nonumber \\
+          &= D^{-1/2} D D^{-1/2}.
+\end{align}
+Multiplying the diagonal matrices entry by entry:
+\begin{equation}
+    D^{-1/2} D D^{-1/2} = \begin{bmatrix}
+        \frac{1}{\sqrt{d_1}} \cdot d_1 \cdot \frac{1}{\sqrt{d_1}} & & 0 \\
+        & \ddots & \\
+        0 & & \frac{1}{\sqrt{d_n}} \cdot d_n \cdot \frac{1}{\sqrt{d_n}}
+    \end{bmatrix} = \begin{bmatrix}
+        \frac{d_1}{d_1} & & 0 \\
+        & \ddots & \\
+        0 & & \frac{d_n}{d_n}
+    \end{bmatrix} = I_n.
+\end{equation}
+Since $U \in \R^{n \times n}$ is square and satisfies $U^T U = I_n$, it follows that $U$ is orthogonal ($U U^T = I_n$). The theorem is proved for invertible square matrices.
+\end{proof}
+
+\subsection{Extension to General Rectangular or Deficient Matrices}
+
+When $A \in \R^{n \times m}$ is rectangular or square singular, the symmetric matrix $A^T A \in \R^{m \times m}$ is only \textbf{positive semidefinite} (SPSD).
+Let $r = \rank(A) = \rank(A^T A) \le \min\{n, m\}$. The eigenvalues of $A^T A$ partition into:
+\begin{equation}
+    d_1 \ge d_2 \ge \dots \ge d_r > d_{r+1} = \dots = d_m = 0.
+\end{equation}
+Consequently, $D$ contains zero entries and the global inverse $D^{-1/2}$ does not exist. We therefore construct $U$ \textbf{column by column}:
+\begin{enumerate}
+    \item For indices with positive singular values ($j = 1, \dots, r$), define:
+    \begin{equation}
+        \mathbf{u}_j := \frac{1}{\sqrt{d_j}} A \mathbf{q}_j = \frac{1}{\sigma_j} A \mathbf{v}_j.
+    \end{equation}
+    These $r$ vectors $\{\mathbf{u}_1, \dots, \mathbf{u}_r\} \subset \R^n$ are orthonormal:
+    \begin{equation}
+        \mathbf{u}_i^T \mathbf{u}_j = \left(\frac{1}{\sigma_i} A \mathbf{v}_i\right)^T \left(\frac{1}{\sigma_j} A \mathbf{v}_j\right) = \frac{\mathbf{v}_i^T (A^T A) \mathbf{v}_j}{\sigma_i \sigma_j} = \frac{\mathbf{v}_i^T (d_j \mathbf{v}_j)}{\sigma_i \sigma_j} = \frac{d_j \delta_{ij}}{\sigma_i \sigma_j} = \delta_{ij}.
+    \end{equation}
+    \item If $r < n$, the first $r$ vectors span only an $r$-dimensional subspace in $\R^n$. To form a complete orthonormal basis of $\R^n$, we choose $n - r$ additional orthonormal vectors $\{\mathbf{u}_{r+1}, \dots, \mathbf{u}_n\}$ spanning the orthogonal complement $\operatorname{span}(\mathbf{u}_1, \dots, \mathbf{u}_r)^\perp = \ker(A^T)$, using the Gram-Schmidt orthogonalization process.
+\end{enumerate}
+
+\FloatBarrier
+\section{Thin SVD vs Full SVD and Computational Profile}
+\label{sec:svd-thin-vs-full-en}
+
+In modern data science and machine learning applications, the dimensions of $A \in \R^{n \times m}$ are heavily asymmetric ($n \gg m$, e.g., millions of observations and tens or hundreds of features). In such regimes, storing and computing the Full SVD is impractical.
+
+\subsection{Definition of the Thin SVD (Economy SVD)}
+
+Let $A \in \R^{n \times m}$ be tall and thin ($n > m$). The Full SVD decomposes $A$ as:
+\begin{equation}
+    A = U \Sigma V^T, \qquad U \in \R^{n \times n}, \quad \Sigma \in \R^{n \times m}, \quad V \in \R^{m \times m}.
+\end{equation}
+Because $n > m$, the bottom $n - m$ rows of $\Sigma$ are identically zero:
+\begin{equation}
+    \Sigma = \begin{bmatrix} \Sigma_0 \\ 0_{(n-m) \times m} \end{bmatrix}, \qquad \Sigma_0 = \diag(\sigma_1, \dots, \sigma_m) \in \R^{m \times m}.
+\end{equation}
+Partitioning the orthogonal matrix $U$ into its first $m$ columns $U_0$ and the remaining $n - m$ columns $U_\perp$:
+\begin{equation}
+    U = \begin{bmatrix} U_0 & U_\perp \end{bmatrix}, \qquad U_0 \in \R^{n \times m}, \quad U_\perp \in \R^{n \times (n - m)}.
+\end{equation}
+Performing block multiplication:
+\begin{align}
+    A &= \begin{bmatrix} U_0 & U_\perp \end{bmatrix} \begin{bmatrix} \Sigma_0 \\ 0 \end{bmatrix} V^T \nonumber \\
+      &= \left( U_0 \Sigma_0 + U_\perp \cdot 0 \right) V^T \nonumber \\
+      &= U_0 \Sigma_0 V^T.
+\end{align}
+Notice that the last $n - m$ columns collected in $U_\perp$ are multiplied solely by zeros: \textbf{they provide zero contribution to the reconstruction of $A$}.
+
+\begin{definition}[Thin SVD / Economy SVD]
+\label{def:thin-svd-en}
+Let $A \in \R^{n \times m}$ with $n \ge m$. The \textbf{Thin SVD} (or economy-size SVD) of $A$ is the factorization:
+\begin{equation}
+    A = U_0 \Sigma_0 V^T,
+\end{equation}
+where:
+\begin{itemize}
+    \item $U_0 \in \R^{n \times m}$ has orthonormal columns ($U_0^T U_0 = I_m$), but is not square ($U_0 U_0^T \neq I_n$; it acts as an orthogonal projector onto $\operatorname{Im}(A)$).
+    \item $\Sigma_0 = \diag(\sigma_1, \dots, \sigma_m) \in \R^{m \times m}$ is a square diagonal matrix containing all singular values.
+    \item $V \in \R^{m \times m}$ is the standard square orthogonal matrix ($V^T V = V V^T = I_m$).
+\end{itemize}
+\end{definition}
+
+Both Full SVD and Thin SVD yield the exact same dyadic sum:
+\begin{equation}
+    A = \sum_{j=1}^m \sigma_j \mathbf{u}_j \mathbf{v}_j^T.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    blockA/.style={fill=blue!10, draw=blue!70!black, thick},
+    blockU/.style={fill=teal!15, draw=teal!80!black, thick},
+    blockUzero/.style={fill=cyan!20, draw=cyan!80!black, thick},
+    blockUperp/.style={fill=gray!15, draw=gray!70!black, dashed, thick},
+    blockSigma/.style={fill=orange!15, draw=orange!80!black, thick},
+    blockSigZero/.style={fill=gray!10, draw=gray!60!black, dashed},
+    blockV/.style={fill=purple!15, draw=purple!80!black, thick},
+    brace/.style={decorate, decoration={brace, amplitude=4pt, raise=2pt}}
+]
+
+    % Full SVD Title
+    \node[font=\bfseries\large, text=blue!90!black] at (6.5, 5.2) {Full SVD: $A = U \Sigma V^T$};
+
+    % Matrice A (n x m)
+    \draw[blockA] (0, 0) rectangle (1.2, 4.0);
+    \node[font=\bfseries] at (0.6, 2.0) {$A$};
+    \node[below=2pt, font=\scriptsize] at (0.6, 0) {$n \times m$};
+
+    \node[font=\Large] at (1.8, 2.0) {$=$};
+
+    % Matrice U (n x n)
+    \draw[blockUzero] (2.4, 0) rectangle (3.6, 4.0);
+    \node[font=\scriptsize\bfseries, text=cyan!80!black] at (3.0, 2.0) {$U_0$};
+    \draw[blockUperp] (3.6, 0) rectangle (6.4, 4.0);
+    \node[font=\scriptsize\bfseries, text=gray!80!black] at (5.0, 2.0) {$U_\perp$};
+    \draw[thick, draw=teal!80!black] (2.4, 0) rectangle (6.4, 4.0);
+    \node[above=2pt, font=\scriptsize] at (4.4, 4.0) {$U \; (n \times n)$};
+
+    % Matrice Sigma (n x m)
+    \draw[blockSigma] (7.0, 2.8) rectangle (8.2, 4.0);
+    \node[font=\scriptsize\bfseries] at (7.6, 3.4) {$\Sigma_0$};
+    \draw[blockSigZero] (7.0, 0) rectangle (8.2, 2.8);
+    \node[font=\scriptsize, text=gray!70!black] at (7.6, 1.4) {$0$};
+    \draw[thick, draw=orange!80!black] (7.0, 0) rectangle (8.2, 4.0);
+    \node[above=2pt, font=\scriptsize] at (7.6, 4.0) {$\Sigma \; (n \times m)$};
+
+    % Matrice V^T (m x m)
+    \draw[blockV] (8.8, 2.8) rectangle (10.0, 4.0);
+    \node[font=\scriptsize\bfseries] at (9.4, 3.4) {$V^T$};
+    \node[above=2pt, font=\scriptsize] at (9.4, 4.0) {$m \times m$};
+
+    % Separatore orizzontale
+    \draw[thick, gray!40, dashed] (-0.5, -0.9) -- (13.5, -0.9);
+
+    % Thin SVD Title
+    \node[font=\bfseries\large, text=teal!90!black] at (6.5, -1.6) {Thin SVD: $A = U_0 \Sigma_0 V^T$};
+
+    % Matrice A (n x m)
+    \draw[blockA] (0.8, -6.0) rectangle (2.0, -2.0);
+    \node[font=\bfseries] at (1.4, -4.0) {$A$};
+    \node[below=2pt, font=\scriptsize] at (1.4, -6.0) {$n \times m$};
+
+    \node[font=\Large] at (2.6, -4.0) {$=$};
+
+    % Matrice U0 (n x m)
+    \draw[blockUzero] (3.2, -6.0) rectangle (4.4, -2.0);
+    \node[font=\scriptsize\bfseries, text=cyan!80!black] at (3.8, -4.0) {$U_0$};
+    \node[below=2pt, font=\scriptsize] at (3.8, -6.0) {$n \times m$};
+
+    % Matrice Sigma0 (m x m)
+    \draw[blockSigma] (5.2, -3.2) rectangle (6.4, -2.0);
+    \node[font=\scriptsize\bfseries] at (5.8, -2.6) {$\Sigma_0$};
+    \node[below=2pt, font=\scriptsize] at (5.8, -3.2) {$m \times m$};
+
+    % Matrice V^T (m x m)
+    \draw[blockV] (7.2, -3.2) rectangle (8.4, -2.0);
+    \node[font=\scriptsize\bfseries] at (7.8, -2.6) {$V^T$};
+    \node[below=2pt, font=\scriptsize] at (7.8, -3.2) {$m \times m$};
+
+    % Notazione risparmio
+    \node[draw=green!60!black, fill=green!6, rounded corners=4pt, text width=4.0cm, align=left, font=\scriptsize] at (11.0, -3.8) {
+        \textbf{Key Advantage:}\\[2pt]
+        Discards the redundant block $U_\perp \in \R^{n \times (n-m)}$ and the bottom zero block of $\Sigma$.
+    };
+
+\end{tikzpicture}%
+}
+\caption{Structural and geometric comparison between Full SVD and Thin SVD for a tall and thin matrix ($n > m$).}
+\label{fig:svd-full-vs-thin-en}
+\end{figure}
+
+\subsection{Memory and Asymptotic Computational Complexity Comparison}
+
+Table~\ref{tab:svd-full-vs-thin-complexity-en} outlines the computational disparity between Full SVD and Thin SVD when $n \ge m$.
+
+\begin{table}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Property / Resource} & \textbf{Full SVD ($n \ge m$)} & \textbf{Thin SVD ($n \ge m$)} \\
+\midrule
+\textbf{Dimension of $U$} & $n \times n$ & $n \times m$ \\
+\textbf{Dimension of $\Sigma$} & $n \times m$ & $m \times m$ (square) \\
+\textbf{Dimension of $V$} & $m \times m$ & $m \times m$ \\
+\textbf{Memory Footprint} & $\BigO{n^2}$ words & $\BigO{nm}$ words \\
+\textbf{Asymptotic Complexity} & $\BigO{n^2 m}$ flops & $\BigO{n m^2}$ flops \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Asymptotic memory and computational complexity comparison between Full SVD and Thin SVD.}
+\label{tab:svd-full-vs-thin-complexity-en}
+\end{table}
+
+\begin{example}[Practical Impact in Big Data Analytics]
+Consider a data matrix with $n = 10^6$ instances (rows) and $m = 10$ features (columns).
+\begin{itemize}
+    \item \textbf{Full SVD:} $U$ has size $10^6 \times 10^6$, requiring $10^{12}$ double-precision floats. In terms of RAM:
+    \begin{equation}
+        10^{12} \times 8 \text{ bytes} = 8 \times 10^{12} \text{ bytes} \approx 8 \text{ TB},
+    \end{equation}
+    which exceeds standard single-machine memory capacities.
+    \item \textbf{Thin SVD:} $U_0$ requires only $n \times m = 10^7$ floats:
+    \begin{equation}
+        10^7 \times 8 \text{ bytes} = 80 \text{ MB},
+    \end{equation}
+    which easily fits in memory on any workstation or laptop.
+\end{itemize}
+Consequently, scientific computing packages (such as \texttt{scipy.linalg.svd(..., full\_matrices=False)} in Python, \texttt{svd(A, 'econ')} in MATLAB, and LAPACK drivers with option \texttt{'S'}) default to or strongly recommend the Thin SVD.
+\end{example}
+
+\FloatBarrier
+\section{Numerical Rank and the Four Fundamental Subspaces}
+\label{sec:svd-four-subspaces-en}
+
+\subsection{Exact Rank Determination via Singular Values}
+
+A profound theoretical and numerical advantage of the SVD is its ability to cleanly determine the rank of a matrix.
+Recall the dyadic expansion~\eqref{eq:svd-dyadic-form-en}:
+\begin{equation}
+    A = \sum_{j=1}^{\min\{n, m\}} \sigma_j \mathbf{u}_j \mathbf{v}_j^T.
+\end{equation}
+Because the vectors $\{\mathbf{u}_j\}_{j=1}^n$ are orthonormal in $\R^n$ and $\{\mathbf{v}_j\}_{j=1}^m$ are orthonormal in $\R^m$, each term $\mathbf{u}_j \mathbf{v}_j^T$ has rank exactly 1. Furthermore, these rank-one matrices are mutually orthogonal under the Frobenius inner product:
+\begin{equation}
+    \langle \mathbf{u}_i \mathbf{v}_i^T, \mathbf{u}_j \mathbf{v}_j^T \rangle_F = \trace\left( (\mathbf{u}_i \mathbf{v}_i^T)^T (\mathbf{u}_j \mathbf{v}_j^T) \right) = \trace\left( \mathbf{v}_i \mathbf{u}_i^T \mathbf{u}_j \mathbf{v}_j^T \right) = \delta_{ij} \delta_{ij} = \delta_{ij}.
+\end{equation}
+This leads to the following proposition:
+
+\begin{proposition}[Rank Characterization via SVD]
+The rank of $A \in \R^{n \times m}$ equals the number of strictly positive singular values:
+\begin{equation}
+    \rank(A) = r \iff \sigma_1 \ge \dots \ge \sigma_r > \sigma_{r+1} = \dots = \sigma_{\min\{n, m\}} = 0.
+\end{equation}
+Accordingly, the dyadic sum truncates at index $r$:
+\begin{equation}
+    A = \sum_{j=1}^r \sigma_j \mathbf{u}_j \mathbf{v}_j^T.
+\end{equation}
+\end{proposition}
+
+\subsection{Characterization of the Four Fundamental Subspaces}
+
+The Full SVD automatically yields orthonormal bases for all four fundamental subspaces associated with $A$ and $A^T$.
+To illustrate the algebraic mechanism, consider the classroom case study: a matrix $A \in \R^{6 \times 4}$ ($n = 6, m = 4$) with rank $r = 3$.
+
+Here, $\Sigma$ contains $r = 3$ positive singular values $\sigma_1 \ge \sigma_2 \ge \sigma_3 > 0$ and $\sigma_4 = 0$:
+\begin{equation}
+    A = \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T + \sigma_2 \mathbf{u}_2 \mathbf{v}_2^T + \sigma_3 \mathbf{u}_3 \mathbf{v}_3^T.
+\end{equation}
+
+\paragraph{1. Nullspace of $A$ ($\ker(A) \subseteq \R^4$).}
+The nullspace is defined as $\{\mathbf{x} \in \R^4 : A\mathbf{x} = \mathbf{0}\}$. Multiply $A$ by the fourth right singular vector $\mathbf{v}_4$:
+\begin{align}
+    A \mathbf{v}_4 &= \left( \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T + \sigma_2 \mathbf{u}_2 \mathbf{v}_2^T + \sigma_3 \mathbf{u}_3 \mathbf{v}_3^T \right) \mathbf{v}_4 \nonumber \\
+                   &= \sigma_1 \mathbf{u}_1 (\mathbf{v}_1^T \mathbf{v}_4) + \sigma_2 \mathbf{u}_2 (\mathbf{v}_2^T \mathbf{v}_4) + \sigma_3 \mathbf{u}_3 (\mathbf{v}_3^T \mathbf{v}_4).
+\end{align}
+Since $V$ is orthogonal, its columns are orthonormal: $\mathbf{v}_1^T \mathbf{v}_4 = 0$, $\mathbf{v}_2^T \mathbf{v}_4 = 0$, $\mathbf{v}_3^T \mathbf{v}_4 = 0$. Hence:
+\begin{equation}
+    A \mathbf{v}_4 = \mathbf{0} \implies \mathbf{v}_4 \in \ker(A).
+\end{equation}
+By the rank-nullity theorem, $\dim(\ker(A)) = m - r = 4 - 3 = 1$. Since $\|\mathbf{v}_4\|_2 = 1$, it forms an orthonormal basis for the nullspace:
+\begin{equation}
+    \ker(A) = \spanop\{\mathbf{v}_4\}.
+\end{equation}
+
+\paragraph{2. Range / Column Space of $A$ ($\operatorname{Im}(A) \subseteq \R^6$).}
+The range is $\{A\mathbf{x} : \mathbf{x} \in \R^4\}$. For any $\mathbf{x} \in \R^4$:
+\begin{align}
+    A\mathbf{x} &= \sigma_1 \mathbf{u}_1 (\mathbf{v}_1^T \mathbf{x}) + \sigma_2 \mathbf{u}_2 (\mathbf{v}_2^T \mathbf{x}) + \sigma_3 \mathbf{u}_3 (\mathbf{v}_3^T \mathbf{x}) \nonumber \\
+                &= (\sigma_1 \mathbf{v}_1^T \mathbf{x}) \mathbf{u}_1 + (\sigma_2 \mathbf{v}_2^T \mathbf{x}) \mathbf{u}_2 + (\sigma_3 \mathbf{v}_3^T \mathbf{x}) \mathbf{u}_3.
+\end{align}
+Because the scalar coefficients vary arbitrarily over $\R$, every vector $A\mathbf{x}$ is a linear combination of the first three columns of $U$. Since $\{\mathbf{u}_1, \mathbf{u}_2, \mathbf{u}_3\}$ are orthonormal and $\dim(\operatorname{Im}(A)) = r = 3$:
+\begin{equation}
+    \operatorname{Im}(A) = \spanop\{\mathbf{u}_1, \mathbf{u}_2, \mathbf{u}_3\}.
+\end{equation}
+
+\paragraph{3. Range and Nullspace of the Transpose $A^T$.}
+Examining the transpose $A^T = (U \Sigma V^T)^T = V \Sigma^T U^T$, the roles of $U$ and $V$ are reversed:
+\begin{equation}
+    A^T = \sigma_1 \mathbf{v}_1 \mathbf{u}_1^T + \sigma_2 \mathbf{v}_2 \mathbf{u}_2^T + \sigma_3 \mathbf{v}_3 \mathbf{u}_3^T.
+\end{equation}
+By the exact same reasoning:
+\begin{itemize}
+    \item \textbf{Range of $A^T$ ($\operatorname{Im}(A^T) \subseteq \R^4$):}
+    \begin{equation}
+        \operatorname{Im}(A^T) = \spanop\{\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3\}.
+    \end{equation}
+    \item \textbf{Nullspace of $A^T$ ($\ker(A^T) \subseteq \R^6$):}
+    multiplying $A^T$ by the remaining left singular vectors $\mathbf{u}_4, \mathbf{u}_5, \mathbf{u}_6$, orthogonality gives $A^T \mathbf{u}_k = \mathbf{0}$ for $k \in \{4, 5, 6\}$. Since $\dim(\ker(A^T)) = n - r = 6 - 3 = 3$:
+    \begin{equation}
+        \ker(A^T) = \spanop\{\mathbf{u}_4, \mathbf{u}_5, \mathbf{u}_6\}.
+    \end{equation}
+\end{itemize}
+
+\begin{theorem}[Fundamental Subspaces via SVD]
+\label{thm:subspaces-svd-general-en}
+Let $A \in \R^{n \times m}$ have SVD $A = U \Sigma V^T$ and rank $r$. The columns of $U$ and $V$ provide orthonormal bases for the four fundamental subspaces:
+\begin{enumerate}
+    \item $\operatorname{Im}(A) = \spanop\{\mathbf{u}_1, \dots, \mathbf{u}_r\} \subseteq \R^n \quad (\text{dimension } r)$.
+    \item $\ker(A^T) = \spanop\{\mathbf{u}_{r+1}, \dots, \mathbf{u}_n\} \subseteq \R^n \quad (\text{dimension } n - r)$.
+    \item $\operatorname{Im}(A^T) = \spanop\{\mathbf{v}_1, \dots, \mathbf{v}_r\} \subseteq \R^m \quad (\text{dimension } r)$.
+    \item $\ker(A) = \spanop\{\mathbf{v}_{r+1}, \dots, \mathbf{v}_m\} \subseteq \R^m \quad (\text{dimension } m - r)$.
+\end{enumerate}
+Moreover, orthogonal complement direct sums hold:
+\begin{equation}
+    \operatorname{Im}(A) \oplus \ker(A^T) = \R^n, \qquad \operatorname{Im}(A^T) \oplus \ker(A) = \R^m.
+\end{equation}
+\end{theorem}
+
+\FloatBarrier
+\section{Theoretical Problems and Worked Applications}
+\label{sec:svd-problems-applications-en}
+
+During the interactive classroom problem session [time interval 80:00 - 104:00], students tackle four foundational conceptual problems. The instructor's guidance highlights typical misconceptions, frequent examination pitfalls, and key theoretical nuances before formal solutions are recorded on the board [104:00 - 111:06].
+
+\begin{noteblock}{Pedagogical Significance and Common Pitfalls}
+In written examinations and oral discussions, these exercises represent critical checkpoints:
+\begin{enumerate}
+    \item \textbf{Sorting reversal in $A^{-1}$:} students frequently stop at $A^{-1} = V \Sigma^{-1} U^T$. However, since $\sigma_1 \ge \dots \ge \sigma_n > 0$, the inverted diagonal entries are in ascending order ($1/\sigma_1 \le \dots \le 1/\sigma_n$), violating the SVD definition. Permuting the columns and diagonal is mandatory.
+    \item \textbf{The matrix product $V^T U$ in $A^2$:} stating that singular values of $A^2$ equal $\sigma_i^2$ is generally false. Since $V$ and $U$ are distinct orthogonal matrices, $V^T U \neq I_n$, making the inner product non-diagonal (the property holds if and only if $A$ is normal).
+    \item \textbf{Unit normalization for rank-1 matrices ($A = \mathbf{x} \mathbf{y}^T$):} setting $\mathbf{u}_1 = \mathbf{x}$, $\mathbf{v}_1 = \mathbf{y}$, and $\sigma_1 = 1$ is invalid because SVD vectors must have Euclidean norm equal to $1$. The norms must be absorbed into $\sigma_1 = \|\mathbf{x}\|_2 \|\mathbf{y}\|_2 \ge 0$.
+    \item \textbf{Negative eigenvalues in symmetric matrices ($A = Q D Q^T$):} the diagonal $D$ contains real eigenvalues with arbitrary signs. To obtain non-negative singular values $\sigma_i = |\lambda_i| \ge 0$, negative signs must be absorbed into the left singular vectors ($\mathbf{u}_j = -\mathbf{q}_j$).
+\end{enumerate}
+\end{noteblock}
+
+\subsection{Problem 1: SVD of the Inverse of a Square Matrix}
+
+\begin{example}[SVD of the Inverse $A^{-1}$]
+\textbf{Problem Statement:} Let $A \in \R^{n \times n}$ be an invertible square matrix with known SVD $A = U \Sigma V^T$. Determine the formal canonical SVD of the inverse $A^{-1}$.
+
+\medskip
+\textbf{Step-by-Step Solution:}
+\begin{enumerate}
+    \item Since $A$ is non-singular, $\rank(A) = n$. This implies all singular values are strictly positive:
+    \begin{equation}
+        \sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n > 0.
+    \end{equation}
+    \item Compute the algebraic inverse:
+    \begin{equation}
+        A^{-1} = (U \Sigma V^T)^{-1} = (V^T)^{-1} \Sigma^{-1} U^{-1}.
+    \end{equation}
+    \item Because $U$ and $V$ are orthogonal, their inverses equal their transposes:
+    \begin{equation}
+        (V^T)^{-1} = V, \qquad U^{-1} = U^T.
+    \end{equation}
+    Substituting:
+    \begin{equation}
+        A^{-1} = V \Sigma^{-1} U^T.
+    \end{equation}
+    \item Inspect the diagonal matrix $\Sigma^{-1}$:
+    \begin{equation}
+        \Sigma^{-1} = \diag\left(\frac{1}{\sigma_1}, \frac{1}{\sigma_2}, \dots, \frac{1}{\sigma_n}\right).
+    \end{equation}
+    However, because $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n > 0$, taking reciprocals reverses the order:
+    \begin{equation}
+        \frac{1}{\sigma_n} \ge \frac{1}{\sigma_{n-1}} \ge \dots \ge \frac{1}{\sigma_1} > 0.
+    \end{equation}
+    For this expression to qualify as a valid SVD (Definition~\ref{def:full-svd-en}), singular values must appear in non-increasing order.
+
+    \item \textbf{Canonical Reordering:}
+    Let $J \in \R^{n \times n}$ denote the exchange/reversal permutation matrix (ones on the antidiagonal):
+    \begin{equation}
+        J = \begin{bmatrix}
+            0 & \dots & 0 & 1 \\
+            0 & \dots & 1 & 0 \\
+            \vdots & \mathinner{\mkern1mu\raise1pt\vbox{\kern7pt\hbox{.}}\mkern2mu\raise4pt\hbox{.}\mkern2mu\raise7pt\hbox{.}\mkern1mu} & \vdots & \vdots \\
+            1 & \dots & 0 & 0
+        \end{bmatrix}, \qquad J = J^T = J^{-1}.
+    \end{equation}
+    Inserting $I_n = J J$ into $A^{-1}$:
+    \begin{equation}
+        A^{-1} = V (J J) \Sigma^{-1} (J J) U^T = (V J) (J \Sigma^{-1} J) (U J)^T.
+    \end{equation}
+    Defining:
+    \begin{itemize}
+        \item $\widetilde{U} := V J = [\mathbf{v}_n, \dots, \mathbf{v}_1] \in \R^{n \times n}$ (orthogonal, reversed columns of $V$),
+            \item $\widetilde{\Sigma} := J \Sigma^{-1} J = \diag\left(\frac{1}{\sigma_n}, \dots, \frac{1}{\sigma_1}\right)$ (diagonal, properly ordered),
+            \item $\widetilde{V} := U J = [\mathbf{u}_n, \dots, \mathbf{u}_1] \in \R^{n \times n}$ (orthogonal, reversed columns of $U$),
+    \end{itemize}
+    the canonical formal SVD of $A^{-1}$ is:
+    \begin{equation}
+        A^{-1} = \widetilde{U} \widetilde{\Sigma} \widetilde{V}^T = \begin{bmatrix} \mathbf{v}_n & \dots & \mathbf{v}_1 \end{bmatrix} \begin{bmatrix} \frac{1}{\sigma_n} & & 0 \\ & \ddots & \\ 0 & & \frac{1}{\sigma_1} \end{bmatrix} \begin{bmatrix} \mathbf{u}_n^T \\ \vdots \\ \mathbf{u}_1^T \end{bmatrix}.
+    \end{equation}
+\end{enumerate}
+\end{example}
+
+\begin{noteblock}{Extension: Moore-Penrose Pseudoinverse ($A^\dagger$)}
+When $A \in \R^{n \times m}$ is rectangular or rank-deficient ($r < \min\{n, m\}$), the standard inverse does not exist. We define the \textbf{Moore-Penrose pseudoinverse} $A^\dagger \in \R^{m \times n}$ via SVD:
+\begin{equation}
+    A^\dagger = V \Sigma^\dagger U^T,
+\end{equation}
+where $\Sigma^\dagger \in \R^{m \times n}$ is obtained by inverting only the non-zero singular values and leaving all other entries zero:
+\begin{equation}
+    \Sigma^\dagger = \begin{bmatrix}
+        \frac{1}{\sigma_1} & & 0 & 0 & \dots & 0 \\
+        & \ddots & & \vdots & \ddots & \vdots \\
+        0 & & \frac{1}{\sigma_r} & 0 & \dots & 0 \\
+        0 & \dots & 0 & 0 & \dots & 0 \\
+        \vdots & \ddots & \vdots & \vdots & \ddots & \vdots \\
+        0 & \dots & 0 & 0 & \dots & 0
+    \end{bmatrix}.
+\end{equation}
+The pseudoinverse provides the unique minimum-norm solution to general least-squares problems.
+\end{noteblock}
+
+\subsection{Problem 2: SVD of the Square of a Matrix (\texorpdfstring{$A^2$}{A\textasciicircum 2})}
+
+\begin{example}[SVD of $A^2$ and the Failure of Trivial Diagonalization]
+\textbf{Problem Statement:} Let $A \in \R^{n \times n}$ with SVD $A = U \Sigma V^T$. Can one obtain the SVD of $A^2$ simply by squaring its singular values?
+
+\medskip
+\textbf{Critical Analysis:}
+Compute the square of $A$ using its SVD:
+\begin{align}
+    A^2 &= (U \Sigma V^T)(U \Sigma V^T) \nonumber \\
+        &= U \Sigma (V^T U) \Sigma V^T.
+\end{align}
+Since $U$ and $V$ are independent, arbitrary orthogonal matrices, their inner product:
+\begin{equation}
+    V^T U \neq I_n \qquad \text{(in general)}.
+\end{equation}
+Consequently, the middle product $\Sigma (V^T U) \Sigma$ is not diagonal.
+
+\begin{alertblock}{Fundamental Conclusion}
+For a general square matrix $A$, the singular values of $A^2$ \textbf{are not} the squares of the singular values of $A$:
+\begin{equation}
+    \sigma_i(A^2) \neq \sigma_i(A)^2 \qquad \text{(in general)}.
+\end{equation}
+The identity $\sigma_i(A^2) = \sigma_i(A)^2$ holds if and only if $A$ is a \textbf{normal matrix} ($A^T A = A A^T$), which includes symmetric, skew-symmetric, and orthogonal matrices.
+\end{alertblock}
+\end{example}
+
+\subsection{Problem 3: Thin SVD of a Rank-1 Matrix}
+
+\begin{example}[Thin SVD of a Rank-1 Outer Product $A = \mathbf{x} \mathbf{y}^T$]
+\textbf{Problem Statement:} Let $\mathbf{x} \in \R^n \setminus \{\mathbf{0}\}$ and $\mathbf{y} \in \R^m \setminus \{\mathbf{0}\}$ be non-zero column vectors. Let $A = \mathbf{x} \mathbf{y}^T \in \R^{n \times m}$. Determine the Thin SVD of $A$.
+
+\medskip
+\textbf{Step-by-Step Solution:}
+\begin{enumerate}
+    \item The matrix $A = \mathbf{x} \mathbf{y}^T$ has rank $\rank(A) = 1$, as every column is a scalar multiple of $\mathbf{x}$.
+    \item With only one strictly positive singular value, its Thin SVD consists of a single term:
+    \begin{equation}
+        A = \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T,
+    \end{equation}
+    subject to the normalization requirements:
+    \begin{equation}
+        \|\mathbf{u}_1\|_2 = 1, \qquad \|\mathbf{v}_1\|_2 = 1, \qquad \sigma_1 > 0.
+    \end{equation}
+    \item Factor out the Euclidean lengths of $\mathbf{x}$ and $\mathbf{y}$:
+    \begin{equation}
+        \mathbf{x} = \|\mathbf{x}\|_2 \left( \frac{\mathbf{x}}{\|\mathbf{x}\|_2} \right), \qquad \mathbf{y} = \|\mathbf{y}\|_2 \left( \frac{\mathbf{y}}{\|\mathbf{y}\|_2} \right).
+    \end{equation}
+    \item Substitute into the outer product:
+    \begin{align}
+        A = \mathbf{x} \mathbf{y}^T &= \left[ \|\mathbf{x}\|_2 \left( \frac{\mathbf{x}}{\|\mathbf{x}\|_2} \right) \right] \left[ \|\mathbf{y}\|_2 \left( \frac{\mathbf{y}}{\|\mathbf{y}\|_2} \right) \right]^T \nonumber \\
+        &= \left( \|\mathbf{x}\|_2 \|\mathbf{y}\|_2 \right) \left( \frac{\mathbf{x}}{\|\mathbf{x}\|_2} \right) \left( \frac{\mathbf{y}}{\|\mathbf{y}\|_2} \right)^T.
+    \end{align}
+    \item Matching directly with the dyadic term $\sigma_1 \mathbf{u}_1 \mathbf{v}_1^T$:
+    \begin{align}
+        \sigma_1 &= \|\mathbf{x}\|_2 \|\mathbf{y}\|_2, \\
+        \mathbf{u}_1 &= \frac{\mathbf{x}}{\|\mathbf{x}\|_2} \in \R^n, \\
+        \mathbf{v}_1 &= \frac{\mathbf{y}}{\|\mathbf{y}\|_2} \in \R^m.
+    \end{align}
+    Both vectors have unit norm and $\sigma_1 > 0$, completely determining the Thin SVD.
+\end{enumerate}
+\end{example}
+
+\subsection{Problem 4: SVD of a Symmetric Matrix from Its Spectral Decomposition}
+
+\begin{example}[SVD of a Symmetric Matrix from Its Spectral Form]
+\textbf{Problem Statement:} Let $A \in \R^{n \times n}$ be symmetric with spectral decomposition $A = Q D Q^T$, where $Q$ is orthogonal and $D = \diag(\lambda_1, \dots, \lambda_n)$. How can the canonical SVD be obtained?
+
+\medskip
+\textbf{Solution and Discussion:}
+\begin{enumerate}
+    \item A symmetric matrix has real eigenvalues $\lambda_i \in \R$, which may be negative ($\lambda_i < 0$).
+    \item By definition, singular values must be non-negative ($\sigma_i \ge 0$). Since $A^T A = (Q D Q^T)(Q D Q^T) = Q D^2 Q^T$, the eigenvalues of $A^T A$ are $\lambda_i^2$, giving:
+    \begin{equation}
+        \sigma_i = \sqrt{\lambda_i^2} = |\lambda_i|.
+    \end{equation}
+    \item Reconciling signs in the singular vectors: writing the dyadic spectral sum:
+    \begin{equation}
+        A = \sum_{j=1}^n \lambda_j \mathbf{q}_j \mathbf{q}_j^T.
+    \end{equation}
+    Factor out the eigenvalue sign $\operatorname{sgn}(\lambda_j) \in \{+1, -1\}$ (setting $\operatorname{sgn}(0) = +1$):
+    \begin{equation}
+        \lambda_j \mathbf{q}_j \mathbf{q}_j^T = |\lambda_j| \left( \operatorname{sgn}(\lambda_j) \mathbf{q}_j \right) \mathbf{q}_j^T.
+    \end{equation}
+    Consequently:
+    \begin{equation}
+        \sigma_j = |\lambda_j|, \qquad \mathbf{u}_j = \operatorname{sgn}(\lambda_j) \mathbf{q}_j, \qquad \mathbf{v}_j = \mathbf{q}_j.
+    \end{equation}
+    If $\lambda_j < 0$, the negative sign is absorbed by reversing the orientation of the left singular vector $\mathbf{u}_j = -\mathbf{q}_j$, preserving unit norm $\|\mathbf{u}_j\|_2 = 1$.
+    \item Finally, to satisfy the SVD sorting condition ($\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n \ge 0$), we simultaneously permute the columns of $U$, the columns of $V$, and the entries of $\Sigma$ according to non-increasing absolute values $|\lambda_{\pi(1)}| \ge |\lambda_{\pi(2)}| \ge \dots \ge |\lambda_{\pi(n)}|$.
+\end{enumerate}
+\end{example}
+
+\begin{noteblock}{Curricular Link to the Subsequent Lecture}
+As explored during the interactive session [100:31 - 103:59] and summarized on the board, full analysis of Problem 4, alongside induced matrix norms, perturbation analysis, and advanced SVD applications (image compression and Principal Component Analysis), serves as the natural bridge into the following lecture.
+\end{noteblock}
+
+\clearpage
+\section{Summary Table of the Chapter}
+\label{sec:svd-summary-table-en}
+
+Table~\ref{tab:svd-summary-table-en} provides a structured synthesis of the definitions, factorizations, and algebraic properties covered in this chapter.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l l}
+\toprule
+\textbf{Concept / Object} & \textbf{Mathematical Formulation} & \textbf{Key Properties / Notes} \\
+\midrule
+Full SVD & $A = U \Sigma V^T$ & $U \in \R^{n \times n}$ orth., $V \in \R^{m \times m}$ orth., $\Sigma \in \R^{n \times m}$ diag. \\
+Singular Values & $\sigma_i = \sqrt{\lambda_i(A^T A)}$ & Real, ordered: $\sigma_1 \ge \dots \ge \sigma_{\min\{n,m\}} \ge 0$ \\
+Dyadic Expansion & $A = \sum_{j=1}^{\rank(A)} \sigma_j \mathbf{u}_j \mathbf{v}_j^T$ & Weighted sum of orthonormal rank-one matrices \\
+Thin SVD ($n \ge m$) & $A = U_0 \Sigma_0 V^T$ & $U_0 \in \R^{n \times m}$ ($U_0^T U_0 = I_m$), $\Sigma_0 \in \R^{m \times m}$ \\
+Thin Complexity & $\BigO{n m^2}$ flops, $\BigO{nm}$ memory & Critical speedup and savings when $n \gg m$ vs Full ($\BigO{n^2 m}$) \\
+Matrix Rank & $\rank(A) = r$ & Number of strictly positive singular values $\sigma_j > 0$ \\
+Range $\operatorname{Im}(A)$ & $\spanop\{\mathbf{u}_1, \dots, \mathbf{u}_r\} \subseteq \R^n$ & Orthonormal basis from first $r$ columns of $U$ \\
+Nullspace $\ker(A)$ & $\spanop\{\mathbf{v}_{r+1}, \dots, \mathbf{v}_m\} \subseteq \R^m$ & Orthonormal basis from last $m-r$ columns of $V$ \\
+Range of Transpose $\operatorname{Im}(A^T)$ & $\spanop\{\mathbf{v}_1, \dots, \mathbf{v}_r\} \subseteq \R^m$ & Orthonormal basis from first $r$ columns of $V$ \\
+Nullspace of Transpose $\ker(A^T)$ & $\spanop\{\mathbf{u}_{r+1}, \dots, \mathbf{u}_n\} \subseteq \R^n$ & Orthonormal basis from last $n-r$ columns of $U$ \\
+Inverse SVD & $A^{-1} = \widetilde{U} \widetilde{\Sigma} \widetilde{V}^T$ & $\widetilde{\sigma}_i = 1/\sigma_{n-i+1}$, bases swapped and reversed \\
+Moore-Penrose Pseudoinverse & $A^\dagger = V \Sigma^\dagger U^T$ & $\Sigma^\dagger_{ii} = 1/\sigma_i$ for $i \le r$, zeros elsewhere \\
+Rank-1 SVD ($A = \mathbf{x} \mathbf{y}^T$) & $\sigma_1 = \|\mathbf{x}\|_2 \|\mathbf{y}\|_2, \; \mathbf{u}_1 = \frac{\mathbf{x}}{\|\mathbf{x}\|_2}, \; \mathbf{v}_1 = \frac{\mathbf{y}}{\|\mathbf{y}\|_2}$ & $\rank(A) = 1$, single singular term \\
+Symmetric Matrix SVD & $\sigma_i = |\lambda_i|, \; \mathbf{u}_i = \operatorname{sgn}(\lambda_i) \mathbf{q}_i, \; \mathbf{v}_i = \mathbf{q}_i$ & Derived from spectral decomposition $A = Q D Q^T$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Comprehensive overview of the Singular Value Decomposition (SVD), associated fundamental subspaces, and algebraic properties.}
+\label{tab:svd-summary-table-en}
+\end{table}
