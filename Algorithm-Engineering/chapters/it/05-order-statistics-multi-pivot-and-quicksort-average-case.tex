@@ -1,0 +1,722 @@
+\chapter{Statistiche d'Ordine, Trade-off Multi-Pivot e Analisi Formale del Caso Medio di Quicksort}
+\label{cha:lecture-five}
+
+\begin{center}
+  \textbf{Lezione 5}\\
+  \emph{Selezione del $k$-esimo Elemento, Trade-off Multi-Pivot e Caso Medio di Quicksort}\\[0.5em]
+  Data: 29 Settembre 2026
+\end{center}
+
+In questo capitolo viene esaminato il problema fondamentale della \textbf{selezione del $k$-esimo elemento} (\textit{Order Statistics}), confrontando le strategie ad ordinamento globale, incrementale e basate su code di priorità limitate (\textit{Bounded Max-Heap}). Successivamente, l'analisi si estende al \textbf{dilemma del Multi-Pivot}, approfondendo le ragioni architetturali per cui l'impiego di molteplici pivot non determina necessariamente un miglioramento delle prestazioni a causa dei costi di classificazione interna, della pressione sui registri di sistema e dei limiti imposti dalle linee di cache e dai predittori di salto delle CPU moderne. Viene quindi esaminato il \textbf{partizionamento a 3 vie} (\textit{Dutch National Flag}) e il suo ruolo strutturale nella ricorsione: collegandosi all'implementazione operativa introdotta nella Lezione~\ref{cha:lecture-four}, si analizzano gli invarianti dimensionali, l'applicazione diretta all'algoritmo \textit{Quickselect} per la selezione lineare con terminazione anticipata e l'impatto sul collasso della taglia dei sotto-problemi. Infine, viene sviluppata l'intera \textbf{dimostrazione algebrica formale del tempo medio di esecuzione di Quicksort} ($\Theta(n \log_2 n)$), risolvendo rigorosamente la ricorrenza integrale mediante il metodo del fattore integrante e i numeri armonici.
+
+\FloatBarrier
+\section{Il Problema della Selezione (\textit{Selection of the \texorpdfstring{$k$}{k}-th Item})}
+\label{sec:selection-problem}
+
+Il problema della selezione costituisce una delle primitive fondamentali dell'informatica teorica e dell'ingegneria degli algoritmi. A differenza del problema dell'ordinamento, in cui l'obiettivo primario è riorganizzare globalmente una sequenza di dati in modo non decrescente, il problema della selezione richiede di identificare un singolo elemento caratterizzato da una determinata proprietà di rango senza dover necessariamente ordinare l'intero insieme.
+
+\subsection{Formulazione Formale del Problema}
+\label{subsec:selection-formulation}
+
+\begin{definition}[$k$-esima Statistica d'Ordine]
+Sia $S = [s_1, s_2, \dots, s_n]$ un vettore o sequenza disordinata di $n$ elementi appartenenti a un dominio totalmente ordinato $(\mathcal{U}, \le)$, e sia $k \in \{1, 2, \dots, n\}$ un indice target specificato. La \textbf{$k$-esima statistica d'ordine} di $S$, comunemente denotata con $S_{(k)}$ o $\text{Select}(S, k)$, è l'elemento che occuperebbe la posizione di indice $k$ qualora la sequenza $S$ venisse disposta in ordine non decrescente:
+\begin{equation}
+  S_{\text{ordinato}} = [s_{(1)}, s_{(2)}, \dots, s_{(n)}] \quad \text{con } s_{(1)} \le s_{(2)} \le \dots \le s_{(n)}.
+\end{equation}
+Pertanto, $\text{Select}(S, k) = S_{\text{ordinato}}[k]$.
+\end{definition}
+
+\begin{example}[Istanza di Esempio Didattica]
+Si consideri un vettore non ordinato $S$ di cardinalità $n = 6$:
+\begin{center}
+\begin{tabular}{rcccccc}
+\toprule
+\textbf{Indice ($1$-based):} & $1$ & $2$ & $3$ & $4$ & $5$ & $6$ \\
+\midrule
+$S =$ & $2$ & $7$ & $5$ & $3$ & $1$ & $10$ \\
+$S_{\text{ordinato}} =$ & $1$ & $2$ & $3$ & $5$ & $7$ & $10$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Dall'analisi delle statistiche d'ordine si evince:
+\begin{itemize}
+  \item Per $k = 1$: l'obiettivo consiste nell'estrarre il \textbf{minimo} assoluto della collezione:
+  \begin{equation}
+    S_{(1)} = S_{\text{ordinato}}[1] = 1.
+  \end{equation}
+  \item Per $k = n = 6$: l'obiettivo consiste nell'individuare il \textbf{massimo} assoluto della collezione:
+  \begin{equation}
+    S_{(6)} = S_{\text{ordinato}}[6] = 10.
+  \end{equation}
+  \item Per $k = 3$: la terza statistica d'ordine corrisponde al valore $S_{(3)} = 3$.
+  \item Per $k = \lceil n/2 \rceil = 3$ o $k = \lfloor n/2 \rfloor + 1 = 4$: si ottiene la \textbf{mediana} dell'insieme (rispettivamente $3$ o $5$).
+\end{itemize}
+\end{example}
+
+\subsection{Casi Limite: Ricerca di Minimo e Massimo}
+\label{subsec:selection-boundary-cases}
+
+Per i casi limite $k = 1$ e $k = n$, la determinazione dell'elemento target non necessita di strutture dati complesse. È sufficiente una scansione lineare iterativa dell'array memorizzando in un registro temporaneo il candidato corrente:
+
+\begin{itemize}
+  \item Si inizializza una variabile temporanea $\min \leftarrow S[1]$.
+  \item Si scorrono consecutivamente le restanti $n - 1$ celle da $i = 2$ a $n$, eseguendo a ogni iterazione il confronto $S[i] < \min$: se la condizione è verificata, si aggiorna $\min \leftarrow S[i]$.
+  \item Il numero totale di confronti eseguiti è esattamente pari a $n - 1$.
+\end{itemize}
+
+\begin{property}[Ottimalità Asintotica per $k = 1$ e $k = n$]
+Nel modello computazionale basato su confronti, determinare il minimo (o il massimo) di una collezione disordinata di $n$ elementi richiede nel caso peggiore almeno $n - 1$ confronti. Pertanto, l'algoritmo di scansione lineare garantisce un costo ottimo:
+\begin{equation}
+  T(n) = \Theta(n), \quad \text{con spazio ausiliario } \mathcal{O}(1).
+\end{equation}
+\end{property}
+
+\begin{proof}[Dimostrazione per Argomento dell'Avversario]
+Ogni confronto tra due elementi distinti $a$ e $b$ può eliminare al più un solo elemento dal ruolo di potenziale minimo (l'elemento che risulta maggiore nell'esito del confronto). Poiché all'inizio vi sono $n$ potenziali candidati e alla conclusione deve rimanerne esattamente uno, devono essere eliminati almeno $n - 1$ candidati. Ciascun confronto elimina al massimo un candidato; pertanto sono necessari almeno $n - 1$ confronti.
+\end{proof}
+
+\begin{property}[Ricerca Simultanea di Minimo e Massimo]
+Se il problema richiede di individuare simultaneamente sia il minimo ($k=1$) che il massimo ($k=n$), l'esecuzione disgiunta di due scansioni lineari compirebbe $2(n - 1)$ confronti. È tuttavia possibile processare gli elementi a coppie:
+\begin{enumerate}
+  \item Si confrontano gli elementi adiacenti $S[2i]$ e $S[2i+1]$ tra loro (1 confronto).
+  \item Il minore della coppia viene confrontato con il minimo corrente (1 confronto).
+  \item Il maggiore della coppia viene confrontato con il massimo corrente (1 confronto).
+\end{enumerate}
+Questo approccio riduce il costo a $\lceil 3n/2 \rceil - 2$ confronti, conseguendo un risparmio del $25\%$ rispetto all'approccio ingenuo.
+\end{property}
+
+\subsection{Strategie Risolutive per $k$ Generico}
+\label{subsec:selection-general-strategies}
+
+Quando l'indice target $k \in \{1, \dots, n\}$ assume un valore generico, la scansione lineare a singolo registro non è più sufficiente, poiché occorre tenere traccia di molteplici elementi concorrenti. In letteratura e nelle applicazioni industriali si distinguono tre strategie fondamentali:
+
+\begin{table}[H]
+  \centering
+  \caption{Confronto analitico tra le strategie risolutive classiche per il problema della selezione.}
+  \label{tab:selection-strategies-comparison}
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}p{0.20\textwidth}p{0.18\textwidth}Y@{}}
+    \toprule
+    Approccio & Algoritmo / Struttura & Complessità Tempo & Descrizione Architetturale e Meccanismo \\
+    \midrule
+    1. Ordinamento Globale & Merge Sort / Heap Sort & $\mathcal{O}(n \log_2 n)$ & Ordina interamente l'array $S$; restituisce $S_{\text{ordinato}}[k]$ in tempo $\mathcal{O}(1)$. Sovradimensionato se $k \ll n$. \\
+    \addlinespace
+    2. Ordinamento Parziale & Finestra con Insertion Sort & $\mathcal{O}(k \cdot n)$ \newline (\textit{Worst-Case}) & Mantiene una finestra ordinata di dimensione $k$ dei minimi. Ogni nuovo elemento richiede lo scorrimento di al più $k$ posizioni. \\
+    \addlinespace
+    3. Coda con Priorità Limitata & Max-Heap di taglia $k$ & $\mathcal{O}(n \log_2 k)$ & Mantiene un Max-Heap con i $k$ elementi minimi visti finora. Il massimo dei minimi risiede nella radice e viene filtrato in $\mathcal{O}(\log_2 k)$. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsubsection{Strategia 1: Ordinamento Globale (\textit{Full Sorting})}
+L'approccio più immediato consiste nell'ordinare l'intera sequenza $S$ mediante un algoritmo di ordinamento basato su confronti ottimale, come Merge Sort o Heap Sort, impiegando $\mathcal{O}(n \log_2 n)$ operazioni nel caso peggiore. Una volta che l'array è ordinato, la $k$-esima statistica d'ordine coincide immediatamente con la cella in posizione $k$, accessibile in $\mathcal{O}(1)$.
+
+\begin{itemize}
+  \item \textbf{Vantaggi:} Estremamente semplice da implementare; ottimale qualora l'applicazione debba rispondere successivamente a molteplici interrogazioni di selezione su indici $k$ differenti (\textit{multi-query workload}).
+  \item \textbf{Svantaggi:} Esegue una quantità elevata di lavoro superfluo. Se il sistema necessita unicamente di una specifica statistica d'ordine (ad esempio il percentile 95-esimo o la mediana), ordinare le porzioni di array che non influenzano la posizione $k$ introduce un overhead computazionale evitabile.
+\end{itemize}
+
+\subsubsection{Strategia 2: Ordinamento Parziale e Incrementale (\textit{Insertion Window})}
+Qualora $k$ sia sensibilmente inferiore alla cardinalità complessiva $n$ ($k \ll n$), non è necessario ordinare l'intero vettore. Si può mantenere un buffer ausiliario ordinato $W$ di capacità pari a $k$, contenente i $k$ elementi più piccoli incontrati durante la scansione:
+
+\begin{enumerate}
+  \item Si inseriscono i primi $k$ elementi dell'input in $W$ e si ordinano in tempo $\mathcal{O}(k \log_2 k)$ o $\mathcal{O}(k^2)$.
+  \item Per ciascuno dei successivi $n - k$ elementi $x \in S[k+1 \dots n]$:
+  \begin{itemize}
+    \item Si confronta $x$ con il valore massimo del buffer, situato all'estremità destra $W[k]$.
+    \item Se $x \ge W[k]$, l'elemento $x$ è maggiore o uguale a ciascuno dei $k$ minimi attuali; pertanto viene immediatamente scartato con un singolo confronto $\mathcal{O}(1)$.
+    \item Se $x < W[k]$, $x$ appartiene ai nuovi $k$ minimi. Si elimina l'elemento massimo $W[k]$ e si inserisce $x$ all'interno di $W$ mediante lo scorrimento all'indietro tipico di \textit{Insertion Sort}, con un costo pari a $\mathcal{O}(k)$ confronti e spostamenti.
+  \end{itemize}
+\end{enumerate}
+
+Nel caso peggiore (ad esempio una sequenza strettamente decrescente), ogni nuovo elemento deve essere inserito in testa a $W$, portando la complessità complessiva a:
+\begin{equation}
+  T(n) = \mathcal{O}(k^2) + \sum_{i=k+1}^n \mathcal{O}(k) = \mathcal{O}(k \cdot n).
+\end{equation}
+Se $k$ è una costante limitata (es. $k \in \{2, 3, 5\}$), il tempo di calcolo è rigorosamente lineare $\mathcal{O}(n)$. Tuttavia, quando $k = \Theta(n)$ (come nel calcolo della mediana $k = n/2$), la complessità degenera a $\mathcal{O}(n^2)$, risultando nettamente peggiore dell'ordinamento globale.
+
+\subsubsection{Strategia 3: Coda con Priorità Limitata (\textit{Bounded Max-Heap})}
+La Strategia 3 risolve le inefficienze dell'ordinamento parziale sostituendo il buffer sequenziale con un \textbf{Max-Heap di dimensione fissa $k$}. 
+
+\begin{property}[Invariante del Bounded Max-Heap]
+In qualsiasi istante dell'elaborazione, dopo aver esaminato un prefisso di dimensione $m \ge k$ dell'array originale, il Max-Heap memorizza esattamente i $k$ elementi con valore minore estratti dal sottoinsieme $\{S[1], \dots, S[m]\}$. La radice dell'heap ($\text{top}()$) coincide sempre con il massimo di questi $k$ elementi, ovvero con il candidato corrente per la $k$-esima statistica d'ordine.
+\end{property}
+
+Il meccanismo operativo viene illustrato nel diagramma di flusso in \autoref{fig:bounded-max-heap-flowchart}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.92\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    block/.style={rectangle, draw=blue!80!black, fill=blue!8, thick, rounded corners=4pt, align=center, font=\small, minimum height=0.85cm, inner sep=6pt},
+    decision/.style={diamond, draw=orange!90!black, fill=orange!15, thick, aspect=2.0, align=center, font=\small\bfseries, inner sep=5pt},
+    action/.style={rectangle, draw=teal!80!black, fill=teal!12, thick, rounded corners=4pt, align=center, font=\small, minimum height=1.7cm, minimum width=4.8cm, inner sep=6pt},
+    discard/.style={rectangle, draw=red!80!black, fill=red!10, thick, rounded corners=4pt, align=center, font=\small, minimum height=1.7cm, minimum width=4.8cm, inner sep=6pt},
+    arr/.style={-{Stealth[scale=1.0]}, thick, draw=blue!90!black},
+    lbl/.style={font=\footnotesize\bfseries, fill=white, inner sep=2pt, rounded corners=2pt}
+  ]
+    \node[block] (input) at (0, 0) {Elemento corrente $x \in S[m]$};
+    \node[decision] (cond) at (0, -1.8) {$x < \text{top}(H)$?};
+    
+    \node[action] (swap) at (-3.8, -4.6) {
+      \textbf{Aggiorna Heap (Nuovo Minimo)}\\[0.25em]
+      1. Sostituisci radice con $x$ (\texttt{ExtractMax})\\
+      2. Ripristina heap (\texttt{HeapifyDown})\\[0.2em]
+      \textbf{Costo:} $\mathcal{O}(\log_2 k)$
+    };
+    
+    \node[discard] (drop) at (3.8, -4.6) {
+      \textbf{Scarta Elemento}\\[0.25em]
+      $x \ge \text{top}$: non appartiene ai $k$ minimi\\
+      Nessuna modifica all'heap\\[0.2em]
+      \textbf{Costo:} $\mathcal{O}(1)$
+    };
+    
+    \node[block] (next) at (0, -7.2) {Avanza all'elemento successivo: $x \leftarrow S[m+1]$};
+
+    \draw[arr] (input) -- (cond);
+    
+    % Rami condizionali puliti con ingresso superiore
+    \draw[arr] (cond.west) -| node[lbl, pos=0.35, above] {Sì ($x < \text{top}$)} (swap.north);
+    \draw[arr] (cond.east) -| node[lbl, pos=0.35, above] {No ($x \ge \text{top}$)} (drop.north);
+    
+    % Chiusura rami ortogonale: confluiscono in un giunto centrale sopra next
+    \draw[thick, draw=blue!90!black] (swap.south) |- (0, -6.3);
+    \draw[thick, draw=blue!90!black] (drop.south) |- (0, -6.3);
+    \draw[arr] (0, -6.3) -- (next.north);
+  \end{tikzpicture}%
+  }
+  \caption{Flusso di elaborazione con Max-Heap di dimensione limitata $k$. Gli elementi che non migliorano i $k$ minimi correnti vengono scartati in tempo costante $\mathcal{O}(1)$.}
+  \label{fig:bounded-max-heap-flowchart}
+\end{figure}
+
+L'algoritmo formale viene sintetizzato nell'\autoref{alg:bounded-heap-select}.
+
+\begin{algorithm}[H]
+\caption{Selezione con Max-Heap Limitato (\textit{BoundedHeapSelect})}
+\label{alg:bounded-heap-select}
+\KwInput{Array $S$ di dimensione $n$, indice target $k \in \{1, \dots, n\}$}
+\KwOutput{Il valore della $k$-esima statistica d'ordine $S_{(k)}$}
+
+Inizializza un Max-Heap vuoto $H$ di capacità massima $k$\;
+\For{$i \leftarrow 1$ \KwTo $k$}{
+  $H.\text{Insert}(S[i])$ \tcp*{Costruzione iniziale in tempo $\mathcal{O}(k)$}
+}
+\For{$i \leftarrow k + 1$ \KwTo $n$}{
+  \If{$S[i] < H.\text{Top}()$}{
+    $H.\text{ExtractMax}()$\;
+    $H.\text{Insert}(S[i])$ \tcp*{Sostituzione e ripristino in tempo $\mathcal{O}(\log_2 k)$}
+  }
+}
+\Return $H.\text{Top}()$ \tcp*{La radice contiene esattamente $S_{(k)}$}
+\end{algorithm}
+
+\begin{example}[Traccia Esecutiva Passo-Passo del Bounded Max-Heap]
+Si applichi il \autoref{alg:bounded-heap-select} sull'array $S = [2, 7, 5, 3, 1, 10]$ con indice target $k = 3$. L'obiettivo consiste nell'individuare il 3-terzo elemento più piccolo (valore teorico atteso: $3$).
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Traccia dettagliata dello stato dell'heap per ciascun elemento esaminato ($k=3$).}
+  \label{tab:heap-selection-trace}
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}ccp{3.5cm}Yl@{}}
+    \toprule
+    Passo & $S[i]$ & Confronto con Radice & Azione Intrapresa & Stato Heap $H$ ($\text{Top}$) \\
+    \midrule
+    $1$ & $2$ & Costruzione iniziale & Inserimento in $H$ & $[2]$ \\
+    $2$ & $7$ & Costruzione iniziale & Inserimento in $H$ & $[7, 2]$ \\
+    $3$ & $5$ & Costruzione iniziale & Inserimento in $H$ & $[7, 2, 5]$ ($\text{Top} = 7$) \\
+    \midrule
+    $4$ & $3$ & $3 < 7$ (Sì) & Estrai $7$, Inserisci $3$ & $[5, 2, 3]$ ($\text{Top} = 5$) \\
+    $5$ & $1$ & $1 < 5$ (Sì) & Estrai $5$, Inserisci $1$ & $[3, 2, 1]$ ($\text{Top} = 3$) \\
+    $6$ & $10$ & $10 < 3$ (No) & Scarta $10$ in $\mathcal{O}(1)$ & $[3, 2, 1]$ ($\text{Top} = 3$) \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Al termine della scansione, la radice del Max-Heap contiene il valore $3$, corrispondente in modo esatto a $S_{(3)} = S_{\text{ordinato}}[3]$.
+\end{example}
+
+\begin{property}[Analisi della Complessità Temporale e Spaziale]
+La costruzione iniziale dell'heap sui primi $k$ elementi richiede tempo lineare $\mathcal{O}(k)$ mediante l'algoritmo di Floyd (\texttt{BuildMaxHeap}). Per ciascuno dei successivi $n - k$ elementi, l'algoritmo compie un confronto $\mathcal{O}(1)$; qualora l'elemento sia inferiore alla radice, il costo di ripristino delle proprietà dell'heap è pari a $\mathcal{O}(\log_2 k)$. Nel caso peggiore, il tempo complessivo di esecuzione è pari a:
+\begin{equation}
+  T(n) = \mathcal{O}(k) + (n - k) \cdot \mathcal{O}(\log_2 k) = \mathcal{O}(n \log_2 k).
+\end{equation}
+Lo spazio ausiliario occupato è limitato a $\Theta(k)$ locazioni di memoria, rendendo l'algoritmo ideale per scenari di \textbf{data stream} in cui $n \gg k$ e l'intero vettore non può risiedere simultaneamente nella cache o nella memoria centrale.
+\end{property}
+
+\FloatBarrier
+\section{Il Dilemma del Multi-Pivot (\textit{Why Not Many Pivots?})}
+\label{sec:multi-pivot-dilemma}
+
+Nei paradigmi di ripartizione distributiva e negli algoritmi di ordinamento di tipo \textit{Divide et Impera}, la scelta di quanti punti di divisione (\textit{pivot}) impiegare rappresenta una decisione progettuale cruciale. Intuitivamente, suddividere un problema di taglia $n$ in un numero elevato di sotto-problemi permette di contrarre sensibilmente la profondità dell'albero di ricorsione.
+
+\subsection{L'Illusione Teorica dell'Albero a Molti Rami}
+\label{subsec:tree-depth-illusion}
+
+Supponiamo di generalizzare lo schema classico di Quicksort selezionando $p \ge 1$ pivot distinti ed ordinati:
+\begin{equation}
+  p_1 < p_2 < \dots < p_p.
+\end{equation}
+Tali pivot delimitano nello spazio delle chiavi $p + 1$ partizioni disgiunte:
+\begin{equation}
+  (-\infty, p_1), \quad [p_1, p_2), \quad [p_2, p_3), \quad \dots, \quad [p_p, +\infty).
+\end{equation}
+Se assumiamo che i pivot siano distribuiti in modo perfettamente bilanciato, ciascun sotto-array conterrà circa $n / (p + 1)$ elementi. L'altezza dell'albero di ricorsione si riduce conseguentemente a:
+\begin{equation}
+  h(n) \approx \log_{p+1} n = \frac{\ln n}{\ln(p + 1)}.
+\end{equation}
+Se fosse possibile incrementare $p$ a piacimento (ad esempio ponendo $p = \sqrt{n}$ o $p = \log_2 n$), l'altezza dell'albero collasserebbe a valori estremamente bassi. Tuttavia, negli appunti e nella pratica ingegneristica viene posto il quesito cardine:
+
+\begin{center}
+  \bfseries ``Why not many pivots?'' $\implies$ Increase cost of sorting and partitioning.
+\end{center}
+
+\subsection{Costo di Selezione dei Pivot}
+Per operare una suddivisione bilanciata in $p + 1$ intervalli, non è sufficiente estrarre $p$ valori casuali: occorre che tali $p$ pivot siano mutuamente ordinati e rappresentativi della distribuzione statistica dell'input.
+\begin{itemize}
+  \item Se i $p$ pivot vengono campionati casualmente, devono essere preliminarmente ordinati tra loro, con un costo locale di $\mathcal{O}(p \log_2 p)$ confronti.
+  \item Se si richiede che i pivot garantiscano frazioni dimensionali bilanciate (ad esempio i percentili esatti), occorre invocare algoritmi deterministici di selezione (quali \textit{Median-of-Medians} di Blum et al.~\cite{blum1973}), le cui costanti moltiplicative computazionali superano ampiamente il beneficio derivante dal partizionamento multiplo.
+\end{itemize}
+
+\subsection{Costo di Classificazione Interna per Elemento}
+Il fattore maggiormente penalizzante risiede nel numero di confronti necessari per classificare ciascuno degli $n$ elementi all'interno del corretto intervallo tra i $p + 1$ disponibili:
+
+\begin{enumerate}
+  \item \textbf{Classificazione Lineare Sequenziale:}
+  Se per ogni elemento si esegue una scansione sequenziale confrontandolo progressivamente con $p_1, p_2, \dots, p_p$, il numero medio di confronti per elemento a ogni livello di ricorsione è proporzionale a $p$. Il numero totale di confronti effettuati sull'intero albero risulta:
+  \begin{equation}
+    C_{\text{tot}}(n) \approx n \cdot p \cdot \frac{\ln n}{\ln(p + 1)} = n \ln n \cdot \left( \frac{p}{\ln(p + 1)} \right).
+  \end{equation}
+  La funzione $f(p) = \frac{p}{\ln(p + 1)}$ è \textbf{strettamente crescente} per ogni intero $p \ge 1$:
+  \begin{itemize}
+    \item Per $p = 1$: $f(1) = \frac{1}{\ln 2} \approx 1{,}442$.
+    \item Per $p = 2$: $f(2) = \frac{2}{\ln 3} \approx 1{,}820$ ($+26\%$ di confronti rispetto a $p=1$).
+    \item Per $p = 7$: $f(7) = \frac{7}{\ln 8} \approx 3{,}366$ ($+133\%$ di confronti).
+  \end{itemize}
+  All'aumentare di $p$, il numero complessivo di confronti necessari cresce sensibilmente, annullando il vantaggio dell'albero più basso.
+
+  \item \textbf{Classificazione mediante Ricerca Binaria:}
+  Se per collocare l'elemento nei $p+1$ rami si impiega una ricerca binaria sui $p$ pivot, il numero di confronti per elemento è pari a $\lceil \log_2(p + 1) \rceil$. Moltiplicando per la profondità dell'albero:
+  \begin{equation}
+    C_{\text{tot}}(n) \approx n \cdot \log_2(p + 1) \cdot \frac{\log_2 n}{\log_2(p + 1)} = n \log_2 n.
+  \end{equation}
+  Asintoticamente il numero totale di confronti teorici \textbf{non diminuisce affatto}, rimanendo invariante rispetto al caso monotematico a singolo pivot.
+\end{enumerate}
+
+\subsection{Colli di Bottiglia Architetturali e Hardware}
+\label{subsec:hardware-bottlenecks}
+
+Nei moderni calcolatori, le prestazioni degli algoritmi non dipendono unicamente dal conteggio algebrico dei confronti, ma dalle interazioni con la microarchitettura della CPU (gerarchia di memoria cache, registri, linee di pipeline e predittori di salto):
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    box/.style={rectangle, draw=blue!75!black, fill=blue!8, thick, rounded corners=4pt, align=center, font=\small, minimum height=1.4cm, inner sep=6pt},
+    hw/.style={rectangle, draw=red!75!black, fill=red!6, thick, rounded corners=4pt, align=left, font=\small, minimum height=1.3cm, inner sep=6pt},
+    arr/.style={-{Stealth[scale=1.0]}, thick, draw=blue!85!black}
+  ]
+    \node[box, minimum width=3.8cm] (pivots) at (-4.2, 0) {
+      \textbf{Aumento Pivot ($p \ge 3$)}\\[0.3em]
+      \footnotesize Riduce l'altezza: $\log_{p+1} n$\\[0.2em]
+      \scriptsize Genera però $p+1$ partizioni attive
+    };
+    
+    \node[hw, minimum width=6.8cm] (cache) at (3.8, 2.2) {
+      \textbf{1. Cache Line Thrashing \& Memory Streams}\\
+      \scriptsize $p+1$ stream di scrittura concorrenti superano i buffer della CPU.\\
+      \scriptsize Conflitti di linea e rimozioni premature nella cache dati L1.
+    };
+    
+    \node[hw, minimum width=6.8cm] (branch) at (3.8, 0.0) {
+      \textbf{2. Penalità di Branch Misprediction}\\
+      \scriptsize Salto condizionato multi-via altamente imprevedibile.\\
+      \scriptsize Svuotamento della pipeline di esecuzione (15--20 cicli per miss).
+    };
+    
+    \node[hw, minimum width=6.8cm] (reg) at (3.8, -2.2) {
+      \textbf{3. Pressione sui Registri (Register Spilling)}\\
+      \scriptsize $p$ pivot e $p+1$ indici eccedono i 16 registri general-purpose x86-64.\\
+      \scriptsize Salvataggio e ricaricamento forzato delle variabili nello stack in RAM.
+    };
+
+    \draw[arr] (pivots.east) -- (cache.west);
+    \draw[arr] (pivots.east) -- (branch.west);
+    \draw[arr] (pivots.east) -- (reg.west);
+  \end{tikzpicture}%
+  }
+  \caption{Cause microarchitetturali del decadimento prestazionale all'aumentare del numero di pivot $p$.}
+  \label{fig:multi-pivot-bottlenecks}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Stream di Scrittura e Cache Lines:} Con 1 solo pivot si hanno 2 flussi continui di scrittura in memoria (uno dall'estremo sinistro e uno dal destro), che sfruttano appieno i buffer di scrittura sequenziale (\textit{Write-Combining Buffers}). Con $p$ pivot, l'algoritmo deve gestire $p+1$ stream contemporanei. Poiché le cache L1 possiedono un'associatività limitata (solitamente 8 vie), $p+1 \ge 4$ stream concorrenti generano conflitti sistematici di linea di cache (\textit{cache eviction} premature).
+  \item \textbf{Predizione dei Salti (\textit{Branch Prediction}):} La classificazione dicotomica ($x < p$) viene predetta con elevata accuratezza dai predittori dinamici moderni. Al contrario, ramificazioni a 3 o più vie creano salti condizionati difficilmente prevedibili: ogni errore di predizione (\textit{branch misprediction}) comporta una penalità severa di 15--20 cicli di clock sprecati per lo svuotamento della pipeline.
+  \item \textbf{Pressione sui Registri (\textit{Register Spilling}):} Su architetture x86-64 vi sono 16 registri ad uso generale. Gestire $p$ valori di pivot, $p+1$ indici di delimitazione, i puntatori di base e le costanti locali eccede il set di registri disponibili quando $p \ge 3$, costringendo il compilatore a riversare temporaneamente le variabili nello stack (\textit{register spilling}), moltiplicando gli accessi lenti in memoria.
+\end{itemize}
+
+\begin{property}[Perché il Dual-Pivot ($p=2$) Funziona nella Pratica?]
+L'algoritmo Dual-Pivot di Yaroslavskiy~\cite{yaroslavskiy2009} (adottato nei runtime di Java e C++) rappresenta il punto di compromesso ottimale: sebbene compia mediamente circa il $5\%$ in più di confronti rispetto al Quicksort classico a 1 pivot ($1{,}9 n \ln n$ contro $2 n \ln n$), \textbf{riduce del $20\%$ le operazioni di memorizzazione e swap in memoria}, consentendo una scansione sequenziale efficiente che si adatta perfettamente alla gerarchia di cache moderna. Per $p \ge 3$, i costi descritti superano nettamente i benefici.
+\end{property}
+
+\FloatBarrier
+\section{Quicksort: Partizionamento a 3 Vie e Implicazioni Ricorsive}
+\label{sec:3way-partitioning}
+
+Come introdotto nella Lezione~\ref{cha:lecture-four} (\autoref{sec:quicksort-and-dual-pivot}), uno dei problemi più critici del Quicksort tradizionale a due vie risiede nella gestione degli elementi duplicati: se tutti gli elementi sono identici, le partizioni convenzionali a due vie (come lo schema di Lomuto) isolano un solo elemento per passo, producendo un albero di ricorsione lineare di altezza $\Theta(n)$ e degradando il tempo di calcolo a $\Theta(n^2)$.
+
+La soluzione strutturale risiede nel partizionamento a tre vie (\textit{Dutch National Flag}) introdotto da Dijkstra~\cite{dijkstra1976}. Mentre nella Lezione~\ref{cha:lecture-four} (\autoref{subsec:3way-quicksort-example}) sono stati esaminati nel dettaglio il meccanismo a tre puntatori ($lt, i, gt$), il relativo algoritmo in-place e la traccia esecutiva puntuale (si veda la \autoref{tab:3way-execution-trace} a pagina~\pageref{tab:3way-execution-trace}), in questa sezione approfondiamo il \textbf{ruolo sistemico del partizionamento a 3 vie nella ricorsione}: gli invarianti dimensionali, l'esclusione della fascia centrale, l'applicazione immediata alla selezione lineare (\textit{Quickselect}) e il raccordo con la ricorrenza del caso medio.
+
+\subsection{Topologia delle Regioni e Invarianti Dimensionali}
+\label{subsec:3way-invariants-dimensional}
+
+Dato un array $S[\text{lo} \dots \text{hi}]$ di cardinalità $n$ e selezionato un pivot $p$, la procedura a 3 vie riorganizza gli elementi in tre comparti contigui, delimitati dagli indici finali $lt$ e $gt$, come illustrato nella \autoref{fig:3way-partitioning-model}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    segment/.style={draw=black!80, thick, minimum height=1.3cm, align=center, font=\small\bfseries},
+    ptr/.style={-{Stealth[scale=0.95]}, very thick, draw=blue!85!black}
+  ]
+    % I tre segmenti principali contigui
+    \node[segment, fill=blue!15, minimum width=4.2cm, anchor=west] (left) at (0, 0) {
+      $< \text{Pivot}$\\[2pt]\footnotesize($n_<$ elementi)
+    };
+    \node[segment, fill=orange!25, minimum width=4.2cm, anchor=west] (mid) at (left.east) {
+      $== \text{Pivot}$\\[2pt]\footnotesize($n_=$ duplicati)
+    };
+    \node[segment, fill=purple!18, minimum width=4.2cm, anchor=west] (right) at (mid.east) {
+      $> \text{Pivot}$\\[2pt]\footnotesize($n_>$ elementi)
+    };
+
+    % Indici di delimitazione e puntatori operativi dall'alto
+    \node[above=12pt, font=\footnotesize\bfseries, text=black!70] at (left.north west) {$\text{lo}$};
+    \draw[ptr] ([yshift=18pt]mid.north west) -- (mid.north west) 
+      node[pos=0.0, above, font=\footnotesize\bfseries, text=blue!85!black] {$lt$};
+    \draw[ptr] ([yshift=18pt]mid.north east) -- (mid.north east) 
+      node[pos=0.0, above, font=\footnotesize\bfseries, text=blue!85!black] {$gt$};
+    \node[above=12pt, font=\footnotesize\bfseries, text=black!70] at (right.north east) {$\text{hi}$};
+
+    % Graffe decorative inferiori orientate verso il basso
+    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick, blue!85!black] 
+      ([yshift=-4pt]left.south west) -- ([yshift=-4pt]left.south east)
+      node[midway, below=8pt, font=\scriptsize\bfseries, text=blue!85!black, align=center] {
+        Ricorsione\\Sinistra\\[2pt]\tiny (Chiavi minori)
+      };
+
+    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick, orange!90!black] 
+      ([yshift=-4pt]mid.south west) -- ([yshift=-4pt]mid.south east)
+      node[midway, below=8pt, font=\scriptsize\bfseries, text=orange!90!black, align=center] {
+        \textbf{ESCLUSO DALLA}\\\textbf{RICORSIONE}\\[2pt]\tiny (Posizione finale)
+      };
+
+    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick, purple!85!black] 
+      ([yshift=-4pt]right.south west) -- ([yshift=-4pt]right.south east)
+      node[midway, below=8pt, font=\scriptsize\bfseries, text=purple!85!black, align=center] {
+        Ricorsione\\Destra\\[2pt]\tiny (Chiavi maggiori)
+      };
+  \end{tikzpicture}%
+  }
+  \caption{Topologia delle tre regioni del partizionamento a 3 vie (\textit{Dutch National Flag}) e puntatori operativi $lt$ e $gt$.}
+  \label{fig:3way-partitioning-model}
+\end{figure}
+
+\begin{property}[Invarianti Dimensionali del Partizionamento a 3 Vie]
+\label{prop:3way-dimensional-invariants}
+Le cardinalità delle tre sezioni soddisfano rigorosamente le seguenti relazioni invarianti:
+\begin{enumerate}
+  \item $n_= \ge 1$: la partizione centrale contiene sempre almeno il pivot selezionato.
+  \item $0 \le n_< \le n - 1$: numero di elementi strettamente minori del pivot.
+  \item $0 \le n_> \le n - 1$: numero di elementi strettamente maggiori del pivot.
+  \item $n_< + n_= + n_> = n$: conservazione assoluta della cardinalità totale dell'array.
+\end{enumerate}
+\end{property}
+
+\begin{theorem}[Esclusione della Regione Centrale dal Flusso Ricorsivo]
+\label{thm:central-region-exclusion}
+Poiché tutti gli elementi della fascia $== \text{Pivot}$ possiedono lo stesso valore e risiedono esattamente nelle celle comprese tra la porzione dei minori e quella dei maggiori, essi si trovano già nella loro \textbf{collocazione finale definitiva}. 
+
+Nelle successive chiamate ricorsive di Quicksort, la regione centrale viene \textbf{totalmente esclusa}. La ricorsione prosegue unicamente su:
+\begin{itemize}
+  \item Il sotto-array sinistro di dimensione $n_<$ ($S[\text{lo} \dots lt-1]$).
+  \item Il sotto-array destro di dimensione $n_>$ ($S[gt+1 \dots \text{hi}]$).
+\end{itemize}
+La dimensione aggregata dei sotto-problemi residui è pertanto pari a:
+\begin{equation}
+  n_< + n_> = n - n_= \le n - 1.
+\end{equation}
+Su un array composto da soli elementi uguali, si ha $n_= = n$ e $n_< = n_> = 0$: l'algoritmo effettua una sola scansione lineare terminando immediatamente in tempo ottimale $\mathcal{O}(n)$.
+\end{theorem}
+
+\subsection{Applicazione a Quickselect: Selezione del \texorpdfstring{$k$}{k}-esimo Elemento}
+\label{subsec:3way-quickselect}
+
+Il partizionamento a tre vie si integra in modo ideale con il problema della selezione del $k$-esimo elemento affrontato nella \autoref{sec:selection-problem}. 
+
+Nell'algoritmo \textbf{Quickselect} classico a 2 vie, la presenza di molteplici elementi duplicati può condurre a una sequenza sfortunata di partizioni sbilanciate, portando il tempo di calcolo a $\Theta(n^2)$. Con il partizionamento a 3 vie, la ricerca della $k$-esima statistica d'ordine gode di una proprietà di \textbf{terminazione anticipata}:
+
+\begin{itemize}
+  \item \textbf{Se $k < lt$:} l'elemento cercato è strettamente minore del pivot; l'algoritmo scende ricorsivamente \textbf{esclusivamente nel ramo sinistro} $S[\text{lo} \dots lt - 1]$ ricercando la posizione $k$.
+  \item \textbf{Se $lt \le k \le gt$:} la posizione target $k$ cade esattamente all'interno della fascia centrale dei duplicati del pivot. Poiché tutti gli elementi in tale intervallo sono identici a $p$, si conclude istantaneamente che:
+  \begin{equation}
+    S_{(k)} = p.
+  \end{equation}
+  L'algoritmo \textbf{termina immediatamente in tempo $\mathcal{O}(1)$} restituendo $p$, senza alcuna ulteriore chiamata ricorsiva.
+  \item \textbf{Se $k > gt$:} l'elemento cercato è strettamente maggiore del pivot; l'algoritmo scende ricorsivamente \textbf{esclusivamente nel ramo destro} $S[gt + 1 \dots \text{hi}]$ ricercando la posizione $k$.
+\end{itemize}
+
+Questa proprietà di \textit{early exit} rende Quickselect a 3 vie eccezionalmente robusto: in insiemi di dati con pochi valori distinti (ad esempio campioni discretizzati o chiavi categoriche), l'algoritmo individua il valore cercato in un numero piccolissimo di iterazioni, con costo medio $\mathcal{O}(n)$ e migliore $\mathcal{O}(n)$ anche nel caso degenere di elementi tutti identici.
+
+\subsection{Impatto sull'Equazione di Ricorrenza del Caso Medio}
+\label{subsec:3way-average-case-impact}
+
+La separazione della regione centrale chiarisce la genesi della ricorrenza analizzata nella successiva \autoref{sec:quicksort-average-case-proof}. 
+
+Nel caso in cui gli elementi siano tutti distinti, la partizione centrale contiene unicamente il pivot stesso ($n_= = 1$), per cui la somma delle dimensioni dei due rami ricorsivi soddisfa:
+\begin{equation}
+  n_< + n_> = n - 1.
+\end{equation}
+Se il pivot divide l'array in due partizioni di taglia $i - 1$ e $n - i$ (con $i \in \{1, \dots, n\}$ equiprobabile), il costo atteso $T(n)$ soddisfa la ricorrenza classica di Hoare:
+\begin{equation}
+  T(n) = \frac{1}{n} \sum_{i=1}^{n} \Big( T(i - 1) + T(n - i) \Big) + \Theta(n).
+\end{equation}
+Qualora vi siano duplicati ($n_= > 1$), la somma delle taglie dei sotto-problemi ricorsivi $n_< + n_> = n - n_=$ si riduce rigorosamente al di sotto di $n - 1$. Ciascun duplicato addizionale sottrae lavoro alla ricorsione successiva senza alcun costo aggiuntivo di I/O o CPU, accelerando la convergenza asintotica dell'algoritmo. L'analisi del caso peggiore per la versione randomizzata coincide pertanto con l'assenza totale di duplicati ($n_= = 1$), la cui trattazione analitica completa viene sviluppata formalmente nella sezione che segue.
+
+\FloatBarrier
+\section{Dimostrazione Matematica del Costo Medio di Quicksort (\texorpdfstring{$\Theta(n \log_2 n)$}{Theta(n log n)})}
+\label{sec:quicksort-average-case-proof}
+
+L'analisi del caso medio (\textit{Average-Case Complexity}) di Quicksort è una delle pietre miliari dell'algoritmica classica. Vogliamo determinare formalmente il valore atteso del tempo di esecuzione $T(n)$ assumendo che tutte le $n!$ permutazioni degli elementi in ingresso siano equiprobabili o che, equivalentemente, il pivot sia selezionato a ogni passo in modo casuale ed uniforme.
+
+\subsection{Derivazione della Relazione di Ricorrenza}
+\label{subsec:quicksort-recurrence-derivation}
+
+Sia $S$ un array di $n$ elementi distinti. La procedura di partizionamento compie un confronto per ciascun elemento tranne il pivot, compiendo un lavoro lineare pari a $c \cdot n$ operazioni elementari (con $c > 0$ costante positiva).
+
+Il pivot selezionato ha probabilità esattamente uniforme pari a $\frac{1}{n}$ di occupare la posizione di rango $i$ (con $i \in \{0, 1, \dots, n - 1\}$) nell'array ordinato. Tale scelta genera due sotto-problemi indipendenti:
+\begin{itemize}
+  \item Un sotto-array sinistro di dimensione $i$.
+  \item Un sotto-array destro di dimensione $n - 1 - i$.
+\end{itemize}
+
+Il tempo atteso di esecuzione soddisfa pertanto l'equazione integrale:
+\begin{equation}
+  T(n) = c \cdot n + \frac{1}{n} \sum_{i=0}^{n-1} \left( T(i) + T(n - 1 - i) \right).
+  \label{eq:quicksort-expected-raw}
+\end{equation}
+
+\begin{lemma}[Simmetria delle Sommatorie]
+Le due sommatorie parziali nell'\autoref{eq:quicksort-expected-raw} contengono esattamente gli stessi termini sommati in ordine inverso. Vale l'identità:
+\begin{equation}
+  \sum_{i=0}^{n-1} T(n - 1 - i) = T(n-1) + T(n-2) + \dots + T(0) = \sum_{i=0}^{n-1} T(i).
+\end{equation}
+\end{lemma}
+
+Sostituendo il Lemma nella ricorrenza, l'equazione fondamentale del costo medio di Quicksort diviene:
+\begin{equation}
+  T(n) = c \cdot n + \frac{2}{n} \sum_{i=0}^{n-1} T(i) \quad \text{per } n \ge 2.
+  \label{eq:quicksort-recurrence-standard}
+\end{equation}
+Assumiamo come casi base elementari $T(0) = 0$ e $T(1) = 0$ (o costanti trascurabili).
+
+\subsection{Risoluzione Algebrica Rigorosa Passo-Passo}
+\label{subsec:quicksort-step-by-step-solution}
+
+La presenza della sommatoria $\sum_{i=0}^{n-1} T(i)$ rende l'equazione non lineare (\textit{full-history recurrence}). Per risolverla, applichiamo il metodo algebrico dell'eliminazione della sommatoria per differenza di termini consecutivi e il metodo del fattore integrante.
+
+\subsubsection{Passo 1: Eliminazione della Frazione mediante Moltiplicazione per $n$}
+Moltiplichiamo ambo i membri dell'\autoref{eq:quicksort-recurrence-standard} per il fattore $n$:
+\begin{equation}
+  n \, T(n) = c \, n^2 + 2 \sum_{i=0}^{n-1} T(i).
+  \label{eq:quicksort-step1}
+\end{equation}
+
+\subsubsection{Passo 2: Scrittura della Ricorrenza per l'Istanza di Dimensione $n - 1$}
+Scriviamo la medesima relazione sostituendo formalmente $n$ con $n - 1$ (valida per $n \ge 3$):
+\begin{equation}
+  (n - 1) \, T(n - 1) = c \, (n - 1)^2 + 2 \sum_{i=0}^{n - 2} T(i).
+  \label{eq:quicksort-step2}
+\end{equation}
+
+\subsubsection{Passo 3: Sottrazione Membro a Membro (Eq.~\ref{eq:quicksort-step1} $-$ Eq.~\ref{eq:quicksort-step2})}
+Sottraendo l'\autoref{eq:quicksort-step2} dall'\autoref{eq:quicksort-step1}, la sommatoria si cancella quasi completamente, isolando il solo termine $i = n - 1$:
+\begin{equation}
+  2 \sum_{i=0}^{n-1} T(i) - 2 \sum_{i=0}^{n-2} T(i) = 2 \, T(n - 1).
+\end{equation}
+Otteniamo quindi:
+\begin{align}
+  n \, T(n) - (n - 1) \, T(n - 1) &= c \left[ n^2 - (n - 1)^2 \right] + 2 \, T(n - 1) \\
+  &= c \left[ n^2 - (n^2 - 2n + 1) \right] + 2 \, T(n - 1) \\
+  &= c \, (2n - 1) + 2 \, T(n - 1).
+\end{align}
+Raggruppiamo i termini in $T(n - 1)$ portando $(n - 1) T(n - 1)$ a secondo membro:
+\begin{align}
+  n \, T(n) &= (n - 1) \, T(n - 1) + 2 \, T(n - 1) + c \, (2n - 1) \\
+  n \, T(n) &= (n + 1) \, T(n - 1) + c \, (2n - 1).
+\end{align}
+Poiché $2n - 1 < 2n$ per ogni $n \ge 1$, possiamo maggiorare per ottenere una comoda limitazione superiore:
+\begin{equation}
+  n \, T(n) \le (n + 1) \, T(n - 1) + 2c \, n.
+  \label{eq:quicksort-step3-bound}
+\end{equation}
+
+\subsubsection{Passo 4: Metodo del Fattore Integrante (Fattore di Sommazione)}
+Per ricondurre l'\autoref{eq:quicksort-step3-bound} a una forma telescopica, dividiamo entrambi i membri per la quantità quadratica $n (n + 1)$:
+\begin{equation}
+  \frac{n \, T(n)}{n (n + 1)} \le \frac{(n + 1) \, T(n - 1)}{n (n + 1)} + \frac{2c \, n}{n (n + 1)}.
+\end{equation}
+Semplificando i fattori comuni a numeratore e denominatore:
+\begin{equation}
+  \frac{T(n)}{n + 1} \le \frac{T(n - 1)}{n} + \frac{2c}{n + 1}.
+  \label{eq:quicksort-integrating-factor}
+\end{equation}
+
+Definiamo la variabile ausiliaria $A_n \coloneqq \frac{T(n)}{n + 1}$. L'equazione si trasforma in una ricorrenza additiva elementare di primo grado:
+\begin{equation}
+  A_n \le A_{n - 1} + \frac{2c}{n + 1}.
+\end{equation}
+
+\subsubsection{Passo 5: Sviluppo Telescopico e Numeri Armonici}
+Srotoliamo la ricorrenza all'indietro per sostituzioni successive fino al caso base $A_1$:
+\begin{align}
+  A_n &\le A_{n-1} + \frac{2c}{n+1} \\
+      &\le A_{n-2} + \frac{2c}{n} + \frac{2c}{n+1} \\
+      &\le A_1 + 2c \sum_{k=2}^n \frac{1}{k+1}.
+\end{align}
+Effettuando il cambio di variabile di sommatoria $j = k + 1$:
+\begin{equation}
+  \sum_{k=2}^n \frac{1}{k+1} = \sum_{j=3}^{n+1} \frac{1}{j} \le \sum_{j=1}^n \frac{1}{j}.
+\end{equation}
+La sommatoria parziale coincide esattamente con l'\textbf{$n$-esimo Numero Armonico} $H_n$:
+\begin{equation}
+  H_n \coloneqq \sum_{j=1}^n \frac{1}{j} = 1 + \frac{1}{2} + \frac{1}{3} + \dots + \frac{1}{n}.
+\end{equation}
+
+Dall'analisi asintotica tramite approssimazione per integrali di Cauchy (illustrata in \autoref{fig:harmonic-integral-bound}), è noto che:
+\begin{equation}
+  H_n = \ln n + \gamma + \mathcal{O}\left(\frac{1}{n}\right) = \ln n + \mathcal{O}(1),
+\end{equation}
+dove $\gamma \approx 0{,}577215$ è la costante di Eulero-Mascheroni.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.92\textwidth}{!}{%
+  \begin{tikzpicture}[scale=1.1]
+    % Assi cartesiani
+    \draw[-{Stealth[scale=1.0]}, thick] (0, 0) -- (8.2, 0) node[right, font=\small\bfseries] {$x$};
+    \draw[-{Stealth[scale=1.0]}, thick] (0, 0) -- (0, 3.8) node[above, font=\small\bfseries] {$y$};
+    
+    % Rettangoli armonici (somma superiore da 1 a 6)
+    \foreach \i in {1, 2, 3, 4, 5, 6} {
+      \draw[fill=orange!18, draw=orange!80!black, thick] (\i, 0) rectangle (\i+1, {2.2/\i});
+      \ifnum\i<4
+        \node[font=\scriptsize\bfseries, text=orange!90!black, anchor=south] at (\i+0.5, 0.08) {$\frac{1}{\i}$};
+      \fi
+    }
+    
+    % Curva f(x) = 1/x
+    \draw[domain=0.7:7.6, smooth, variable=\x, blue!85!black, very thick] 
+      plot ({\x}, {2.2/\x});
+    \node[blue!85!black, font=\small\bfseries] at (1.2, 3.2) {$f(x) = \frac{1}{x}$};
+    
+    % Tacche asse x
+    \foreach \i in {1, 2, 3, 4, 5, 6, 7} {
+      \draw[thick] (\i, 0.08) -- (\i, -0.08) node[below=2pt, font=\scriptsize\bfseries] {$\i$};
+    }
+    
+    % Riquadro delle relazioni integrali in posizione isolata
+    \node[draw=blue!70!black, fill=blue!5, rounded corners=4pt, align=left, font=\small, inner sep=7pt] at (5.5, 2.7) {
+      \textbf{Stima Integrale di Cauchy:}\\[0.3em]
+      $\displaystyle \int_1^{n+1} \frac{1}{x}\,dx \le \sum_{k=1}^n \frac{1}{k} \le 1 + \int_1^n \frac{1}{x}\,dx$\\[0.45em]
+      $\displaystyle \ln(n+1) \le H_n \le 1 + \ln n$\\[0.3em]
+      $\implies H_n = \ln n + \mathcal{O}(1)$
+    };
+  \end{tikzpicture}%
+  }
+  \caption{Approssimazione integrale della serie armonica $H_n = \sum_{k=1}^n \frac{1}{k} \approx \ln n$. L'area dei rettangoli maggiora l'integrale della funzione iperbolica $f(x) = \frac{1}{x}$.}
+  \label{fig:harmonic-integral-bound}
+\end{figure}
+
+Sostituendo l'espressione asintotica di $H_n$ nella nostra maggiorazione per $A_n$:
+\begin{equation}
+  A_n = \frac{T(n)}{n + 1} \le 2c \ln n + \mathcal{O}(1).
+\end{equation}
+
+Moltiplichiamo entrambi i membri per $(n + 1)$:
+\begin{equation}
+  T(n) \le 2c \, (n + 1) \ln n + \mathcal{O}(n) = 2c \, n \ln n + \mathcal{O}(n).
+\end{equation}
+
+\subsection{Conversione in Base 2 e Significato Informativo}
+\label{subsec:log2-conversion-information}
+
+Per esprimere il costo computazionale nell'unità di misura canonica degli algoritmi di confronto (bit di informazione o confronti binari), convertiamo il logaritmo naturale $\ln n$ in logaritmo in base 2 applicando la formula del cambio di base:
+\begin{equation}
+  \ln n = \frac{\log_2 n}{\log_2 e} = (\ln 2) \cdot \log_2 n \approx 0{,}693147 \cdot \log_2 n.
+\end{equation}
+
+Sostituendo tale valore nel costo medio atteso:
+\begin{align}
+  T_{\text{medio}}(n) &\le 2c \cdot (\ln 2) \cdot n \log_2 n + \mathcal{O}(n) \\
+  &\approx (2 \cdot 0{,}693147) \cdot c \, n \log_2 n \\
+  &\approx 1{,}386294 \cdot c \, n \log_2 n = \Theta(n \log_2 n).
+\end{align}
+
+\begin{theorem}[Significato Teorico e Limite di Informazione]
+Il limite inferiore teorico imposto dalla teoria dell'informazione (\textit{Information-Theoretic Lower Bound}) stabilisce che qualsiasi algoritmo di ordinamento basato su confronti necessita, nel caso peggiore e nel caso medio, di almeno:
+\begin{equation}
+  \log_2(n!) \approx n \log_2 n - n \log_2 e \approx n \log_2 n - 1{,}4427 \, n \quad \text{confronti}.
+\end{equation}
+Il valore moltiplicativo ottenuto per Quicksort randomizzato mostra che il numero atteso di confronti è pari a:
+\begin{equation}
+  2 \ln 2 \cdot n \log_2 n \approx 1{,}386 \, n \log_2 n.
+\end{equation}
+\end{theorem}
+
+\begin{property}[Efficienza Ingegneristica di Quicksort]
+In media, Quicksort compie solo circa il \textbf{$38{,}6\%$ in più di confronti} rispetto all'ottimo informativo assoluto ideale. Poiché la procedura di partizione è un ciclo di scansione elementare privo di overhead di allocazione dinamica, che opera in-place ed esibisce un'eccellente località spaziale nella cache L1, il fattore costante $c$ è talmente ridotto da rendere Quicksort sensibilmente più veloce di algoritmi che eseguono meno confronti teorici (come Merge Sort), affermandosi come il motore di ordinamento fondamentale per array in memoria centrale.
+\end{property}
+
+\FloatBarrier
+\section{Sintesi Comparativa dei Risultati}
+\label{sec:comparative-results-summary}
+
+Per consolidare lo studio comparativo delle strutture dati e degli algoritmi analizzati, la \autoref{tab:algorithms-final-synthesis} riassume le complessità asintotiche per i casi ottimo, medio e peggiore, affiancando i requisiti di memoria ausiliaria e le peculiarità architetturali di ciascun metodo.
+
+\begin{table}[H]
+  \centering
+  \footnotesize
+  \caption{Sintesi comparativa degli algoritmi di selezione e ordinamento basati su partizionamento.}
+  \label{tab:algorithms-final-synthesis}
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}>{\centering\arraybackslash}p{0.13\textwidth}>{\centering\arraybackslash}p{0.14\textwidth}>{\centering\arraybackslash}p{0.13\textwidth}>{\centering\arraybackslash}p{0.09\textwidth}Y@{}}
+    \toprule
+    Algoritmo & Caso Ottimo & Caso Medio & Caso Peggiore & Spazio & Peculiarità Ingegneristica \\
+    \midrule
+    Ricerca Min / Max & $\Theta(n)$ & $\Theta(n)$ & $\Theta(n)$ & $\mathcal{O}(1)$ & Singolo passaggio lineare sequenziale; $n-1$ confronti ottimi. \\
+    \addlinespace
+    Selezione con Max-Heap & $\Theta(n)$ & $\Theta(n \log_2 k)$ & $\Theta(n \log_2 k)$ & $\Theta(k)$ & Ideale per streaming e $k \ll n$; scarta gli elementi non idonei in $\mathcal{O}(1)$. \\
+    \addlinespace
+    Quickselect (Hoare) & $\Theta(n)$ & $\Theta(n)$ & $\Theta(n^2)$ & $\mathcal{O}(\log_2 n)$ & Divide et Impera su un solo ramo; tempo atteso lineare per ogni $k$. \\
+    \addlinespace
+    Quicksort Standard & $\Theta(n \log_2 n)$ & $\Theta(n \log_2 n)$ & $\Theta(n^2)$ & $\Theta(n)$ & Degenera a $\Theta(n^2)$ con elementi duplicati o partizioni sbilanciate. \\
+    \addlinespace
+    Quicksort a 3 Vie & $\Theta(n)$ & $\Theta(n \log_2 n)$ & $\Theta(n^2)$ & $\Theta(\log_2 n)$ & Tempo $\Theta(n)$ se le chiavi sono tutte duplicate; esclude la zona centrale. \\
+    \addlinespace
+    Dual-Pivot Quicksort & $\Theta(n \log_2 n)$ & $\Theta(n \log_2 n)$ & $\Theta(n^2)$ & $\Theta(\log_2 n)$ & Riduce del $20\%$ le scritture a fronte di $+5\%$ confronti; ottimo in cache. \\
+    \addlinespace
+    Bounded Quicksort (BQS) & $\Theta(n \log_2 n)$ & $\Theta(n \log_2 n)$ & $\Theta(n^2)$ & $\Theta(\log_2 n)$ & Elimina la tail recursion sul ramo maggiore; stack $\mathcal{O}(\log_2 n)$. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Linee Guida per la Scelta dell'Algoritmo}
+Dall'analisi ingegneristica sviluppata nella lezione emergono le seguenti raccomandazioni pratiche:
+\begin{enumerate}
+  \item \textbf{Selezione Estrema ($k = 1$ o $k = n$):} Utilizzare sempre la scansione lineare a singolo registro; per la ricerca simultanea di minimo e massimo adottare il confronto ad accoppiamento per minimizzare il numero di istruzioni di salto condizionato.
+  \item \textbf{Selezione con Finestra Ridotta ($k \ll n$ in Data Streaming):} Adottare il \textbf{Bounded Max-Heap} di capacità $k$. Consente di processare flussi continui di dati senza allocare un vettore di dimensione $n$ in RAM, filtrando gli elementi superflui in $\mathcal{O}(1)$.
+  \item \textbf{Selezione Generica su Dati Statici ($k = \Theta(n)$):} Ricorrere a \textbf{Quickselect} con partizionamento a 3 vie, che garantisce un tempo atteso lineare $\mathcal{O}(n)$ ed evita l'ordinamento superfluo del restante 50\% dei dati.
+  \item \textbf{Ordinamento In-Memory ad Alte Prestazioni:} Utilizzare varianti avanzate di Quicksort che combinano il partizionamento a 3 vie (o Dual-Pivot), l'eliminazione della ricorsione in coda (\textit{tail recursion elimination} per garantire spazio di stack $\mathcal{O}(\log_2 n)$) e un cutoff su sotto-array di piccola dimensione ($M \approx 16$--$32$) delegati a \textit{Insertion Sort} per massimizzare il riuso della cache L1.
+\end{enumerate}

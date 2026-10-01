@@ -1,0 +1,632 @@
+\chapter{External Distribution Sort, Sovracampionamento e Campionamento Casuale}
+\label{chap:external-distribution-sort}
+
+\begin{center}
+  \textbf{Lezione 6}\\
+  \emph{External Distribution Sort, Over-Sampling con Limiti di Chernoff e Campionamento Casuale}\\[0.5em]
+  Data: 30 Settembre 2026
+\end{center}
+
+Nel contesto dei modelli di memoria gerarchica e dell'ordinamento per memorie di massa (\textit{External Memory Model}), il \textbf{Multiway Merge Sort} studiato nel \autoref{cha:lecture-three} rappresenta l'approccio \textit{bottom-up} canonico: i dati vengono inizialmente suddivisi in sequenze ordinate (\textit{runs}) e successivamente fusi ricorsivamente a $k$ vie fino a ottenere un unico vettore ordinato.
+
+Tuttavia, esiste un paradigma duale di fondamentale rilevanza teorica e applicativa: l'\textbf{External Distribution Sort} (talvolta denominato \textit{Multiway Quicksort} esterno). Tale approccio adotta una filosofia \textit{top-down}: invece di fondere blocchi già ordinati, distribuisce l'intero insieme di dati non ordinati in molteplici partizioni disgiunte (\textit{buckets}), ciascuna associata a un intervallo ordinato di valori di chiave, per poi procedere ricorsivamente su ciascun secchio in modo indipendente.
+
+In questo capitolo esaminiamo l'architettura dettagliata dell'External Distribution Sort, affrontando la sfida critica della selezione bilanciata dei pivot mediante la tecnica statistica dell'\textbf{Over-Sampling} (sovracampionamento). Analizziamo quindi formalmente il limite di fallimento mediante i \textbf{Chernoff Bounds} (disuguaglianze di concentrazione della misura) e approfondiamo gli algoritmi di \textbf{Campionamento Casuale Uniforme} (\textit{Random Sampling}), confrontando i metodi basati su tabelle hash con il paradigma streaming del \textbf{Reservoir Sampling}.
+
+\section{External Distribution Sort e Partizionamento a \texorpdfstring{$k$}{k} Vie}
+\label{sec:external-distribution-sort-model}
+
+Consideriamo un dataset costituito da $n$ elementi memorizzati su disco secondario nel modello a due livelli di Aggarwal e Vitter~\cite{aggarwal1988}, caratterizzato da una memoria centrale interna di capacità pari a $M$ elementi e da trasferimenti a blocchi di dimensione $B$ elementi. L'obiettivo consiste nell'ordinare l'array $S[1 \dots n]$ minimizzando il numero complessivo di operazioni di I/O.
+
+\subsection{Meccanismo Operativo e Definizione dei Bucket}
+L'algoritmo suddivide l'array $S$ in $k$ partizioni continue e disgiunte, denominate \textbf{secchi} (\textit{buckets}) $B_1, B_2, \dots, B_k$, mediante la selezione di $k - 1$ perni (\textit{pivots}) ordinati in modo strettamente crescente:
+\begin{equation}
+  s_1 < s_2 < \dots < s_{k-1}.
+\end{equation}
+
+Per garantire una trattazione uniforme dei casi di frontiera, si introducono due valori sentinella concettuali:
+\begin{equation}
+  s_0 \coloneqq -\infty, \qquad s_k \coloneqq +\infty.
+\end{equation}
+
+\begin{definition}[Secchio o Bucket $B_i$]
+Per ogni indice $i \in \{1, \dots, k\}$, il secchio $B_i$ è il sottoinsieme degli elementi di $S$ le cui chiavi cadono nell'intervallo semi-aperto delimitato dai pivot adiacenti:
+\begin{equation}
+  B_i \coloneqq \left\{ x \in S \mid s_{i-1} < x \le s_i \right\}.
+  \label{eq:bucket-definition}
+\end{equation}
+\end{definition}
+
+La topologia del partizionamento a $k$ vie è schematizzata nella \autoref{fig:k-way-partitioning-model}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    bucket/.style={rectangle, draw=blue!80!black, thick, minimum height=1.3cm, align=center, font=\small\bfseries},
+    sentinel/.style={font=\footnotesize\bfseries, text=red!80!black},
+    pivot/.style={font=\footnotesize\bfseries, text=blue!85!black},
+    ptr/.style={-{Stealth[scale=0.9]}, very thick, draw=blue!85!black}
+  ]
+    % Segmenti dei bucket
+    \node[bucket, fill=blue!12, minimum width=2.8cm, anchor=west] (b1) at (0, 0) {
+      $B_1$\\[2pt]\footnotesize ($s_0 < x \le s_1$)
+    };
+    \node[bucket, fill=orange!15, minimum width=2.8cm, anchor=west] (b2) at (b1.east) {
+      $B_2$\\[2pt]\footnotesize ($s_1 < x \le s_2$)
+    };
+    \node[bucket, fill=teal!15, minimum width=2.8cm, anchor=west] (b3) at (b2.east) {
+      $B_3$\\[2pt]\footnotesize ($s_2 < x \le s_3$)
+    };
+    \node[draw=none, minimum width=1.5cm, anchor=west, align=center, font=\Large\bfseries] (dots) at (b3.east) {
+      $\dots$
+    };
+    \node[bucket, fill=purple!15, minimum width=2.8cm, anchor=west] (bk) at (dots.east) {
+      $B_k$\\[2pt]\footnotesize ($s_{k-1} < x \le s_k$)
+    };
+
+    % Pivot e Sentinelle in alto
+    \node[above=14pt, sentinel] at (b1.north west) {$s_0 = -\infty$};
+    \draw[ptr] ([yshift=18pt]b1.north east) -- (b1.north east)
+      node[pos=0.0, above, pivot] {$s_1$};
+    \draw[ptr] ([yshift=18pt]b2.north east) -- (b2.north east)
+      node[pos=0.0, above, pivot] {$s_2$};
+    \draw[ptr] ([yshift=18pt]b3.north east) -- (b3.north east)
+      node[pos=0.0, above, pivot] {$s_3$};
+    \draw[ptr] ([yshift=18pt]bk.north west) -- (bk.north west)
+      node[pos=0.0, above, pivot] {$s_{k-1}$};
+    \node[above=14pt, sentinel] at (bk.north east) {$s_k = +\infty$};
+
+    % Graffe decorative inferiori
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, blue!85!black]
+      ([yshift=-4pt]b1.south west) -- ([yshift=-4pt]b1.south east)
+      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_1| \approx \frac{n}{k}$};
+
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, orange!90!black]
+      ([yshift=-4pt]b2.south west) -- ([yshift=-4pt]b2.south east)
+      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_2| \approx \frac{n}{k}$};
+
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, teal!90!black]
+      ([yshift=-4pt]b3.south west) -- ([yshift=-4pt]b3.south east)
+      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_3| \approx \frac{n}{k}$};
+
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, purple!85!black]
+      ([yshift=-4pt]bk.south west) -- ([yshift=-4pt]bk.south east)
+      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_k| \approx \frac{n}{k}$};
+  \end{tikzpicture}%
+  }
+  \caption{Partizionamento dell'universo delle chiavi in $k$ secchi disgiunti mediante $k-1$ pivot ordinati e due sentinelle concettuali.}
+  \label{fig:k-way-partitioning-model}
+\end{figure}
+
+\begin{property}[Proprietà di Concatenazione Immediata]
+A differenza del Merge Sort, in cui la fase conclusiva richiede la complessa fusione di flussi ordinati, l'External Distribution Sort gode della proprietà per cui:
+\begin{equation}
+  \forall x \in B_i, \quad \forall y \in B_j \quad \text{con } i < j \implies x \le y.
+\end{equation}
+Pertanto, una volta che ciascun singolo secchio $B_i$ è stato ricorsivamente ordinato, l'array globale ordinato coincide semplicemente con la concatenazione sequenziale diretta dei secchi:
+\begin{equation}
+  S_{\text{ordinato}} = B_1 \circ B_2 \circ \dots \circ B_k.
+\end{equation}
+Non è necessaria alcuna operazione di fusione a posteriori: il risparmio di computazione e di gestione puntatori nella fase di ricomposizione è integrale.
+\end{property}
+
+\subsection{L'Obiettivo di Bilanciamento e l'Impatto sull'I/O}
+Affinché l'algoritmo consegua la complessità ottima di I/O nel modello esterno, la scelta del numero di rami $k$ e delle posizioni dei pivot deve rispettare due requisiti architetturali stringenti:
+
+\begin{enumerate}
+  \item \textbf{Capacità dei buffer interni:} Durante la scansione di $S$, per ciascuno dei $k$ bucket deve essere mantenuto in memoria rapida almeno un blocco di scrittura di dimensione $B$ (\textit{Write Buffer}). Poiché la memoria interna ha capacità $M$, il grado massimo di partizionamento ammissibile è:
+  \begin{equation}
+    k = \Theta\left(\frac{M}{B}\right), \quad \text{con } k \ge 2.
+    \label{eq:k-branching-factor}
+  \end{equation}
+  Quando il buffer associato al bucket $B_i$ si riempie, esso viene scaricato su disco con una singola scrittura I/O di $B$ elementi, realizzando un flusso strettamente sequenziale.
+  
+  \item \textbf{Bilanciamento dimensionale dei secchi:} La dimensione di ciascun bucket deve risultare strettamente uniforme:
+  \begin{equation}
+    |B_i| = \Theta\left(\frac{n}{k}\right), \quad \forall i \in \{1, \dots, k\}.
+    \label{eq:balance-condition}
+  \end{equation}
+\end{enumerate}
+
+\begin{theorem}[Complessità I/O dell'External Distribution Sort Bilanciato]
+Se la condizione di bilanciamento~\eqref{eq:balance-condition} è soddisfatta ad ogni passo della ricorsione, l'altezza complessiva dell'albero di distribuzione è pari a:
+\begin{equation}
+  h = \mathcal{O}\left(\log_k \frac{n}{M}\right) = \mathcal{O}\left(\log_{M/B} \frac{n}{B}\right).
+\end{equation}
+Poiché ciascun livello di partizionamento richiede la scansione lineare dell'intero dataset con costo $\mathcal{O}(n/B)$ trasferimenti di blocco, la complessità totale di I/O dell'algoritmo è:
+\begin{equation}
+  \text{I/O}(n) = \mathcal{O}\left(\frac{n}{B} \log_{M/B} \frac{n}{B}\right),
+\end{equation}
+raggiungendo esattamente il limite inferiore asintotico di ordinamento stabilito dal Teorema di Aggarwal e Vitter.
+\end{theorem}
+
+\begin{property}[Rischio di Degenerazione da Sbilanciamento]
+Qualora anche un singolo secchio $B_j$ risulti sovradimensionato (ad esempio $|B_j| = \Omega(n)$), l'altezza dell'albero ricorsivo non decresce a passo logaritmico, ma degrada linearmente verso $\Omega(n/M)$. In tale scenario avverso, il costo di I/O collasserebbe verso una complessità quadratica $\mathcal{O}((n/B)^2)$, rendendo l'algoritmo inutilizzabile su dataset massivi. La corretta scelta dei pivot costituisce pertanto l'asse portante dell'intero algoritmo.
+\end{property}
+
+\section{La Tecnica dell'Over-Sampling (Sovracampionamento)}
+\label{sec:oversampling-technique}
+
+Come determinare $k - 1$ pivot in grado di garantire con elevatissima confidenza che ciascuno dei $k$ secchi contenga $\Theta(n/k)$ elementi?
+
+Un approccio ingenuo consisterebbe nell'estrarre casualmente esattamente $k - 1$ elementi da $S$ e ordinarli. Tuttavia, dalla teoria delle statistiche d'ordine per variabili casuali uniformi è noto che la dimensione del secchio massimo generato da $k-1$ campioni indipendenti presenta una varianza elevata, con una taglia attesa del secchio massimo pari a:
+\begin{equation}
+  \mathbb{E}\left[\max_{1 \le i \le k} |B_i|\right] \approx \frac{n}{k} \ln k.
+\end{equation}
+Per valori realistici di $k$ (ad esempio $k = M/B \approx 10^3 \div 10^5$), il fattore moltiplicativo $\ln k \approx 7 \div 12$ comporta uno sbilanciamento intollerabile.
+
+Per risolvere radicalmente questa criticità senza dover calcolare i quantili esatti (operazione che richiederebbe costosi algoritmi di selezione lineare su disco), si impiega la tecnica del \textbf{Sovracampionamento} (\textit{Over-Sampling}).
+
+\subsection{I Parametri e la Procedura Operativa}
+Si introduce un moltiplicatore di campionamento $a = \Theta(\log_2 k)$, denominato \textbf{fattore di over-sampling}. Nei dettagli analitici dimostrati nel seguito, poniamo formalmente:
+\begin{equation}
+  a \coloneqq 12 \ln k.
+  \label{eq:oversampling-factor}
+\end{equation}
+
+La procedura operativa di selezione si articola in tre fasi elementari:
+
+\begin{enumerate}
+  \item \textbf{Estrazione del campione globale:} Si estraggono in modo uniformemente casuale e indipendente dall'array $S$ un numero totale di campioni pari a:
+  \begin{equation}
+    |A| = (a + 1)k - 1.
+    \label{eq:sample-size}
+  \end{equation}
+  Tali elementi vengono memorizzati in un buffer ausiliario $A$.
+  
+  \item \textbf{Ordinamento interno del campione:} L'array $A$ viene ordinato interamente in memoria centrale mediante un algoritmo ottimale in tempo CPU (ad esempio Quicksort o Merge Sort). Poiché la cardinalità $|A| = \mathcal{O}(k \ln k) = \mathcal{O}(\frac{M}{B} \ln \frac{M}{B})$ è di ordini di grandezza inferiore alla capienza totale della RAM $M$, l'ordinamento di $A$ avviene con zero trasferimenti su disco (0 I/O) e richiede una frazione trascurabile di millisecondo.
+  
+  \item \textbf{Selezione equidistante dei Pivot:} I $k - 1$ pivot vengono selezionati estraendo dall'array ordinato $A$ gli elementi posti a passo regolare $(a + 1)$:
+  \begin{equation}
+    s_i \coloneqq A[(a + 1) \cdot i], \quad \text{per } i = 1, \dots, k - 1.
+    \label{eq:pivot-selection-rule}
+  \end{equation}
+\end{enumerate}
+
+La struttura interna del campione ordinato $A$ è illustrata dettagliatamente nella \autoref{fig:oversampling-sample-layout}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    box/.style={rectangle, draw=black!80, thick, minimum height=1.1cm, align=center, font=\small},
+    pivotBox/.style={rectangle, draw=blue!90!black, fill=blue!20, thick, minimum height=1.1cm, minimum width=1.1cm, align=center, font=\small\bfseries},
+    arr/.style={-{Stealth[scale=0.9]}, very thick, draw=blue!85!black}
+  ]
+    % Celle del campione A
+    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap0) at (0, 0) {$a$ campioni};
+    \node[pivotBox, anchor=west] (p1) at (gap0.east) {$s_1$};
+    
+    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap1) at (p1.east) {$a$ campioni};
+    \node[pivotBox, anchor=west] (p2) at (gap1.east) {$s_2$};
+    
+    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap2) at (p2.east) {$a$ campioni};
+    \node[draw=none, minimum width=1.2cm, anchor=west, font=\large\bfseries] (dots) at (gap2.east) {$\dots$};
+    \node[pivotBox, anchor=west] (pk) at (dots.east) {$s_{k-1}$};
+    
+    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gapk) at (pk.east) {$a$ campioni};
+
+    % Indici di riga del vettore A
+    \draw[arr] ([yshift=16pt]p1.north) -- (p1.north)
+      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[a+1]$};
+      
+    \draw[arr] ([yshift=16pt]p2.north) -- (p2.north)
+      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[2(a+1)]$};
+
+    \draw[arr] ([yshift=16pt]pk.north) -- (pk.north)
+      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[(k-1)(a+1)]$};
+
+    % Graffa inferiore totale
+    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick]
+      ([yshift=-4pt]gap0.south west) -- ([yshift=-4pt]gapk.south east)
+      node[midway, below=8pt, font=\small\bfseries] {Campione globale ordinato $|A| = (a+1)k - 1$};
+  \end{tikzpicture}%
+  }
+  \caption{Topologia dell'array ausiliario ordinato $A$: tra ciascuna coppia di pivot contigui cadono esattamente $a$ campioni intermedi.}
+  \label{fig:oversampling-sample-layout}
+\end{figure}
+
+\begin{property}[Invariante dei Campioni Intermedi]
+Per costruzione dell'algoritmo, tra due pivot consecutivi $s_{i-1}$ e $s_i$ cadono \textbf{esattamente $a$ campioni} estratti e presenti in $A$. Poiché vi sono $k - 1$ pivot, si hanno $k$ intervalli intermedi, ciascuno popolato da $a$ campioni, per un totale di $k \cdot a$ campioni non-pivot. Sommando i $k - 1$ pivot stessi, la cardinalità totale risulta:
+\begin{equation}
+  k \cdot a + (k - 1) = (a + 1)k - 1 = |A|,
+\end{equation}
+confermando la perfetta conservazione della taglia del campione.
+\end{property}
+
+\subsection{Esempio Numerico Tracciato di Selezione}
+\begin{example}[Traccia di Sovracampionamento con $n=64$, $k=4$, $a=3$]
+Per comprendere concretamente l'algoritmo, consideriamo un insieme didattico con $n = 64$ elementi, per il quale vogliamo generare $k = 4$ partizioni. Fissiamo il fattore di sovracampionamento a un valore didattico $a = 3$:
+\begin{enumerate}
+  \item Dimensione del campione estratto:
+  \begin{equation}
+    |A| = (a + 1)k - 1 = (3 + 1) \cdot 4 - 1 = 15 \text{ elementi}.
+  \end{equation}
+  \item Supponiamo che l'estrazione casuale e il successivo ordinamento in memoria di $A$ producano il vettore ordinato:
+  \begin{equation*}
+    A = [\, 4,\, 7,\, 9,\, \mathbf{12},\, 15,\, 18,\, 22,\, \mathbf{29},\, 33,\, 38,\, 41,\, \mathbf{50},\, 55,\, 61,\, 68 \,].
+  \end{equation*}
+  \item Il passo regolare di selezione è $a + 1 = 4$. I $k - 1 = 3$ pivot sono quindi:
+  \begin{align*}
+    s_1 &= A[1 \cdot 4] = A[4] = \mathbf{12}, \\
+    s_2 &= A[2 \cdot 4] = A[8] = \mathbf{29}, \\
+    s_3 &= A[3 \cdot 4] = A[12] = \mathbf{50}.
+  \end{align*}
+  \item I 4 secchi risultanti per la successiva fase di partizionamento saranno:
+  \begin{align*}
+    B_1 &= \{ x \in S \mid -\infty < x \le 12 \}, \\
+    B_2 &= \{ x \in S \mid 12 < x \le 29 \}, \\
+    B_3 &= \{ x \in S \mid 29 < x \le 50 \}, \\
+    B_4 &= \{ x \in S \mid 50 < x \le +\infty \}.
+  \end{align*}
+\end{enumerate}
+Ciascun intervallo $(s_{i-1}, s_i]$ racchiude esattamente $a = 3$ elementi del campione $A$, garantendo che la densità stimata delle chiavi rimanga proporzionata alla distribuzione empirica dei dati.
+\end{example}
+
+\section{Dimostrazione del Limite di Fallimento via Chernoff Bound}
+\label{sec:chernoff-bound-proof}
+
+Vogliamo ora dimostrare formalmente che l'estrazione casuale tramite over-sampling garantisce il bilanciamento dimensionale dei secchi con probabilità schiacciante.
+
+\subsection{Definizione Formale di Fallimento}
+Diciamo che l'estrazione dei pivot si risolve in un \textbf{fallimento} se almeno uno dei $k$ secchi $B_i$ risulta gravemente sbilanciato, contenendo un numero di elementi pari o superiore al quadruplo della taglia media attesa $n/k$:
+\begin{equation}
+  \mathbb{P}(\text{fallimento}) \coloneqq \mathbb{P}\left(\exists i \in \{1, \dots, k\} : |B_i| \ge \frac{4n}{k}\right).
+  \label{eq:failure-definition}
+\end{equation}
+
+\subsection{Costruzione Geometrica sull'Array Ordinato Virtuale \texorpdfstring{$S_{\text{sort}}$}{S\_sort}}
+Per analizzare rigorosamente l'evento di fallimento, introduciamo una costruzione geometrica ausiliaria. Si consideri l'array $S$ concettualmente ordinato, denotato con $S_{\text{sort}}$.
+
+Suddividiamo idealmente l'intero array $S_{\text{sort}}$ in $\frac{k}{2}$ intervalli contigui di ampiezza uniforme, indicati con $t_j$ per $j = 1, \dots, \frac{k}{2}$:
+\begin{equation}
+  |t_j| \coloneqq \frac{n}{k/2} = \frac{2n}{k}.
+  \label{eq:segment-width}
+\end{equation}
+
+La relazione geometrica tra i segmenti canonici $t_j$ e un secchio sovradimensionato $B_i$ è visualizzata nella \autoref{fig:pigeonhole-chernoff-construction}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    segment/.style={rectangle, draw=black!80, thick, minimum height=1.1cm, align=center, font=\small},
+    bucketBox/.style={rectangle, draw=red!80!black, fill=red!15, very thick, minimum height=1.2cm, align=center, font=\small\bfseries}
+  ]
+    % Array ordinato S_sort diviso in k/2 segmenti di taglia 2n/k
+    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (t1) at (0, 0) {$t_1$\\\footnotesize($\frac{2n}{k}$)};
+    \node[segment, fill=yellow!20, minimum width=2.4cm, anchor=west] (t2) at (t1.east) {$t_2$\\\footnotesize($\frac{2n}{k}$)};
+    \node[segment, fill=orange!25, minimum width=2.4cm, anchor=west] (t3) at (t2.east) {$t^* = t_3$\\\footnotesize($\frac{2n}{k}$)};
+    \node[segment, fill=yellow!20, minimum width=2.4cm, anchor=west] (t4) at (t3.east) {$t_4$\\\footnotesize($\frac{2n}{k}$)};
+    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (t5) at (t4.east) {$t_5$\\\footnotesize($\frac{2n}{k}$)};
+    \node[draw=none, minimum width=1.2cm, anchor=west, font=\large\bfseries] (dots) at (t5.east) {$\dots$};
+    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (tk) at (dots.east) {$t_{k/2}$\\\footnotesize($\frac{2n}{k}$)};
+
+    % Secchio Bi sovradimensionato che copre interamente t3
+    \node[bucketBox, minimum width=6.6cm, anchor=south] (bi) at ([yshift=14pt]t3.north) {
+      Secchio Sbilanciato $B_i$ con $|B_i| \ge \frac{4n}{k}$\\
+      \footnotesize(Contiene interamente $t_3 \implies t_3 \subseteq B_i$)
+    };
+
+    \draw[-{Stealth[scale=1.0]}, very thick, red!80!black] (bi.south) -- (t3.north);
+
+    % Delimitatori di S_sort
+    \node[above=4pt, font=\scriptsize\bfseries] at (t1.north west) {$S_{\text{sort}}[1]$};
+    \node[above=4pt, font=\scriptsize\bfseries] at (tk.north east) {$S_{\text{sort}}[n]$};
+  \end{tikzpicture}%
+  }
+  \caption{Costruzione geometrica di contenimento: un secchio $B_i$ di taglia $\ge 4n/k$ copre interamente almeno un segmento logico $t^* \subset S_{\text{sort}}$ di ampiezza $2n/k$.}
+  \label{fig:pigeonhole-chernoff-construction}
+\end{figure}
+
+\begin{lemma}[Lemma di Contenimento Geometrizzato]
+\label{lem:containment}
+Se un secchio $B_i$ possiede cardinalità $|B_i| \ge \frac{4n}{k}$, allora esso \textbf{contiene interamente al suo interno almeno uno} dei segmenti canonici $t_j$:
+\begin{equation}
+  \exists j \in \left\{1, \dots, \frac{k}{2}\right\} \quad \text{tale che} \quad t_j \subseteq B_i.
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+La dimostrazione segue dal principio dei cassetti continuo. I punti di separazione tra i segmenti consecutivi $t_j$ distano esattamente $\frac{2n}{k}$ l'uno dall'altro. Se un intervallo continuo $B_i$ ha lunghezza pari ad almeno $\frac{4n}{k}$, la sua ampiezza è pari al doppio della distanza tra due delimitatori adiacenti. Di conseguenza, $B_i$ deve necessariamente oltrepassare almeno due delimitatori consecutivi di segmento, inglobando interamente al proprio interno l'intervallo $t_j$ compreso tra essi.
+\end{proof}
+
+\subsection{La Contraddizione sui Campioni Estratti}
+Mettiamo ora a confronto il contenimento geometrico con la costruzione dell'algoritmo di over-sampling:
+\begin{itemize}
+  \item Per costruzione, il secchio $B_i$ è delimitato da due pivot consecutivi $s_{i-1}$ e $s_i$.
+  \item In virtù della regola di campionamento~\eqref{eq:pivot-selection-rule}, nell'array ordinato $A$ vi sono \textbf{esattamente $a$ campioni} strettamente compresi tra $s_{i-1}$ e $s_i$.
+  \item Pertanto, il secchio $B_i$ può contenere al suo interno al più $a$ elementi appartenenti al campione estratto $A$.
+  \item Poiché per il \autoref{lem:containment} il segmento $t_j$ è un sottoinsieme di $B_i$ ($t_j \subseteq B_i$), il numero di campioni di $A$ che cadono in $t_j$ non può superare il numero di campioni che cadono in $B_i$.
+\end{itemize}
+
+Ne discende la deduzione fondamentale:
+\begin{equation}
+  \left( |B_i| \ge \frac{4n}{k} \right) \implies \left( \exists j \in \left\{1, \dots, \frac{k}{2}\right\} : |t_j \cap A| < a + 1 \right).
+\end{equation}
+
+Possiamo dunque maggiorare la probabilità di fallimento dell'intero algoritmo mediante la probabilità dell'unione di eventi sui segmenti $t_j$:
+\begin{align}
+  \mathbb{P}(\text{fallimento}) &\le \mathbb{P}\left(\exists j \in \left\{1, \dots, \frac{k}{2}\right\} : t_j \text{ contiene } < a + 1 \text{ campioni di } A\right) \notag \\
+  &\le \sum_{j=1}^{k/2} \mathbb{P}\left(t_j \text{ contiene } < a + 1 \text{ campioni di } A\right). \label{eq:union-bound-step}
+\end{align}
+Dato che tutti i segmenti $t_j$ hanno la medesima lunghezza $\frac{2n}{k}$, la probabilità è identica per ogni $j$. Fissato un generico intervallo target $t^*$, applicando lo \textit{Union Bound}:
+\begin{equation}
+  \mathbb{P}(\text{fallimento}) \le \frac{k}{2} \cdot \mathbb{P}\left(t^* \text{ contiene } < a + 1 \text{ campioni di } A\right).
+  \label{eq:union-bound-final}
+\end{equation}
+
+\subsection{Formalizzazione con Variabili Indicatrici e Valore Atteso}
+Sia $t^*$ un segmento prefissato di lunghezza $|t^*| = \frac{2n}{k}$. Per ciascun elemento campionato $A[r] \in A$ (per $r = 1, \dots, |A|$), definiamo la variabile casuale bernoulliana:
+\begin{equation}
+  X_r \coloneqq \begin{cases}
+    1 & \text{se il campione } A[r] \in t^*, \\
+    0 & \text{altrimenti}.
+  \end{cases}
+\end{equation}
+
+Poiché i campioni sono estratti uniformemente a caso da $S$, la probabilità di successo per ogni singola estrazione coincide con la frazione dimensionale occupata da $t^*$ rispetto all'intero array $S$:
+\begin{equation}
+  p \coloneqq \mathbb{P}(X_r = 1) = \frac{|t^*|}{n} = \frac{\frac{2n}{k}}{n} = \frac{2}{k}.
+\end{equation}
+
+La variabile casuale che conta il numero complessivo di campioni caduti in $t^*$ è data dalla somma:
+\begin{equation}
+  X \coloneqq \sum_{r=1}^{|A|} X_r.
+\end{equation}
+
+Calcoliamo il valore atteso $\mathbb{E}[X]$ sfruttando la linearità dell'aspettazione:
+\begin{equation}
+  \mathbb{E}[X] = \sum_{r=1}^{|A|} \mathbb{E}[X_r] = |A| \cdot p = [(a + 1)k - 1] \cdot \frac{2}{k} = 2(a + 1) - \frac{2}{k}.
+\end{equation}
+
+Essendo il numero di partizioni $k \ge 2$, il termine sottrattivo soddisfa $\frac{2}{k} \le 1$. Pertanto:
+\begin{equation}
+  \mathbb{E}[X] \ge 2(a + 1) - 1.
+\end{equation}
+Poiché $a \ge 1$, si ha banalmente che $1 \le \frac{1}{2}(a + 1)$, da cui discende la stima conservativa:
+\begin{equation}
+  \mathbb{E}[X] \ge 2(a + 1) - \frac{1}{2}(a + 1) = \frac{3}{2}(a + 1).
+  \label{eq:expected-value-bound}
+\end{equation}
+
+Invertendo la relazione tra la soglia $a + 1$ e il valore atteso $\mathbb{E}[X]$:
+\begin{equation}
+  a + 1 \le \frac{2}{3} \mathbb{E}[X] = \left(1 - \frac{1}{3}\right) \mathbb{E}[X].
+  \label{eq:delta-derivation}
+\end{equation}
+
+\subsection{Applicazione del Chernoff Bound sulla Coda Sinistra}
+La formulazione classica del \textbf{Limite Inferiore di Chernoff}~\cite{chernoff1952,motwani1995} stabilisce che per una somma $X = \sum X_r$ di variabili bernoulliane indipendenti e per qualsiasi fattore di deviazione $\delta \in (0, 1)$:
+\begin{equation}
+  \mathbb{P}(X < (1 - \delta)\mathbb{E}[X]) \le e^{-\frac{\delta^2}{2} \mathbb{E}[X]}.
+  \label{eq:chernoff-lower-tail}
+\end{equation}
+
+Identificando $\delta = \frac{1}{3}$ in conformità all'\autoref{eq:delta-derivation}:
+\begin{equation}
+  \mathbb{P}(X < a + 1) \le \mathbb{P}\left(X < \left(1 - \frac{1}{3}\right)\mathbb{E}[X]\right) \le e^{-\frac{(1/3)^2}{2} \mathbb{E}[X]} = e^{-\frac{1}{18} \mathbb{E}[X]}.
+\end{equation}
+
+Sostituendo nell'esponente la limitazione inferiore del valore atteso ottenuta nell'\autoref{eq:expected-value-bound} ($\mathbb{E}[X] \ge \frac{3}{2}(a + 1)$):
+\begin{equation}
+  -\frac{1}{18} \mathbb{E}[X] \le -\frac{1}{18} \cdot \frac{3}{2}(a + 1) = -\frac{a + 1}{12}.
+\end{equation}
+
+Introducendo il valore analitico stabilito per il fattore di over-sampling $a = 12 \ln k$:
+\begin{equation}
+  -\frac{a + 1}{12} < -\frac{a}{12} = -\frac{12 \ln k}{12} = -\ln k.
+\end{equation}
+
+Sostituendo all'interno dell'esponenziale:
+\begin{equation}
+  \mathbb{P}(X < a + 1) \le e^{-\ln k} = \frac{1}{k}.
+  \label{eq:single-interval-bound}
+\end{equation}
+
+\subsection{Conclusione della Dimostrazione e Strategia Las Vegas}
+Possiamo ora combinare la stima del singolo intervallo~\eqref{eq:single-interval-bound} con l'\autoref{eq:union-bound-final} derivata dallo Union Bound su tutti i $\frac{k}{2}$ segmenti candidati:
+\begin{equation}
+  \mathbb{P}(\text{fallimento}) \le \frac{k}{2} \cdot \mathbb{P}(X < a + 1) \le \frac{k}{2} \cdot \frac{1}{k} = \frac{1}{2}.
+  \label{eq:total-failure-bound}
+\end{equation}
+
+\begin{theorem}[Garanzia di Successo dell'Over-Sampling]
+Con la scelta del parametro $a = 12 \ln k$, la probabilità che \textbf{tutti} i $k$ secchi risultino rigorosamente bilanciati soddisfa:
+\begin{equation}
+  \mathbb{P}(\text{successo}) = 1 - \mathbb{P}(\text{fallimento}) \ge 1 - \frac{1}{2} = \frac{1}{2} \quad (50\%).
+\end{equation}
+\end{theorem}
+
+\begin{property}[Ripetizione a Costo Ammortizzato Nullo (\textit{Las Vegas})]
+Qualora la verifica dimensionale rilevi che un secchio supera la taglia ammissibile $\frac{4n}{k}$, l'algoritmo rigetta i pivot ed esegue un nuovo campionamento indipendente. Il numero di iterazioni necessarie prima di ottenere un partizionamento ammissibile è una variabile casuale geometrica $T \sim \text{Geom}(p)$ con parametro di successo $p \ge \frac{1}{2}$. 
+Il numero atteso di iterazioni è:
+\begin{equation}
+  \mathbb{E}[T] = \frac{1}{p} \le 2.
+\end{equation}
+Poiché l'estrazione e l'ordinamento di $A$ richiedono esclusivamente tempo CPU in RAM con 0 I/O su disco, ripetere il campionamento 1 o 2 volte introduce un overhead architetturale trascurabile, preservando con certezza la complessità ottima $\mathcal{O}\left(\frac{n}{B} \log_{M/B}\frac{n}{B}\right)$ I/O.
+\end{property}
+
+\section{Algoritmi di Campionamento Casuale Uniforme (\textit{Random Sampling})}
+\label{sec:random-sampling-algorithms}
+
+La validità probabilistica dell'External Distribution Sort presuppone che la fase 1 sia in grado di estrarre campioni dall'array $S$ in modo strettamente uniforme e senza reinserimento.
+
+\subsection{Formulazione del Problema}
+Dato un insieme discreto di $n$ elementi indicizzati $S[1 \dots n]$, si richiede di estrarre un sottoinsieme $D \subset S$ di cardinalità fissa $|D| = m$ (nel nostro caso $m = |A| = (a+1)k - 1$) in modo tale che ogni possibile combinazione di $m$ elementi distinti abbia la medesima probabilità di estrazione, ossia che:
+\begin{equation}
+  \mathbb{P}(S[i] \in D) = \frac{m}{n}, \quad \forall i \in \{1, \dots, n\}.
+\end{equation}
+
+\subsection{Algoritmo 1: Campionamento con Tabella Hash / Dizionario}
+L'approccio più immediato prevede l'estrazione ripetuta di indici pseudocasuali compresi tra $1$ ed $n$, scartando i duplicati mediante una struttura dati per insiemi (\textit{Hash Set} o dizionario hash).
+
+\begin{algorithm}[H]
+\caption{Campionamento Casuale con Tabella Hash (\textit{HashSampling})}
+\label{alg:hash-sampling}
+\KwInput{Intervallo di indici $[1 \dots n]$, dimensione del campione $m \le n$}
+\KwOutput{Insieme ordinato di $m$ indici distinti $D$}
+
+Inizializza una tabella hash vuota $D \leftarrow \emptyset$\;
+\While{$|D| < m$}{
+  $p \leftarrow \text{rand}(1, n)$ \tcp*{Estrae intero uniforme in $[1, n]$}
+  \If{$p \notin D$}{
+    Inserisci $p$ in $D$\;
+  }
+}
+Ordina gli elementi di $D$\;
+\Return $D$\;
+\end{algorithm}
+
+\subsection{Analisi della Probabilità di Collisione e Tentativi Attesi}
+A ogni iterazione del ciclo \texttt{while}, la probabilità che il numero casuale estratto $p$ appartenga già a $D$ (provocando una collisione e quindi un'estrazione nulla a vuoto) dipende dalla cardinalità corrente dell'insieme:
+\begin{equation}
+  \mathbb{P}(\text{collisione al passo con } |D| = j) = \frac{j}{n}.
+\end{equation}
+
+La probabilità di collisione raggiunge il proprio picco massimo nell'ultimo inserimento, quando l'insieme ha raggiunto cardinalità $m - 1$:
+\begin{equation}
+  \mathbb{P}(\text{collisione}) \le \frac{m - 1}{n} < \frac{m}{n}.
+\end{equation}
+
+\begin{property}[Efficienza per Campioni Ridotti ($m \le n/2$)]
+Se la taglia del campione target soddisfa la condizione comune $m \le \frac{n}{2}$ (come nel caso dell'over-sampling, dove $m = \mathcal{O}(M/B \ln(M/B)) \ll n$), la probabilità di collisione a ogni iterazione è strettamente dominata da:
+\begin{equation}
+  \mathbb{P}(\text{collisione}) < \frac{1}{2}.
+\end{equation}
+Di conseguenza, più del $50\%$ dei numeri casuali generati corrisponde a un inserimento effettivo.
+\end{property}
+
+Il numero totale atteso di generazioni casuali per raccogliere tutti gli $m$ elementi distinti può essere espresso formalmente come somma di variabili geometriche indipendenti:
+\begin{equation}
+  \mathbb{E}[\text{tentativi}] = \sum_{j=0}^{m-1} \frac{1}{1 - \frac{j}{n}} = \sum_{j=0}^{m-1} \frac{n}{n - j} = n \sum_{i=n-m+1}^n \frac{1}{i}.
+\end{equation}
+Esprimendo la sommatoria mediante la differenza tra due numeri armonici:
+\begin{equation}
+  \mathbb{E}[\text{tentativi}] = n \left( H_n - H_{n-m} \right) \approx n \ln\left( \frac{n}{n - m} \right).
+  \label{eq:sampling-expected-attempts}
+\end{equation}
+
+Effettuando lo sviluppo di Taylor di $\ln(1 + x)$ per $m \ll n$:
+\begin{equation}
+  n \ln\left(\frac{1}{1 - m/n}\right) = n \left( \frac{m}{n} + \frac{m^2}{2n^2} + \mathcal{O}\left(\frac{m^3}{n^3}\right) \right) = m + \frac{m^2}{2n} + \mathcal{O}\left(\frac{m^3}{n^2}\right).
+\end{equation}
+Quando il campione $m$ è contenuto rispetto a $n$ ($m = o(\sqrt{n})$), il numero di tentativi a vuoto è asintoticamente trascurabile e il costo temporale medio coincide con $\mathcal{O}(m)$.
+
+\subsection{Limiti Strutturali e Modelli di Accesso}
+Nonostante la semplicità implementativa, l'\autoref{alg:hash-sampling} presenta limiti architetturali rilevanti:
+
+\begin{enumerate}
+  \item \textbf{Accesso Indicizzato a Stringhe e Record a Lunghezza Variabile:} L'estrazione diretta dell'elemento $S[p]$ presuppone la capacità di indirizzare la cella $p$ in tempo $\mathcal{O}(1)$. Nei database e nei file di testo formattati contenenti stringhe o chiavi a lunghezza variabile, la posizione scalare di un record nel flusso di byte non è nota a priori senza aver scandito linearmente i record precedenti. L'estrazione casuale richiede pertanto un array ausiliario di puntatori o offset di memoria ($P[1 \dots n]$), introducendo un overhead di spazio $\Theta(n)$.
+  
+  \item \textbf{Assenza della Proprietà Streaming (\textit{One-Pass}):} L'algoritmo non è utilizzabile su flussi continui di dati (\textit{Data Streams}), poiché:
+  \begin{itemize}
+    \item Presuppone la conoscenza preventiva della cardinalità totale $n$.
+    \item Richiede accesso casuale arbitrario bidirezionale all'intera sequenza di input.
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Campionamento su Flussi Continui: Il Reservoir Sampling}
+Quando i dati transitano in una sequenza non memorizzabile per intero e la cardinalità $n$ non è nota a priori (o è potenzialmente infinita), si adotta l'algoritmo di \textbf{Reservoir Sampling} (Algoritmo R di Alan G. Waterman, formalizzato da Vitter~\cite{vitter1985}).
+
+\begin{algorithm}[H]
+\caption{Reservoir Sampling (\textit{Algoritmo R di Vitter})}
+\label{alg:reservoir-sampling}
+\KwInput{Flusso continuo di dati $S = \langle x_1, x_2, \dots \rangle$, dimensione serbatoio $m$}
+\KwOutput{Serbatoio $R[1 \dots m]$ contenente $m$ campioni uniformi}
+
+Inizializza il serbatoio con i primi $m$ elementi del flusso: $R[1 \dots m] \leftarrow [x_1, \dots, x_m]$\;
+$t \leftarrow m$\;
+\While{il flusso produce un nuovo elemento $x_{t+1}$}{
+  $t \leftarrow t + 1$\;
+  $j \leftarrow \text{rand}(1, t)$ \tcp*{Estrae intero uniforme in $[1, t]$}
+  \If{$j \le m$}{
+    $R[j] \leftarrow x_t$ \tcp*{Sostituisce il vecchio elemento in posizione $j$}
+  }
+}
+\Return $R$\;
+\end{algorithm}
+
+\begin{theorem}[Correttezza del Reservoir Sampling]
+Al termine della lettura di un qualsiasi prefisso di $n \ge m$ elementi del flusso, ogni elemento esaminato $x_i$ ($1 \le i \le n$) appartiene al serbatoio $R$ con probabilità rigorosamente uniforme e identica pari a:
+\begin{equation}
+  \mathbb{P}(x_i \in R) = \frac{m}{n}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Procediamo per induzione matematica sulla lunghezza del flusso $n \ge m$.
+\begin{itemize}
+  \item \textbf{Caso base ($n = m$):} I primi $m$ elementi vengono inseriti incondizionatamente in $R$. La probabilità per ciascuno di essi è $m/m = 1$, verificando la base induttiva.
+  
+  \item \textbf{Passo induttivo ($n > m$):} Assumiamo per ipotesi induttiva che, dopo aver esaminato $n - 1$ elementi, ogni elemento $x_i$ ($i \le n - 1$) risieda in $R$ con probabilità:
+  \begin{equation}
+    \mathbb{P}(x_i \in R \text{ al passo } n - 1) = \frac{m}{n - 1}.
+  \end{equation}
+  Consideriamo l'arrivo dell'$n$-esimo elemento $x_n$:
+  \begin{enumerate}
+    \item L'elemento $x_n$ viene inserito nel serbatoio se e solo se l'estrazione $j = \text{rand}(1, n)$ produce un valore $j \le m$. La probabilità di inserimento di $x_n$ è dunque:
+    \begin{equation}
+      \mathbb{P}(x_n \in R) = \frac{m}{n}.
+    \end{equation}
+    \item Un elemento generico $x_i$ preesistente in $R$ rimane nel serbatoio se non viene sostituito da $x_n$. La sostituzione si verifica con probabilità $\frac{m}{n} \cdot \frac{1}{m} = \frac{1}{n}$. Di conseguenza, la probabilità che $x_i$ sopravviva all'arrivo di $x_n$ è:
+    \begin{equation}
+      \mathbb{P}(x_i \text{ non rimpiazzato} \mid x_i \in R) = 1 - \frac{1}{n} = \frac{n - 1}{n}.
+    \end{equation}
+    Moltiplicando per la probabilità induttiva al passo precedente:
+    \begin{equation}
+      \mathbb{P}(x_i \in R \text{ al passo } n) = \frac{m}{n - 1} \cdot \frac{n - 1}{n} = \frac{m}{n}.
+    \end{equation}
+  \end{enumerate}
+\end{itemize}
+La proprietà è dimostrata per ogni $n \ge m$.
+\end{proof}
+
+\section{Sintesi Comparativa dei Risultati}
+\label{sec:distribution-sort-synthesis}
+
+A conclusione del capitolo, la \autoref{tab:sorting-paradigms-comparison} riassume il confronto metodologico e architetturale tra i due paradigmi d'ordinamento per memorie esterne, mentre la \autoref{tab:sampling-strategies-comparison} mette a confronto le strategie di campionamento casuale.
+
+\begin{table}[H]
+  \centering
+  \caption{Confronto architetturale tra i macro-paradigmi di ordinamento su memoria secondaria.}
+  \label{tab:sorting-paradigms-comparison}
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}p{0.36\textwidth}p{0.36\textwidth}@{}}
+    \toprule
+    Caratteristica & Multiway Merge Sort (Cap. 3) & External Distribution Sort \\
+    \midrule
+    Filosofia & \textit{Bottom-Up} (fusione progressiva) & \textit{Top-Down} (partizionamento ricorsivo) \\
+    \addlinespace
+    Complessità I/O & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{B}\right)$ & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{B}\right)$ (in media/alta prob.) \\
+    \addlinespace
+    Buffer RAM & $k$ buffer di lettura, 1 buffer di scrittura & 1 buffer di lettura, $k$ buffer di scrittura \\
+    \addlinespace
+    Fase Terminale & Fusione complessa con Min-Heap & Concatenazione diretta dei secchi (0 I/O) \\
+    \addlinespace
+    Criticità & Elevato traffico I/O nella fase iniziale & Sensibilità allo sbilanciamento dei secchi \\
+    \addlinespace
+    Soluzione & Generazione run di taglia $2M$ (Loser Tree) & Over-Sampling ($a = 12 \ln k$) con Chernoff \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{Confronto analitico tra le strategie di campionamento casuale uniforme.}
+  \label{tab:sampling-strategies-comparison}
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}p{0.22\textwidth}p{0.24\textwidth}Y@{}}
+    \toprule
+    Algoritmo & Modello Dati & Costo Temporale & Proprietà e Limitazioni \\
+    \midrule
+    Tabella Hash (\textit{Rejection}) & Accesso Casuale $\mathcal{O}(1)$ su array & $\mathcal{O}(m)$ atteso (se $m \le n/2$) & Richiede conoscenza di $n$; inefficace su record a lunghezza variabile privi di indice. \\
+    \addlinespace
+    Reservoir Sampling (Vitter) & Flusso Streaming (\textit{One-Pass}) & $\mathcal{O}(n)$ & Non richiede di conoscere $n$; memoria limitata a $\mathcal{O}(m)$; legge i dati in sequenza stretta. \\
+    \addlinespace
+    Fisher-Yates Parziale & In-Place su array modificabile & $\mathcal{O}(m)$ & Modifica l'array originale scambiando le prime $m$ posizioni; richiede memoria scrivibile. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
