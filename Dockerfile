@@ -8,7 +8,7 @@ LABEL description="All-in-one environment with TeX Live, Python 3 and data scien
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Installa Python 3, pip, latexmk, git e utility di sistema
+# Installa Python 3, pip, latexmk, git, ffmpeg e utility di sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -17,9 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     bash \
     procps \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
+
+# Copia configurazione globale latexmk (reindirizzamento artefatti in build/)
+COPY .latexmkrc /etc/LatexMk
 
 # Copia i requisiti Python e installa le dipendenze scientifiche
 COPY Data-Mining/notebooks/requirements.txt /tmp/requirements.txt

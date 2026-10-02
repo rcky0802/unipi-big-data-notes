@@ -261,8 +261,8 @@ foreach ($item in $buildPlan) {
             & docker compose -f "$rootDir\docker-compose.yml" run --rm figures
         }
 
-        # Esegui latexmk montando il workspace corrente nel container
-        & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode $texFile
+        # Esegui latexmk montando il workspace corrente nel container con cartella ausiliaria build/
+        & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode -emulate-aux-dir -auxdir=build $texFile
 
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Compilato con successo: $subjectName [$lang]" -ForegroundColor Green

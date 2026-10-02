@@ -11,20 +11,24 @@ $auxExtensions = @("*.aux", "*.bbl", "*.bcf", "*.blg", "*.fdb_latexmk", "*.fls",
 
 Write-Host "Pulizia artefatti ausiliari LaTeX in corso..." -ForegroundColor Cyan
 
-# Pulizia diretta file ausiliari sul filesystem host
-foreach ($dir in $subjectDirs) {
-    Write-Host "--> Pulizia cartella: $($dir.Name)..." -ForegroundColor Gray
-    foreach ($ext in $auxExtensions) {
-        Get-ChildItem -Path $dir.FullName -Filter $ext -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# Se Docker è attivo, invoca anche il clean interno
+# Se Docker è attivo, invoca prima il clean interno
 $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
 if ($dockerCmd) {
     $null = & docker info 2>&1
     if ($LASTEXITCODE -eq 0) {
         & docker compose -f "$rootDir\docker-compose.yml" run --rm clean
+    }
+}
+
+# Pulizia diretta file ausiliari e cartelle build sul filesystem host
+foreach ($dir in $subjectDirs) {
+    Write-Host "--> Pulizia cartella: $($dir.Name)..." -ForegroundColor Gray
+    $buildDir = Join-Path $dir.FullName "build"
+    if (Test-Path $buildDir) {
+        Remove-Item -Path $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($ext in $auxExtensions) {
+        Get-ChildItem -Path $dir.FullName -Filter $ext -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     }
 }
 

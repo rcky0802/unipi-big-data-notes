@@ -1,0 +1,960 @@
+\chapter[SVD, Norme Matriciali e Applicazioni]{SVD, Norme Matriciali e Applicazioni:\\Teorema di Eckart-Young, Compressione e PCA}
+\label{chap:svd-norme-matriciali-applicazioni}
+
+Il presente capitolo approfondisce le implicazioni analitiche, geometriche e computazionali della \textbf{Decomposizione a Valori Singolari} (\textit{Singular Value Decomposition}, SVD). Partendo dal raccordo tra la versione estesa (\textit{Full SVD}) e la variante compatta a memoria ridotta (\textit{Thin SVD}), viene sviluppata la teoria rigorosa delle \textbf{norme matriciali indotte} e della \textbf{norma di Frobenius}, derivando in dettaglio l'espressione analitica della norma spettrale $\|A\|_2 = \sigma_1$ e della norma di Frobenius $\|A\|_F = \sqrt{\sum \sigma_i^2}$. Viene quindi formalizzato e dimostrato il fondamentale \textbf{Teorema di Eckart-Young-Mirsky} per l'approssimazione ottimale a basso rango, quantificando esattamente l'errore residuo in ambo le norme. Infine, la trattazione si arricchisce di tre applicazioni cardine della moderna data science: l'interpretazione geometrica tridirezionale dell'operatore lineare (sfera unitaria in ellissoide), la compressione digitale di immagini, l'analisi di dati tabulari con rilevamento delle anomalie e la riduzione dimensionale mediante l'Analisi delle Componenti Principali (PCA)~\cite{golub2013matrix,trefethen1997numerical,strang2019linear}.
+
+\FloatBarrier
+\section{Richiamo e Raccordo: Full SVD vs Thin SVD}
+\label{sec:svd-richiamo-full-thin}
+
+\begin{noteblock}{Raccordo Didattico: Dalla Fondazione Teorica (Capitolo~\ref{chap:decomposizione-valori-singolari-svd}) all'Efficienza Applicativa}
+La teoria assiomatica della SVD, la dimostrazione formale dell'esistenza, la distinzione strutturale tra Full SVD e Thin SVD e le basi dei quattro sottospazi fondamentali sono state stabilite nel Capitolo~\ref{chap:decomposizione-valori-singolari-svd} (in particolare Definizione~\ref{def:thin-svd} e Figura~\ref{fig:svd-full-vs-thin} a pagina~\pageref{def:thin-svd}).
+In questa sede richiamiamo rapidamente le dimensioni dei blocchi per evidenziare il drastico risparmio computazionale e di memoria che rende la Thin SVD lo standard operativo negli ambienti di calcolo reale.
+\end{noteblock}
+
+Data una matrice generica rettangolare $A \in \R^{m \times n}$, con configurazione ad asse verticale ($m \ge n$, matrice ``alta e stretta'') e rango $\rank(A) = r \le n$, la \textbf{Full SVD} fattorizza $A$ nel prodotto di tre fattori:
+\begin{equation}
+    A = U \Sigma V^T,
+\end{equation}
+dove:
+\begin{itemize}
+    \item $U \in \R^{m \times m}$ \`e una matrice ortogonale quadrata ($U^T U = U U^T = I_m$), le cui colonne $\{\mathbf{u}_i\}_{i=1}^m$ sono i \textit{left singular vectors} (vettori singolari sinistri) e costituiscono una base ortonormale di $\R^m$.
+    \item $\Sigma \in \R^{m \times n}$ \`e una matrice rettangolare diagonale estesa contenente i valori singolari non-negativi ordinati in modo non crescente:
+    \begin{equation}
+        \sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > \sigma_{r+1} = \dots = \sigma_n = 0,
+    \end{equation}
+    mentre il blocco inferiore di dimensione $(m - n) \times n$ \`e interamente nullo:
+    \begin{equation}
+        \Sigma = \begin{bmatrix} \Sigma_0 \\ \mathbf{0}_{(m-n) \times n} \end{bmatrix}, \qquad \Sigma_0 = \diag(\sigma_1, \dots, \sigma_n) \in \R^{n \times n}.
+    \end{equation}
+    \item $V \in \R^{n \times n}$ \`e una matrice ortogonale quadrata ($V^T V = V V^T = I_n$), le cui colonne $\{\mathbf{v}_j\}_{j=1}^n$ sono i \textit{right singular vectors} (vettori singolari destri) e costituiscono una base ortonormale di $\R^n$.
+\end{itemize}
+
+I valori singolari sono legati in modo univoco agli autovalori della matrice simmetrica semi-definita positiva associata $A^T A \in \R^{n \times n}$:
+\begin{equation}
+    \sigma_i = \sqrt{\lambda_i(A^T A)}, \quad i = 1, \dots, n.
+\end{equation}
+
+\subsection{La Thin SVD (o Economy SVD)}
+
+Nel contesto tipico delle scienze applicate e del machine learning in cui il numero di campioni o istanze eccede enormemente il numero di variabili ($m \gg n$), il blocco inferiore di $\Sigma$ di taglia $(m-n) \times n$ \`e costituito da soli zeri. Moltiplicando a blocchi:
+\begin{equation}
+    A = U \Sigma V^T = \begin{bmatrix} U_0 & U_{\perp} \end{bmatrix} \begin{bmatrix} \Sigma_0 \\ \mathbf{0} \end{bmatrix} V^T = U_0 \Sigma_0 V^T + U_{\perp} \mathbf{0} V^T = U_0 \Sigma_0 V^T.
+\end{equation}
+La matrice $U_{\perp} \in \R^{m \times (m-n)}$, costituita dalle ultime $m-n$ colonne di $U$, viene moltiplicata unicamente per zeri e non contribuisce in alcun modo alla ricostruzione di $A$.
+Eliminando tali componenti ridondanti, si ottiene la \textbf{Thin SVD} (detta anche \textit{Economy SVD}):
+\begin{equation}
+    A = U_0 \Sigma_0 V^T,
+\end{equation}
+con le seguenti dimensioni e propriet\`a algebriche:
+\begin{enumerate}
+    \item $U_0 \in \R^{m \times n}$ ha colonne mutuamente ortonormali: $U_0^T U_0 = I_n$, ma in generale $U_0 U_0^T \neq I_m$ poich\'e essa proietta sul sottospazio immagine $\operatorname{Im}(A)$.
+    \item $\Sigma_0 \in \R^{n \times n}$ \`e strettamente quadrata e diagonale: $\Sigma_0 = \diag(\sigma_1, \dots, \sigma_n)$.
+    \item $V^T \in \R^{n \times n}$ rimane la medesima matrice ortogonale quadrata della Full SVD.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+
+    % --- FULL SVD ---
+    \node[font=\bfseries\large, text=blue!80!black] at (2.2, 4.8) {Full SVD: $A = U \Sigma V^T$};
+
+    % Matrice A (m x n)
+    \draw[thick, fill=blue!10, draw=blue!60!black] (0, 0) rectangle (1.2, 4.0);
+    \node at (0.6, 2.0) {$A$};
+    \node[below=4pt, font=\scriptsize] at (0.6, 0) {$m \times n$};
+
+    \node at (1.6, 2.0) {$=$};
+
+    % Matrice U (m x m)
+    \draw[thick, fill=green!12, draw=green!60!black] (2.0, 0) rectangle (6.0, 4.0);
+    \draw[dashed, draw=gray!70] (3.2, 0) -- (3.2, 4.0);
+    \node at (2.6, 2.0) {$U_0$};
+    \node[text=gray!70!black] at (4.6, 2.0) {$U_{\perp}$};
+    \node[below=4pt, font=\scriptsize] at (4.0, 0) {$m \times m$};
+
+    \node at (6.4, 2.0) {$\times$};
+
+    % Matrice Sigma (m x n)
+    \draw[thick, fill=orange!12, draw=orange!60!black] (6.8, 0) rectangle (8.0, 4.0);
+    \draw[thick, fill=orange!25, draw=orange!80!black] (6.8, 2.8) rectangle (8.0, 4.0);
+    \draw[dashed, draw=gray!70] (6.8, 2.8) -- (8.0, 2.8);
+    \node at (7.4, 3.4) {$\Sigma_0$};
+    \node[text=gray!60!black] at (7.4, 1.4) {$\mathbf{0}$};
+    \node[below=4pt, font=\scriptsize] at (7.4, 0) {$m \times n$};
+
+    \node at (8.4, 2.0) {$\times$};
+
+    % Matrice V^T (n x n)
+    \draw[thick, fill=purple!12, draw=purple!60!black] (8.8, 2.8) rectangle (10.0, 4.0);
+    \node at (9.4, 3.4) {$V^T$};
+    \node[below=4pt, font=\scriptsize] at (9.4, 2.8) {$n \times n$};
+
+    % --- SEPARATORE VERTICALE ---
+    \draw[dotted, thick, gray!60] (10.6, -0.3) -- (10.6, 5.0);
+
+    % --- THIN SVD ---
+    \node[font=\bfseries\large, text=green!60!black] at (13.8, 4.8) {Thin SVD: $A = U_0 \Sigma_0 V^T$};
+
+    % Matrice A (m x n)
+    \draw[thick, fill=blue!10, draw=blue!60!black] (11.2, 0) rectangle (12.4, 4.0);
+    \node at (11.8, 2.0) {$A$};
+    \node[below=4pt, font=\scriptsize] at (11.8, 0) {$m \times n$};
+
+    \node at (12.8, 2.0) {$=$};
+
+    % Matrice U_0 (m x n)
+    \draw[thick, fill=green!15, draw=green!70!black] (13.2, 0) rectangle (14.4, 4.0);
+    \node at (13.8, 2.0) {$U_0$};
+    \node[below=4pt, font=\scriptsize] at (13.8, 0) {$m \times n$};
+
+    \node at (14.8, 2.0) {$\times$};
+
+    % Matrice Sigma_0 (n x n)
+    \draw[thick, fill=orange!25, draw=orange!80!black] (15.2, 2.8) rectangle (16.4, 4.0);
+    \node at (15.8, 3.4) {$\Sigma_0$};
+    \node[below=4pt, font=\scriptsize] at (15.8, 2.8) {$n \times n$};
+
+    \node at (16.8, 2.0) {$\times$};
+
+    % Matrice V^T (n x n)
+    \draw[thick, fill=purple!12, draw=purple!60!black] (17.2, 2.8) rectangle (18.4, 4.0);
+    \node at (17.8, 3.4) {$V^T$};
+    \node[below=4pt, font=\scriptsize] at (17.8, 2.8) {$n \times n$};
+
+\end{tikzpicture}
+}
+\caption{Confronto geometrico e dimensionale tra Full SVD ed Economy (Thin) SVD per matrici ad asse verticale ($m \ge n$). Nella Thin SVD il blocco inferiore nullo di $\Sigma$ e le colonne superflue $U_{\perp}$ vengono omesse.}
+\label{fig:full-vs-thin-svd-structure}
+\end{figure}
+
+\subsection{Vantaggi Computazionali e Significato Geometrico-Funzionale}
+
+\begin{itemize}
+    \item \textbf{Costo di memoria (Storage):} la memorizzazione della matrice completa $U \in \R^{m \times m}$ richiede $\BigO{m^2}$ elementi. Quando $m = 10^5$ e $n = 10^2$, memorizzare $U$ richiede circa $80$ Gigabyte di memoria RAM in doppia precisione, rendendo l'approccio Full SVD intrattabile. Al contrario, memorizzare $U_0 \in \R^{m \times n}$ richiede soltanto $m \cdot n = 10^7$ elementi ($\approx 80$ Megabyte).
+    \item \textbf{Tempo di calcolo (FLOPs):} la Full SVD calcola esplicitamente tutte le direzioni ortonormali di $\R^m$, richiedendo circa $\BigO{m^2 n}$ o $\BigO{m^3}$ operazioni; la Thin SVD impiega $\BigO{m n^2}$ operazioni, con un tempo di esecuzione inferiore di diversi ordini di grandezza.
+    \item \textbf{Relazione con i sottospazi fondamentali:}
+    \begin{equation}
+        \operatorname{Im}(A) = \spanop\{\mathbf{u}_1, \dots, \mathbf{u}_r\} \subseteq \spanop(U_0), \qquad \ker(A^T) = \spanop(U_{\perp}).
+    \end{equation}
+    La Thin SVD contiene tutte le informazioni essenziali sull'immagine e sullo spazio delle righe di $A$. Il complemento ortogonale $U_{\perp}$ descrive unicamente il nucleo di $A^T$, e viene trascurato a meno di specifiche necessit\`a teoriche.
+\end{itemize}
+
+\FloatBarrier
+\section{Norme Matriciali e Norme Indotte}
+\label{sec:norme-matriciali-indotte}
+
+Cos\`i come le norme vettoriali quantificano la ``lunghezza'' o l'ampiezza di un vettore in $\R^n$, le norme matriciali forniscono una metrica rigorosa per misurare la ``grandezza'' di un operatore lineare o quantificare l'errore commesso nell'approssimazione di matrici.
+
+\subsection{Definizione Assiomatica di Norma Matriciale}
+
+\begin{definition}[Norma Matriciale Generale]
+Una funzione $\|\cdot\|: \R^{m \times n} \to \R$ si definisce \textbf{norma matriciale} se soddisfa i seguenti quattro assiomi fondamentali per ogni coppia di matrici $A, B \in \R^{m \times n}$ e per ogni scalare $\alpha \in \R$:
+\begin{enumerate}
+    \item \textbf{Non-negativit\`a e separazione:}
+    \begin{equation}
+        \|A\| \ge 0, \quad \text{e} \quad \|A\| = 0 \iff A = \mathbf{0}_{m \times n}.
+    \end{equation}
+    \item \textbf{Omogeneit\`a assoluta:}
+    \begin{equation}
+        \|\alpha A\| = |\alpha| \cdot \|A\|.
+    \end{equation}
+    \item \textbf{Disuguaglianza triangolare:}
+    \begin{equation}
+        \|A + B\| \le \|A\| + \|B\|.
+    \end{equation}
+    \item \textbf{Sub-moltiplicativit\`a:} per matrici di dimensioni compatibili rispetto al prodotto matriciale ($A \in \R^{m \times n}, B \in \R^{n \times p}$),
+    \begin{equation}
+        \|AB\| \le \|A\| \cdot \|B\|.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+\subsection{Norme Matriciali Indotte da Norme Vettoriali}
+
+Data una norma vettoriale $\|\cdot\|$ definita sia sullo spazio di partenza $\R^n$ che sullo spazio di arrivo $\R^m$, \`e possibile associare ad essa una specifica norma matriciale detta \textbf{norma indotta} (o \textit{operator norm}).
+
+\begin{definition}[Norma Matriciale Indotta]
+Sia $\|\cdot\|$ una norma vettoriale. La norma matriciale indotta per $A \in \R^{m \times n}$ \`e definita come il massimo fattore di amplificazione che l'operatore lineare $A$ pu\`o imprimere a un vettore non nullo:
+\begin{equation}
+    \|A\| := \max_{\mathbf{v} \in \R^n, \mathbf{v} \neq \mathbf{0}} \frac{\|A\mathbf{v}\|}{\|\mathbf{v}\|}.
+\end{equation}
+Poich\'e la funzione di amplificazione \`e invariante per scalatura ($\|A(\alpha \mathbf{v})\| / \|\alpha \mathbf{v}\| = \|A\mathbf{v}\|/\|\mathbf{v}\|$), ponendo $\mathbf{x} = \mathbf{v} / \|\mathbf{v}\|$ la definizione si riformula equivalentemente sulla sfera unitaria:
+\begin{equation}
+    \label{eq:def-norma-indotta-sfera}
+    \|A\| = \max_{\|\mathbf{x}\| = 1} \|A\mathbf{x}\|.
+\end{equation}
+\end{definition}
+
+\begin{noteblock}{Chiarimento Notazionale d'Aula}
+Si adotta convenzionalmente il medesimo simbolo con doppie barre $\|\cdot\|$ sia per i vettori sia per le matrici. Il contesto definisce in modo non ambiguo l'oggetto matematico: nell'espressione $\|A\mathbf{x}\|$, l'argomento \`e un vettore di $\R^m$ e $\|\cdot\|$ denota la norma vettoriale di arrivo; al contrario, in $\|A\|$ l'argomento \`e l'operatore $A$ e $\|\cdot\|$ indica la norma indotta su $\R^{m \times n}$.
+\end{noteblock}
+
+Dalla definizione~\eqref{eq:def-norma-indotta-sfera} discende immediatamente la \textbf{disuguaglianza fondamentale di compatibilit\`a}:
+\begin{equation}
+    \|A\mathbf{v}\| \le \|A\| \cdot \|\mathbf{v}\| \quad \forall \mathbf{v} \in \R^n.
+\end{equation}
+
+\FloatBarrier
+\section{La Norma Spettrale (Norma 2 Matriciale)}
+\label{sec:norma-spettrale}
+
+La \textbf{norma spettrale} (o norma 2 matriciale), indicata con $\|A\|_2$, \`e la norma indotta dalla classica norma vettoriale euclidea ($\ell_2$ norm):
+\begin{equation}
+    \|\mathbf{x}\|_2 = \sqrt{\mathbf{x}^T \mathbf{x}} = \sqrt{\sum_{i=1}^n x_i^2}.
+\end{equation}
+Pertanto:
+\begin{equation}
+    \|A\|_2 := \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|A\mathbf{x}\|_2}{\|\mathbf{x}\|_2} = \max_{\|\mathbf{x}\|_2 = 1} \|A\mathbf{x}\|_2.
+\end{equation}
+
+\subsection{Derivazione Rigorosa Passo-Passo tramite SVD}
+
+\begin{theorem}[Caratterizzazione della Norma Spettrale]
+\label{thm:norma-spettrale-sigma1}
+Per qualsiasi matrice reale $A \in \R^{m \times n}$, la norma spettrale $\|A\|_2$ coincide esattamente con il suo valore singolare massimo:
+\begin{equation}
+    \|A\|_2 = \sigma_1.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Sviluppiamo la dimostrazione attraverso quattro passaggi sequenziali:
+
+\paragraph{Passo 1: Sostituzione della Full SVD.}
+Sostituiamo la decomposizione a valori singolari $A = U \Sigma V^T$ al numeratore del quoziente:
+\begin{equation}
+    \|A\|_2 = \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|U \Sigma V^T \mathbf{x}\|_2}{\|\mathbf{x}\|_2}.
+\end{equation}
+
+\paragraph{Passo 2: Invarianza isometrica della matrice ortogonale sinistra $U$.}
+Poich\'e $U \in \R^{m \times m}$ \`e ortogonale, in virt\`u della propriet\`a fondamentale di isometria euclidea stabilita nel Capitolo~\ref{chap:prodotto-matrici-complessita-ortogonalita} (Teorema~\ref{thm:isometria-ortogonale} a pagina~\pageref{thm:isometria-ortogonale}), essa preserva la lunghezza euclidea di qualsiasi vettore:
+\begin{equation}
+    \|U \mathbf{y}\|_2 = \|\mathbf{y}\|_2 \quad \forall \mathbf{y} \in \R^m.
+\end{equation}
+Ponendo $\mathbf{y} = \Sigma V^T \mathbf{x} \in \R^m$, il fattore $U$ non altera la norma e pu\`o essere semplificato:
+\begin{equation}
+    \|U \Sigma V^T \mathbf{x}\|_2 = \|\Sigma V^T \mathbf{x}\|_2 \implies \|A\|_2 = \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|\Sigma V^T \mathbf{x}\|_2}{\|\mathbf{x}\|_2}.
+\end{equation}
+
+\paragraph{Passo 3: Cambio di variabile tramite la matrice ortogonale destra $V$.}
+Definiamo il vettore trasformato $\mathbf{z} := V^T \mathbf{x} \in \R^n$. Ancora per l'isometria di matrici ortogonali (Teorema~\ref{thm:isometria-ortogonale}), si ha $\|\mathbf{x}\|_2 = \|V \mathbf{z}\|_2 = \|\mathbf{z}\|_2$. Poich\'e $V^T$ stabilisce una biiezione lineare isometrica su $\R^n$, il problema di massimizzazione si mappa direttamente sul vettore $\mathbf{z}$:
+\begin{equation}
+    \|A\|_2 = \max_{\mathbf{z} \neq \mathbf{0}} \frac{\|\Sigma \mathbf{z}\|_2}{\|\mathbf{z}\|_2} = \max_{\|\mathbf{z}\|_2 = 1} \|\Sigma \mathbf{z}\|_2.
+\end{equation}
+
+\paragraph{Passo 4: Massimizzazione esplicita sotto vincolo quadratico.}
+Esplicitando il vettore $\Sigma \mathbf{z}$ per componenti scalari:
+\begin{equation}
+    \Sigma \mathbf{z} = \begin{bmatrix} \sigma_1 z_1 \\ \sigma_2 z_2 \\ \vdots \\ \sigma_r z_r \\ 0 \\ \vdots \end{bmatrix} \implies \|\Sigma \mathbf{z}\|_2^2 = \sum_{i=1}^r \sigma_i^2 z_i^2.
+\end{equation}
+Sotto il vincolo di sfera unitaria $\|\mathbf{z}\|_2^2 = \sum_{i=1}^n z_i^2 = 1$, il problema equivale a determinare:
+\begin{equation}
+    \|A\|_2^2 = \max_{\sum_{i=1}^n z_i^2 = 1} \left( \sigma_1^2 z_1^2 + \sigma_2^2 z_2^2 + \dots + \sigma_r^2 z_r^2 \right).
+\end{equation}
+Essendo i valori singolari ordinati in modo decrescente ($\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r \ge 0$), la combinazione convessa dei pesi $w_i = z_i^2$ (con $w_i \ge 0$ e $\sum w_i = 1$) \`e massimizzata concentrando l'intero peso scalare sul coefficiente associato al valore singolare pi\`u grande $\sigma_1^2$:
+\begin{equation}
+    \sum_{i=1}^r \sigma_i^2 z_i^2 \le \sum_{i=1}^r \sigma_1^2 z_i^2 = \sigma_1^2 \sum_{i=1}^r z_i^2 \le \sigma_1^2 (1) = \sigma_1^2.
+\end{equation}
+Tale limite superiore viene raggiunto scegliendo $\mathbf{z} = \mathbf{e}_1 = [1, 0, \dots, 0]^T$ (ovvero $\mathbf{x} = V \mathbf{e}_1 = \mathbf{v}_1$). Estraendo la radice quadrata:
+\begin{equation}
+    \|A\|_2 = \sigma_1.
+\end{equation}
+\end{proof}
+
+\begin{corollary}[Invarianza Unitaria della Norma Spettrale]
+La moltiplicazione a sinistra o a destra per matrici ortogonali non altera la norma spettrale:
+\begin{equation}
+    \|Q_1 A Q_2\|_2 = \|A\|_2 \quad \forall Q_1 \in \R^{m \times m}, Q_2 \in \R^{n \times n} \text{ ortogonali}.
+\end{equation}
+\end{corollary}
+
+\FloatBarrier
+\section{La Norma di Frobenius}
+\label{sec:norma-frobenius}
+
+A differenza della norma spettrale, la \textbf{norma di Frobenius} non \`e una norma indotta da una norma vettoriale, ma rappresenta l'estensione naturale della norma euclidea considerando la matrice $A \in \R^{m \times n}$ come un vettore lungo di dimensione $m \cdot n$.
+
+\subsection{Definizione e Riformulazione tramite Traccia}
+
+\begin{definition}[Norma di Frobenius]
+La norma di Frobenius $\|A\|_F$ di $A \in \R^{m \times n}$ \`e definita da:
+\begin{equation}
+    \|A\|_F := \sqrt{\sum_{i=1}^m \sum_{j=1}^n a_{ij}^2}.
+\end{equation}
+\end{definition}
+
+Tale norma pu\`o essere calcolata in forma analitica compatta mediante l'operatore \textbf{traccia} $\trace(\cdot)$, definito per matrici quadrate come la somma degli elementi diagonali ($\trace(M) = \sum_i M_{ii}$).
+
+\begin{proposition}[Formulazione con Traccia]
+\begin{equation}
+    \|A\|_F = \sqrt{\trace(A^T A)} = \sqrt{\trace(A A^T)}.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+L'entrata diagonale $j$-esima del prodotto simmetrico $A^T A \in \R^{n \times n}$ coincide con la norma euclidea al quadrato della $j$-esima colonna di $A$:
+\begin{equation}
+    (A^T A)_{jj} = \sum_{k=1}^m (A^T)_{jk} A_{kj} = \sum_{k=1}^m A_{kj}^2.
+\end{equation}
+Sommando su tutti gli indici $j=1, \dots, n$:
+\begin{equation}
+    \trace(A^T A) = \sum_{j=1}^n (A^T A)_{jj} = \sum_{j=1}^n \sum_{k=1}^m A_{kj}^2 = \sum_{i=1}^m \sum_{j=1}^n a_{ij}^2 = \|A\|_F^2.
+\end{equation}
+\end{proof}
+
+\subsection{Espressione Spettrale della Norma di Frobenius via SVD}
+
+\begin{theorem}[Norma di Frobenius e Valori Singolari]
+\label{thm:frobenius-valori-singolari}
+La norma di Frobenius di una matrice $A \in \R^{m \times n}$ con valori singolari $\sigma_1, \dots, \sigma_r$ equivale alla radice quadrata della somma dei quadrati di tutti i suoi valori singolari:
+\begin{equation}
+    \|A\|_F = \sqrt{\sum_{i=1}^r \sigma_i^2} = \sqrt{\sigma_1^2 + \sigma_2^2 + \dots + \sigma_r^2}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione sfrutta la propriet\`a ciclica fondamentale della traccia: per matrici di dimensioni compatibili, $\trace(M_1 M_2 M_3) = \trace(M_2 M_3 M_1) = \trace(M_3 M_1 M_2)$.
+\begin{enumerate}
+    \item Sostituiamo la SVD $A = U \Sigma V^T$ nella formula della traccia:
+    \begin{equation}
+        \|A\|_F^2 = \trace(A^T A) = \trace\left( (U \Sigma V^T)^T (U \Sigma V^T) \right) = \trace\left( V \Sigma^T U^T U \Sigma V^T \right).
+    \end{equation}
+    \item Essendo $U$ ortogonale, $U^T U = I_m$, per cui:
+    \begin{equation}
+        \|A\|_F^2 = \trace\left( V \Sigma^T \Sigma V^T \right).
+    \end{equation}
+    \item Applichiamo la permutazione ciclica della traccia, spostando la matrice ortogonale $V$ alla fine del prodotto matriciale:
+    \begin{equation}
+        \trace\left( V (\Sigma^T \Sigma V^T) \right) = \trace\left( (\Sigma^T \Sigma V^T) V \right) = \trace\left( \Sigma^T \Sigma (V^T V) \right).
+    \end{equation}
+    \item Essendo $V$ ortogonale, $V^T V = I_n$, quindi:
+    \begin{equation}
+        \|A\|_F^2 = \trace(\Sigma^T \Sigma).
+    \end{equation}
+    \item Il prodotto $\Sigma^T \Sigma \in \R^{n \times n}$ \`e una matrice diagonale i cui elementi sono $\sigma_1^2, \sigma_2^2, \dots, \sigma_r^2, 0, \dots, 0$. La sua traccia \`e la somma dei suoi elementi diagonali:
+    \begin{equation}
+        \trace(\Sigma^T \Sigma) = \sum_{i=1}^r \sigma_i^2 \implies \|A\|_F = \sqrt{\sum_{i=1}^r \sigma_i^2}.
+    \end{equation}
+\end{enumerate}
+\end{proof}
+
+\begin{corollary}[Invarianza Unitaria di Frobenius]
+Anche la norma di Frobenius \`e unitariamente invariante:
+\begin{equation}
+    \|Q_1 A Q_2\|_F = \|A\|_F \quad \forall Q_1 \in \R^{m \times m}, Q_2 \in \R^{n \times n} \text{ ortogonali}.
+\end{equation}
+\end{corollary}
+
+\FloatBarrier
+\section{Generalizzazione a Matrici Complesse e Caso Simmetrico Reale}
+\label{sec:matrici-complesse-simmetriche}
+
+\subsection{Estensione allo Spazio Complesso ($\C$)}
+
+I concetti di trasposizione, ortogonalit\`a e SVD si estendono con eleganza allo spazio vettoriale complesso $\C$:
+\begin{itemize}
+    \item \textbf{Trasposta Coniugata (Aggiunta):} al posto di $A^T$, si utilizza la matrice aggiunta $A^* \in \C^{n \times m}$ (indicata talvolta con $A^H$), definita da:
+    \begin{equation}
+        (A^*)_{ij} = \overline{a_{ji}}.
+    \end{equation}
+    \item \textbf{Matrici Unitarie:} una matrice complessa quadrata $Q \in \C^{n \times n}$ si dice \textbf{unitaria} se la sua inversa coincide con la trasposta coniugata:
+    \begin{equation}
+        Q^* Q = Q Q^* = I_n.
+    \end{equation}
+    \item \textbf{Matrici Hermitiane:} una matrice $A \in \C^{n \times n}$ si dice \textbf{hermitiana} se $A^* = A$. Le matrici hermitiane ammettono autovalori strettamente reali e una base ortonormale di autovettori in $\C^n$.
+    \item \textbf{SVD Complessa:} per qualsiasi matrice rettangolare complessa $A \in \C^{m \times n}$:
+    \begin{equation}
+        A = U \Sigma V^*,
+    \end{equation}
+    dove $U \in \C^{m \times m}$ e $V \in \C^{n \times n}$ sono unitarie, mentre $\Sigma \in \R^{m \times n}$ \`e una matrice \textbf{reale} contenente valori singolari $\sigma_i \ge 0$.
+\end{itemize}
+
+\subsection{SVD di Matrici Simmetriche Reali dalla Decomposizione Spettrale}
+\label{sec:svd-simmetriche-recap}
+
+Come analizzato e risolto nel Problema~\ref{sec:svd-simmetrica-spettrale} del Capitolo~\ref{chap:decomposizione-valori-singolari-svd} (pagina~\pageref{sec:svd-simmetrica-spettrale}), per una matrice reale simmetrica ($A = A^T$) con fattorizzazione spettrale $A = Q D Q^T = \sum_{i=1}^n d_i \mathbf{q}_i \mathbf{q}_i^T$, non occorre materializzare il gramiano $A^T A = A^2$. I fattori dell'SVD $A = U \Sigma V^T$ si determinano per via algebrica diretta:
+\begin{enumerate}
+    \item \textbf{Valori Singolari:} $\sigma_i = \sqrt{\lambda_i(A^T A)} = \sqrt{d_i^2} = |d_i| \ge 0$.
+    \item \textbf{Vettori Singolari Destri:} $\mathbf{v}_i = \mathbf{q}_i$.
+    \item \textbf{Vettori Singolari Sinistri:} assorbono il segno degli autovalori per preservare la coerenza diadica $d_i \mathbf{q}_i \mathbf{q}_i^T = |d_i| \mathbf{u}_i \mathbf{q}_i^T$:
+    \begin{equation}
+        \mathbf{u}_i = \operatorname{sgn}(d_i) \mathbf{q}_i = \begin{cases} \mathbf{q}_i & \text{se } d_i \ge 0, \\ -\mathbf{q}_i & \text{se } d_i < 0. \end{cases}
+    \end{equation}
+    \item \textbf{Ordinamento:} permutazione simultanea per garantire l'assioma fondamentale $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n \ge 0$.
+\end{enumerate}
+Questa conciliazione diretta chiude il cerchio tra l'algebra spettrale delle matrici simmetriche e la decomposizione a valori singolari, fungendo da analogo reale della SVD unitaria complessa introdotta sopra.
+
+\FloatBarrier
+\section{Il Problema dell'Approssimazione a Basso Rango e Teorema di Eckart-Young}
+\label{sec:eckart-young-teorema}
+
+In moltissimi problemi applicativi di data science, signal processing e modellazione numerica, una matrice di dati $A \in \R^{m \times n}$ ha rango teorico o numerico pieno $r$, ma la maggior parte dell'informazione strutturale \`e concentrata in un sottospazio di dimensione molto inferiore $k \ll r$.
+
+\subsection{Formulazione del Problema di Ottimo}
+
+Fissato un rango target $k < \rank(A)$, si ricerca una matrice $B \in \R^{m \times n}$ di rango al pi\`u $k$ che minimizzi la distanza da $A$ in una norma prefissata:
+\begin{equation}
+    \min_{B \in \R^{m \times n}, \, \rank(B) \le k} \|A - B\|.
+\end{equation}
+
+\subsection{Esempio Introduttivo Giocattolo $2 \times 2$}
+
+Consideriamo la matrice reale quadrata di rango 2 analizzata durante la lezione:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}, \qquad \rank(A) = 2.
+\end{equation}
+Si vuole determinare la migliore matrice $B$ di rango $k = 1$ che minimizzi l'errore di approssimazione nella norma di Frobenius $\|A - B\|_F$.
+
+\paragraph{Tentativo 1 (Sostituzione euristica di una riga):}
+Rendiamo la prima riga proporzionale alla seconda:
+\begin{equation}
+    B_1 = \begin{bmatrix} 1 & 2 \\ 2 & 4 \end{bmatrix} \implies A - B_1 = \begin{bmatrix} 0 & 0 \\ 1 & 0 \end{bmatrix} \implies \|A - B_1\|_F = \sqrt{0^2 + 0^2 + 1^2 + 0^2} = 1.0.
+\end{equation}
+
+\paragraph{Tentativo 2 (Perturbazione bilanciata d'aula):}
+Modifichiamo un solo coefficiente per rendere le colonne proporzionali ($[2, 4]^T = \frac{4}{3}[1.5, 3]^T$):
+\begin{equation}
+    B_2 = \begin{bmatrix} 1.5 & 2 \\ 3 & 4 \end{bmatrix} \implies A - B_2 = \begin{bmatrix} -0.5 & 0 \\ 0 & 0 \end{bmatrix} \implies \|A - B_2\|_F = 0.5.
+\end{equation}
+L'errore si \`e dimezzato ($0.5 < 1.0$). Si pu\`o fare di meglio?
+
+\paragraph{Soluzione Esatta Ottimale tramite SVD:}
+Calcolando la SVD esatta di $A$, si ottengono i valori singolari:
+\begin{equation}
+    \sigma_1 \approx 5.46498, \qquad \sigma_2 \approx 0.36597.
+\end{equation}
+Come enunciato dal Teorema di Eckart-Young, l'errore minimo teorico insuperabile \`e dato da $\sigma_2 \approx 0.366$, sensibilmente inferiore sia a $1.0$ sia a $0.5$.
+
+\subsection{Il Teorema di Eckart-Young-Mirsky}
+
+\begin{theorem}[Eckart-Young-Mirsky]
+\label{thm:eckart-young}
+Sia $A \in \R^{m \times n}$ con $\rank(A) = r$ e decomposizione a valori singolari in forma diadica:
+\begin{equation}
+    A = \sum_{i=1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T.
+\end{equation}
+Per ogni intero $k < r$, la matrice $A_k$ definita dalla troncata alle prime $k$ componenti della SVD:
+\begin{equation}
+    A_k := \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T = U_k \Sigma_k V_k^T
+\end{equation}
+(dove $U_k \in \R^{m \times k}, \Sigma_k = \diag(\sigma_1, \dots, \sigma_k), V_k \in \R^{n \times k}$) \`e la soluzione ottima globale del problema di migliore approssimazione di rango $k$:
+\begin{equation}
+    \min_{\rank(B) \le k} \|A - B\| = \|A - A_k\|
+\end{equation}
+sia per la norma spettrale $\|\cdot\|_2$, sia per la norma di Frobenius $\|\cdot\|_F$ (e in generale per qualsiasi norma unitariamente invariante).
+\end{theorem}
+
+\subsection{Quantificazione Analitica dell'Errore di Approssimazione}
+
+Costruiamo la matrice residua di errore sottraendo l'approssimazione $A_k$ dalla matrice originaria $A$:
+\begin{equation}
+    E_k := A - A_k = \sum_{i=1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T - \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T = \sum_{i=k+1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T.
+\end{equation}
+L'espressione a destra \`e a tutti gli effetti la forma diadica SVD della matrice di errore $E_k$, avente come valori singolari non nulli l'insieme residuo $\{\sigma_{k+1}, \sigma_{k+2}, \dots, \sigma_r\}$.
+Applicando i Teoremi~\ref{thm:norma-spettrale-sigma1} e~\ref{thm:frobenius-valori-singolari}:
+
+\begin{alertblock}{Valutazione Esatta dell'Errore di Troncatura SVD}
+\begin{enumerate}
+    \item \textbf{Errore in Norma Spettrale (Norma 2):} coincide esattamente con il primo valore singolare scartato:
+    \begin{equation}
+        \min_{\rank(B) \le k} \|A - B\|_2 = \|A - A_k\|_2 = \sigma_{k+1}.
+    \end{equation}
+    \item \textbf{Errore in Norma di Frobenius:} coincide con la radice quadrata della somma dei quadrati di tutti i valori singolari scartati:
+    \begin{equation}
+        \min_{\rank(B) \le k} \|A - B\|_F = \|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2} = \sqrt{\sigma_{k+1}^2 + \dots + \sigma_r^2}.
+    \end{equation}
+\end{enumerate}
+\end{alertblock}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, scale=0.9]
+    % Assi cartesiani
+    \draw[->, thick] (0, 0) -- (10.5, 0) node[below=4pt] {Indice singolare $i$};
+    \draw[->, thick] (0, 0) -- (0, 5.5) node[left=4pt] {Valore singolare $\sigma_i$};
+
+    % Curva decrescente valori singolari
+    \draw[thick, blue!80!black, domain=0.5:10, samples=50] plot (\x, {5 * exp(-0.35 * \x)});
+
+    % Barre per valori singolari
+    \foreach \x/\y in {1/3.52, 2/2.48, 3/1.75, 4/1.23, 5/0.87, 6/0.61, 7/0.43, 8/0.30, 9/0.21, 10/0.15} {
+        \draw[fill=blue!30, draw=blue!70!black] (\x - 0.2, 0) rectangle (\x + 0.2, \y);
+    }
+
+    % Linea di taglio k
+    \draw[thick, dashed, red!80!black] (4.5, 0) -- (4.5, 5.0) node[above, font=\small\bfseries] {Troncatura a rango $k = 4$};
+
+    % Area conservata (Segnale principale)
+    \node[text=green!50!black, font=\small\bfseries] at (2.2, 4.2) {Segnale Conservato ($A_k$)};
+    \node[text=green!50!black, font=\scriptsize] at (2.2, 3.7) {$\sigma_1, \dots, \sigma_k$};
+
+    % Area scartata (Errore / Rumore)
+    \node[text=red!70!black, font=\small\bfseries] at (7.5, 2.5) {Errore Residuo $\|A - A_k\|$};
+    \node[text=red!70!black, font=\scriptsize] at (7.5, 2.0) {$\|A - A_k\|_2 = \sigma_{k+1}$};
+    \node[text=red!70!black, font=\scriptsize] at (7.5, 1.5) {$\|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2}$};
+
+    % Etichette assi
+    \node[below=2pt, font=\small] at (1, 0) {$1$};
+    \node[below=2pt, font=\small] at (4, 0) {$k$};
+    \node[below=2pt, font=\small, text=red!80!black] at (5, 0) {$k+1$};
+    \node[below=2pt, font=\small] at (10, 0) {$r$};
+\end{tikzpicture}
+\caption{Decadimento dello spettro singolare e partizione dell'energia tra segnale conservato nell'approssimazione a rango $k$ ($A_k$) ed errore residuo quantificato dal Teorema di Eckart-Young.}
+\label{fig:eckart-young-spectrum}
+\end{figure}
+
+\FloatBarrier
+\section{Interpretazione Geometrica della SVD: Dalla Sfera all'Ellissoide}
+\label{sec:interpretazione-geometrica-svd}
+
+La decomposizione $A = U \Sigma V^T$ possiede una trasparente interpretazione geometrica: essa afferma che la trasformazione lineare generata da qualsiasi matrice reale $A \in \R^{m \times n}$ trasforma la sfera unitaria euclidea dello spazio di partenza in un iper-ellissoide nello spazio di arrivo.
+Tale trasformazione si decompone nella composizione ordinata di tre azioni geometriche canoniche:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.0]
+
+    % =========================================================================
+    % BANNER SUPERIORE: Decomposizione e Azione Globale della Matrice A
+    % =========================================================================
+    \node[draw=red!70!black, fill=red!3, rounded corners=6pt, inner sep=6pt, align=center, line width=1pt] at (0, 7.15) {
+        \textbf{\textcolor{red!80!black}{\small Azione Globale:}}\quad
+        \small $\mathbf{x} \;\xrightarrow{\;\; V^T \;\;}\; \mathbf{z} \;\xrightarrow{\;\; \Sigma \;\;}\; \mathbf{y} \;\xrightarrow{\;\; U \;\;}\; A\mathbf{x} = U \Sigma V^T \mathbf{x}$
+    };
+
+    % =========================================================================
+    % QUADRANTE 1 (Alto a Sinistra): Sfera Unitaria Originaria in R^n
+    % =========================================================================
+    \begin{scope}[shift={(-4.2, 3.8)}]
+        \draw[draw=blue!35, fill=blue!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=blue!90!black, align=center] at (0, 2.25) {(1) Sfera Unitaria ($\R^n$)};
+
+        \draw[help lines, color=gray!20, dashed] (-1.3,-1.3) grid (1.3,1.3);
+        \draw[->, thick, gray!60] (-1.35, 0) -- (1.35, 0) node[right=1pt, font=\scriptsize, text=black] {$x_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$x_2$};
+
+        % Sfera unitaria
+        \draw[thick, fill=blue!8, draw=blue!70!black] (0, 0) circle (1.15);
+
+        % Vettori ortonormali destri v_1 e v_2
+        \draw[->, line width=1.5pt, blue!90!black] (0, 0) -- (0.98, 0.61) node[above right=-2pt, font=\small\bfseries] {$\mathbf{v}_1$};
+        \draw[->, line width=1.5pt, blue!90!black] (0, 0) -- (-0.61, 0.98) node[above left=-2pt, font=\small\bfseries] {$\mathbf{v}_2$};
+
+        % Angolo retto
+        \draw[thin, blue!60!black] (0.15, 0.09) -- (0.06, 0.24) -- (-0.09, 0.15);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {$\|\mathbf{x}\|_2 \le 1$, base $\{\mathbf{v}_1, \mathbf{v}_2\}$};
+    \end{scope}
+
+    % --- TRANSIZIONE 1 -> 2: Isometria destra V^T ---
+    \draw[->, line width=1.8pt, blue!70!black] (-1.5, 3.8) -- (1.5, 3.8);
+    \node[above=3pt, font=\small\bfseries, text=blue!85!black] at (0, 3.8) {$V^T$};
+    \node[below=3pt, font=\scriptsize, align=center, text=gray!75!black] at (0, 3.8) {Isometria destra\\$\mathbf{v}_i \mapsto \mathbf{e}_i$};
+
+    % =========================================================================
+    % QUADRANTE 2 (Alto a Destra): Sfera Allineata agli Assi Canonici
+    % =========================================================================
+    \begin{scope}[shift={(4.2, 3.8)}]
+        \draw[draw=teal!35, fill=teal!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=teal!90!black, align=center] at (0, 2.25) {(2) Allineamento Assi};
+
+        \draw[help lines, color=gray!20, dashed] (-1.3,-1.3) grid (1.3,1.3);
+        \draw[->, thick, gray!60] (-1.35, 0) -- (1.45, 0) node[right=1pt, font=\scriptsize, text=black] {$z_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$z_2$};
+
+        % Sfera unitaria
+        \draw[thick, fill=teal!8, draw=teal!70!black] (0, 0) circle (1.15);
+
+        % Vettori della base canonica
+        \draw[->, line width=1.5pt, teal!85!black] (0, 0) -- (1.15, 0) node[midway, below=2pt, font=\small\bfseries] {$\mathbf{e}_1$};
+        \draw[->, line width=1.5pt, teal!85!black] (0, 0) -- (0, 1.15) node[midway, left=3pt, font=\small\bfseries] {$\mathbf{e}_2$};
+
+        % Angolo retto
+        \draw[thin, teal!60!black] (0.18, 0) -- (0.18, 0.18) -- (0, 0.18);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {$\mathbf{z} = V^T \mathbf{x}, \; \|\mathbf{z}\|_2 \le 1$};
+    \end{scope}
+
+    % --- TRANSIZIONE 2 -> 3: Stiramento diagonale Sigma ---
+    \draw[->, line width=1.8pt, orange!80!black] (4.2, 1.1) -- (4.2, -1.0);
+    \node[right=4pt, font=\small\bfseries, text=orange!85!black] at (4.2, 0.05) {$\Sigma$};
+    \node[left=4pt, font=\scriptsize, align=center, text=gray!75!black] at (4.2, 0.05) {Stiramento\\$\sigma_1 \ge \sigma_2 > 0$};
+
+    % =========================================================================
+    % QUADRANTE 3 (Basso a Destra): Deformazione in Ellissoide Scalato
+    % =========================================================================
+    \begin{scope}[shift={(4.2, -3.8)}]
+        \draw[draw=orange!35, fill=orange!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=orange!90!black, align=center] at (0, 2.25) {(3) Ellissoide Scalato};
+
+        \draw[help lines, color=gray!20, dashed] (-1.6,-1.3) grid (1.6,1.3);
+        \draw[->, thick, gray!60] (-1.75, 0) -- (2.0, 0) node[right=1pt, font=\scriptsize, text=black] {$y_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.3) node[above=1pt, font=\scriptsize, text=black] {$y_2$};
+
+        % Ellissoide
+        \draw[thick, fill=orange!10, draw=orange!80!black] (0, 0) ellipse (1.35 and 0.62);
+
+        % Semiassi
+        \draw[->, line width=1.5pt, orange!90!black] (0, 0) -- (1.35, 0) node[above right=1pt, font=\small\bfseries] {$\sigma_1 \mathbf{e}_1$};
+        \draw[->, line width=1.5pt, orange!90!black] (0, 0) -- (0, 0.62) node[above left=1pt, font=\small\bfseries] {$\sigma_2 \mathbf{e}_2$};
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {Semiassi: $\sigma_1 \mathbf{e}_1, \; \sigma_2 \mathbf{e}_2$};
+    \end{scope}
+
+    % --- TRANSIZIONE 3 -> 4: Isometria sinistra U ---
+    \draw[->, line width=1.8pt, purple!75!black] (1.5, -3.8) -- (-1.5, -3.8);
+    \node[above=3pt, font=\small\bfseries, text=purple!85!black] at (0, -3.8) {$U$};
+    \node[below=3pt, font=\scriptsize, align=center, text=gray!75!black] at (0, -3.8) {Isometria sinistra\\$\mathbf{e}_i \mapsto \mathbf{u}_i$};
+
+    % =========================================================================
+    % QUADRANTE 4 (Basso a Sinistra): Ellissoide Finale Ruotato in R^m
+    % =========================================================================
+    \begin{scope}[shift={(-4.2, -3.8)}]
+        \draw[draw=purple!35, fill=purple!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=purple!90!black, align=center] at (0, 2.25) {(4) Ellissoide Finale ($\R^m$)};
+
+        \draw[help lines, color=gray!20, dashed] (-1.6,-1.3) grid (1.6,1.3);
+        \draw[->, thick, gray!60] (-1.75, 0) -- (1.75, 0) node[right=1pt, font=\scriptsize, text=black] {$w_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$w_2$};
+
+        % Ellissoide ruotato di 32 gradi
+        \draw[thick, fill=purple!10, draw=purple!80!black, rotate=32] (0, 0) ellipse (1.35 and 0.62);
+
+        % Vettori singolari sinistri ruotati
+        \draw[->, line width=1.5pt, purple!90!black] (0, 0) -- (1.145, 0.715) node[above right=-2pt, font=\small\bfseries] {$\sigma_1 \mathbf{u}_1$};
+        \draw[->, line width=1.5pt, purple!90!black] (0, 0) -- (-0.328, 0.526) node[above left=-2pt, font=\small\bfseries] {$\sigma_2 \mathbf{u}_2$};
+
+        % Angolo retto ruotato
+        \draw[thin, purple!60!black, rotate=32] (0.18, 0) -- (0.18, 0.18) -- (0, 0.18);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {Assi orientati lungo $\{\mathbf{u}_1, \mathbf{u}_2\}$};
+    \end{scope}
+
+    % --- TRANSIZIONE 1 -> 4 DIRETTA: Azione globale A (Chiusura del diagramma) ---
+    \draw[->, line width=2pt, dashed, red!75!black] (-4.2, 1.1) -- (-4.2, -1.0);
+    \node[left=4pt, font=\small\bfseries, text=red!85!black] at (-4.2, 0.05) {$A$};
+    \node[right=4pt, font=\scriptsize, align=center, text=gray!75!black] at (-4.2, 0.05) {Azione\\diretta $A\mathbf{x}$};
+
+\end{tikzpicture}%
+}
+\caption{Interpretazione geometrica dell'azione di una matrice $A = U \Sigma V^T$ sulla sfera unitaria euclidea rappresentata a quattro quadranti: (1) Sfera originaria con i vettori singolari destri $\mathbf{v}_i$; (2) Isometria $V^T$ che allinea le direzioni $\mathbf{v}_i$ con la base canonica $\mathbf{e}_i$; (3) Deformazione assi-simmetrica $\Sigma$ che genera un ellissoide con semiassi $\sigma_i$; (4) Isometria finale $U$ che orienta i semiassi dell'ellissoide lungo i vettori singolari sinistri $\mathbf{u}_i$.}
+\label{fig:svd-geometric-transformation}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Azione di $V^T$ (Isometria in $\R^n$):} ruota la sfera unitaria rigida, facendo coincidere le direzioni ortogonali dei vettori singolari destri $\{\mathbf{v}_i\}_{i=1}^n$ con gli assi canonici $\{\mathbf{e}_i\}_{i=1}^n$. Essendo $V^T$ ortogonale, le distanze e la forma sferica rimangono inalterate.
+    \item \textbf{Azione di $\Sigma$ (Stiramento assi-simmetrico):} ciascun asse coordinato viene allungato o contratto per il corrispondente valore singolare $\sigma_i$. La sfera unitaria viene cos\`i deformata in un iper-ellissoide avente semiassi principali di lunghezza $\sigma_1, \sigma_2, \dots, \sigma_r$. Se $r < n$, l'ellissoide collassa lungo le direzioni degenerate a valore singolare nullo.
+    \item \textbf{Azione di $U$ (Isometria in $\R^m$):} applica una rotazione/riflessione finale rigida nello spazio di arrivo $\R^m$, orientando i semiassi principali dell'ellissoide lungo le direzioni dei vettori singolari sinistri $\{\mathbf{u}_i\}_{i=1}^m$.
+\end{enumerate}
+
+\FloatBarrier
+\section{Applicazione 1: Compressione Digitale di Immagini via Truncated SVD}
+\label{sec:applicazione-compressione-immagini}
+
+\subsection{Modellazione Matriciale dell'Immagine}
+
+Un'immagine in scala di grigi con risoluzione $m \times n$ (ad esempio $600 \times 402$ pixel) viene rappresentata matematicamente da una matrice $A \in \R^{m \times n}$, dove l'elemento $a_{ij} \in [0, 255]$ codifica l'intensit\`a luminosa del pixel posizionato alla riga $i$ e colonna $j$.
+
+Memorizzare l'immagine non compressa richiede la memorizzazione di tutti gli $m \cdot n$ pixel scalari (per $600 \times 402$, $241\,200$ valori).
+
+\subsection{Meccanismo di Compressione e Rapporto di Memorizzazione}
+
+Applicando il Teorema di Eckart-Young, sostituiamo alla matrice originaria $A$ la sua migliore approssimazione di rango $k$:
+\begin{equation}
+    A_k = U_k \Sigma_k V_k^T = \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T.
+\end{equation}
+Per ricostruire $A_k$, non \`e necessario memorizzare l'intera matrice $m \times n$, bens\`i soltanto i suoi fattori spettrali:
+\begin{itemize}
+    \item $U_k \in \R^{m \times k}$: le prime $k$ colonne di $U$ ($m \cdot k$ scalari).
+    \item $\Sigma_k \in \R^{k \times k}$: i primi $k$ valori singolari ($k$ scalari).
+    \item $V_k \in \R^{n \times k}$: le prime $k$ colonne di $V$ ($n \cdot k$ scalari).
+\end{itemize}
+Il numero totale di scalari da memorizzare \`e dato da:
+\begin{equation}
+    \text{Memoria}(A_k) = k(m + n + 1).
+\end{equation}
+Il \textbf{tasso di compressione} (rapporto tra memoria ridotta e memoria iniziale) \`e pari a:
+\begin{equation}
+    \rho_k = \frac{k(m + n + 1)}{m \cdot n}.
+\end{equation}
+
+\begin{example}[Compressione di un'immagine $600 \times 402$]
+Per un'immagine con $m = 600$ e $n = 402$:
+\begin{itemize}
+    \item Matrice originaria piena: $600 \times 402 = 241\,200$ scalari.
+    \item $k = 10$: $10 \times (600 + 402 + 1) = 10\,030$ scalari ($\approx 4.1\%$ della memoria originale, risparmio del $95.9\%$).
+    \item $k = 30$: $30 \times (600 + 402 + 1) = 30\,090$ scalari ($\approx 12.5\%$ della memoria originale, risparmio dell'$87.5\%$).
+\end{itemize}
+\end{example}
+
+\subsection{Comportamento Visivo al Variare di $k$}
+
+Come mostrato nella demo interattiva analizzata a lezione (\url{https://timbaumann.info/svd-image-compression-demo/}):
+\begin{enumerate}
+    \item \textbf{$k = 1$ (Rango 1):} l'immagine \`e costituita da una singola matrice diadica $\sigma_1 \mathbf{u}_1 \mathbf{v}_1^T$. Visivamente compaiono soltanto gradienti verticali e orizzontali grossolani; il contenuto semantico \`e irriconoscibile.
+    \item \textbf{$k = 2$ o $k = 5$:} emergono i contorni sfocati delle forme dominanti e dei contrasti principali tra luce e ombra.
+    \item \textbf{$k = 10$ o $k = 15$:} il soggetto dell'immagine (ad esempio un volto o un edificio) \`e perfettamente distinguibile, pur presentando lievi artefatti a blocchi nei dettagli fini.
+    \item \textbf{$k = 30$ o $k = 40$:} l'immagine ricostruita $A_k$ \`e praticamente indistinguibile dall'originale a occhio nudo, poich\'e i valori singolari residui decadono a valori trascurabili ($\sum_{i=k+1}^r \sigma_i^2 \approx 0$).
+\end{enumerate}
+
+\begin{lstlisting}[style=pythoncode, caption={Implementazione Python di compressione immagini e calcolo dell'errore relativo con SVD.}]
+import numpy as np
+
+def compress_image_svd(A: np.ndarray, k: int):
+    """
+    Comprime una matrice immagine 2D A di taglia (m, n) al rango k tramite SVD.
+    Restituisce: immagine ricostruita A_k, memoria scalari e errore relativo Frobenius.
+    """
+    # 1. Calcolo Thin SVD
+    U, S, Vt = np.linalg.svd(A, full_matrices=False)
+    
+    # 2. Troncatura alle prime k componenti
+    Uk = U[:, :k]
+    Sk = S[:k]
+    Vtk = Vt[:k, :]
+    
+    # 3. Ricostruzione matrice approssimata A_k
+    Ak = Uk @ np.diag(Sk) @ Vtk
+    
+    # 4. Calcolo metriche
+    m, n = A.shape
+    mem_orig = m * n
+    mem_comp = k * (m + n + 1)
+    compression_ratio = mem_comp / mem_orig
+    
+    err_frobenius = np.linalg.norm(A - Ak, 'fro') / np.linalg.norm(A, 'fro')
+    
+    return Ak, compression_ratio, err_frobenius
+\end{lstlisting}
+
+\FloatBarrier
+\section{Applicazione 2: Analisi di Dati Tabulari e Rilevamento di Anomalie}
+\label{sec:applicazione-dati-tabulari-anomalie}
+
+L'approssimazione a basso rango basata sulla SVD trova un impiego naturale nell'analisi di matrici di dati osservazionali, permettendo di estrarre fattori latenti e rilevare anomalie o valori anomali (\textit{outlier}).
+
+\subsection{Modellazione a Basso Rango di Punteggi di Test}
+
+Consideriamo la matrice $M \in \R^{4 \times 3}$ analizzata a lezione, contenente i punteggi conseguiti da $4$ studenti su $3$ prove d'esame (Test A, Test B, Test C):
+\begin{equation}
+    M = \begin{bmatrix}
+        90 & 95 & 55 \\
+        32 & 35 & 20 \\
+        70 & 75 & 50 \\
+        70 & 31 & 49
+    \end{bmatrix}.
+\end{equation}
+
+Ipotizziamo che le prestazioni siano descrivibili in prima approssimazione da un \textbf{modello a rango 1}:
+\begin{equation}
+    M \approx \mathbf{x} \mathbf{y}^T = \begin{bmatrix} x_1 \\ x_2 \\ x_3 \\ x_4 \end{bmatrix} \begin{bmatrix} y_1 & y_2 & y_3 \end{bmatrix} = \begin{bmatrix}
+        x_1 y_1 & x_1 y_2 & x_1 y_3 \\
+        x_2 y_1 & x_2 y_2 & x_2 y_3 \\
+        x_3 y_1 & x_3 y_2 & x_3 y_3 \\
+        x_4 y_1 & x_4 y_2 & x_4 y_3
+    \end{bmatrix}.
+\end{equation}
+
+\subsection{Interpretazione Semantica delle Componenti Fattoriali}
+
+\begin{itemize}
+    \item \textbf{Vettore riga $\mathbf{y}^T = [y_1, y_2, y_3]$:} cattura la \textit{facilit\`a relativa} di ciascun test. Se il Test C registra sistematicamente punteggi inferiori rispetto ai primi due, $y_3$ risulter\`a marcatamente inferiore a $y_1$ e $y_2$.
+    \item \textbf{Vettore colonna $\mathbf{x} = [x_1, x_2, x_3, x_4]^T$:} misura l'\textit{abilit\`a o preparazione globale} di ciascuno studente. Lo studente 1 ha punteggi elevati e avr\`a $x_1$ grande; lo studente 2 presenta punteggi scarsi su tutti i test e avr\`a $x_2$ basso.
+\end{itemize}
+
+\subsection{Rilevamento di Anomalie tramite la Matrice Residua}
+
+Calcolando la matrice dei residui tra i dati reali e l'approssimazione ottimale di rango 1:
+\begin{equation}
+    R = M - \mathbf{x}\mathbf{y}^T = M - \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T:
+\end{equation}
+\begin{itemize}
+    \item \textbf{Residuo prossimo allo zero ($r_{ij} \approx 0$):} il punteggio dello studente sul test \`e perfettamente spiegato dal modello fattoriale (abilit\`a $\times$ facilit\`a).
+    \item \textbf{Residuo marcatamente positivo ($r_{ij} \gg 0$):} lo studente ha ottenuto una prestazione di gran lunga superiore al suo standard atteso su quel test. Nel contesto accademico, questo pu\`o indicare una preparazione mirata su quello specifico argomento oppure un episodio anomalo (ad esempio copiatura o collaborazione non consentita).
+    \item \textbf{Residuo marcatamente negativo ($r_{ij} \ll 0$):} lo studente ha registrato un crollo insolito (si osservi lo studente 4 al Test B: voto $31$, a fronte di $70$ e $49$ sugli altri test). Ci\`o riflette circostanze contingenti estrinseche (malessere improvviso, ritardo, problema tecnico).
+\end{itemize}
+
+Qualora una singola componente non catturi sufficiente varianza, il modello viene esteso a \textbf{rango 2}:
+\begin{equation}
+    M \approx \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T + \sigma_2 \mathbf{u}_2 \mathbf{v}_2^T,
+\end{equation}
+dove la seconda componente pu\`o riflettere un fattore latente secondario (ad esempio abilit\`a in quesiti teorici vs problemi computazionali pratici).
+
+\FloatBarrier
+\section{Applicazione 3: Analisi delle Componenti Principali (PCA) tramite SVD}
+\label{sec:applicazione-pca-svd}
+
+L'\textbf{Analisi delle Componenti Principali} (\textit{Principal Component Analysis}, PCA) \`e la tecnica fondamentale di apprendimento non supervisionato per la riduzione della dimensionalit\`a e l'estrazione di feature. La SVD fornisce il motore algebrico esatto e numericamente stabile per calcolare la PCA senza dover mai formare esplicitamente matrici di covarianza mal condizionate.
+
+\subsection{Formulazione Matematica della PCA}
+
+Consideriamo un dataset composto da $n$ osservazioni vettoriali in dimensione $m$:
+\begin{equation}
+    \mathbf{x}_1, \mathbf{x}_2, \dots, \mathbf{x}_n \in \R^m.
+\end{equation}
+Organizziamo i dati nella matrice $A \in \R^{m \times n}$, dove ogni colonna rappresenta un campione:
+\begin{equation}
+    A = [\mathbf{x}_1, \mathbf{x}_2, \dots, \mathbf{x}_n].
+\end{equation}
+
+\paragraph{Passo 1: Centratura dei Dati (Mean-Centering).}
+Calcoliamo il vettore media campionaria $\boldsymbol{\mu} \in \R^m$:
+\begin{equation}
+    \boldsymbol{\mu} = \frac{1}{n} \sum_{i=1}^n \mathbf{x}_i.
+\end{equation}
+Costruiamo la matrice a media nulla $\widehat{A} \in \R^{m \times n}$ sottraendo il baricentro $\boldsymbol{\mu}$ da ogni singola colonna:
+\begin{equation}
+    \widehat{\mathbf{x}}_i = \mathbf{x}_i - \boldsymbol{\mu} \implies \widehat{A} = [\widehat{\mathbf{x}}_1, \dots, \widehat{\mathbf{x}}_n] = A - \boldsymbol{\mu} \mathbf{1}_n^T.
+\end{equation}
+
+\paragraph{Passo 2: Matrice di Covarianza Campionaria.}
+La matrice di covarianza empirica $C \in \R^{m \times m}$ tra le $m$ variabili \`e data da:
+\begin{equation}
+    C = \frac{1}{n} \sum_{i=1}^n (\mathbf{x}_i - \boldsymbol{\mu})(\mathbf{x}_i - \boldsymbol{\mu})^T = \frac{1}{n} \widehat{A} \widehat{A}^T.
+\end{equation}
+
+\paragraph{Passo 3: Connessione Diretta con la SVD.}
+Calcoliamo la SVD della matrice centrata $\widehat{A} \in \R^{m \times n}$:
+\begin{equation}
+    \widehat{A} = U \Sigma V^T.
+\end{equation}
+Sostituendo tale fattorizzazione nell'espressione della matrice di covarianza $C$:
+\begin{equation}
+    C = \frac{1}{n} \widehat{A} \widehat{A}^T = \frac{1}{n} (U \Sigma V^T) (U \Sigma V^T)^T = \frac{1}{n} U \Sigma (V^T V) \Sigma^T U^T = U \left( \frac{1}{n} \Sigma \Sigma^T \right) U^T.
+\end{equation}
+Poich\'e $\frac{1}{n} \Sigma \Sigma^T = \diag\left( \frac{\sigma_1^2}{n}, \dots, \frac{\sigma_m^2}{n} \right)$ \`e una matrice diagonale con entrate non-negative ordinate, la relazione precedente \`e esattamente la \textbf{decomposizione spettrale} della matrice di covarianza $C$.
+
+\begin{theorem}[PCA via SVD]
+Le \textbf{componenti principali} del dataset coincidono rigorosamente con le colonne della matrice ortogonale sinistra $U = [\mathbf{u}_1, \dots, \mathbf{u}_m]$ della SVD della matrice centrata $\widehat{A}$:
+\begin{enumerate}
+    \item La \textbf{prima componente principale} $\mathbf{u}_1$ \`e la direzione in $\R^m$ lungo la quale i dati centrati presentano la massima varianza campionaria, pari a $\sigma_1^2 / n$.
+    \item La \textbf{seconda componente principale} $\mathbf{u}_2$, ortogonale a $\mathbf{u}_1$, massimizza la varianza residua, pari a $\sigma_2^2 / n$.
+    \item La proiezione a dimensione ridotta $k$ ($k < m$) si calcola direttamente da:
+    \begin{equation}
+        Y_k = U_k^T \widehat{A} = \Sigma_k V_k^T \in \R^{k \times n}.
+    \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\subsection{Interpretazione Geometrica nel Piano Bidimensionale}
+
+Nel caso didattico in due dimensioni ($m = 2$) illustrato in Figura~\ref{fig:pca-geometry-2d}:
+\begin{enumerate}
+    \item I dati originari formano una nube di punti sparpagliata non centrata rispetto all'origine.
+    \item La sottrazione del baricentro $\boldsymbol{\mu}$ trasla l'origine del sistema di riferimento nel centro geometrico della nube.
+    \item Il primo vettore singolare sinistro $\mathbf{u}_1$ si posiziona lungo l'asse di massima dispersione (asse maggiore dell'ellisse di covarianza).
+    \item Il secondo vettore $\mathbf{u}_2$ si orienta lungo l'asse ortogonale minore.
+    \item Proiettando ciascun punto sul sottospazio monodimensionale generato da $\mathbf{u}_1$, si ottiene la migliore approssimazione lineare possibile a un solo grado di libert\`a, massimizzando la varianza spiegata e minimizzando la somma dei quadrati delle distanze ortogonali di proiezione.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.0]
+
+    % =========================================================================
+    % PANNELLO (a): Dati Grezzi Non Centrati
+    % =========================================================================
+    \begin{scope}[shift={(0, 0)}]
+        \draw[help lines, color=gray!18, dashed] (-0.5,-0.5) grid (5.0,4.4);
+        \draw[->, thick, gray!70] (-0.5, 0) -- (5.2, 0) node[right, font=\small, text=black] {$x_1$};
+        \draw[->, thick, gray!70] (0, -0.5) -- (0, 4.6) node[above, font=\small, text=black] {$x_2$};
+
+        % Nube di punti orientata (campioni osservati)
+        \foreach \x/\y in {1.8/1.5, 2.1/1.9, 2.3/1.6, 2.5/2.2, 2.7/2.0, 2.8/2.7, 3.0/2.3, 3.2/2.8, 3.4/2.6, 3.6/3.1, 3.9/3.0, 4.1/3.4} {
+            \fill[blue!75!black] (\x, \y) circle (2.3pt);
+        }
+
+        % Baricentro / Media campionaria mu
+        \fill[red!85!black] (2.9, 2.4) circle (3.5pt);
+        \node[above left=1pt, font=\small\bfseries, text=red!85!black, fill=white, inner sep=1pt] at (2.85, 2.45) {$\boldsymbol{\mu}$};
+        \draw[dashed, red!70!black, thick] (2.9, 0) node[below=2pt, font=\scriptsize, text=red!80!black] {$\mu_1$} -- (2.9, 2.4) -- (0, 2.4) node[left=2pt, font=\scriptsize, text=red!80!black] {$\mu_2$};
+
+        % Didascalia del pannello (a)
+        \node[font=\bfseries\small, align=center] at (2.4, -1.1) {(a) Dati Grezzi Non Centrati\\[2pt]\scriptsize Distribuzione campionaria con baricentro $\boldsymbol{\mu}$};
+    \end{scope}
+
+    % =========================================================================
+    % FRECCIA CENTRALE: Centratura dei dati
+    % =========================================================================
+    \draw[->, line width=2pt, gray!70] (5.4, 2.0) -- (7.0, 2.0);
+    \node[above=4pt, font=\footnotesize\bfseries, align=center, text=gray!80!black] at (6.2, 2.0) {Centratura\\[1pt]\scriptsize $\widehat{\mathbf{x}}_i = \mathbf{x}_i - \boldsymbol{\mu}$};
+
+    % =========================================================================
+    % PANNELLO (b): Dati Centrati con Assi Principali e Proiezioni SVD
+    % =========================================================================
+    \begin{scope}[shift={(10.4, 2.0)}]
+        \draw[help lines, color=gray!18, dashed] (-3.0,-2.3) grid (3.0,2.3);
+        \draw[->, thick, gray!70] (-3.1, 0) -- (3.2, 0) node[right, font=\small, text=black] {$\widehat{x}_1$};
+        \draw[->, thick, gray!70] (0, -2.4) -- (0, 2.5) node[above, font=\small, text=black] {$\widehat{x}_2$};
+
+        % Punti centrati
+        \foreach \x/\y in {-1.1/-0.9, -0.8/-0.5, -0.6/-0.8, -0.4/-0.2, -0.2/-0.4, -0.1/0.3, 0.1/-0.1, 0.3/0.4, 0.5/0.2, 0.7/0.7, 1.0/0.6, 1.2/1.0} {
+            \fill[blue!75!black] (\x, \y) circle (2.3pt);
+        }
+
+        % Ellissoide di dispersione della covarianza
+        \draw[thick, dashed, teal!70!black, rotate=32] (0, 0) ellipse (2.2 and 0.75);
+
+        % Asse principale monodimensionale u_1 (retta di supporto)
+        \draw[dashed, red!40!black, thin] ({-2.6*cos(32)}, {-2.6*sin(32)}) -- ({2.7*cos(32)}, {2.7*sin(32)});
+
+        % Proiezioni ortogonali di campioni significativi sull'asse u_1
+        \draw[dotted, gray!80!black, thick] (-0.1, 0.3) -- (0.06, 0.04);
+        \draw[dotted, gray!80!black, thick] (0.7, 0.7) -- (0.82, 0.51);
+        \draw[dotted, gray!80!black, thick] (-0.6, -0.8) -- (-0.79, -0.49);
+
+        % Baricentro nell'origine
+        \fill[red!85!black] (0, 0) circle (2.8pt);
+
+        % Prima Componente Principale u_1
+        \draw[->, line width=1.8pt, red!85!black] (0, 0) -- ({2.3*cos(32)}, {2.3*sin(32)}) 
+            node[above right=1pt, font=\small\bfseries, fill=white, inner sep=1pt] {$\mathbf{u}_1$ \scriptsize(Max Varianza)};
+
+        % Seconda Componente Principale u_2
+        \draw[->, line width=1.8pt, teal!85!black] (0, 0) -- ({-1.1*sin(32)}, {1.1*cos(32)}) 
+            node[above left=1pt, font=\small\bfseries, fill=white, inner sep=1pt] {$\mathbf{u}_2$};
+
+        % Didascalia del pannello (b) (perfettamente allineata verticalmente con (a))
+        \node[font=\bfseries\small, align=center] at (0, -3.1) {(b) Assi Principali e Proiezioni SVD\\[2pt]\scriptsize Massima varianza lungo $\mathbf{u}_1$, minima lungo $\mathbf{u}_2$};
+    \end{scope}
+
+\end{tikzpicture}%
+}
+\caption{Interpretazione geometrica dell'Analisi delle Componenti Principali (PCA) via SVD: (a) Distribuzione iniziale con baricentro $\boldsymbol{\mu}$; (b) Dati centrati con le direzioni principali $\mathbf{u}_1$ (massima varianza) e $\mathbf{u}_2$ ortogonale ricavate dalla SVD della matrice centrata $\widehat{A} = U \Sigma V^T$, con proiezioni ortogonali sul sottospazio ottimo.}
+\label{fig:pca-geometry-2d}
+\end{figure}
+
+\FloatBarrier
+\section{Formulario e Tavola Sinottica di Sintesi}
+\label{sec:formulario-svd-norme}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{p{4.2cm} p{4.6cm} X}
+\toprule
+\textbf{Concetto / Oggetto} & \textbf{Formulazione Matematica} & \textbf{Significato Computazionale} \\
+\midrule
+\textbf{Full SVD} & $A = U \Sigma V^T, \; U \in \R^{m \times m}, \; V \in \R^{n \times n}$ & Basi complete per dominio, codominio e 4 sottospazi. \\
+\textbf{Thin SVD} & $A = U_0 \Sigma_0 V^T, \; U_0 \in \R^{m \times n}, \; \Sigma_0 \in \R^{n \times n}$ & Risparmio $\BigO{m^2} \to \BigO{mn}$ di memoria, conserva $\operatorname{Im}(A)$. \\
+\textbf{Norma Indotta} & $\|A\| = \max_{\|\mathbf{x}\|=1} \|A\mathbf{x}\|$ & Massimo fattore di amplificazione vettoriale. \\
+\textbf{Norma Spettrale} & $\|A\|_2 = \sigma_1$ & Valore singolare massimo; invarianza unitaria. \\
+\textbf{Norma di Frobenius} & $\|A\|_F = \sqrt{\trace(A^T A)} = \sqrt{\sum \sigma_i^2}$ & Lunghezza euclidea estesa a matrice; invarianza unitaria. \\
+\textbf{SVD Simmetrica Reale} & $\sigma_i = |d_i|, \; \mathbf{u}_i = \operatorname{sgn}(d_i)\mathbf{q}_i, \; \mathbf{v}_i = \mathbf{q}_i$ & Dedotta direttamente da $A = Q D Q^T$. \\
+\textbf{Eckart-Young ($A_k$)} & $A_k = \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T$ & Ottimo globale per $\min_{\rank(B)\le k} \|A-B\|$. \\
+\textbf{Errore Spettrale} & $\|A - A_k\|_2 = \sigma_{k+1}$ & Primo valore singolare scartato. \\
+\textbf{Errore Frobenius} & $\|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2}$ & Energia totale scartata. \\
+\textbf{Compressione Immagini} & Memoria $= k(m + n + 1) \ll mn$ & Compressione ad alta fedelt\`a per spettro decadente. \\
+\textbf{PCA via SVD} & $\widehat{A} = U \Sigma V^T, \; C = \frac{1}{n} U \Sigma \Sigma^T U^T$ & Colonne di $U$ sono gli autovettori della covarianza. \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro sinottico riassuntivo delle norme matriciali, decomposizioni SVD, approssimazioni a basso rango e applicazioni.}
+\label{tab:formulario-svd-norme-applicazioni}
+\end{table}

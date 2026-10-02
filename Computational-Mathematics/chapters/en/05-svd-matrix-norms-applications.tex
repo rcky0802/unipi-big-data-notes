@@ -1,0 +1,763 @@
+\chapter[SVD, Matrix Norms, and Applications]{SVD, Matrix Norms, and Applications:\\Eckart-Young Theorem, Data Compression, and PCA}
+\label{chap:svd-matrix-norms-applications}
+
+This chapter deepens the analytical, geometric, and computational foundations of the \textbf{Singular Value Decomposition} (SVD). Beginning with the connection between the extended factorization (\textit{Full SVD}) and its memory-efficient compact counterpart (\textit{Thin SVD}), we establish the rigorous theory of \textbf{induced matrix norms} and the \textbf{Frobenius norm}. We provide complete, step-by-step derivations proving that the spectral norm satisfies $\|A\|_2 = \sigma_1$ and the Frobenius norm satisfies $\|A\|_F = \sqrt{\sum \sigma_i^2}$. We then state and prove the fundamental \textbf{Eckart-Young-Mirsky Theorem} for optimal low-rank matrix approximation, rigorously characterizing the residual reconstruction error in both metrics. Finally, we explore three cornerstone applications in modern data science: the three-stage geometric interpretation of linear operators (mapping the unit sphere into an ellipsoid), digital image compression via truncated SVD, tabular data analysis with anomaly detection, and dimensionality reduction through Principal Component Analysis (PCA)~\cite{golub2013matrix,trefethen1997numerical,strang2019linear}.
+
+\FloatBarrier
+\section{Review and Structural Context: Full SVD vs Thin SVD}
+\label{sec:svd-review-full-thin-en}
+
+\begin{noteblock}{Pedagogical Connection: From Theoretical Foundations (Chapter~\ref{chap:singular-value-decomposition-svd}) to Practical Efficiency}
+The axiomatic theory of the SVD, its global existence theorem, the structural block comparison between Full SVD and Thin SVD, and the orthonormal bases of the four fundamental subspaces were rigorously established in Chapter~\ref{chap:singular-value-decomposition-svd} (specifically Definition~\ref{def:thin-svd-en} and Figure~\ref{fig:svd-full-vs-thin-en} on page~\pageref{def:thin-svd-en}).
+Here, we briefly review the block structure to underscore the substantial storage and computational savings that make the Thin SVD the standard operational variant in applied data science.
+\end{noteblock}
+
+Given a generic rectangular real matrix $A \in \R^{m \times n}$ with a tall-and-skinny configuration ($m \ge n$) and rank $\rank(A) = r \le n$, the \textbf{Full SVD} factors $A$ into the product of three matrices:
+\begin{equation}
+    A = U \Sigma V^T,
+\end{equation}
+where:
+\begin{itemize}
+    \item $U \in \R^{m \times m}$ is a square orthogonal matrix ($U^T U = U U^T = I_m$), whose columns $\{\mathbf{u}_i\}_{i=1}^m$ are the \textit{left singular vectors} forming an orthonormal basis of $\R^m$.
+    \item $\Sigma \in \R^{m \times n}$ is an extended diagonal rectangular matrix containing non-negative singular values ordered in non-increasing fashion:
+    \begin{equation}
+        \sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > \sigma_{r+1} = \dots = \sigma_n = 0,
+    \end{equation}
+    while the lower $(m - n) \times n$ block consists entirely of zeros:
+    \begin{equation}
+        \Sigma = \begin{bmatrix} \Sigma_0 \\ \mathbf{0}_{(m-n) \times n} \end{bmatrix}, \qquad \Sigma_0 = \diag(\sigma_1, \dots, \sigma_n) \in \R^{n \times n}.
+    \end{equation}
+    \item $V \in \R^{n \times n}$ is a square orthogonal matrix ($V^T V = V V^T = I_n$), whose columns $\{\mathbf{v}_j\}_{j=1}^n$ are the \textit{right singular vectors} forming an orthonormal basis of $\R^n$.
+\end{itemize}
+
+The singular values correspond strictly to the square roots of the eigenvalues of the symmetric positive semi-definite Gram matrix $A^T A \in \R^{n \times n}$:
+\begin{equation}
+    \sigma_i = \sqrt{\lambda_i(A^T A)}, \quad i = 1, \dots, n.
+\end{equation}
+
+\subsection{The Thin SVD (Economy SVD)}
+
+In modern data science where the number of observations far exceeds the number of features ($m \gg n$), the lower $(m-n) \times n$ submatrix of $\Sigma$ is entirely zero. Partitioning $U$ into block form:
+\begin{equation}
+    A = U \Sigma V^T = \begin{bmatrix} U_0 & U_{\perp} \end{bmatrix} \begin{bmatrix} \Sigma_0 \\ \mathbf{0} \end{bmatrix} V^T = U_0 \Sigma_0 V^T + U_{\perp} \mathbf{0} V^T = U_0 \Sigma_0 V^T.
+\end{equation}
+The matrix $U_{\perp} \in \R^{m \times (m-n)}$, composed of the trailing $m-n$ columns of $U$, is multiplied exclusively by zeros and makes no contribution to reconstructing $A$.
+Omitting these redundant elements yields the \textbf{Thin SVD} (also called \textit{Economy SVD}):
+\begin{equation}
+    A = U_0 \Sigma_0 V^T,
+\end{equation}
+with the following dimensions and properties:
+\begin{enumerate}
+    \item $U_0 \in \R^{m \times n}$ has mutually orthonormal columns ($U_0^T U_0 = I_n$), but $U_0 U_0^T \neq I_m$ in general, as $U_0 U_0^T$ represents the orthogonal projector onto $\operatorname{Im}(A)$.
+    \item $\Sigma_0 \in \R^{n \times n}$ is strictly square and diagonal: $\Sigma_0 = \diag(\sigma_1, \dots, \sigma_n)$.
+    \item $V^T \in \R^{n \times n}$ remains the identical square orthogonal matrix from Full SVD.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth,
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}}]
+
+    % --- FULL SVD ---
+    \node[font=\bfseries\large, text=blue!80!black] at (2.2, 4.8) {Full SVD: $A = U \Sigma V^T$};
+
+    % Matrix A (m x n)
+    \draw[thick, fill=blue!10, draw=blue!60!black] (0, 0) rectangle (1.2, 4.0);
+    \node at (0.6, 2.0) {$A$};
+    \node[below=4pt, font=\scriptsize] at (0.6, 0) {$m \times n$};
+
+    \node at (1.6, 2.0) {$=$};
+
+    % Matrix U (m x m)
+    \draw[thick, fill=green!12, draw=green!60!black] (2.0, 0) rectangle (6.0, 4.0);
+    \draw[dashed, draw=gray!70] (3.2, 0) -- (3.2, 4.0);
+    \node at (2.6, 2.0) {$U_0$};
+    \node[text=gray!70!black] at (4.6, 2.0) {$U_{\perp}$};
+    \node[below=4pt, font=\scriptsize] at (4.0, 0) {$m \times m$};
+
+    \node at (6.4, 2.0) {$\times$};
+
+    % Matrix Sigma (m x n)
+    \draw[thick, fill=orange!12, draw=orange!60!black] (6.8, 0) rectangle (8.0, 4.0);
+    \draw[thick, fill=orange!25, draw=orange!80!black] (6.8, 2.8) rectangle (8.0, 4.0);
+    \draw[dashed, draw=gray!70] (6.8, 2.8) -- (8.0, 2.8);
+    \node at (7.4, 3.4) {$\Sigma_0$};
+    \node[text=gray!60!black] at (7.4, 1.4) {$\mathbf{0}$};
+    \node[below=4pt, font=\scriptsize] at (7.4, 0) {$m \times n$};
+
+    \node at (8.4, 2.0) {$\times$};
+
+    % Matrix V^T (n x n)
+    \draw[thick, fill=purple!12, draw=purple!60!black] (8.8, 2.8) rectangle (10.0, 4.0);
+    \node at (9.4, 3.4) {$V^T$};
+    \node[below=4pt, font=\scriptsize] at (9.4, 2.8) {$n \times n$};
+
+    % --- DIVIDER ---
+    \draw[dotted, thick, gray!60] (10.6, -0.3) -- (10.6, 5.0);
+
+    % --- THIN SVD ---
+    \node[font=\bfseries\large, text=green!60!black] at (13.8, 4.8) {Thin SVD: $A = U_0 \Sigma_0 V^T$};
+
+    % Matrix A (m x n)
+    \draw[thick, fill=blue!10, draw=blue!60!black] (11.2, 0) rectangle (12.4, 4.0);
+    \node at (11.8, 2.0) {$A$};
+    \node[below=4pt, font=\scriptsize] at (11.8, 0) {$m \times n$};
+
+    \node at (12.8, 2.0) {$=$};
+
+    % Matrix U_0 (m x n)
+    \draw[thick, fill=green!15, draw=green!70!black] (13.2, 0) rectangle (14.4, 4.0);
+    \node at (13.8, 2.0) {$U_0$};
+    \node[below=4pt, font=\scriptsize] at (13.8, 0) {$m \times n$};
+
+    \node at (14.8, 2.0) {$\times$};
+
+    % Matrix Sigma_0 (n x n)
+    \draw[thick, fill=orange!25, draw=orange!80!black] (15.2, 2.8) rectangle (16.4, 4.0);
+    \node at (15.8, 3.4) {$\Sigma_0$};
+    \node[below=4pt, font=\scriptsize] at (15.8, 2.8) {$n \times n$};
+
+    \node at (16.8, 2.0) {$\times$};
+
+    % Matrix V^T (n x n)
+    \draw[thick, fill=purple!12, draw=purple!60!black] (17.2, 2.8) rectangle (18.4, 4.0);
+    \node at (17.8, 3.4) {$V^T$};
+    \node[below=4pt, font=\scriptsize] at (17.8, 2.8) {$n \times n$};
+
+\end{tikzpicture}
+}
+\caption{Structural and dimensional comparison between Full SVD and Economy (Thin) SVD for tall matrices ($m \ge n$). Thin SVD eliminates the zero rows of $\Sigma$ and the unneeded trailing columns $U_{\perp}$.}
+\label{fig:full-vs-thin-svd-structure-en}
+\end{figure}
+
+\subsection{Computational Efficiency and Subspace Semantics}
+
+\begin{itemize}
+    \item \textbf{Memory Storage:} Storing full $U \in \R^{m \times m}$ requires $\BigO{m^2}$ elements. When $m = 10^5$ and $n = 10^2$, storing $U$ consumes approximately $80$ Gigabytes of RAM in double precision. In contrast, storing $U_0 \in \R^{m \times n}$ requires only $m \cdot n = 10^7$ floats ($\approx 80$ Megabytes).
+    \item \textbf{Floating-Point Flops:} Full SVD requires computing all $m$ orthogonal directions in $\R^m$ ($\BigO{m^2 n}$ or $\BigO{m^3}$ operations), whereas Thin SVD executes in $\BigO{m n^2}$ flops.
+    \item \textbf{Subspace Relations:}
+    \begin{equation}
+        \operatorname{Im}(A) = \spanop\{\mathbf{u}_1, \dots, \mathbf{u}_r\} \subseteq \spanop(U_0), \qquad \ker(A^T) = \spanop(U_{\perp}).
+    \end{equation}
+    Thin SVD retains the complete geometry of the range of $A$. The orthogonal complement $U_{\perp}$ spans the null space of $A^T$ and can be omitted in most practical applications.
+\end{itemize}
+
+\FloatBarrier
+\section{Matrix Norms and Induced Norms}
+\label{sec:matrix-norms-induced-en}
+
+Just as vector norms measure the magnitude or length of vectors in $\R^n$, matrix norms provide a rigorous metric to quantify the magnitude of linear operators or measure approximation errors.
+
+\subsection{Axiomatic Definition of Matrix Norms}
+
+\begin{definition}[General Matrix Norm]
+A function $\|\cdot\|: \R^{m \times n} \to \R$ is called a \textbf{matrix norm} if it satisfies the following four fundamental axioms for all matrices $A, B \in \R^{m \times n}$ and every scalar $\alpha \in \R$:
+\begin{enumerate}
+    \item \textbf{Non-negativity and definiteness:}
+    \begin{equation}
+        \|A\| \ge 0, \quad \text{and} \quad \|A\| = 0 \iff A = \mathbf{0}_{m \times n}.
+    \end{equation}
+    \item \textbf{Absolute homogeneity:}
+    \begin{equation}
+        \|\alpha A\| = |\alpha| \cdot \|A\|.
+    \end{equation}
+    \item \textbf{Triangle inequality:}
+    \begin{equation}
+        \|A + B\| \le \|A\| + \|B\|.
+    \end{equation}
+    \item \textbf{Sub-multiplicativity:} For matrices of compatible dimensions ($A \in \R^{m \times n}, B \in \R^{n \times p}$),
+    \begin{equation}
+        \|AB\| \le \|A\| \cdot \|B\|.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+\subsection{Matrix Norms Induced by Vector Norms}
+
+Given a vector norm $\|\cdot\|$ defined on both domain $\R^n$ and codomain $\R^m$, the canonical \textbf{induced matrix norm} (or \textit{operator norm}) is defined as follows:
+
+\begin{definition}[Induced Matrix Norm]
+The matrix norm induced by a vector norm $\|\cdot\|$ measures the maximum factor by which $A$ can stretch any non-zero vector:
+\begin{equation}
+    \|A\| := \max_{\mathbf{v} \in \R^n, \mathbf{v} \neq \mathbf{0}} \frac{\|A\mathbf{v}\|}{\|\mathbf{v}\|}.
+\end{equation}
+By homogeneity, setting $\mathbf{x} = \mathbf{v} / \|\mathbf{v}\|$ (so that $\|\mathbf{x}\| = 1$), the definition is equivalent to optimization over the unit sphere:
+\begin{equation}
+    \label{eq:def-induced-norm-sphere-en}
+    \|A\| = \max_{\|\mathbf{x}\| = 1} \|A\mathbf{x}\|.
+\end{equation}
+\end{definition}
+
+\begin{noteblock}{Notational Convention}
+The same double-bar symbol $\|\cdot\|$ denotes both vector norms and matrix norms. Context resolves any ambiguity: in $\|A\mathbf{x}\|$, the argument is a vector in $\R^m$, whereas in $\|A\|$, the argument is the matrix $A \in \R^{m \times n}$.
+\end{noteblock}
+
+From~\eqref{eq:def-induced-norm-sphere-en}, the fundamental compatibility inequality follows directly:
+\begin{equation}
+    \|A\mathbf{v}\| \le \|A\| \cdot \|\mathbf{v}\| \quad \forall \mathbf{v} \in \R^n.
+\end{equation}
+
+\FloatBarrier
+\section{The Spectral Norm (Matrix 2-Norm)}
+\label{sec:spectral-norm-en}
+
+The \textbf{spectral norm} (matrix 2-norm), denoted by $\|A\|_2$, is the matrix norm induced by the standard Euclidean vector norm ($\ell_2$ norm):
+\begin{equation}
+    \|\mathbf{x}\|_2 = \sqrt{\mathbf{x}^T \mathbf{x}} = \sqrt{\sum_{i=1}^n x_i^2}.
+\end{equation}
+Thus:
+\begin{equation}
+    \|A\|_2 := \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|A\mathbf{x}\|_2}{\|\mathbf{x}\|_2} = \max_{\|\mathbf{x}\|_2 = 1} \|A\mathbf{x}\|_2.
+\end{equation}
+
+\subsection{Step-by-Step Derivation via SVD}
+
+\begin{theorem}[Characterization of the Spectral Norm]
+\label{thm:spectral-norm-sigma1-en}
+For any real matrix $A \in \R^{m \times n}$, its spectral norm $\|A\|_2$ equals its largest singular value:
+\begin{equation}
+    \|A\|_2 = \sigma_1.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+We carry out the proof in four sequential steps:
+
+\paragraph{Step 1: Substituting the Full SVD.}
+Substitute $A = U \Sigma V^T$ into the definition:
+\begin{equation}
+    \|A\|_2 = \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|U \Sigma V^T \mathbf{x}\|_2}{\|\mathbf{x}\|_2}.
+\end{equation}
+
+\paragraph{Step 2: Isometric invariance of orthogonal $U$.}
+Because $U \in \R^{m \times m}$ is orthogonal, by the Euclidean isometry theorem proved in Chapter~\ref{chap:matrix-multiplication-complexity-orthogonality} (Theorem~\ref{thm:en:orthogonal-isometry}, page~\pageref{thm:en:orthogonal-isometry}), it preserves Euclidean vector lengths:
+\begin{equation}
+    \|U \mathbf{y}\|_2 = \|\mathbf{y}\|_2 \quad \forall \mathbf{y} \in \R^m.
+\end{equation}
+Setting $\mathbf{y} = \Sigma V^T \mathbf{x} \in \R^m$, the factor $U$ can be eliminated:
+\begin{equation}
+    \|U \Sigma V^T \mathbf{x}\|_2 = \|\Sigma V^T \mathbf{x}\|_2 \implies \|A\|_2 = \max_{\mathbf{x} \neq \mathbf{0}} \frac{\|\Sigma V^T \mathbf{x}\|_2}{\|\mathbf{x}\|_2}.
+\end{equation}
+
+\paragraph{Step 3: Change of variables via orthogonal $V$.}
+Define $\mathbf{z} := V^T \mathbf{x} \in \R^n$. Again by the isometry property of orthogonal matrices (Theorem~\ref{thm:en:orthogonal-isometry}), $\|\mathbf{x}\|_2 = \|V \mathbf{z}\|_2 = \|\mathbf{z}\|_2$. Because $V^T$ establishes an isometric linear bijection on $\R^n$, the maximization maps directly to $\mathbf{z}$:
+\begin{equation}
+    \|A\|_2 = \max_{\mathbf{z} \neq \mathbf{0}} \frac{\|\Sigma \mathbf{z}\|_2}{\|\mathbf{z}\|_2} = \max_{\|\mathbf{z}\|_2 = 1} \|\Sigma \mathbf{z}\|_2.
+\end{equation}
+
+\paragraph{Step 4: Explicit optimization on the unit sphere.}
+Evaluating $\Sigma \mathbf{z}$ componentwise:
+\begin{equation}
+    \Sigma \mathbf{z} = \begin{bmatrix} \sigma_1 z_1 \\ \sigma_2 z_2 \\ \vdots \\ \sigma_r z_r \\ 0 \\ \vdots \end{bmatrix} \implies \|\Sigma \mathbf{z}\|_2^2 = \sum_{i=1}^r \sigma_i^2 z_i^2.
+\end{equation}
+Subject to $\sum_{i=1}^n z_i^2 = 1$, the convex combination of non-negative weights $w_i = z_i^2$ is maximized by placing the entire unit mass on the largest coefficient $\sigma_1^2$:
+\begin{equation}
+    \sum_{i=1}^r \sigma_i^2 z_i^2 \le \sigma_1^2 \sum_{i=1}^r z_i^2 \le \sigma_1^2 (1) = \sigma_1^2.
+\end{equation}
+This bound is attained by $\mathbf{z} = \mathbf{e}_1 = [1, 0, \dots, 0]^T$ (which corresponds to $\mathbf{x} = \mathbf{v}_1$). Taking square roots yields:
+\begin{equation}
+    \|A\|_2 = \sigma_1.
+\end{equation}
+\end{proof}
+
+\begin{corollary}[Unitary Invariance of the Spectral Norm]
+The spectral norm is unchanged by left or right orthogonal multiplications:
+\begin{equation}
+    \|Q_1 A Q_2\|_2 = \|A\|_2 \quad \forall Q_1 \in \R^{m \times m}, Q_2 \in \R^{n \times n} \text{ orthogonal}.
+\end{equation}
+\end{corollary}
+
+\FloatBarrier
+\section{The Frobenius Norm}
+\label{sec:frobenius-norm-en}
+
+The \textbf{Frobenius norm} is not an induced operator norm; rather, it extends Euclidean vector distance by treating $A \in \R^{m \times n}$ as an unwrapped vector in $\R^{m \cdot n}$.
+
+\subsection{Definition and Trace Formulation}
+
+\begin{definition}[Frobenius Norm]
+The Frobenius norm $\|A\|_F$ of $A \in \R^{m \times n}$ is defined by:
+\begin{equation}
+    \|A\|_F := \sqrt{\sum_{i=1}^m \sum_{j=1}^n a_{ij}^2}.
+\end{equation}
+\end{definition}
+
+This norm can be concisely expressed using the matrix \textbf{trace} $\trace(M) = \sum_i M_{ii}$:
+
+\begin{proposition}[Trace Formulation]
+\begin{equation}
+    \|A\|_F = \sqrt{\trace(A^T A)} = \sqrt{\trace(A A^T)}.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The $j$-th diagonal entry of $A^T A \in \R^{n \times n}$ is the squared Euclidean norm of the $j$-th column of $A$:
+\begin{equation}
+    (A^T A)_{jj} = \sum_{k=1}^m (A^T)_{jk} A_{kj} = \sum_{k=1}^m A_{kj}^2.
+\end{equation}
+Summing over all columns $j = 1, \dots, n$:
+\begin{equation}
+    \trace(A^T A) = \sum_{j=1}^n (A^T A)_{jj} = \sum_{j=1}^n \sum_{k=1}^m A_{kj}^2 = \sum_{i=1}^m \sum_{j=1}^n a_{ij}^2 = \|A\|_F^2.
+\end{equation}
+\end{proof}
+
+\subsection{Spectral Representation via Singular Values}
+
+\begin{theorem}[Frobenius Norm in Terms of Singular Values]
+\label{thm:frobenius-singular-values-en}
+The Frobenius norm of $A \in \R^{m \times n}$ equals the square root of the sum of squared singular values:
+\begin{equation}
+    \|A\|_F = \sqrt{\sum_{i=1}^r \sigma_i^2} = \sqrt{\sigma_1^2 + \sigma_2^2 + \dots + \sigma_r^2}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+We exploit the cyclic property of the trace ($\trace(M_1 M_2 M_3) = \trace(M_2 M_3 M_1) = \trace(M_3 M_1 M_2)$):
+\begin{enumerate}
+    \item Substitute the SVD $A = U \Sigma V^T$:
+    \begin{equation}
+        \|A\|_F^2 = \trace(A^T A) = \trace\left( V \Sigma^T U^T U \Sigma V^T \right).
+    \end{equation}
+    \item Since $U$ is orthogonal, $U^T U = I_m$, leaving:
+    \begin{equation}
+        \|A\|_F^2 = \trace\left( V \Sigma^T \Sigma V^T \right).
+    \end{equation}
+    \item Permute $V$ cyclically to the end of the product:
+    \begin{equation}
+        \trace\left( V (\Sigma^T \Sigma V^T) \right) = \trace\left( \Sigma^T \Sigma (V^T V) \right).
+    \end{equation}
+    \item Since $V^T V = I_n$:
+    \begin{equation}
+        \|A\|_F^2 = \trace(\Sigma^T \Sigma) = \sum_{i=1}^r \sigma_i^2 \implies \|A\|_F = \sqrt{\sum_{i=1}^r \sigma_i^2}.
+    \end{equation}
+\end{enumerate}
+\end{proof}
+
+\begin{corollary}[Unitary Invariance of Frobenius Norm]
+The Frobenius norm is also unitarily invariant:
+\begin{equation}
+    \|Q_1 A Q_2\|_F = \|A\|_F \quad \forall Q_1 \in \R^{m \times m}, Q_2 \in \R^{n \times n} \text{ orthogonal}.
+\end{equation}
+\end{corollary}
+
+\FloatBarrier
+\section{Complex Generalization and Symmetric Real Matrices}
+\label{sec:complex-symmetric-matrices-en}
+
+\subsection{Extension to Complex Vector Spaces ($\C$)}
+
+\begin{itemize}
+    \item \textbf{Conjugate Transpose (Adjoint):} The matrix adjoint $A^* \in \C^{n \times m}$ replaces the transpose:
+    \begin{equation}
+        (A^*)_{ij} = \overline{a_{ji}}.
+    \end{equation}
+    \item \textbf{Unitary Matrices:} A square complex matrix $Q \in \C^{n \times n}$ is \textbf{unitary} if:
+    \begin{equation}
+        Q^* Q = Q Q^* = I_n.
+    \end{equation}
+    \item \textbf{Hermitian Matrices:} A matrix $A \in \C^{n \times n}$ is \textbf{Hermitian} if $A^* = A$. Hermitian matrices have real eigenvalues and unitary eigenvectors.
+    \item \textbf{Complex SVD:} For any $A \in \C^{m \times n}$:
+    \begin{equation}
+        A = U \Sigma V^*,
+    \end{equation}
+    where $U \in \C^{m \times m}$ and $V \in \C^{n \times n}$ are unitary, and $\Sigma \in \R^{m \times n}$ remains a \textbf{real} non-negative diagonal matrix ($\sigma_i \ge 0$).
+\end{itemize}
+
+\subsection{Deriving SVD from Spectral Decomposition for Symmetric Matrices}
+\label{sec:svd-symmetric-recap-en}
+
+As derived in detail in Problem~\ref{sec:en:svd-symmetric-spectral} of Chapter~\ref{chap:singular-value-decomposition-svd} (page~\pageref{sec:en:svd-symmetric-spectral}), for a real symmetric matrix ($A = A^T$) with known spectral decomposition $A = Q D Q^T = \sum_{i=1}^n d_i \mathbf{q}_i \mathbf{q}_i^T$, one does not need to form the Gram matrix $A^T A = A^2$. The SVD factors $A = U \Sigma V^T$ follow directly:
+\begin{enumerate}
+    \item \textbf{Singular values:} $\sigma_i = \sqrt{\lambda_i(A^T A)} = \sqrt{d_i^2} = |d_i| \ge 0$.
+    \item \textbf{Right singular vectors:} $\mathbf{v}_i = \mathbf{q}_i$.
+    \item \textbf{Left singular vectors:} $\mathbf{u}_i = \operatorname{sgn}(d_i) \mathbf{q}_i$, absorbing negative eigenvalue signs to maintain $d_i \mathbf{q}_i \mathbf{q}_i^T = |d_i| \mathbf{u}_i \mathbf{q}_i^T$.
+    \item \textbf{Sorting:} Permute columns simultaneously to ensure non-increasing singular values $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n \ge 0$.
+\end{enumerate}
+This direct algebraic alignment links the spectral decomposition of symmetric operators to the general SVD, serving as the real counterpart to the complex unitary SVD developed above.
+
+\FloatBarrier
+\section{Low-Rank Matrix Approximation and the Eckart-Young Theorem}
+\label{sec:eckart-young-en}
+
+\subsection{Problem Formulation}
+
+Given a target rank $k < \rank(A)$, we seek a rank-$k$ matrix $B \in \R^{m \times n}$ closest to $A$:
+\begin{equation}
+    \min_{B \in \R^{m \times n}, \, \rank(B) \le k} \|A - B\|.
+\end{equation}
+
+\subsection{Toy $2 \times 2$ Motivation}
+
+Consider the rank-2 matrix analyzed in class:
+\begin{equation}
+    A = \begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}, \qquad \rank(A) = 2.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Attempt 1 (Row copy):} $B_1 = \begin{bmatrix} 1 & 2 \\ 2 & 4 \end{bmatrix} \implies \|A - B_1\|_F = 1.0$.
+    \item \textbf{Attempt 2 (Single-entry balance):} $B_2 = \begin{bmatrix} 1.5 & 2 \\ 3 & 4 \end{bmatrix} \implies \|A - B_2\|_F = 0.5$.
+    \item \textbf{Optimal SVD Solution:} The singular values of $A$ are $\sigma_1 \approx 5.465, \sigma_2 \approx 0.366$. The theoretical minimum achievable error is $\sigma_2 \approx 0.366 < 0.5$.
+\end{itemize}
+
+\subsection{The Eckart-Young-Mirsky Theorem}
+
+\begin{theorem}[Eckart-Young-Mirsky]
+\label{thm:eckart-young-en}
+Let $A \in \R^{m \times n}$ with SVD $A = \sum_{i=1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T$. For any $k < r$, the truncated SVD matrix:
+\begin{equation}
+    A_k := \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T = U_k \Sigma_k V_k^T
+\end{equation}
+is the global minimizer of $\min_{\rank(B) \le k} \|A - B\|$ under both the spectral norm $\|\cdot\|_2$ and the Frobenius norm $\|\cdot\|_F$ (and any unitarily invariant norm).
+\end{theorem}
+
+\subsection{Exact Residual Error Formulas}
+
+The residual matrix is $A - A_k = \sum_{i=k+1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T$. By Theorems~\ref{thm:spectral-norm-sigma1-en} and~\ref{thm:frobenius-singular-values-en}:
+
+\begin{alertblock}{Exact SVD Truncation Errors}
+\begin{enumerate}
+    \item \textbf{Spectral Norm Error:}
+    \begin{equation}
+        \|A - A_k\|_2 = \sigma_{k+1}.
+    \end{equation}
+    \item \textbf{Frobenius Norm Error:}
+    \begin{equation}
+        \|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2} = \sqrt{\sigma_{k+1}^2 + \dots + \sigma_r^2}.
+    \end{equation}
+\end{enumerate}
+\end{alertblock}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, scale=0.9]
+    \draw[->, thick] (0, 0) -- (10.5, 0) node[below=4pt] {Singular index $i$};
+    \draw[->, thick] (0, 0) -- (0, 5.5) node[left=4pt] {Singular value $\sigma_i$};
+
+    \draw[thick, blue!80!black, domain=0.5:10, samples=50] plot (\x, {5 * exp(-0.35 * \x)});
+
+    \foreach \x/\y in {1/3.52, 2/2.48, 3/1.75, 4/1.23, 5/0.87, 6/0.61, 7/0.43, 8/0.30, 9/0.21, 10/0.15} {
+        \draw[fill=blue!30, draw=blue!70!black] (\x - 0.2, 0) rectangle (\x + 0.2, \y);
+    }
+
+    \draw[thick, dashed, red!80!black] (4.5, 0) -- (4.5, 5.0) node[above, font=\small\bfseries] {Rank-$k$ Truncation ($k=4$)};
+
+    \node[text=green!50!black, font=\small\bfseries] at (2.2, 4.2) {Retained Signal ($A_k$)};
+    \node[text=green!50!black, font=\scriptsize] at (2.2, 3.7) {$\sigma_1, \dots, \sigma_k$};
+
+    \node[text=red!70!black, font=\small\bfseries] at (7.5, 2.5) {Residual Error $\|A - A_k\|$};
+    \node[text=red!70!black, font=\scriptsize] at (7.5, 2.0) {$\|A - A_k\|_2 = \sigma_{k+1}$};
+    \node[text=red!70!black, font=\scriptsize] at (7.5, 1.5) {$\|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2}$};
+
+    \node[below=2pt, font=\small] at (1, 0) {$1$};
+    \node[below=2pt, font=\small] at (4, 0) {$k$};
+    \node[below=2pt, font=\small, text=red!80!black] at (5, 0) {$k+1$};
+    \node[below=2pt, font=\small] at (10, 0) {$r$};
+\end{tikzpicture}
+\caption{Singular spectrum decay and energy partitioning between retained signal ($A_k$) and discarded residual error quantified by the Eckart-Young Theorem.}
+\label{fig:eckart-young-spectrum-en}
+\end{figure}
+
+\FloatBarrier
+\section{Geometric Interpretation: From Sphere to Ellipsoid}
+\label{sec:geometric-interpretation-en}
+
+The SVD factors any linear mapping into three sequential geometric steps:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.0]
+
+    % =========================================================================
+    % TOP BANNER: SVD Decomposition and Global Matrix Action
+    % =========================================================================
+    \node[draw=red!70!black, fill=red!3, rounded corners=6pt, inner sep=6pt, align=center, line width=1pt] at (0, 7.15) {
+        \textbf{\textcolor{red!80!black}{\small Overall Action:}}\quad
+        \small $\mathbf{x} \;\xrightarrow{\;\; V^T \;\;}\; \mathbf{z} \;\xrightarrow{\;\; \Sigma \;\;}\; \mathbf{y} \;\xrightarrow{\;\; U \;\;}\; A\mathbf{x} = U \Sigma V^T \mathbf{x}$
+    };
+
+    % =========================================================================
+    % QUADRANT 1 (Top-Left): Original Unit Sphere in R^n
+    % =========================================================================
+    \begin{scope}[shift={(-4.2, 3.8)}]
+        \draw[draw=blue!35, fill=blue!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=blue!90!black, align=center] at (0, 2.25) {(1) Unit Sphere ($\R^n$)};
+
+        \draw[help lines, color=gray!20, dashed] (-1.3,-1.3) grid (1.3,1.3);
+        \draw[->, thick, gray!60] (-1.35, 0) -- (1.35, 0) node[right=1pt, font=\scriptsize, text=black] {$x_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$x_2$};
+
+        % Unit sphere
+        \draw[thick, fill=blue!8, draw=blue!70!black] (0, 0) circle (1.15);
+
+        % Orthonormal right singular vectors v_1 and v_2
+        \draw[->, line width=1.5pt, blue!90!black] (0, 0) -- (0.98, 0.61) node[above right=-2pt, font=\small\bfseries] {$\mathbf{v}_1$};
+        \draw[->, line width=1.5pt, blue!90!black] (0, 0) -- (-0.61, 0.98) node[above left=-2pt, font=\small\bfseries] {$\mathbf{v}_2$};
+
+        % Right-angle mark
+        \draw[thin, blue!60!black] (0.15, 0.09) -- (0.06, 0.24) -- (-0.09, 0.15);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {$\|\mathbf{x}\|_2 \le 1$, basis $\{\mathbf{v}_1, \mathbf{v}_2\}$};
+    \end{scope}
+
+    % --- TRANSITION 1 -> 2: Right Isometry V^T ---
+    \draw[->, line width=1.8pt, blue!70!black] (-1.5, 3.8) -- (1.5, 3.8);
+    \node[above=3pt, font=\small\bfseries, text=blue!85!black] at (0, 3.8) {$V^T$};
+    \node[below=3pt, font=\scriptsize, align=center, text=gray!75!black] at (0, 3.8) {Right isometry\\$\mathbf{v}_i \mapsto \mathbf{e}_i$};
+
+    % =========================================================================
+    % QUADRANT 2 (Top-Right): Axis-Aligned Sphere
+    % =========================================================================
+    \begin{scope}[shift={(4.2, 3.8)}]
+        \draw[draw=teal!35, fill=teal!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=teal!90!black, align=center] at (0, 2.25) {(2) Axis Alignment};
+
+        \draw[help lines, color=gray!20, dashed] (-1.3,-1.3) grid (1.3,1.3);
+        \draw[->, thick, gray!60] (-1.35, 0) -- (1.45, 0) node[right=1pt, font=\scriptsize, text=black] {$z_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$z_2$};
+
+        % Transformed unit sphere
+        \draw[thick, fill=teal!8, draw=teal!70!black] (0, 0) circle (1.15);
+
+        % Canonical standard basis vectors
+        \draw[->, line width=1.5pt, teal!85!black] (0, 0) -- (1.15, 0) node[midway, below=2pt, font=\small\bfseries] {$\mathbf{e}_1$};
+        \draw[->, line width=1.5pt, teal!85!black] (0, 0) -- (0, 1.15) node[midway, left=3pt, font=\small\bfseries] {$\mathbf{e}_2$};
+
+        % Right-angle mark
+        \draw[thin, teal!60!black] (0.18, 0) -- (0.18, 0.18) -- (0, 0.18);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {$\mathbf{z} = V^T \mathbf{x}, \; \|\mathbf{z}\|_2 \le 1$};
+    \end{scope}
+
+    % --- TRANSITION 2 -> 3: Diagonal Stretching Sigma ---
+    \draw[->, line width=1.8pt, orange!80!black] (4.2, 1.1) -- (4.2, -1.0);
+    \node[right=4pt, font=\small\bfseries, text=orange!85!black] at (4.2, 0.05) {$\Sigma$};
+    \node[left=4pt, font=\scriptsize, align=center, text=gray!75!black] at (4.2, 0.05) {Stretching\\$\sigma_1 \ge \sigma_2 > 0$};
+
+    % =========================================================================
+    % QUADRANT 3 (Bottom-Right): Scaled Ellipsoid
+    % =========================================================================
+    \begin{scope}[shift={(4.2, -3.8)}]
+        \draw[draw=orange!35, fill=orange!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=orange!90!black, align=center] at (0, 2.25) {(3) Scaled Ellipsoid};
+
+        \draw[help lines, color=gray!20, dashed] (-1.6,-1.3) grid (1.6,1.3);
+        \draw[->, thick, gray!60] (-1.75, 0) -- (2.0, 0) node[right=1pt, font=\scriptsize, text=black] {$y_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.3) node[above=1pt, font=\scriptsize, text=black] {$y_2$};
+
+        % Ellipsoid
+        \draw[thick, fill=orange!10, draw=orange!80!black] (0, 0) ellipse (1.35 and 0.62);
+
+        % Semi-axes
+        \draw[->, line width=1.5pt, orange!90!black] (0, 0) -- (1.35, 0) node[above right=1pt, font=\small\bfseries] {$\sigma_1 \mathbf{e}_1$};
+        \draw[->, line width=1.5pt, orange!90!black] (0, 0) -- (0, 0.62) node[above left=1pt, font=\small\bfseries] {$\sigma_2 \mathbf{e}_2$};
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {Semi-axes: $\sigma_1 \mathbf{e}_1, \; \sigma_2 \mathbf{e}_2$};
+    \end{scope}
+
+    % --- TRANSITION 3 -> 4: Left Isometry U ---
+    \draw[->, line width=1.8pt, purple!75!black] (1.5, -3.8) -- (-1.5, -3.8);
+    \node[above=3pt, font=\small\bfseries, text=purple!85!black] at (0, -3.8) {$U$};
+    \node[below=3pt, font=\scriptsize, align=center, text=gray!75!black] at (0, -3.8) {Left isometry\\$\mathbf{e}_i \mapsto \mathbf{u}_i$};
+
+    % =========================================================================
+    % QUADRANT 4 (Bottom-Left): Final Rotated Ellipsoid in R^m
+    % =========================================================================
+    \begin{scope}[shift={(-4.2, -3.8)}]
+        \draw[draw=purple!35, fill=purple!2, rounded corners=6pt] (-2.6, -2.4) rectangle (2.6, 2.65);
+        \node[font=\small\bfseries, text=purple!90!black, align=center] at (0, 2.25) {(4) Final Ellipsoid ($\R^m$)};
+
+        \draw[help lines, color=gray!20, dashed] (-1.6,-1.3) grid (1.6,1.3);
+        \draw[->, thick, gray!60] (-1.75, 0) -- (1.75, 0) node[right=1pt, font=\scriptsize, text=black] {$w_1$};
+        \draw[->, thick, gray!60] (0, -1.25) -- (0, 1.25) node[above=1pt, font=\scriptsize, text=black] {$w_2$};
+
+        % Ellipsoid rotated by 32 degrees
+        \draw[thick, fill=purple!10, draw=purple!80!black, rotate=32] (0, 0) ellipse (1.35 and 0.62);
+
+        % Rotated left singular vectors
+        \draw[->, line width=1.5pt, purple!90!black] (0, 0) -- (1.145, 0.715) node[above right=-2pt, font=\small\bfseries] {$\sigma_1 \mathbf{u}_1$};
+        \draw[->, line width=1.5pt, purple!90!black] (0, 0) -- (-0.328, 0.526) node[above left=-2pt, font=\small\bfseries] {$\sigma_2 \mathbf{u}_2$};
+
+        % Rotated right-angle mark
+        \draw[thin, purple!60!black, rotate=32] (0.18, 0) -- (0.18, 0.18) -- (0, 0.18);
+
+        \node[font=\scriptsize, text=gray!75!black, align=center] at (0, -1.95) {Axes oriented along $\{\mathbf{u}_1, \mathbf{u}_2\}$};
+    \end{scope}
+
+    % --- TRANSITION 1 -> 4 DIRECT: Global action A (Diagram closure) ---
+    \draw[->, line width=2pt, dashed, red!75!black] (-4.2, 1.1) -- (-4.2, -1.0);
+    \node[left=4pt, font=\small\bfseries, text=red!85!black] at (-4.2, 0.05) {$A$};
+    \node[right=4pt, font=\scriptsize, align=center, text=gray!75!black] at (-4.2, 0.05) {Direct action\\$A\mathbf{x}$};
+
+\end{tikzpicture}%
+}
+\caption{Four-quadrant geometric interpretation of the linear mapping $A = U \Sigma V^T$ acting on the unit Euclidean sphere: (1) Initial unit sphere with orthonormal right singular basis $\mathbf{v}_i$; (2) Right isometry $V^T$ aligning $\mathbf{v}_i$ to the canonical axes; (3) Axis-aligned dilation $\Sigma$ producing an ellipsoid with semi-axes $\sigma_i$; (4) Final left isometry $U$ orienting principal axes along the left singular vectors $\mathbf{u}_i$.}
+\label{fig:svd-geometric-transformation-en}
+\end{figure}
+
+\FloatBarrier
+\section{Application 1: Image Compression via Truncated SVD}
+\label{sec:application-image-compression-en}
+
+\subsection{Matrix Representation of Grayscale Images}
+
+A grayscale image of resolution $m \times n$ is represented by a matrix $A \in \R^{m \times n}$. Uncompressed storage requires $m \cdot n$ pixel values.
+
+\subsection{Rank-$k$ Approximation and Compression Ratio}
+
+Replacing $A$ with its truncated rank-$k$ approximation $A_k = U_k \Sigma_k V_k^T$, we only store:
+\begin{equation}
+    \text{Storage}(A_k) = k(m + n + 1) \text{ values}.
+\end{equation}
+The compression ratio is:
+\begin{equation}
+    \rho_k = \frac{k(m + n + 1)}{m \cdot n}.
+\end{equation}
+
+For an image of size $600 \times 402$ ($241\,200$ entries), $k = 10$ requires only $10\,030$ entries ($\approx 4.1\%$ of original storage), while $k = 30$ achieves high perceptual fidelity with only $12.5\%$ of the original data.
+
+\FloatBarrier
+\section{Application 2: Tabular Data and Anomaly Detection}
+\label{sec:application-tabular-anomalies-en}
+
+Consider the test grade matrix of $4$ students across $3$ tests:
+\begin{equation}
+    M = \begin{bmatrix}
+        90 & 95 & 55 \\
+        32 & 35 & 20 \\
+        70 & 75 & 50 \\
+        70 & 31 & 49
+    \end{bmatrix} \approx \mathbf{x} \mathbf{y}^T = \begin{bmatrix} x_1 \\ x_2 \\ x_3 \\ x_4 \end{bmatrix} \begin{bmatrix} y_1 & y_2 & y_3 \end{bmatrix}.
+\end{equation}
+
+\begin{itemize}
+    \item $\mathbf{y}^T = [y_1, y_2, y_3]$ measures relative test ease ($y_3$ is lower for harder test C).
+    \item $\mathbf{x} = [x_1, x_2, x_3, x_4]^T$ measures student overall ability.
+    \item In the residual matrix $R = M - \sigma_1 \mathbf{u}_1 \mathbf{v}_1^T$:
+    \begin{itemize}
+        \item $r_{ij} \gg 0$: Anomaly indicating unexpectedly high score (cheating or targeted preparation).
+        \item $r_{ij} \ll 0$: Sudden performance drop (illness or technical issue, such as student 4 on test B).
+    \end{itemize}
+\end{itemize}
+
+\FloatBarrier
+\section{Application 3: Principal Component Analysis (PCA) via SVD}
+\label{sec:application-pca-svd-en}
+
+Given $n$ samples $\mathbf{x}_1, \dots, \mathbf{x}_n \in \R^m$, form $A = [\mathbf{x}_1, \dots, \mathbf{x}_n] \in \R^{m \times n}$.
+\begin{enumerate}
+    \item \textbf{Mean-centering:} Compute $\boldsymbol{\mu} = \frac{1}{n} \sum \mathbf{x}_i$ and centered data $\widehat{A} = A - \boldsymbol{\mu} \mathbf{1}_n^T$.
+    \item \textbf{Sample Covariance:} $C = \frac{1}{n} \widehat{A}\widehat{A}^T \in \R^{m \times m}$.
+    \item \textbf{SVD Connection:} Let $\widehat{A} = U \Sigma V^T$. Then:
+    \begin{equation}
+        C = \frac{1}{n} U \Sigma (V^T V) \Sigma^T U^T = U \left( \frac{1}{n} \Sigma \Sigma^T \right) U^T.
+    \end{equation}
+    The principal components are precisely the columns of $U$.
+    \item The first principal component $\mathbf{u}_1$ points along maximal data variance ($\sigma_1^2 / n$).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, scale=1.0]
+
+    % =========================================================================
+    % PANEL (a): Raw Uncentered Data
+    % =========================================================================
+    \begin{scope}[shift={(0, 0)}]
+        \draw[help lines, color=gray!18, dashed] (-0.5,-0.5) grid (5.0,4.4);
+        \draw[->, thick, gray!70] (-0.5, 0) -- (5.2, 0) node[right, font=\small, text=black] {$x_1$};
+        \draw[->, thick, gray!70] (0, -0.5) -- (0, 4.6) node[above, font=\small, text=black] {$x_2$};
+
+        % Data cloud
+        \foreach \x/\y in {1.8/1.5, 2.1/1.9, 2.3/1.6, 2.5/2.2, 2.7/2.0, 2.8/2.7, 3.0/2.3, 3.2/2.8, 3.4/2.6, 3.6/3.1, 3.9/3.0, 4.1/3.4} {
+            \fill[blue!75!black] (\x, \y) circle (2.3pt);
+        }
+
+        % Sample Mean / Centroid mu
+        \fill[red!85!black] (2.9, 2.4) circle (3.5pt);
+        \node[above left=1pt, font=\small\bfseries, text=red!85!black, fill=white, inner sep=1pt] at (2.85, 2.45) {$\boldsymbol{\mu}$};
+        \draw[dashed, red!70!black, thick] (2.9, 0) node[below=2pt, font=\scriptsize, text=red!80!black] {$\mu_1$} -- (2.9, 2.4) -- (0, 2.4) node[left=2pt, font=\scriptsize, text=red!80!black] {$\mu_2$};
+
+        \node[font=\bfseries\small, align=center] at (2.4, -1.1) {(a) Raw Uncentered Data\\[2pt]\scriptsize Translated distribution with center $\boldsymbol{\mu}$};
+    \end{scope}
+
+    % =========================================================================
+    % CENTRAL ARROW: Centering
+    % =========================================================================
+    \draw[->, line width=2pt, gray!70] (5.4, 2.0) -- (7.0, 2.0);
+    \node[above=4pt, font=\footnotesize\bfseries, align=center, text=gray!80!black] at (6.2, 2.0) {Centering\\[1pt]\scriptsize $\widehat{\mathbf{x}}_i = \mathbf{x}_i - \boldsymbol{\mu}$};
+
+    % =========================================================================
+    % PANEL (b): Centered Data with Principal Axes and Projections
+    % =========================================================================
+    \begin{scope}[shift={(10.4, 2.0)}]
+        \draw[help lines, color=gray!18, dashed] (-3.0,-2.3) grid (3.0,2.3);
+        \draw[->, thick, gray!70] (-3.1, 0) -- (3.2, 0) node[right, font=\small, text=black] {$\widehat{x}_1$};
+        \draw[->, thick, gray!70] (0, -2.4) -- (0, 2.5) node[above, font=\small, text=black] {$\widehat{x}_2$};
+
+        % Centered points
+        \foreach \x/\y in {-1.1/-0.9, -0.8/-0.5, -0.6/-0.8, -0.4/-0.2, -0.2/-0.4, -0.1/0.3, 0.1/-0.1, 0.3/0.4, 0.5/0.2, 0.7/0.7, 1.0/0.6, 1.2/1.0} {
+            \fill[blue!75!black] (\x, \y) circle (2.3pt);
+        }
+
+        % Covariance dispersion ellipse
+        \draw[thick, dashed, teal!70!black, rotate=32] (0, 0) ellipse (2.2 and 0.75);
+
+        % First principal axis u_1 (line of maximal variance)
+        \draw[dashed, red!40!black, thin] ({-2.6*cos(32)}, {-2.6*sin(32)}) -- ({2.7*cos(32)}, {2.7*sin(32)});
+
+        % Orthogonal drop projections onto u_1
+        \draw[dotted, gray!80!black, thick] (-0.1, 0.3) -- (0.06, 0.04);
+        \draw[dotted, gray!80!black, thick] (0.7, 0.7) -- (0.82, 0.51);
+        \draw[dotted, gray!80!black, thick] (-0.6, -0.8) -- (-0.79, -0.49);
+
+        % Centroid at origin
+        \fill[red!85!black] (0, 0) circle (2.8pt);
+
+        % First Principal Component u_1
+        \draw[->, line width=1.8pt, red!85!black] (0, 0) -- ({2.3*cos(32)}, {2.3*sin(32)}) 
+            node[above right=1pt, font=\small\bfseries, fill=white, inner sep=1pt] {$\mathbf{u}_1$ \scriptsize(Max Variance)};
+
+        % Second Principal Component u_2
+        \draw[->, line width=1.8pt, teal!85!black] (0, 0) -- ({-1.1*sin(32)}, {1.1*cos(32)}) 
+            node[above left=1pt, font=\small\bfseries, fill=white, inner sep=1pt] {$\mathbf{u}_2$};
+
+        % Subcaption (b) perfectly aligned on same vertical baseline as (a)
+        \node[font=\bfseries\small, align=center] at (0, -3.1) {(b) SVD Principal Axes and Projections\\[2pt]\scriptsize Maximal variance along $\mathbf{u}_1$, minimal along $\mathbf{u}_2$};
+    \end{scope}
+
+\end{tikzpicture}%
+}
+\caption{Geometric interpretation of PCA via SVD: (a) Original raw data with center $\boldsymbol{\mu}$; (b) Centered data with principal directions $\mathbf{u}_1$ (maximal variance) and orthogonal $\mathbf{u}_2$ obtained from the SVD of $\widehat{A} = U \Sigma V^T$, displaying orthogonal projections onto the optimal low-rank subspace.}
+\label{fig:pca-geometry-2d-en}
+\end{figure}
+
+\FloatBarrier
+\section{Summary Table}
+\label{sec:summary-table-en}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{p{4.2cm} p{4.6cm} X}
+\toprule
+\textbf{Concept / Tool} & \textbf{Mathematical Formula} & \textbf{Computational Significance} \\
+\midrule
+\textbf{Full SVD} & $A = U \Sigma V^T, \; U \in \R^{m \times m}, \; V \in \R^{n \times n}$ & Complete bases for domain, codomain, 4 subspaces. \\
+\textbf{Thin SVD} & $A = U_0 \Sigma_0 V^T, \; U_0 \in \R^{m \times n}, \; \Sigma_0 \in \R^{n \times n}$ & Reduces storage $\BigO{m^2} \to \BigO{mn}$, preserves $\operatorname{Im}(A)$. \\
+\textbf{Induced Norm} & $\|A\| = \max_{\|\mathbf{x}\|=1} \|A\mathbf{x}\|$ & Maximum operator amplification factor. \\
+\textbf{Spectral Norm} & $\|A\|_2 = \sigma_1$ & Largest singular value; unitarily invariant. \\
+\textbf{Frobenius Norm} & $\|A\|_F = \sqrt{\trace(A^T A)} = \sqrt{\sum \sigma_i^2}$ & Matrix Euclidean length; unitarily invariant. \\
+\textbf{Real Symmetric SVD} & $\sigma_i = |d_i|, \; \mathbf{u}_i = \operatorname{sgn}(d_i)\mathbf{q}_i, \; \mathbf{v}_i = \mathbf{q}_i$ & Deduced directly from $A = Q D Q^T$. \\
+\textbf{Eckart-Young ($A_k$)} & $A_k = \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T$ & Global minimizer for $\min_{\rank(B)\le k} \|A-B\|$. \\
+\textbf{Spectral Error} & $\|A - A_k\|_2 = \sigma_{k+1}$ & First discarded singular value. \\
+\textbf{Frobenius Error} & $\|A - A_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2}$ & Total discarded energy. \\
+\textbf{Image Compression} & Storage $= k(m + n + 1) \ll mn$ & High-fidelity compression for decaying spectrum. \\
+\textbf{PCA via SVD} & $\widehat{A} = U \Sigma V^T, \; C = \frac{1}{n} U \Sigma \Sigma^T U^T$ & Columns of $U$ are covariance eigenvectors. \\
+\bottomrule
+\end{tabularx}
+\caption{Comprehensive overview of matrix norms, SVD factorizations, low-rank approximations, and applications.}
+\label{tab:summary-svd-norms-en}
+\end{table}
