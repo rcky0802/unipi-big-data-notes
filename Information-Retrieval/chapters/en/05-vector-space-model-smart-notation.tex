@@ -1,0 +1,360 @@
+\chapter{The Vector Space Model (VSM) and SMART Notation}
+\label{chap:vsm-smart}
+
+\FloatBarrier
+\section{Foundations of the Vector Space Model (VSM)}
+\label{sec:vsm-foundations-en}
+
+In the \textbf{Vector Space Model} (VSM), documents and queries are modeled as continuous geometric vectors residing in a real-valued finite-dimensional space:
+\begin{equation}
+\text{Dimensionality of the space} = |V|,
+\end{equation}
+where each orthogonal axis corresponds to a distinct vocabulary term from $V$.
+
+Both user queries $q$ and candidate documents $d$ are represented as multidimensional vectors:
+\begin{equation}
+\vec{v}(q) \in \mathbb{R}^{|V|}, \qquad \vec{v}(d) \in \mathbb{R}^{|V|}.
+\end{equation}
+
+\subsection{Extreme Sparsity of Document Vectors}
+In production web-scale environments, vocabulary cardinality easily reaches $|V| \approx 10^6$. An ordinary document contains between a few dozen and a few thousand distinct words:
+\begin{equation}
+\frac{|\{i \mid v_i(d) \ne 0\}|}{|V|} \le \frac{10^3}{10^6} = 0.001 = 0.1\%.
+\end{equation}
+Over \textbf{99.9\%} of all vector dimensions are identically zero. Storage and arithmetic operations are therefore implemented strictly using sparse vector structures and inverted index posting lists.
+
+\FloatBarrier
+\section{Why Euclidean Distance Fails: The Document Duplication Experiment}
+\label{sec:euclidean-failure-en}
+
+The intuitive geometric distance metric in real coordinate spaces is Euclidean ($L_2$) distance:
+\begin{equation}
+\text{dist}_{L_2}(\vec{q}, \vec{d}) = \|\vec{q} - \vec{d}\|_2 = \sqrt{\sum_{i=1}^{|V|} (q_i - d_i)^2}.
+\end{equation}
+
+However, Euclidean distance is unsuited for Information Retrieval due to its sensitivity to extrinsic document length.
+
+\subsection[The Thought Experiment: Concatenated Duplicate Document]{The Thought Experiment: Concatenated Duplicate Document ($d' = d \circ d$)}
+Consider a document $d$ and duplicate it into $d'$, where every sentence is repeated twice:
+\begin{enumerate}
+    \item \textbf{Semantic Content:} $d'$ and $d$ are identical regarding topic and relative term proportions.
+    \item \textbf{Vector Magnitude:} term frequencies double ($tf_{t, d'} = 2 \cdot tf_{t, d}$), doubling vector norm ($\|\vec{d'}\|_2 \approx 2\|\vec{d}\|_2$).
+    \item \textbf{Euclidean Distance Explosion:} the Euclidean distance between a short query $\vec{q}$ and the long duplicate $\vec{d'}$ grows substantially larger:
+    \begin{equation}
+    \|\vec{q} - \vec{d'}\|_2 \gg \|\vec{q} - \vec{d}\|_2.
+    \end{equation}
+    Sorting by increasing Euclidean distance severely and unfairly penalizes longer documents.
+    \item \textbf{Unchanged Angular Direction:} both vectors $\vec{d}$ and $\vec{d'}$ lie \textbf{on the exact same ray} originating from the coordinate origin. The enclosed angle $\theta$ between them is strictly $0^\circ$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    \draw[->, thick, gray!70!black] (0,0) -- (6.5,0) node[below] {\small Dimension 1 ($t_1$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (0,5.0) node[left] {\small Dimension 2 ($t_2$)};
+
+    \draw[dashed, blue!40!black] (0,0) -- (5.2, 4.16);
+
+    \draw[->, very thick, blue!80!black] (0,0) -- (2.5, 2.0) node[above left] {\small $\vec{d}$ (document)};
+    \draw[->, very thick, teal!80!black] (0,0) -- (5.0, 4.0) node[above left] {\small $\vec{d'}$ (duplicate $d \circ d$)};
+
+    \draw[->, very thick, red!80!black] (0,0) -- (4.0, 1.2) node[right] {\small $\vec{q}$ (query)};
+
+    \draw[orange!90!black, thick] (1.3, 1.04) arc[start angle=38.6, end angle=16.7, radius=1.65];
+    \node[orange!90!black] at (2.0, 0.75) {\small $\theta$};
+
+    \draw[dotted, thick, gray!80!black] (4.0, 1.2) -- (2.5, 2.0) node[midway, left=2pt] {\scriptsize $\|\vec{q} - \vec{d}\|$};
+    \draw[dotted, thick, purple!80!black] (4.0, 1.2) -- (5.0, 4.0) node[midway, right=2pt] {\scriptsize $\|\vec{q} - \vec{d'}\|$ (much larger)};
+\end{tikzpicture}
+\caption{Euclidean distance failure: $d$ and $d'$ share identical direction ($\theta = 0^\circ$), but $d'$ has a much larger Euclidean distance to $q$.}
+\label{fig:vsm-euclidean-failure-en}
+\end{figure}
+
+\begin{noteblock}{Direction vs. Magnitude}
+Topical relevance must remain invariant to document verbosity. Relevance is captured by the \textbf{angular direction} of vectors, not the Euclidean distance between their endpoints.
+\end{noteblock}
+
+\FloatBarrier
+\section[From Angles to Cosine Similarity and L2 Normalization]{From Angles to Cosine Similarity and $L_2$ Normalization}
+\label{sec:cosine-similarity-l2-en}
+
+Sorting documents by increasing angle $\theta$ (smaller angle $\implies$ higher topical overlap) is mathematically equivalent to sorting by \textbf{decreasing cosine} of $\theta$, since the cosine function is monotonically decreasing over $[0, \pi/2]$:
+\begin{align}
+\theta = 0^\circ &\implies \cos(0^\circ) = 1 \quad \text{(maximum similarity, collinear vectors)}, \\
+\theta = 90^\circ &\implies \cos(90^\circ) = 0 \quad \text{(orthogonal vectors, zero shared terms)}.
+\end{align}
+Because TF-IDF weights are non-negative, vector representations are confined to the first positive hyper-octant: $\cos(\theta) \in [0, 1]$.
+
+\subsection{Analytical Derivation of Cosine Similarity}
+From the geometric definition of the vector dot product:
+\begin{equation}
+\vec{q} \cdot \vec{d} = \|\vec{q}\|_2 \|\vec{d}\|_2 \cos(\theta),
+\end{equation}
+where the Euclidean ($L_2$) norm is:
+\begin{equation}
+\|\vec{x}\|_2 = \sqrt{\sum_{i=1}^{|V|} x_i^2}.
+\end{equation}
+
+Solving for $\cos(\theta)$ yields the canonical formula for \textbf{Cosine Similarity}:
+\begin{equation}
+\text{Sim}_{\cos}(\vec{q}, \vec{d}) = \cos(\theta) = \frac{\vec{q} \cdot \vec{d}}{\|\vec{q}\|_2 \|\vec{d}\|_2} = \frac{\sum_{t \in q \cap d} q_t d_t}{\sqrt{\sum_{t \in q} q_t^2} \, \sqrt{\sum_{t \in d} d_t^2}}.
+\end{equation}
+
+\subsection[L2 Length Normalization onto the Unit Hypersphere]{$L_2$ Length Normalization onto the Unit Hypersphere}
+Dividere un vettore per la sua norma euclidea proietta il vettore sulla superficie dell'ipersfera unitaria:
+\begin{equation}
+\vec{v}_{\text{norm}} = \frac{\vec{v}}{\|\vec{v}\|_2} \implies \|\vec{v}_{\text{norm}}\|_2 = 1.
+\end{equation}
+When all document vectors are pre-normalized to unit length, Cosine Similarity simplifies to a pure dot product:
+\begin{equation}
+\cos(\vec{q}, \vec{d}) = \vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}} = \sum_{t \in q \cap d} q_{\text{norm}, t} \cdot d_{\text{norm}, t}.
+\end{equation}
+
+\subsection{Computational Decoupling: Offline vs. Online}
+\begin{itemize}
+    \item \textbf{Offline (Indexing):} the Euclidean length $\|\vec{d}\|_2 = \sqrt{\sum_t d_t^2}$ depends exclusively on the document. It is calculated once during indexing and stored in the document lookup dictionary.
+    \item \textbf{Online (Query Processing):} at query time, $\|\vec{q}\|_2$ is computed. When traversing inverted lists, the engine accumulates the dot product across shared terms $t \in q \cap d$ and normalizes the score:
+    \begin{equation}
+    \text{Score}(q, d) = \frac{1}{\|\vec{q}\|_2} \sum_{t \in q \cap d} \frac{q_t d_t}{\|\vec{d}\|_2}.
+    \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\section{Worked Case Study: Stylistic Comparison Across Three Novels}
+\label{sec:three-novels-exercise-en}
+
+The lecture analyzed lexical proximity across three English classics:
+\begin{enumerate}
+    \item \textbf{SaS:} \textit{Sense and Sensibility} (Jane Austen, 1811)
+    \item \textbf{PaP:} \textit{Pride and Prejudice} (Jane Austen, 1813)
+    \item \textbf{WH:} \textit{Wuthering Heights} (Emily Bront\"e, 1847)
+\end{enumerate}
+The goal is to determine whether VSM geometry captures higher stylistic proximity between works by the same author than across distinct authors.
+
+\subsection[Step 1: Raw Frequency Count Matrix]{Step 1: Raw Frequency Count Matrix ($tf$)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l ccc}
+\toprule
+\textbf{Term} & \textbf{SaS ($d_1$)} & \textbf{PaP ($d_2$)} & \textbf{WH ($d_3$)} \\
+\midrule
+\textbf{affection} & 115 & 58 & 20 \\
+\textbf{jealous}   & 10  & 7  & 11 \\
+\textbf{gossip}    & 2   & 0  & 6  \\
+\textbf{wuthering} & 0   & 0  & 38 \\
+\bottomrule
+\end{tabular}
+\caption{Raw term frequencies across the three novels.}
+\label{tab:novels-raw-en}
+\end{table}
+
+\subsection[Step 2: Logarithmic Term Frequency Weighting]{Step 2: Logarithmic Term Frequency Weighting ($1 + \log_{10}(tf)$)}
+Applying $w = 1 + \log_{10}(tf)$ if $tf > 0$, and $0$ otherwise:
+\begin{itemize}
+    \item \textbf{SaS:}
+    \begin{itemize}
+        \item affection: $1 + \log_{10}(115) \approx 1 + 2.0607 = 3.06$
+        \item jealous: $1 + \log_{10}(10) = 1 + 1.0 = 2.00$
+        \item gossip: $1 + \log_{10}(2) \approx 1 + 0.3010 = 1.30$
+        \item wuthering: $0.00$
+    \end{itemize}
+    \item \textbf{PaP:}
+    \begin{itemize}
+        \item affection: $1 + \log_{10}(58) \approx 1 + 1.7634 = 2.76$
+        \item jealous: $1 + \log_{10}(7) \approx 1 + 0.8451 = 1.85$
+        \item gossip: $0.00$
+        \item wuthering: $0.00$
+    \end{itemize}
+    \item \textbf{WH:}
+    \begin{itemize}
+        \item affection: $1 + \log_{10}(20) \approx 1 + 1.3010 = 2.30$
+        \item jealous: $1 + \log_{10}(11) \approx 1 + 1.0414 = 2.04$
+        \item gossip: $1 + \log_{10}(6) \approx 1 + 0.7782 = 1.78$
+        \item wuthering: $1 + \log_{10}(38) \approx 1 + 1.5798 = 2.58$
+    \end{itemize}
+\end{itemize}
+
+\subsection[Step 3: Euclidean Norms and L2 Unit Normalization]{Step 3: Euclidean Norms and $L_2$ Unit Normalization}
+Computing $L_2$ vector lengths:
+\begin{align}
+\|\vec{v}_{\text{SaS}}\|_2 &= \sqrt{3.06^2 + 2.00^2 + 1.30^2 + 0^2} = \sqrt{15.0536} \approx \mathbf{3.88}, \\
+\|\vec{v}_{\text{PaP}}\|_2 &= \sqrt{2.76^2 + 1.85^2 + 0^2 + 0^2} = \sqrt{11.0401} \approx \mathbf{3.32}, \\
+\|\vec{v}_{\text{WH}}\|_2  &= \sqrt{2.30^2 + 2.04^2 + 1.78^2 + 2.58^2} = \sqrt{19.2764} \approx \mathbf{4.39}.
+\end{align}
+
+Dividing by vector norms produces unit-normalized vectors:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l ccc}
+\toprule
+\textbf{Term} & \textbf{SaS ($\vec{v} / 3.88$)} & \textbf{PaP ($\vec{v} / 3.32$)} & \textbf{WH ($\vec{v} / 4.39$)} \\
+\midrule
+\textbf{affection} & $3.06 / 3.88 \approx \mathbf{0.789}$ & $2.76 / 3.32 \approx \mathbf{0.832}$ & $2.30 / 4.39 \approx \mathbf{0.524}$ \\
+\textbf{jealous}   & $2.00 / 3.88 \approx \mathbf{0.515}$ & $1.85 / 3.32 \approx \mathbf{0.555}$ & $2.04 / 4.39 \approx \mathbf{0.465}$ \\
+\textbf{gossip}    & $1.30 / 3.88 \approx \mathbf{0.335}$ & $0.00 / 3.32 = \mathbf{0.000}$       & $1.78 / 4.39 \approx \mathbf{0.405}$ \\
+\textbf{wuthering} & $0.00 / 3.88 = \mathbf{0.000}$       & $0.00 / 3.32 = \mathbf{0.000}$       & $2.58 / 4.39 \approx \mathbf{0.588}$ \\
+\bottomrule
+\end{tabular}
+\caption{Unit-normalized ($L_2$) document vectors across the three novels.}
+\label{tab:novels-normalized-en}
+\end{table}
+
+\subsection{Step 4: Cosine Similarity Calculations}
+\begin{align}
+\cos(\text{SaS}, \text{PaP}) &= (0.789 \cdot 0.832) + (0.515 \cdot 0.555) \approx \mathbf{0.94}, \\[0.2cm]
+\cos(\text{SaS}, \text{WH})  &= (0.789 \cdot 0.524) + (0.515 \cdot 0.465) + (0.335 \cdot 0.405) \approx \mathbf{0.79}, \\[0.2cm]
+\cos(\text{PaP}, \text{WH})  &= (0.832 \cdot 0.524) + (0.555 \cdot 0.465) \approx \mathbf{0.69}.
+\end{align}
+
+\begin{noteblock}{Result Interpretation}
+\begin{equation}
+\cos(\text{SaS}, \text{PaP}) \approx 0.94 > \cos(\text{SaS}, \text{WH}) \approx 0.79 > \cos(\text{PaP}, \text{WH}) \approx 0.69.
+\end{equation}
+Cosine Similarity reflects stylistic coherence: Jane Austen's two works exhibit $94\%$ proximity, markedly higher than the cross-author comparison with Emily Bront\"e.
+\end{noteblock}
+
+\FloatBarrier
+\section{Weighting Variations and SMART Notation}
+\label{sec:smart-notation-en}
+
+Gerard Salton and the Cornell SMART team systematized term-weighting variants into a standard mnemonic triplet notation:
+\begin{equation}
+\text{SMART Scheme} \implies ddd.qqq,
+\end{equation}
+where the first triplet $ddd$ defines document weighting and the second triplet $qqq$ defines query weighting.
+
+\begin{table}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l l l l l l}
+\toprule
+\multicolumn{2}{c}{\textbf{Term Frequency ($tf$)}} & \multicolumn{2}{c}{\textbf{Document Frequency ($df$)}} & \multicolumn{2}{c}{\textbf{Normalization}} \\
+\midrule
+\texttt{n} & $tf$ (natural) & \texttt{n} & $1$ (no idf) & \texttt{n} & None ($1$) \\
+\addlinespace
+\texttt{l} & $1 + \log_{10}(tf)$ & \texttt{t} & $\log_{10}(N / df)$ & \texttt{c} & Cosine ($1 / \|\vec{w}\|_2$) \\
+\addlinespace
+\texttt{a} & $0.5 + 0.5 \frac{tf}{\max(tf)}$ & \texttt{p} & $\max\left(0, \log \frac{N - df}{df}\right)$ & \texttt{u} & Pivoted unique \\
+\addlinespace
+\texttt{b} & $1$ if $tf>0$, else $0$ & & & \texttt{b} & Byte size ($1 / \text{len}^\alpha$) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Systematic taxonomy of weighting components in SMART notation.}
+\label{tab:smart-taxonomy-en}
+\end{table}
+
+\subsection{The Standard Industrial Baseline: \texttt{lnc.ltc}}
+The asymmetric combination \textbf{\texttt{lnc.ltc}} is one of the most effective and widely adopted configurations:
+\begin{itemize}
+    \item \textbf{For Document (\texttt{lnc}):}
+    \begin{itemize}
+        \item \texttt{l}: Logarithmic Term Frequency ($1 + \log_{10} tf$).
+        \item \texttt{n}: No IDF factor applied to document vectors.
+        \item \texttt{c}: Cosine ($L_2$) length normalization.
+    \end{itemize}
+    \item \textbf{For Query (\texttt{ltc}):}
+    \begin{itemize}
+        \item \texttt{l}: Logarithmic Term Frequency ($1 + \log_{10} tf$).
+        \item \texttt{t}: Classical IDF weighting $\log_{10}(N / df)$.
+        \item \texttt{c}: Cosine ($L_2$) length normalization.
+    \end{itemize}
+\end{itemize}
+
+\begin{noteblock}{Architectural Rationale for Asymmetry}
+Omitting IDF from document weights (\texttt{n}) prevents corrupting the index with static global stats and avoids penalizing long documents that legitimately repeat topic terms. The burden of discriminating term importance is assigned entirely to the query vector (\texttt{t}).
+\end{noteblock}
+
+\subsection{Full \texttt{lnc.ltc} Numerical Worked Example}
+
+\paragraph{Setup:}
+\begin{itemize}
+    \item \textbf{Document:} \textit{``car insurance auto insurance''}
+    \item \textbf{Query:} \textit{``best car insurance''}
+    \item $N = 1\,000\,000$. Document frequencies:
+    \begin{itemize}
+        \item \texttt{auto}: $df = 5\,000 \implies idf = \log_{10}(10^6 / 5000) \approx 2.3$
+        \item \texttt{best}: $df = 50\,000 \implies idf = \log_{10}(10^6 / 50000) \approx 1.3$
+        \item \texttt{car}: $df = 10\,000 \implies idf = \log_{10}(10^6 / 10000) = 2.0$
+        \item \texttt{insurance}: $df = 1\,000 \implies idf = \log_{10}(10^6 / 1000) = 3.0$
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Step 1: Query Vector Processing (\texttt{ltc})}
+
+\begin{table}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l cccccc}
+\toprule
+\textbf{Term} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$df$} & \textbf{$idf$} & \textbf{Unnorm. weight} & \textbf{Norm. weight ($w / \|\vec{q}\|$)} \\
+\midrule
+\textbf{auto}      & 0 & 0.0 & $5\,000$  & 2.3 & $0.0 \times 2.3 = 0.0$ & \textbf{0.00} \\
+\textbf{best}      & 1 & 1.0 & $50\,000$ & 1.3 & $1.0 \times 1.3 = 1.3$ & $1.3 / 3.84 \approx \mathbf{0.34}$ \\
+\textbf{car}       & 1 & 1.0 & $10\,000$ & 2.0 & $1.0 \times 2.0 = 2.0$ & $2.0 / 3.84 \approx \mathbf{0.52}$ \\
+\textbf{insurance} & 1 & 1.0 & $1\,000$  & 3.0 & $1.0 \times 3.0 = 3.0$ & $3.0 / 3.84 \approx \mathbf{0.78}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Query vector computation under the \texttt{ltc} scheme.}
+\label{tab:query-ltc-en}
+\end{table}
+
+Query Euclidean length:
+\begin{equation}
+\|\vec{q}\|_2 = \sqrt{0^2 + 1.3^2 + 2.0^2 + 3.0^2} = \sqrt{14.69} \approx \mathbf{3.84}.
+\end{equation}
+
+\subsubsection{Step 2: Document Vector Processing (\texttt{lnc})}
+
+\begin{table}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tabular}{l ccccc}
+\toprule
+\textbf{Term} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$idf$ (none for \texttt{n})} & \textbf{Unnorm. weight} & \textbf{Norm. weight ($w / \|\vec{d}\|$)} \\
+\midrule
+\textbf{auto}      & 1 & 1.0 & --- & 1.0 & $1.0 / 1.92 \approx \mathbf{0.52}$ \\
+\textbf{best}      & 0 & 0.0 & --- & 0.0 & \textbf{0.00} \\
+\textbf{car}       & 1 & 1.0 & --- & 1.0 & $1.0 / 1.92 \approx \mathbf{0.52}$ \\
+\textbf{insurance} & 2 & $1+\log_{10}(2) \approx 1.30$ & --- & 1.3 & $1.3 / 1.92 \approx \mathbf{0.68}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Document vector computation under the \texttt{lnc} scheme.}
+\label{tab:doc-lnc-en}
+\end{table}
+
+Document Euclidean length:
+\begin{equation}
+\|\vec{d}\|_2 = \sqrt{1.0^2 + 0^2 + 1.0^2 + 1.30^2} = \sqrt{3.69} \approx \mathbf{1.92}.
+\end{equation}
+
+\subsubsection{Step 3: Final Scored Ranking}
+Computing the dot product between unit vectors:
+\begin{align}
+\text{Score}(q, d) &= \vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}} \nonumber \\
+                   &= (0.00 \cdot 0.52) + (0.34 \cdot 0.00) + (0.52 \cdot 0.52) + (0.78 \cdot 0.68) \nonumber \\
+                   &= 0 + 0 + 0.2704 + 0.5304 \approx \mathbf{0.80}.
+\end{align}
+
+\FloatBarrier
+\section{Key Review Questions and Core Concepts}
+\label{sec:review-questions-en}
+
+\begin{enumerate}
+    \item \textbf{Why does Jaccard similarity sometimes score less relevant documents higher?}
+    It operates on raw sets, ignoring within-document term frequency ($tf$) and collection-wide rarity ($idf$). It also penalizes longer documents via denominator union growth.
+    \item \textbf{Why is Euclidean distance unsuitable for ranking in the Vector Space Model?}
+    Euclidean distance is sensitive to vector magnitude: duplicate documents with identical topics have twice the length, placing them far from short queries despite zero angular deviation ($\theta = 0^\circ$).
+    \item \textbf{What is the geometric interpretation of $L_2$ normalization?}
+    It radially projects vectors onto the unit hypersphere, neutralizing document length variations and simplifying cosine similarity to a dot product.
+    \item \textbf{What is the effect of IDF on a single-term query?}
+    Zero effect on relative document ranking: IDF acts as a constant scaling factor for all matching documents, leaving relative order unchanged.
+\end{enumerate}
+
+\begin{noteblock}{Preview of Lecture 6: The Okapi BM25 Probabilistic Model}
+The subsequent chapter formalizes \textbf{Okapi BM25}, overcoming log-TF limitations through asymptotic frequency saturation ($k_1$) and calibrated document length normalization ($b$).
+\end{noteblock}
