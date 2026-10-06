@@ -1,0 +1,491 @@
+\chapter{Natural Language Processing and Text Representation}
+\label{chap:nlp-representation-en}
+
+\FloatBarrier
+\section{Graded Relevance Metrics (CG, DCG, NDCG)}
+\label{sec:recap-ndcg-en}
+
+In real-world Information Retrieval systems, the assumption of purely binary relevance (relevant vs. non-relevant) is inadequate to capture the nuances of search results. Relevance judgments are therefore expressed on graded scales (e.g., a Likert scale from $0$ to $3$ or $0$ to $4$, indicating increasing degrees of pertinence).
+
+The evaluation of a ranked list of documents up to position $p$ is founded on two core principles:
+\begin{enumerate}
+    \item \textbf{Gain:} The higher a document with high relevance appears within the SERP (\textit{Search Engine Results Page}), the greater the utility perceived by the user.
+    \item \textbf{Discounting:} Highly relevant documents placed at lower ranks deliver progressively less utility than if placed at the top, since user attention monotonically decays down the list.
+\end{enumerate}
+
+\subsection{Cumulative Gain (CG) and Discounted Cumulative Gain (DCG)}
+
+Given a vector of graded relevance scores $\mathbf{r} = [r_1, r_2, \dots, r_p]$ for the top-$p$ documents returned for a query $q$:
+\begin{definition}[Cumulative Gain at Rank $p$]
+\textbf{Cumulative Gain} ($CG_p$) is the unweighted sum of relevance values up to rank $p$:
+\begin{equation}
+CG_p = \sum_{i=1}^{p} r_i.
+\end{equation}
+\textit{Inherent limitation:} $CG_p$ is position-insensitive: placing a highly relevant document ($r_i = 3$) at rank 1 or rank 10 produces identical $CG$ scores.
+\end{definition}
+
+To model user attention decay as rank $i$ increases, a logarithmic discount function is applied:
+
+\begin{definition}[Discounted Cumulative Gain at Rank $p$]
+In the standard formulation and the exponential gain variant widely adopted in industrial search engines:
+\begin{align}
+\text{DCG}_p &= r_1 + \sum_{i=2}^{p} \frac{r_i}{\log_2(i)}, \label{eq:dcg-std-en-vsm} \\
+\text{DCG}_p^{\text{exp}} &= \sum_{i=1}^{p} \frac{2^{r_i} - 1}{\log_2(i + 1)}. \label{eq:dcg-exp-en-vsm}
+\end{align}
+The exponential variant~\eqref{eq:dcg-exp-en-vsm} heavily penalizes the failure to place top-relevance documents at the very highest ranks.
+\end{definition}
+
+\subsection{Normalized DCG (NDCG)}
+
+Raw DCG has a critical structural drawback: it is strictly \textbf{query-dependent}. 
+If a specific query $q_A$ has $100$ highly relevant documents ($r=3$) in the collection, its theoretical DCG will naturally be huge. If another query $q_B$ has only one relevant document in the entire corpus, its maximum attainable DCG will be very small. Consequently, raw DCG scores cannot be directly compared or averaged across different queries.
+
+To enable cross-query comparison and global macro-averaging across an evaluation benchmark, we compute the \textbf{Ideal DCG} ($\text{IDCG}_p$), which is the DCG of the ideal ranking obtained by sorting all documents in descending order of relevance:
+\begin{equation}
+\text{NDCG}_p = \frac{\text{DCG}_p}{\text{IDCG}_p} \quad \in [0, 1].
+\end{equation}
+With normalization, $\text{NDCG}_p = 1.0$ guarantees that the search engine achieved the best possible ordering up to depth $p$.
+
+\FloatBarrier
+\section{Characteristics of Natural Language and Zipf's Law}
+\label{sec:language-zipf-en}
+
+\subsection{Properties and Inherent Complexity of Natural Language}
+
+Processing natural language computationally presents unique hurdles due to its structural characteristics:
+\begin{itemize}
+    \item \textbf{Vast vocabularies:} Real-world vocabularies contain hundreds of thousands of distinct words.
+    \item \textbf{Complex, hierarchical syntax:} Sentences are not mere flat sequences, but nested syntax trees with long-range grammatical dependencies.
+    \item \textbf{Compositional semantics:} The overall meaning of an utterance is a function of the meanings of its parts and their syntactic arrangement.
+    \item \textbf{Pervasive ambiguity:}
+    \begin{itemize}
+        \item \textit{Part-of-Speech (POS) ambiguity:} A single word form functions as noun or verb depending on context (e.g., \textit{beat}: \textit{``Listen to this cool beat''} [noun] vs. \textit{``I'll beat you at checkers!''} [verb]).
+        \item \textit{Word sense ambiguity (Polysemy and Homonymy):} Multiple distinct meanings (e.g., \textit{interest}: \textit{``There is interest on this topic''} [curiosity] vs. \textit{``The bank raised the interest rate''} [financial charge]).
+        \item \textit{Syntactic ambiguity:} Sentences with multiple valid parse trees (e.g., \textit{``I shot an elephant in my pajamas''}).
+    \end{itemize}
+    \item \textbf{Heavy reliance on Shared World Knowledge:}
+    \begin{itemize}
+        \item \textit{``I'm faster than Lewis Hamilton''}: Requires knowing Lewis Hamilton is a Formula 1 driver to interpret what speed is being compared.
+        \item \textit{``Alexis and Kate are sisters''}: Asserts a symmetric kinship relation between two entities.
+        \item \textit{``Alexis and Kate are mothers''}: Attributes a shared ontological property to both individuals, without implying a direct relationship between them.
+        \item \textit{``My mother is younger than me''}: Syntactically well-formed, but semantically and biologically impossible.
+    \end{itemize}
+    \item \textbf{Temporal evolution:} Vocabularies evolve rapidly through technological innovation and socio-cultural shifts (e.g., \textit{``to google''}, \textit{``crowdfunded''}, \textit{``in the cloud''}, \textit{``super spreader''}, \textit{``wear a mask''}).
+\end{itemize}
+
+\subsection{Zipf's Law and the Principle of Least Effort}
+
+In any natural language corpus, the empirical frequency $f$ of a term is inversely proportional to its rank $r$ when sorted by frequency:
+\begin{equation}
+f \propto \frac{1}{r} \implies f \cdot r \approx C,
+\end{equation}
+where $C$ is a corpus-specific constant.
+In Mandelbrot's generalized analytical formulation (\textit{Zipf-Mandelbrot law}):
+\begin{equation}
+f(r) \propto \frac{1}{(r + \beta)^\alpha},
+\end{equation}
+typically with $\alpha \approx 1$ and $\beta \approx 2.7$.
+
+\begin{noteblock}{Zipf's Principle of Least Effort}
+George Kingsley Zipf explained this hyperbolic distribution as an equilibrium between two opposing cognitive forces:
+\begin{enumerate}
+    \item \textbf{Speaker's effort:} Aims to minimize cognitive strain by using a small vocabulary of frequent, short, polysemous words.
+    \item \textbf{Hearer's effort:} Prefers a large vocabulary of distinct, rare, and precise words to minimize decoding ambiguity.
+\end{enumerate}
+The evolutionary compromise between speaker economy and listener clarity yields Zipf's law.
+\end{noteblock}
+
+From Zipf's formulation follow two key linguistic properties:
+\begin{itemize}
+    \item The number of meanings $m$ of a word scales inversely with the square root of its frequency: $m \propto 1 / \sqrt{f}$.
+    \item An inverse relationship connects word frequency and word length: high-frequency words are almost always the shortest.
+\end{itemize}
+
+\subsection{Rare Features and Stop Words}
+
+Zipf's distribution exposes two critical extremes for search system design:
+\begin{enumerate}
+    \item \textbf{Rare Features and \textit{Hapax Legomena}:} Words appearing only once in the entire corpus (\textit{hapax legomena}) typically comprise $40\%$ to $50\%$ of vocabulary $|V|$. A feature may be rare for two distinct reasons:
+    \begin{itemize}
+        \item It is a highly specialized technical term with \textbf{enormous discriminative content} (e.g., \textit{``arachnocentric''}).
+        \item It is a spelling typo or an arbitrary URL/file slug.
+    \end{itemize}
+    Pruning rare terms drastically shrinks index size, but risks eliminating highly specific search needles.
+    \item \textbf{Stop Words:} Extremely high-frequency syntactic glue words (\textit{``the'', ``of'', ``a'', ``to'', ``in''}). Historically stripped during indexing to save memory and boost traversal speed (\textit{``the president of the united states of america''} $\to$ \textit{``president united states america''}).
+\end{enumerate}
+
+\begin{alertblock}{Warning on Stop Word Lists}
+Stop word lists are domain-specific. For instance, MySQL's default stop word list originally included words like \textit{``appreciate''}, \textit{``serious''}, and \textit{``unfortunately''}, which are vital features for Sentiment Analysis and opinion-oriented search tasks.
+\end{alertblock}
+
+\FloatBarrier
+\section{Data Acquisition and Web Parsing: urllib and BeautifulSoup}
+\label{sec:crawling-parsing-en}
+
+The initial step in search engine construction is crawling and HTML text extraction, depicted in Figure~\ref{fig:web-crawling-pipeline-en}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    stage/.style={
+        rectangle,
+        rounded corners=6pt,
+        thick,
+        align=center,
+        inner sep=8pt,
+        minimum width=11.0cm,
+        minimum height=1.3cm
+    },
+    server/.style={stage, draw=blue!70!black, fill=blue!5},
+    html/.style={stage, draw=orange!80!black, fill=orange!6},
+    clean/.style={stage, draw=teal!70!black, fill=teal!6},
+    arr/.style={
+        -{Stealth[length=3.5mm, width=2.5mm]},
+        very thick,
+        draw=gray!75!black
+    },
+    toolbadge/.style={
+        midway,
+        fill=white,
+        inner sep=4pt,
+        thick,
+        rounded corners=4pt,
+        font=\small
+    }
+]
+    % Level 1: Remote Web Server
+    \node[server] (server) {
+        \textbf{\large\color{blue!85!black}1. Remote Web Server (Source)}\\[2pt]
+        {\footnotesize HTTP/HTTPS Endpoint $\;\cdot\;$ Remote Web Resource $\;\cdot\;$ Network Connection}
+    };
+
+    % Level 2: Raw HTML
+    \node[html, below=1.5cm of server] (html) {
+        \textbf{\large\color{orange!85!black}2. Raw HTML Document}\\[2pt]
+        {\footnotesize Full DOM tree with markup tags, XML metadata, scripts, and CSS stylesheets}
+    };
+
+    % Level 3: Clean Text
+    \node[clean, below=1.5cm of html] (clean) {
+        \textbf{\large\color{teal!85!black}3. Extracted Clean Text}\\[2pt]
+        {\footnotesize Textual payload only $\;\cdot\;$ Stripped of markup and code $\;\cdot\;$ Ready for tokenization}
+    };
+
+    % Vertical arrows with centered tool badges
+    \draw[arr] (server) -- (html)
+        node[toolbadge, draw=blue!50!black] {
+            \textbf{\texttt{urllib.request}} \quad {\footnotesize\color{black!75}(HTTP download and response retrieval)}
+        };
+
+    \draw[arr] (html) -- (clean)
+        node[toolbadge, draw=teal!60!black] {
+            \textbf{\texttt{BeautifulSoup}} (\texttt{bs4}) \quad {\footnotesize\color{black!75}(DOM tree parsing and text stripping)}
+        };
+\end{tikzpicture}%
+}
+\caption{HTTP web crawling and HTML stripping pipeline.}
+\label{fig:web-crawling-pipeline-en}
+\end{figure}
+
+\subsection{Acquisition with urllib}
+In Python, low-level HTTP requests are handled cleanly via \texttt{urllib.request}:
+
+\begin{lstlisting}[style=pythoncode,caption={Fetching raw HTML payload over HTTP.}]
+from urllib import request
+
+url = "http://hpc.isti.cnr.it/~nardini/"
+response = request.urlopen(url)
+html = response.read().decode('utf8')
+# Yields the full HTML document string with markup
+\end{lstlisting}
+
+\subsection{DOM Parsing and Stripping with BeautifulSoup}
+Web pages embed scripts and formatting markup that would pollute term statistics. \texttt{BeautifulSoup} navigates the DOM tree to extract pure content:
+
+\begin{lstlisting}[style=pythoncode,caption={HTML markup stripping with BeautifulSoup.}]
+from bs4 import BeautifulSoup
+
+soup = BeautifulSoup(html, "html5lib")
+
+# Direct extraction of all concatenated text:
+text_all = soup.get_text()
+
+# Granular extraction targeting only paragraph (<p>) tags:
+text_paragraphs = [''.join(s.findAll(text=True)) for s in soup.findAll('p')]
+\end{lstlisting}
+
+\FloatBarrier
+\section{Text Preprocessing Pipeline: Tokenization and Sentence Splitting}
+\label{sec:tokeniz-splitting-en}
+
+\begin{noteblock}{Data Engineering Rule of Thumb}
+In real-world IR and NLP architectures, \textbf{80\% of engineering time and effort} is spent on data ingestion, cleaning, normalization, and preprocessing pipelines before any model or indexing algorithm can be run.
+\end{noteblock}
+
+\subsection{Tokenization}
+
+Tokenization breaks raw character streams into discrete linguistic units called \textbf{tokens}:
+
+\begin{lstlisting}[style=pythoncode,caption={Tokenization and stop word removal using NLTK.}]
+import nltk
+from nltk import word_tokenize
+from nltk.corpus import stopwords
+
+text = "the president of the united states of america"
+tokens = word_tokenize(text)
+# Output: ['the', 'president', 'of', 'the', 'united', 'states', 'of', 'america']
+
+stop_words = set(stopwords.words('english'))
+features = set(tokens)
+filtered_features = features.difference(stop_words)
+# Output: {'america', 'president', 'states', 'united'}
+\end{lstlisting}
+
+\subsection{Sentence Splitting and Punctuation Ambiguity}
+
+Segmenting unpunctuated or continuous text into standalone sentences (\textit{sentence boundary disambiguation}) is challenging due to the overloaded role of the period (\texttt{.}):
+\begin{enumerate}
+    \item Sentence terminator.
+    \item Acronym, abbreviation, or honorific marker (\textit{U.S.A.}, \textit{e.g.}, \textit{St. Louis}, \textit{Dr.}).
+    \item Numerical decimal or time separator (\textit{8.30}).
+    \item Discourse ellipsis (\textit{...}).
+\end{enumerate}
+
+\begin{example}[Sentence Boundary Disambiguation]
+Consider the classroom example:
+\begin{center}
+\textit{``I'll take the 8.30 train to St. Louis... or maybe I'll stay in LA. Time will tell!''}
+\end{center}
+A naive \texttt{split('.')} rule produces severe errors:
+\begin{itemize}
+    \item The dot in \textit{8.30} is part of a time token.
+    \item The dot in \textit{St.} marks an abbreviation for \textit{Saint}.
+    \item The ellipsis (\textit{...}) indicates a rhetorical pause without closing the logical clause.
+    \item Only the dot after \textit{LA.} and the exclamation point in \textit{Time will tell!} are true sentence boundaries.
+\end{itemize}
+NLTK's \texttt{sent\_tokenize} employs the unsupervised \textit{Punkt} tokenizer, trained to identify collocations and abbreviations to preserve genuine sentence boundaries.
+\end{example}
+
+\FloatBarrier
+\section{Vocabulary Construction and Counting}
+\label{sec:vocabolario-conteggio-en}
+
+\subsection{Formal Vocabulary Definition}
+
+\begin{definition}[Collection Vocabulary]
+Given a document collection $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$, the \textbf{Vocabulary} (or feature set, denoted by $V$ or $F$) is the union of all distinct term types across all documents:
+\begin{equation}
+V = \bigcup_{d \in \mathcal{D}} \{ t \in d \}.
+\end{equation}
+Its cardinality $|V|$ defines the dimensionality of the vector feature space. It is strictly \textbf{dataset-dependent}: adding or removing documents alters $V$ and its dimension.
+\end{definition}
+
+\subsection{Algorithmic Analysis: Choosing the Counting Data Structure}
+
+When designing term frequency counters, beginners often suggest using a set (\texttt{set}):
+\begin{itemize}
+    \item \textbf{Why a \texttt{set} fails:} A set enforces element uniqueness and discards duplicates upon first encounter, making it impossible to accumulate occurrence counts.
+    \item \textbf{Correct approach:} A hash table (in Python, \texttt{dict} or \texttt{Counter}), mapping each unique token string to its running integer count.
+\end{itemize}
+
+Algorithm~\ref{alg:costruzione-vocabolario-en} details this procedure.
+
+\begin{algorithm}[H]
+\caption{Vocabulary Construction and Collection Term Frequency Counting}
+\label{alg:costruzione-vocabolario-en}
+\KwInput{Document collection $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$}
+\KwOutput{Vocabulary $V$ and frequency map $\text{freq\_dict}$}
+$\text{freq\_dict} \gets \text{empty hash map}$\;
+\ForEach{$d \in \mathcal{D}$}{
+    $\text{tokens} \gets \text{WordTokenize}(d)$\;
+    \ForEach{$t \in \text{tokens}$}{
+        \eIf{$t \in \text{freq\_dict}$}{
+            $\text{freq\_dict}[t] \gets \text{freq\_dict}[t] + 1$\;
+        }{
+            $\text{freq\_dict}[t] \gets 1$\;
+        }
+    }
+}
+$V \gets \text{keys}(\text{freq\_dict})$\;
+\Return{$V, \text{freq\_dict}$}\;
+\end{algorithm}
+
+At completion, $|V| = \text{len}(\text{freq\_dict})$, and the collection frequency $cf_t$ is recorded for every term $t \in V$.
+
+\FloatBarrier
+\section{Morphological Normalization: Stemming vs. Lemmatization}
+\label{sec:stemming-lemmatizzazione-en}
+
+To collapse inflected variants into a single canonical index form, two competing paradigms exist (summarized in Table~\ref{tab:stem-vs-lemma-en}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Criterion} & \textbf{Stemming} & \textbf{Lemmatization} \\
+\midrule
+\textbf{Goal} & Strip affixes to reach a crude root (\textit{stem}). & Map word form to legitimate dictionary base (\textit{lemma}). \\
+\addlinespace
+\textbf{Methodology} & Rule-based heuristic suffix chopping. & Complete morphological and syntactic analysis via POS and lexical graphs. \\
+\addlinespace
+\textbf{Lexical Validity} & Low: often generates non-words or invalid stems. & High: always produces genuine dictionary words. \\
+\addlinespace
+\textbf{POS Dependency} & None: operates purely on character surface strings. & Crucial: requires contextual Part-of-Speech tagging. \\
+\addlinespace
+\textbf{Computational Cost} & Negligible: instantaneous string rewrites in $\BigO{1}$. & Heavy: requires statistical sequence models or graph lookups. \\
+\bottomrule
+\end{tabularx}
+\caption{Systematic comparison between heuristic Stemming and Lemmatization.}
+\label{tab:stem-vs-lemma-en}
+\end{table}
+
+\subsection{Stemming and the Porter Stemmer Failure Case}
+The Porter Stemmer applies sequential suffix-stripping rules (e.g., \texttt{-ing}, \texttt{-s}, \texttt{-ed}).
+
+\begin{lstlisting}[style=pythoncode,caption={Stemming with PorterStemmer illustrating lexical breakdown.}]
+from nltk.stem.porter import PorterStemmer
+
+stemmer = PorterStemmer()
+stemmer.stem('cars')  # Result: 'car' (valid)
+stemmer.stem('was')   # Result: 'wa'  (LEXICAL ERROR)
+\end{lstlisting}
+
+\begin{alertblock}{Root Cause of the Stemmer Error on ``was''}
+The stemmer identifies the trailing \texttt{'s'} in \textit{``was''} and mechanically applies the English plural reduction rule. Lacking syntax awareness (that \textit{``was''} is an inflected past tense form of \textit{to be}), it produces the nonexistent pseudo-stem \texttt{'wa'}.
+\end{alertblock}
+
+\subsection{Lemmatization with WordNet}
+Lemmatization queries a lexical ontology (WordNet). Without an explicit POS tag, the default assumption is that the token is a noun:
+
+\begin{lstlisting}[style=pythoncode,caption={Context-aware lemmatization with WordNetLemmatizer.}]
+from nltk.stem.wordnet import WordNetLemmatizer
+
+lmtzr = WordNetLemmatizer()
+lmtzr.lemmatize('cars')                  # Output: 'car'
+lmtzr.lemmatize('was')                   # Output: 'wa' (default: noun)
+lmtzr.lemmatize('was', pos='v')          # Output: 'be' (CORRECT: verb 'to be')
+\end{lstlisting}
+
+\subsection{Engineering Trade-offs in Large-Scale Search Engines}
+Historically, commercial search engines processing billions of web documents have heavily favored \textbf{Stemming}: its near-zero computational overhead outweighs occasional morphological errors when balancing indexing throughput across planetary datasets.
+
+\FloatBarrier
+\section{The Bag of Words (BoW) Model}
+\label{sec:bag-of-words-en}
+
+\subsection{Transition from Sequence to Set}
+Unstructured text originates as an ordered token sequence:
+\begin{equation}
+\text{text} \longrightarrow [t_1, t_2, t_3, \dots, t_k].
+\end{equation}
+The \textbf{Bag of Words (BoW)} model abstracts the text by collapsing this sequence into an unordered set (or multiset with counts):
+\begin{lstlisting}[style=pythoncode,caption={Bag of Words set representation.}]
+text = 'the president of the united states of america'
+tokens = word_tokenize(text)      # Length 8 list
+bow = set(tokens)                 # 6 unique items
+# bow: {'america', 'of', 'president', 'states', 'the', 'united'}
+\end{lstlisting}
+
+\subsection{Structural Flaws of BoW}
+\begin{enumerate}
+    \item \textbf{Loss of local term frequencies} in pure set formulations.
+    \item \textbf{Total loss of word order and syntax:} BoW assumes word placement is irrelevant to semantic content.
+\end{enumerate}
+
+\begin{example}[Semantic Collapse in Bag of Words]
+Consider two sentences with diametrically opposed meanings:
+\begin{itemize}
+    \item $t_1$: \textit{``I won, and thus you lose.''}
+    \item $t_2$: \textit{``I lose, and thus you won.''}
+\end{itemize}
+Evaluating their BoW representations in Python:
+\begin{lstlisting}[style=pythoncode,caption={Demonstration of BoW semantic indistinguishability.}]
+t1 = set(word_tokenize('I won, and thus you lose.'))
+t2 = set(word_tokenize('I lose, and thus you won.'))
+
+print(t1 == t2)  # Output: True
+\end{lstlisting}
+Under BoW assumptions, the two texts are identical. This demonstrates that human language semantics is deeply \textbf{compositional} and sensitive to syntax order.
+\end{example}
+
+\FloatBarrier
+\section{N-grams: Word n-grams and Character n-grams}
+\label{sec:ngrams-en}
+
+To recover local context without building complete parse trees, the vocabulary is augmented with \textbf{n-grams}.
+
+\subsection{Word n-grams}
+A \textbf{word n-gram} is a contiguous sequence of $n$ words, capturing local phrase order:
+
+\begin{lstlisting}[style=pythoncode,caption={Local syntax preservation using word bigrams.}]
+import nltk
+
+t1 = set(nltk.ngrams(nltk.word_tokenize('I won, and thus, you lose.'), 2))
+t2 = set(nltk.ngrams(nltk.word_tokenize('I lose, and thus, you won.'), 2))
+
+# t1 contains: ('won', 'and'), ('you', 'lose'), ...
+# t2 contains: ('lose', 'and'), ('you', 'won'), ...
+print(t1 == t2)  # Output: False
+\end{lstlisting}
+Bigrams ($n=2$) preserve local subject-verb combinations, successfully telling $t_1$ and $t_2$ apart.
+
+\subsection{Character n-grams}
+\textbf{Character n-grams} decompose words into contiguous character slices of length $n$ (commonly trigrams, $n=3$). This provides resilience against typos and captures morphological affinity:
+
+\begin{lstlisting}[style=pythoncode,caption={Typo tolerance using character trigrams.}]
+t1 = set(nltk.ngrams('rainbow', 3))
+t2 = set(nltk.ngrams('rainbaw', 3))  # Contains typo: 'a' instead of 'o'
+
+shared = t1.intersection(t2)
+# Output: {('r', 'a', 'i'), ('a', 'i', 'n'), ('i', 'n', 'b')}
+\end{lstlisting}
+Despite the misspelling, the two strings share 3 out of 5 trigrams ($60\%$), allowing the search engine to detect high geometric proximity and trigger query auto-correction.
+
+\FloatBarrier
+\section{The Vector Space Model (VSM)}
+\label{sec:vsm-intro-en}
+
+In the \textbf{Vector Space Model} (VSM), documents and queries are embedded into a real vector space whose dimension matches vocabulary size:
+\begin{equation}
+\text{Dimensionality} = |F| = |V|.
+\end{equation}
+Every orthogonal axis corresponds to a distinct term $f \in V$. Documents and queries are vectors:
+\begin{equation}
+\vec{v}(d) \in \mathbb{R}^{|V|}, \quad \vec{v}(q) \in \mathbb{R}^{|V|}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.82\linewidth}{!}{%
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    \draw[->, thick, gray!70!black] (0,0) -- (6.0, 0) node[below] {\small Dimension 1 ($f_1$: \texttt{"weekend"})};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.5) node[left] {\small Dimension 2 ($f_2$: \texttt{"weather"})};
+
+    \draw[->, very thick, blue!80!black] (0,0) -- (2.0, 3.8) node[above right] {\small $\vec{v}(d_1)$ (\textit{``best weather on the weekend''})};
+    \draw[->, very thick, teal!80!black] (0,0) -- (4.2, 2.2) node[right] {\small $\vec{v}(d_2)$ (\textit{``nice weather''})};
+
+    \draw[red!80!black, thick] (0.8, 1.52) arc[start angle=62, end angle=28, radius=1.7];
+    \node[red!80!black] at (1.6, 1.25) {\small $\theta$};
+\end{tikzpicture}%
+}
+\caption{Two-dimensional geometric document vectors in the Vector Space Model.}
+\label{fig:vsm-geometric-2d-en}
+\end{figure}
+
+\subsection{Formal Mapping via Canonical Unit Vectors}
+Each feature $f_i \in V$ corresponds to a standard basis vector:
+\begin{equation}
+\vec{v}(d) = \sum_{f \in d} w_{f,d} \, \vec{v}(f),
+\end{equation}
+where $w_{f,d} \in \mathbb{R}$ is the weight of term $f$ in document $d$.
+
+\subsection{Extreme Vector Sparsity}
+For a typical web index with $|V| = 10^6$ and an average document length of $200$ distinct words:
+\begin{equation}
+\frac{|\{ i \mid v_i(d) \ne 0 \}|}{|V|} = \frac{200}{1\,000\,000} = 0.02\%.
+\end{equation}
+Over \textbf{99.98\%} of elements are zeros. Storing them as dense 32-bit floating-point arrays ($4\,\text{MB}$ per document) would crash system memory, necessitating specialized sparse vector formats and inverted indices.
+

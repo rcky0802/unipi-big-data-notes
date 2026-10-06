@@ -1,0 +1,258 @@
+\chapter{Retrieval Models and Ranking: Vector Space Model and BM25}
+\label{chap:retrieval-vsm-bm25-en}
+
+This chapter formalizes the fundamental Information Retrieval scoring models designed to compute continuous relevance scores (\textit{ranking}) for ordering documents with respect to user queries. Moving beyond the limitations and structural pathologies of exact Boolean retrieval, we evaluate set-based matching with the Jaccard coefficient, develop the statistical foundations of TF-IDF term weighting and SMART notation within the Vector Space Model (VSM), and examine the modern probabilistic Okapi BM25 retrieval function alongside an end-to-end pipeline architecture.
+
+\FloatBarrier
+\section{Retrieval Models: Boolean vs Ranked Retrieval}
+\label{sec:boolean-vs-ranked-en}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Property} & \textbf{Boolean Retrieval} & \textbf{Ranked Retrieval} \\
+\midrule
+\textbf{Match criteria} & Exact logical satisfaction (in/out). & Continuous score $\text{Score}(q, d) \in \mathbb{R}$. \\
+\addlinespace
+\textbf{Query syntax} & Strict operators (\texttt{AND}, \texttt{OR}, \texttt{NOT}). & Free text natural language. \\
+\addlinespace
+\textbf{Output format} & Unordered document set. & Ordered top-$k$ ranked list. \\
+\addlinespace
+\textbf{User experience} & Feast or famine pathology. & Smooth, calibrated result presentation. \\
+\bottomrule
+\end{tabularx}
+\caption{Conceptual contrast between exact Boolean retrieval and ranked retrieval.}
+\label{tab:bool-vs-ranked-en}
+\end{table}
+
+\subsection{The ``Feast or Famine'' Pathology of Boolean Retrieval}
+\begin{itemize}
+    \item \textbf{Famine:} If a query is overly specific (too many \texttt{AND} clauses), no documents meet all criteria, yielding zero results.
+    \item \textbf{Feast:} If the query is broad or uses \texttt{OR}, thousands of documents are returned with no relevance order.
+\end{itemize}
+Ranked retrieval eliminates this cognitive burden by scoring every document continuously and displaying only the top-$k$ highest-scoring candidates.
+
+\FloatBarrier
+\section{Jaccard Similarity and its Limitations in Scoring}
+\label{sec:jaccard-scoring-en}
+
+\subsection{Formal Definition}
+\begin{definition}[Jaccard Similarity Coefficient]
+Given two term sets $A$ and $B$:
+\begin{equation}
+J(A, B) = \frac{|A \cap B|}{|A \cup B|}.
+\end{equation}
+Properties: $J(A, A) = 1$, $J(A, B) = 0 \iff A \cap B = \emptyset$, and $0 \le J(A, B) \le 1$.
+\end{definition}
+
+\subsection{Worked Example and the Failure of Jaccard}
+
+\begin{example}[Jaccard Paradox on Real Queries]
+Consider query $q$ and two documents:
+\begin{itemize}
+    \item \textbf{Query $q$:} \textit{``ides of march''} with $A = \{\text{ides}, \text{of}, \text{march}\}$, $|A| = 3$.
+    \item \textbf{Doc 1 ($d_1$):} \textit{``caesar died in march''} with $B_1 = \{\text{caesar}, \text{died}, \text{in}, \text{march}\}$, $|B_1| = 4$.
+    \item \textbf{Doc 2 ($d_2$):} \textit{``the long march''} with $B_2 = \{\text{the}, \text{long}, \text{march}\}$, $|B_2| = 3$.
+\end{itemize}
+
+Computing Jaccard coefficients:
+\begin{align*}
+J(q, d_1) &= \frac{1}{6} \approx 0.166, \\
+J(q, d_2) &= \frac{1}{5} = 0.200.
+\end{align*}
+\textbf{Paradoxical outcome:} $d_2$ (\textit{``the long march''}) scores higher than $d_1$ (\textit{``caesar died in march''}) simply because $d_2$ is one word shorter, completely ignoring historical context.
+\end{example}
+
+\subsection{Why Jaccard Fails for IR}
+\begin{enumerate}
+    \item \textbf{Ignores Term Frequency ($tf$):} Binary presence/absence treats 10 occurrences identically to 1.
+    \item \textbf{Ignores Term Informativeness ($idf$):} Common stop words like \textit{``of''} are weighted equally with rare, content-rich words like \textit{``ides''}.
+    \item \textbf{Unfair length penalty:} The denominator $|A \cup B|$ severely penalizes longer, richer documents.
+\end{enumerate}
+
+\FloatBarrier
+\section{Term Weighting: Term-Document Matrices and TF-IDF}
+\label{sec:tfidf-weighting-en}
+
+\subsection{Logarithmic Term Frequency}
+Relevance does not grow linearly with term occurrences. To model diminishing marginal utility, logarithmic damping is applied:
+\begin{equation}
+w_{t,d} = \begin{cases} 1 + \log_{10}(\text{tf}_{t,d}) & \text{if } \text{tf}_{t,d} > 0, \\ 0 & \text{if } \text{tf}_{t,d} = 0. \end{cases}
+\end{equation}
+
+\subsection[Document Frequency vs Collection Frequency]{Document Frequency (\texorpdfstring{$df_t$}{df\_t}) vs. Collection Frequency (\texorpdfstring{$cf_t$}{cf\_t})}
+\begin{itemize}
+    \item \textbf{Collection Frequency ($cf_t$):} Total occurrences of term $t$ across the entire collection.
+    \item \textbf{Document Frequency ($df_t$):} Number of distinct documents containing $t$ at least once ($df_t \le N$).
+\end{itemize}
+
+In large corpora, \textit{``Insurance''} ($cf = 10\,440, df = 3\,997$) and \textit{``Try''} ($cf = 10\,422, df = 8\,760$) have identical collection frequencies, but \textit{``Insurance''} occurs in less than half the documents, making it a much stronger topical discriminator.
+
+\subsection{Inverse Document Frequency (IDF)}
+\begin{equation}
+\text{idf}_t = \log_{10}\left(\frac{N}{df_t}\right).
+\end{equation}
+IDF depends strictly on the collection and is \textbf{independent of the query}, allowing offline precomputation. In single-term queries, IDF acts as a scalar multiplier with zero ranking impact. In multi-term queries, it balances specific terms against generic ones.
+
+The combined \textbf{TF-IDF} weight is:
+\begin{equation}
+w_{t,d} = (1 + \log_{10}\text{tf}_{t,d}) \cdot \log_{10}\left(\frac{N}{df_t}\right).
+\end{equation}
+
+\FloatBarrier
+\section{Cosine Similarity and Length Normalization}
+\label{sec:cosine-similarity-en}
+
+\subsection{Failure of Euclidean Distance}
+If document $d$ is concatenated with itself to form $d' = d \circ d$, both treat the exact same topic, but $\|\vec{v}(d')\|_2 \approx 2\|\vec{v}(d)\|_2$. The Euclidean distance between them is massive despite identical semantics.
+
+\subsection{Cosine Similarity}
+Because $\vec{v}(d)$ and $\vec{v}(d')$ point in the exact same direction, the angle between them is $\theta = 0^\circ$. Minimizing $\theta$ is equivalent to maximizing $\cos(\theta)$:
+\begin{equation}
+\cos(\theta) = \frac{\vec{q} \cdot \vec{d}}{\|\vec{q}\|_2 \|\vec{d}\|_2} = \frac{\sum_{i=1}^{|V|} q_i d_i}{\sqrt{\sum_{i=1}^{|V|} q_i^2} \sqrt{\sum_{i=1}^{|V|} d_i^2}}.
+\end{equation}
+Under $L_2$ vector normalization, this reduces to the inner product $\vec{q} \cdot \vec{d}$.
+
+\subsection[L2 Normalization]{Length Normalization \texorpdfstring{$L_2$}{L2}}
+Dividing a vector by its Euclidean norm $\|\vec{x}\|_2$ projects it onto the unit hypersphere ($\|\vec{x}'\|_2 = 1$). For normalized vectors, cosine similarity simplifies to the dot product $\vec{q} \cdot \vec{d}$.
+
+\subsection{Worked Example: Comparing Three Classic Novels}
+Comparing Jane Austen's \textit{Sense and Sensibility} (SaS) and \textit{Pride and Prejudice} (PaP) against Emily Bront\"e's \textit{Wuthering Heights} (WH):
+\begin{align*}
+\|\vec{v}(\text{SaS})\|_2 &= \sqrt{3.06^2 + 2.00^2 + 1.30^2} \approx 3.88, \\
+\|\vec{v}(\text{PaP})\|_2 &= \sqrt{2.76^2 + 1.85^2} \approx 3.32, \\
+\|\vec{v}(\text{WH})\|_2  &= \sqrt{2.30^2 + 2.04^2 + 1.78^2 + 2.58^2} \approx 4.39.
+\end{align*}
+
+Cosine similarities:
+\begin{align*}
+\cos(\text{SaS}, \text{PaP}) &\approx (0.789 \cdot 0.832) + (0.515 \cdot 0.555) \approx \mathbf{0.94}, \\
+\cos(\text{SaS}, \text{WH})  &\approx (0.789 \cdot 0.524) + (0.515 \cdot 0.465) + (0.335 \cdot 0.405) \approx \mathbf{0.79}, \\
+\cos(\text{PaP}, \text{WH})  &\approx (0.832 \cdot 0.524) + (0.555 \cdot 0.465) \approx \mathbf{0.69}.
+\end{align*}
+\begin{equation}
+\cos(\text{SaS}, \text{PaP}) > \cos(\text{SaS}, \text{WH}) > \cos(\text{PaP}, \text{WH}),
+\end{equation}
+namely $0.94 > 0.79 > 0.69$. The model correctly identifies high stylistic and thematic alignment between the two Austen novels while separating Bront\"e's work.
+
+\FloatBarrier
+\section{SMART Notation and TF-IDF Variants}
+\label{sec:smart-notation-en}
+
+SMART notation standardizes weighting combinations in the form:
+\begin{equation}
+\mathbf{ddd.qqq},
+\end{equation}
+where the first triplet configures the document and the second configures the query.
+
+\subsection{Standard \texttt{lnc.ltc} Scheme}
+\begin{itemize}
+    \item \textbf{Document (\texttt{lnc}):} Log-TF, no IDF, cosine normalization.
+    \item \textbf{Query (\texttt{ltc}):} Log-TF, standard IDF ($\log_{10}(N/df_t)$), cosine normalization.
+\end{itemize}
+
+For query \textit{``best car insurance''} and document \textit{``car insurance auto insurance''} ($N = 10^6$):
+\begin{align*}
+\|\vec{q}\|_2 &\approx 3.83, \quad \|\vec{d}\|_2 \approx 1.92, \\
+\text{Score}(q, d) &= (0.52 \cdot 0.52) + (0.78 \cdot 0.68) = \mathbf{0.80}.
+\end{align*}
+
+\FloatBarrier
+\section{Best Match 25 (Okapi BM25)}
+\label{sec:bm25-deep-en}
+
+Developed by Stephen Robertson and Karen Sp\"arck Jones at City University London, \textbf{BM25} remains the premier state-of-the-art non-linear lexical baseline:
+\begin{equation}
+\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \dfrac{|D|}{\text{avgdl}}\right)},
+\end{equation}
+with Robertson-Sp\"arck Jones IDF:
+\begin{equation}
+\text{IDF}(q_i) = \ln\left( \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5} + 1 \right).
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.82\linewidth}{!}{%
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    \draw[->, thick, gray!70!black] (0,0) -- (8.5, 0) node[below] {\small Term Frequency ($f(q_i, D)$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.2) node[left] {\small Term Weight};
+
+    \draw[dashed, blue!70!black, thick] (0,0) -- (6.5, 3.8) node[above right] {\footnotesize Linear TF};
+
+    \draw[domain=0.1:8.0, smooth, variable=\x, orange!80!black, thick] 
+        plot ({\x}, {0.8 + 0.9*ln(\x)}) node[right] {\footnotesize Log-TF: $1 + \log(tf)$};
+
+    \draw[domain=0.0:8.0, smooth, variable=\x, red!85!black, very thick] 
+        plot ({\x}, {(\x * 2.5) / (\x + 1.5)}) node[right] {\footnotesize BM25: saturation at $k_1 + 1$};
+
+    \draw[dotted, gray!60!black, thick] (0, 2.5) -- (8.0, 2.5) node[above left, font=\scriptsize] {Asymptote: $k_1 + 1$};
+\end{tikzpicture}%
+}
+\caption{Qualitative comparison of linear TF, log-TF, and BM25 asymptotic saturation.}
+\label{fig:bm25-saturation-curve}
+\end{figure}
+
+\begin{itemize}
+    \item $k_1 \in [1.2, 2.0]$ governs term frequency saturation, bounded by $\lim_{f \to \infty} = k_1 + 1$.
+    \item $b \in [0, 1]$ (typically $0.75$) governs relative document length normalization against average length $\text{avgdl}$.
+\end{itemize}
+
+\FloatBarrier
+\section{Summary Conceptual Map}
+\label{sec:conceptual-map-en}
+
+Figure~\ref{fig:nlp-vsm-workflow-en} synthesizes the full trajectory from raw text acquisition to vector and probabilistic scoring.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.2cm,
+    raw/.style={rectangle, rounded corners=3pt, draw=gray!70!black, fill=gray!8,
+                thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    stepb/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6,
+                  thick, font=\small, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    splitb/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!6,
+                   thick, font=\footnotesize, minimum width=3.5cm, minimum height=0.7cm, align=center},
+    modelb/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8,
+                   thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    finalb/.style={rectangle, rounded corners=3pt, draw=red!70!black, fill=red!6,
+                   thick, font=\footnotesize, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    arr/.style={-Stealth, thick, gray!80!black}
+]
+    \node[raw] (raw) {Raw Web Text};
+    \node[stepb, below=of raw] (parse) {Extracted Text\\{\scriptsize urllib + BeautifulSoup (markup removal)}};
+    \node[stepb, below=of parse] (prep) {Cleaning and Segmentation\\{\scriptsize Tokenization · Stopword Filtering · Sentence Splitting}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of prep] (stem) {\textbf{Stemming (Porter)}\\{\scriptsize Heuristic / Fast}};
+    \node[splitb, below right=0.8cm and -0.8cm of prep] (lemma) {\textbf{Lemmatization (WordNet)}\\{\scriptsize Morphosyntax (POS) / Heavy}};
+
+    \node[modelb, below=2.4cm of prep] (vocab) {Collection Vocabulary ($V$)\\{\scriptsize Space dimension $|V|$}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of vocab] (bow) {\textbf{Bag of Words (BoW)}\\{\scriptsize Loses frequency and syntax}};
+    \node[splitb, below right=0.8cm and -0.8cm of vocab] (ngram) {\textbf{N-gram Extensions}\\{\scriptsize Word n-grams (local order)}\\{\scriptsize Char n-grams (typo tolerance)}};
+
+    \node[modelb, below=2.4cm of vocab] (vsm) {Vector Space Model (VSM)\\{\scriptsize Sparse vectors in $\mathbb{R}^{|V|}$ (One-Hot linear combination)}};
+
+    \node[finalb, below left=0.8cm and -0.9cm of vsm] (tfidf) {\textbf{TF-IDF / SMART Notation}\\{\scriptsize Log-TF + IDF ($\log(N/df)$)}\\{\scriptsize Cosine Normalization ($L_2$)}};
+    \node[finalb, below right=0.8cm and -0.9cm of vsm] (bm25) {\textbf{Okapi BM25}\\{\scriptsize Asymptotic TF Saturation ($k_1$)}\\{\scriptsize Length Normalization ($b$, avgdl)}};
+
+    \draw[arr] (raw) -- (parse);
+    \draw[arr] (parse) -- (prep);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (stem.north);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (lemma.north);
+    \draw[arr] (stem.south) |- (vocab.west);
+    \draw[arr] (lemma.south) |- (vocab.east);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (bow.north);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (ngram.north);
+    \draw[arr] (bow.south) |- (vsm.west);
+    \draw[arr] (ngram.south) |- (vsm.east);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (tfidf.north);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (bm25.north);
+\end{tikzpicture}%
+}
+\caption{Integrated conceptual map of the IR pipeline: from text scraping to vector and probabilistic retrieval models.}
+\label{fig:nlp-vsm-workflow-en}
+\end{figure}

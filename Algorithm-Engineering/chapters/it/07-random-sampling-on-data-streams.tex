@@ -1,0 +1,717 @@
+\chapter{Algoritmi di Random Sampling su Data Stream}
+\label{chap:random-sampling-data-streams}
+
+\begin{center}
+  \textbf{Lezione 7}\\
+  \emph{Algoritmi di Random Sampling su Data Stream: Modello di Streaming, Campionamento Uniforme, Algoritmo S, Priority Sampling e Reservoir Sampling}\\[0.5em]
+  Data: 6 Ottobre 2026
+\end{center}
+
+Nelle lezioni precedenti abbiamo analizzato approfonditamente l'elaborazione dei dati nell'\textit{External Memory Model}, concentrandoci sulla gestione di dataset di cardinalità massiva memorizzati su supporti di massa secondari mediante algoritmi di ordinamento esterno e partizionamento a blocchi. In tali scenari, sebbene il costo di accesso fosse dominato dai trasferimenti di blocchi I/O, era comunque possibile effettuare scansioni multiple (\textit{multi-pass}) del dataset memorizzato su disco.
+
+In questo capitolo affrontiamo un cambio di paradigma radicale: il \textbf{Modello di Calcolo su Flussi di Dati} (\textit{Data Streaming Model}). In tale contesto, i dati si presentano sotto forma di sequenze massive o potenzialmente infinite che transitano a ritmi elevati, con vincoli stringenti di memoria interna e tempo di risposta. Tra i problemi fondamentali dell'analisi di stream, il \textbf{Campionamento Casuale Uniforme} (\textit{Random Sampling}) riveste un ruolo cardine per la costruzione di sinossi statistiche, il monitoraggio di reti, il debug di flussi ad alto volume e la stima online di aggregati.
+
+Esaminiamo in dettaglio le due classi fondamentali di algoritmi di campionamento senza reinserimento: il caso in cui la lunghezza dello stream $n$ sia nota a priori (analizzando la selezione di un singolo elemento e l'\textbf{Algoritmo S} di Knuth, con derivazione combinatoria completa) e il caso in cui la cardinalità $n$ sia incognita a priori (\textbf{Priority Sampling} con Min-Heap e \textbf{Reservoir Sampling} di Waterman-Knuth). Dimostriamo formalmente per induzione matematica la correttezza del Reservoir Sampling, illustriamo tracce passo-passo complete e approfondiamo le relative ottimizzazioni ingegneristiche (incluso l'\textbf{Algoritmo Z} di Vitter).
+
+\FloatBarrier
+\section{Fondamenti del Modello di Streaming e del Random Sampling}
+\label{sec:streaming-model-foundations}
+
+\subsection{Il Modello di Calcolo su Flussi di Dati (Streaming Model)}
+Nel paradigma convenzionale di elaborazione dati (sia in RAM sia su memoria secondaria), un dataset è interamente disponibile per scansioni ripetute. Nel modello di calcolo a flussi (\textit{Streaming Model}), al contrario, l'algoritmo non può controllare né l'ordine temporale né la frequenza di arrivo dei dati.
+
+Lo scenario streaming è caratterizzato formalmente dai seguenti quattro pilastri architetturali:
+\begin{enumerate}
+  \item \textbf{Flusso di Dati $S$:} una sequenza ordinata nel tempo, potenzialmente infinita o di dimensione massiva $n$ ($n \to \infty$ o $n \gg M$), costituita da elementi discreti:
+  \begin{equation}
+    S = \langle i_1, i_2, \dots, i_j, \dots, i_n \rangle.
+  \end{equation}
+  \item \textbf{Vincolo di Memoria di Lavoro Limitata ($M \ll n$):} la quantità di memoria rapida di lavoro (\textit{working memory}) disponibile per l'algoritmo soddisfa strettamente la condizione $M \ll n$. Tipicamente, la memoria è confinata a:
+  \begin{equation}
+    M = \mathcal{O}(m) \quad \text{oppure} \quad M = \mathcal{O}(\operatorname{polylog}(n)) \text{ parole di memoria},
+  \end{equation}
+  dove $m$ denota la dimensione del campione statistico desiderato. Risulta pertanto strutturalmente impossibile memorizzare l'intero flusso o anche una frazione significativa di esso.
+  \item \textbf{Accesso Sequenziale Single-Pass:} gli elementi transitano uno alla volta in ordine cronologico. Una volta che un elemento $i_j$ è transitato, se l'algoritmo decide di non memorizzarlo esplicitamente nella limitata memoria di lavoro, esso è \textbf{perso per sempre} e non potrà mai più essere consultato o recuperato.
+  \item \textbf{Tempo di Elaborazione per Elemento Rigorosamente Limitato:} per evitare colli di bottiglia o saturazione dei buffer di ingresso a fronte di flussi ad alta velocità (ad esempio pacchetti di rete o feed finanziari), il tempo necessario per elaborare ciascun elemento in arrivo $i_j$ deve essere strettamente costante:
+  \begin{equation}
+    T(i_j) = \mathcal{O}(1) \quad \text{oppure al massimo} \quad T(i_j) = \mathcal{O}(\log m).
+  \end{equation}
+\end{enumerate}
+
+\subsection{Definizione Formale del Problema di Campionamento Uniforme}
+Dato un flusso continuo $S$, l'obiettivo consiste nel selezionare e mantenere dinamicamente un sottoinsieme di $m$ elementi che costituisca un \textbf{campionamento casuale semplice senza reinserimento} (\textit{Simple Random Sampling without Replacement}, SRSWOR).
+
+Formalmente, al generico passo temporale $n$ (o al termine del flusso se $n$ è finito), devono essere rigorosamente soddisfatti due requisiti di uniformità probabilistica:
+
+\begin{definition}[Uniformità Marginale]
+Ogni singolo elemento $i_j \in S$ (per $1 \le j \le n$) deve possedere la medesima probabilità marginale di appartenere al campione finale:
+\begin{equation}
+  \mathbb{P}(i_j \in \text{Campione}) = \frac{m}{n}.
+  \label{eq:marginal-uniformity}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Uniformità Congiunta]
+Tutti i possibili sottoinsiemi $S^* \subseteq S$ aventi cardinalità esattamente pari a $m$ devono possedere la medesima probabilità congiunta di essere estratti:
+\begin{equation}
+  \mathbb{P}(\text{Campione} = S^*) = \frac{1}{\binom{n}{m}}, \qquad \forall S^* \subseteq S \text{ tale che } |S^*| = m.
+  \label{eq:joint-uniformity}
+\end{equation}
+\end{definition}
+
+A seconda del grado di informazione disponibile a priori sulla cardinalità complessiva $n$ dello stream, gli algoritmi di campionamento si bipartiscono in due categorie fondamentali:
+\begin{itemize}
+  \item \textbf{Caso A ($n$ noto a priori):} la lunghezza complessiva $n$ del flusso è preventivamente conosciuta prima di iniziare il processo di campionamento (ad esempio la scansione sequenziale di un file di log di $n$ record registrati su nastro o disco non indicizzato).
+  \item \textbf{Caso B ($n$ incognito a priori):} la cardinalità $n$ non è nota all'inizio e il flusso può arrestarsi arbitrariamente in qualsiasi momento o proseguire indefinitamente. L'algoritmo deve garantire che, in \emph{qualsiasi istante} $t \ge m$ il flusso venga interrotto, la memoria interna contenga sempre un campione casuale uniforme valido tra i primi $t$ elementi transitati.
+\end{itemize}
+
+\FloatBarrier
+\section[Campionamento con Lunghezza dello Stream Nota]{Campionamento con Lunghezza dello Stream Nota (\texorpdfstring{$n$}{n} Noto)}
+\label{sec:sampling-known-n}
+
+\subsection{Selezione di un Singolo Elemento (\texorpdfstring{$m = 1$}{m = 1})}
+Si consideri il caso elementare in cui si desideri campionare esattamente un singolo elemento ($m = 1$) da uno stream di lunghezza nota $n$, garantendo che ogni elemento abbia probabilità uniforme $\frac{1}{n}$ di essere scelto, decidendo in modalità puramente online se accettare o scartare l'elemento corrente $i_j$.
+
+\subsubsection{Formulazione dell'Algoritmo}
+L'algoritmo esamina sequenzialmente gli elementi per $j = 1, 2, \dots, n$:
+\begin{enumerate}
+  \item Ad ogni passo $j$, si estrae una variabile casuale continua pseudo-uniforme $p \sim \operatorname{Uniform}(0, 1)$, ovvero $p \in [0, 1)$.
+  \item Si valuta la condizione di arresto e selezione:
+  \begin{equation}
+    \text{Se } p \le \frac{1}{n - j + 1}, \quad \text{allora seleziona } i_j \text{ e termina l'esecuzione.}
+    \label{eq:single-item-threshold}
+  \end{equation}
+  \item Se la condizione non è soddisfatta ($p > \frac{1}{n - j + 1}$), l'elemento $i_j$ viene scartato definitivamente e si procede al passo successivo $j+1$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+  \caption{Campionamento Online di un Singolo Elemento ($m = 1$, $n$ noto)}
+  \label{alg:single-element-sampling}
+  \KwInput{Stream $S = \langle i_1, \dots, i_n \rangle$ di lunghezza nota $n$}
+  \KwOutput{Un singolo elemento $x \in S$ campionato uniformemente con $\mathbb{P}(x = i_j) = \frac{1}{n}$}
+  \For{$j \leftarrow 1$ \KwTo $n$}{
+    $p \leftarrow \operatorname{Uniform}(0, 1)$\;
+    \If{$p \le \frac{1}{n - j + 1}$}{
+      \Return $i_j$\;
+    }
+  }
+\end{algorithm}
+
+\subsubsection{Dimostrazione Rigorosa per Induzione}
+\begin{theorem}
+L'Algoritmo~\ref{alg:single-element-sampling} garantisce che ogni elemento $i_j \in S$ ha esattamente probabilità $\frac{1}{n}$ di essere selezionato:
+\begin{equation}
+  \mathbb{P}(\text{selezionare } i_j) = \frac{1}{n}, \qquad \forall j \in \{1, 2, \dots, n\}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Procediamo per induzione sull'indice $j$ dello stream.
+
+\textbf{Base dell'induzione ($j = 1$):}\\
+Al primo passo, per l'elemento $i_1$, la soglia di selezione è:
+\begin{equation}
+  \frac{1}{n - 1 + 1} = \frac{1}{n}.
+\end{equation}
+Poiché $p \sim \operatorname{Uniform}(0, 1)$, la probabilità che $p \le \frac{1}{n}$ corrisponde direttamente alla misura dell'intervallo:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_1) = \frac{1}{n}.
+\end{equation}
+La base induttiva è verificata.
+
+\textbf{Ipotesi induttiva:}\\
+Assumiamo che la proprietà sia valida per tutti gli indici precedenti $k \in \{1, 2, \dots, j - 1\}$, ossia che per ciascuno di essi la probabilità di essere stato selezionato sia stata:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_k) = \frac{1}{n}.
+\end{equation}
+Poiché l'algoritmo termina immediatamente non appena seleziona un elemento, gli eventi $\{\text{pick } i_k\}$ sono mutuamente disgiunti. Pertanto, la probabilità cumulativa che almeno uno dei primi $j - 1$ elementi sia stato selezionato è la somma diretta delle singole probabilità:
+\begin{equation}
+  \mathbb{P}\left(\bigcup_{k=1}^{j-1} \{\text{pick } i_k\}\right) = \sum_{k=1}^{j-1} \mathbb{P}(\text{pick } i_k) = \sum_{k=1}^{j-1} \frac{1}{n} = \frac{j - 1}{n}.
+\end{equation}
+La probabilità complementare che \emph{nessun} elemento tra i primi $j - 1$ sia stato selezionato risulta:
+\begin{align}
+  \mathbb{P}(\text{nessun elemento selezionato in } \{i_1, \dots, i_{j-1}\}) &= 1 - \frac{j - 1}{n} \notag\\
+  &= \frac{n - j + 1}{n}.
+  \label{eq:prob-none-selected-before}
+\end{align}
+
+\textbf{Passo induttivo:}\\
+Affinché l'elemento $i_j$ venga selezionato dall'algoritmo al passo $j$, devono verificarsi congiuntamente due eventi:
+\begin{enumerate}
+  \item Nessun elemento precedente tra $i_1, \dots, i_{j-1}$ deve essere stato selezionato.
+  \item Al passo corrente $j$, la variabile casuale estratta $p$ deve soddisfare la disuguaglianza $p \le \frac{1}{n - j + 1}$.
+\end{enumerate}
+\begin{align}
+  \mathbb{P}(\text{pick } i_j) &= \mathbb{P}\left(p \le \frac{1}{n - j + 1} \;\middle|\; \text{nessun elemento selezionato prima}\right) \notag\\
+  &\quad \cdot \mathbb{P}(\text{nessun elemento selezionato prima}) \notag\\
+  &= \frac{1}{n - j + 1} \cdot \left(\frac{n - j + 1}{n}\right) = \frac{1}{n}.
+\end{align}
+I due fattori $(n - j + 1)$ si elidono perfettamente, restituendo la costante $\frac{1}{n}$. L'asserto è dimostrato per ogni $j \in \{1, \dots, n\}$.
+\end{proof}
+
+\subsubsection{Interpretazione Geometrica}
+Il meccanismo probabilistico alla base dell'Algoritmo~\ref{alg:single-element-sampling} ammette un'elegante interpretazione geometrica visualizzata nella \autoref{fig:streaming-partition-m1}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    box/.style={rectangle, draw=blue!80!black, thick, minimum height=1.3cm, align=center, font=\small},
+    brace/.style={decorate, decoration={brace, amplitude=6pt, raise=4pt}, thick}
+  ]
+    % Segmento elementi processati
+    \node[box, fill=gray!15, minimum width=4.8cm, text width=4.6cm] (past) at (0, 0) {
+      \textbf{Passi $1 \dots j - 1$ ($j - 1$ elementi)}\\[2pt]
+      \footnotesize Nessun elemento scelto
+    };
+
+    % Elemento corrente
+    \node[box, fill=teal!20, draw=teal!80!black, minimum width=2.8cm, text width=2.6cm, right=0.35cm of past] (curr) {
+      \textbf{Passo $j$}: elemento $i_j$\\[2pt]
+      \footnotesize $\mathbb{P} = \frac{1}{n-j+1}$
+    };
+
+    % Elementi residui
+    \node[box, fill=blue!10, minimum width=5.6cm, text width=5.4cm, right=0.35cm of curr] (future) {
+      \textbf{Passi $j + 1 \dots n$ ($n - j$ elementi)}\\[2pt]
+      \footnotesize Rimanenti futuri in attesa
+    };
+
+    % Parentesi graffa per l'insieme residuo sopra i box
+    \draw[brace, draw=teal!80!black] ($(curr.north west)+(0,0.1)$) -- ($(future.north east)+(0,0.1)$)
+      node[midway, above=8pt, font=\small\bfseries, text=teal!80!black] {
+        Insieme residuo: $n - j + 1$ elementi equi-probabili
+      };
+
+    % Parentesi totale sotto i box
+    \draw[brace, decoration={mirror, amplitude=6pt, raise=4pt}, draw=blue!85!black] ($(past.south west)+(0,-0.15)$) -- ($(future.south east)+(0,-0.15)$)
+      node[midway, below=12pt, font=\small\bfseries, text=blue!85!black] {
+        Intero Stream di cardinalità nota $n$
+      };
+  \end{tikzpicture}%
+  }
+  \caption{Partizione dello spazio dello stream al passo generico $j$ per il campionamento a singolo elemento ($m = 1$).}
+  \label{fig:streaming-partition-m1}
+\end{figure}
+
+Se nei primi $j - 1$ passi non è stato selezionato alcun elemento, l'elemento target deve necessariamente risiedere nei rimanenti $n - j + 1$ elementi. Poiché per uniformità tutti i restanti hanno pari diritto di essere scelti, la probabilità condizionata di eleggere immediatamente $i_j$ è l'inverso del numero di elementi residui: $\frac{1}{n - j + 1}$.
+
+\FloatBarrier
+\subsection{Selezione di \texorpdfstring{$m$}{m} Elementi: Algorithm S (Fan, Muller, Rezucha / Knuth)}
+Quando la taglia richiesta per il campione è $m > 1$ e la cardinalità complessiva $n$ è nota a priori, l'approccio viene generalizzato mediante l'\textbf{Algorithm S} (formalizzato da Fan, Muller e Rezucha~\cite{fan1962} e reso celebre da Knuth~\cite{knuth1997}), mantenendo un contatore dinamico degli elementi già selezionati.
+
+\subsubsection{Definizione delle Variabili di Stato}
+L'algoritmo mantiene costantemente aggiornate le seguenti grandezze durante la scansione sequenziale:
+\begin{itemize}
+  \item $n$: numero totale di elementi dello stream;
+  \item $m$: dimensione del campione target desiderato;
+  \item $j \in \{1, 2, \dots, n\}$: indice temporale dell'elemento corrente esaminato $i_j$;
+  \item $s$: numero di elementi già selezionati ed entrati nel campione nei primi $j - 1$ passi ($0 \le s \le m$);
+  \item $m - s$: numero di elementi che \emph{devono ancora} essere selezionati per completare il campione;
+  \item $n - j + 1$: numero complessivo di elementi dello stream ancora da esaminare (incluso $i_j$).
+\end{itemize}
+
+\subsubsection{Regola di Selezione e Casi Limite}
+Ad ogni iterazione $j \in \{1, \dots, n\}$:
+\begin{enumerate}
+  \item Si estrae $p \sim \operatorname{Uniform}(0, 1)$.
+  \item Si confronta $p$ con la soglia dinamica $\frac{m - s}{n - j + 1}$:
+  \begin{equation}
+    p \le \frac{m - s}{n - j + 1}.
+    \label{eq:algorithm-s-threshold}
+  \end{equation}
+  \item Se la disuguaglianza è soddisfatta: si inserisce $i_j$ nel campione e si incrementa il contatore:
+  \begin{equation}
+    s \leftarrow s + 1.
+  \end{equation}
+  Altrimenti, $i_j$ viene scartato definitivamente e $s$ rimane inalterato.
+\end{enumerate}
+
+L'algoritmo gestisce automaticamente i seguenti due casi di frontiera:
+\begin{itemize}
+  \item \textbf{Campionamento Completato ($s = m$):} il numeratore della soglia diventa $m - s = 0$. La probabilità di selezione crolla a zero ($\frac{0}{n - j + 1} = 0$), impedendo l'inserimento di ulteriori elementi e consentendo la terminazione anticipata.
+  \item \textbf{Selezione Forzata di Tutti i Rimanenti ($m - s = n - j + 1$):} il numero di elementi mancanti coincide con il numero di elementi residui. La soglia diventa $\frac{m - s}{n - j + 1} = 1$, forzando deterministicamente l'inclusione di tutti gli elementi restanti poiché $p < 1$ con probabilità $1$.
+\end{itemize}
+
+\begin{algorithm}[H]
+  \caption{Algorithm S (Selection Sampling di Fan, Muller, Rezucha / Knuth)}
+  \label{alg:algorithm-s}
+  \KwInput{Stream $S = \langle i_1, \dots, i_n \rangle$ di lunghezza nota $n$, taglia campione $m \le n$}
+  \KwOutput{Insieme $C$ contenente $m$ elementi campionati uniformemente}
+  $C \leftarrow \emptyset$\;
+  $s \leftarrow 0$\tcp*{Contatore elementi già campionati}
+  \For{$j \leftarrow 1$ \KwTo $n$}{
+    \If{$s = m$}{
+      \textbf{break}\tcp*{Campione già completato: terminazione anticipata}
+    }
+    $p \leftarrow \operatorname{Uniform}(0, 1)$\;
+    \If{$p \le \frac{m - s}{n - j + 1}$}{
+      $C \leftarrow C \cup \{i_j\}$\;
+      $s \leftarrow s + 1$\;
+    }
+  }
+  \Return $C$\;
+\end{algorithm}
+
+\subsubsection{Derivazione Combinatoria della Soglia}
+La derivazione analitica della soglia $\frac{m - s}{n - j + 1}$ discende dai primi principi del calcolo combinatorio e della distribuzione ipergeometrica.
+
+\begin{theorem}
+Dati $s$ elementi già selezionati nei primi $j - 1$ passi, la probabilità condizionata che l'elemento corrente $i_j$ appartenga a un campione uniforme di cardinalità $m$ estratto dai residui $n - j + 1$ elementi è data esattamente da:
+\begin{equation}
+  \mathbb{P}(i_j \in \text{Campione} \mid s \text{ già campionati}) = \frac{m - s}{n - j + 1}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La probabilità condizionata cercata corrisponde al rapporto tra casi favorevoli e casi possibili:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_j \mid s) = \frac{\text{Casi favorevoli (completare il campione con } i_j)}{\text{Casi possibili (estrarre } m - s \text{ elementi dai residui)}}.
+\end{equation}
+
+Se vincoliamo l'inclusione di $i_j$, abbiamo stabilito $1$ elemento; restano pertanto da selezionare $m - s - 1$ elementi dai successivi $n - j$ elementi disponibili nello stream. Il numero di modi possibili per compiere tale scelta è espresso dal coefficiente binomiale:
+\begin{equation}
+  \binom{n - j}{m - s - 1}.
+\end{equation}
+D'altro canto, il numero totale di configurazioni non vincolate per scegliere $m - s$ elementi tra tutti gli $n - j + 1$ elementi ancora da esaminare è dato da:
+\begin{equation}
+  \binom{n - j + 1}{m - s}.
+\end{equation}
+
+Rapportando i due coefficienti binomiali e sviluppando i fattoriali:
+\begin{align}
+  \frac{\binom{n - j}{m - s - 1}}{\binom{n - j + 1}{m - s}} &= \frac{\dfrac{(n - j)!}{(m - s - 1)! \, ((n - j) - (m - s - 1))!}}{\dfrac{(n - j + 1)!}{(m - s)! \, ((n - j + 1) - (m - s))!}} \notag\\[1em]
+  &= \frac{\dfrac{(n - j)!}{(m - s - 1)! \, (n - j - m + s + 1)!}}{\dfrac{(n - j + 1)!}{(m - s)! \, (n - j - m + s + 1)!}}.
+\end{align}
+I termini fattoriali $(n - j - m + s + 1)!$ a denominatore di entrambe le frazioni sono identici e si semplificano reciprocamente. Riorganizzando i termini:
+\begin{equation}
+  = \frac{(n - j)!}{(n - j + 1)!} \cdot \frac{(m - s)!}{(m - s - 1)!}.
+\end{equation}
+Applicando la proprietà fondamentale del fattoriale $(k! = k \cdot (k-1)!)$:
+\begin{align}
+  (n - j + 1)! &= (n - j + 1) \cdot (n - j)!, \\
+  (m - s)! &= (m - s) \cdot (m - s - 1)!.
+\end{align}
+Sostituendo nelle rispettive frazioni:
+\begin{equation}
+  = \frac{1}{n - j + 1} \cdot (m - s) = \frac{m - s}{n - j + 1}.
+\end{equation}
+La soglia dell'Algoritmo S preserva dunque con assoluta esattezza algebrica la distribuzione ipergeometrica uniforme globale.
+\end{proof}
+
+\FloatBarrier
+\subsection{Esecuzione Guidata ed Esempio Pratico dell'Algoritmo S}
+Per apprezzare il funzionamento deterministico delle decisioni stocastiche, ripercorriamo l'esecuzione guidata descritta negli appunti di lezione.
+
+\begin{example}[Traccia di Esecuzione di Algorithm S]
+Si consideri la seguente istanza di campionamento:
+\begin{itemize}
+  \item Stream in ingresso: $S = \langle a, b, c, d, e, f, g, h \rangle \implies n = 8$.
+  \item Dimensione del campione target desiderato: $m = 2$.
+  \item Sequenza di numeri pseudo-casuali estratti $p \in [0, 1)$ associati a ciascun passo:
+  \begin{equation}
+    p = \langle 0.5, \; 0.5, \; 0.1, \; 0.5, \; 0.5, \; 0.2, \; 0.9, \; 0.3 \rangle.
+  \end{equation}
+\end{itemize}
+
+L'evoluzione completa dello stato dell'algoritmo passo dopo passo è dettagliata nella \autoref{tab:trace-algorithm-s}.
+
+\begin{table}[H]
+  \centering
+  \caption{Traccia dell'esecuzione passo-passo dell'Algorithm S ($n = 8$, $m = 2$).}
+  \label{tab:trace-algorithm-s}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{c c c c c c c c c c}
+    \toprule
+    $j$ & $i_j$ & $s$ & $m - s$ & $n - j + 1$ & Soglia $\frac{m-s}{n-j+1}$ & $p$ & Condizione $p \le \text{Soglia}$ & Esito & Nuovo $s$ \\
+    \midrule
+    $1$ & $a$ & $0$ & $2$ & $8$ & $\frac{2}{8} = 0.250$ & $0.5$ & $0.5 \le 0.250$ (Falso) & Scartato ($\times$) & $0$ \\
+    $2$ & $b$ & $0$ & $2$ & $7$ & $\frac{2}{7} \approx 0.286$ & $0.5$ & $0.5 \le 0.286$ (Falso) & Scartato ($\times$) & $0$ \\
+    $3$ & $c$ & $0$ & $2$ & $6$ & $\frac{2}{6} \approx 0.333$ & $0.1$ & $0.1 \le 0.333$ (Vero) & \textbf{Selezionato ($\checkmark$)} & $1$ \\
+    $4$ & $d$ & $1$ & $1$ & $5$ & $\frac{1}{5} = 0.200$ & $0.5$ & $0.5 \le 0.200$ (Falso) & Scartato ($\times$) & $1$ \\
+    $5$ & $e$ & $1$ & $1$ & $4$ & $\frac{1}{4} = 0.250$ & $0.5$ & $0.5 \le 0.250$ (Falso) & Scartato ($\times$) & $1$ \\
+    $6$ & $f$ & $1$ & $1$ & $3$ & $\frac{1}{3} \approx 0.333$ & $0.2$ & $0.2 \le 0.333$ (Vero) & \textbf{Selezionato ($\checkmark$)} & $2$ \\
+    $7$ & $g$ & $2$ & $0$ & $2$ & $\frac{0}{2} = 0.000$ & $0.9$ & $0.9 \le 0.000$ (Falso) & Scartato / STOP & $2$ \\
+    $8$ & $h$ & $2$ & $0$ & $1$ & $\frac{0}{1} = 0.000$ & $0.3$ & $0.3 \le 0.000$ (Falso) & Scartato / STOP & $2$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\textbf{Risultato:} Al passo $j = 6$, il contatore ha raggiunto la quota $s = m = 2$, completando il campione con l'insieme $C = \{c, f\}$. Ai passi successivi $7$ e $8$, la soglia diventa nulla, provocando lo scarto sistematico e immediato dei restanti elementi.
+\end{example}
+
+\FloatBarrier
+\section[Campionamento con Lunghezza dello Stream Incognita]{Campionamento con Lunghezza dello Stream Incognita (\texorpdfstring{$n$}{n} Incognito)}
+\label{sec:sampling-unknown-n}
+
+Nelle applicazioni streaming reali su flussi di rete, logging continuo e feed sensoriali, la dimensione totale $n$ non è nota all'inizio e il flusso può terminare arbitrariamente in qualunque istante. In questo scenario, gli algoritmi devono mantenere un campione valido in ogni singolo momento.
+
+\subsection{Priority Sampling con Min-Heap (Random Keys Sampling)}
+Un primo approccio per campionare senza conoscere $n$ si fonda sulla tecnica delle \textbf{chiavi casuali} (\textit{Random Keys Sampling} o \textit{Priority Sampling}).
+
+\subsubsection{Principio Funzionale}
+A ciascun elemento in arrivo $i_j$ dello stream viene associata una chiave continua pseudo-casuale $\pi_j$ estratta in modo indipendente e identicamente distribuito (\textit{i.i.d.}):
+\begin{equation}
+  \pi_j \sim \operatorname{Uniform}(0, 1).
+\end{equation}
+L'obiettivo consiste nel mantenere dinamicamente gli $m$ elementi associati alle $m$ chiavi più grandi (o equivalentemente più piccole) osservate finora. Poiché le variabili casuali $\pi_j$ sono continue e i.i.d., ogni sottoinsieme di cardinalità $m$ tra i primi $j$ elementi ha esattamente la medesima probabilità di detenere le $m$ chiavi dominanti.
+
+\subsubsection{Gestione mediante Min-Heap Bounded}
+Per implementare l'algoritmo mantenendo l'ingombro di memoria confinato a $\mathcal{O}(m)$, si impiega una coda con priorità strutturata come un \textbf{Min-Heap} $H$ di capacità fissa $m$, che memorizza coppie ordinate $\langle \pi_j, i_j \rangle$ ordinate rispetto alla chiave $\pi_j$:
+\begin{itemize}
+  \item \textbf{Primi $m$ elementi ($j \le m$):} ciascuna coppia $\langle \pi_j, i_j \rangle$ viene inserita direttamente nell'heap $H$. La costruzione iniziale richiede tempo $\mathcal{O}(m)$.
+  \item \textbf{Elementi successivi ($j > m$):} per ogni nuovo elemento $i_j$ con chiave $\pi_j$:
+  \begin{enumerate}
+    \item Si esamina la radice del Min-Heap, che custodisce la minima priorità tra le $m$ attualmente nel campione:
+    \begin{equation}
+      \pi_{\min} = \operatorname{min\_key}(H).
+    \end{equation}
+    \item \textbf{Se $\pi_j \le \pi_{\min}$:} la nuova chiave non fa parte delle $m$ migliori. L'elemento $i_j$ viene scartato immediatamente con tempo $\mathcal{O}(1)$.
+    \item \textbf{Se $\pi_j > \pi_{\min}$:} l'elemento che detiene $\pi_{\min}$ viene rimosso dal campione. Si esegue un'operazione combinata di sostituzione della radice (\texttt{Replace-Min}) con la nuova coppia $\langle \pi_j, i_j \rangle$ e successivo ripristino dell'invariante di heap (\texttt{Heapify-Down}), con costo $\mathcal{O}(\log m)$.
+  \end{enumerate}
+\end{itemize}
+
+L'architettura del Priority Sampling con Min-Heap è illustrata nella \autoref{fig:priority-sampling-minheap}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    box/.style={rectangle, draw=blue!85!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=1.1cm, align=center, font=\small},
+    heapnode/.style={circle, draw=orange!90!black, fill=orange!15, thick, minimum size=1.0cm, align=center, font=\scriptsize\bfseries},
+    rootnode/.style={circle, draw=red!85!black, fill=red!20, line width=1.5pt, minimum size=1.1cm, align=center, font=\scriptsize\bfseries},
+    decision/.style={diamond, draw=teal!85!black, fill=teal!15, thick, aspect=1.8, align=center, font=\footnotesize\bfseries, inner sep=2pt},
+    arrow/.style={-{Stealth[scale=0.95]}, thick, draw=blue!80!black}
+  ]
+    % Elemento in arrivo
+    \node[box, fill=gray!15, draw=gray!70!black] (stream) at (0, 0) {
+      Stream $S$\\
+      \footnotesize Elemento $i_j$
+    };
+
+    % Generazione chiave
+    \node[box, fill=teal!15, draw=teal!80!black, right=1.0cm of stream] (rng) {
+      Generatore Chiave\\
+      \footnotesize $\pi_j \sim \mathcal{U}(0, 1)$
+    };
+
+    % Blocco di decisione
+    \node[decision, right=1.2cm of rng] (dec) {
+      $\pi_j > \pi_{\min}$?
+    };
+
+    % Ramo NO (Scarto)
+    \node[box, fill=red!10, draw=red!70!black, below=1.4cm of dec] (drop) {
+      Scarto Diretto\\
+      \footnotesize Costo $\mathcal{O}(1)$
+    };
+
+    % Min-Heap Container
+    \node[draw=orange!80!black, dashed, rounded corners, fill=orange!5, minimum width=4.8cm, minimum height=3.6cm, right=2.0cm of dec] (heapbox) {};
+    \node[above=3pt of heapbox.north, font=\small\bfseries, text=orange!90!black] {Min-Heap $H$ (Capacità $m$)};
+
+    % Nodi dell'albero Min-Heap
+    \node[rootnode] (r) at ($(heapbox.north)+(0, -1.0)$) {$\pi_{\min}$\\\tiny (Radice)};
+    \node[heapnode] (c1) at ($(r)+(-1.4, -1.2)$) {$\pi_{a}$};
+    \node[heapnode] (c2) at ($(r)+(1.4, -1.2)$) {$\pi_{b}$};
+
+    \draw[thick, draw=orange!80!black] (r) -- (c1);
+    \draw[thick, draw=orange!80!black] (r) -- (c2);
+
+    % Frecce di flusso
+    \draw[arrow] (stream) -- (rng);
+    \draw[arrow] (rng) -- node[above=1pt, font=\scriptsize] {$\langle \pi_j, i_j \rangle$} (dec);
+    \draw[arrow] (dec) -- node[right=1pt, font=\scriptsize\bfseries, text=red!80!black] {NO} (drop);
+    \draw[arrow] (dec.east) -- ++(0.9, 0) |- node[pos=0.15, above=2pt, font=\scriptsize\bfseries, text=teal!80!black] {SÌ} node[pos=0.82, below=2pt, font=\scriptsize] {\texttt{Replace-Min}} (r.west);
+  \end{tikzpicture}%
+  }
+  \caption{Schema funzionale del Priority Sampling su stream mediante Min-Heap di capienza fissa $m$.}
+  \label{fig:priority-sampling-minheap}
+\end{figure}
+
+\begin{property}[Analisi di Complessità di Priority Sampling]
+L'occupazione di memoria è limitata a $\mathcal{O}(m)$ parole. Nel caso peggiore, l'elaborazione di un elemento richiede tempo $\mathcal{O}(\log m)$. Tuttavia, poiché la probabilità che il $j$-esimo elemento entri nel campione è pari a $\frac{m}{j}$, il numero atteso di operazioni di inserimento nell'heap su un flusso di $n$ elementi è pari a:
+\begin{equation}
+  \sum_{j=m+1}^n \frac{m}{j} = m \sum_{j=m+1}^n \frac{1}{j} = \mathcal{O}(m \log(n/m)).
+\end{equation}
+Il costo computazionale medio ammortizzato per elemento è dunque:
+\begin{equation}
+  T_{\text{medio}} = \mathcal{O}\!\left(1 + \frac{m \log m \log(n/m)}{n}\right) = \mathcal{O}(1) \quad \text{per } n \gg m.
+\end{equation}
+Ciononostante, il Priority Sampling richiede una generazione di numero casuale per \emph{ciascuno} degli $n$ elementi e una costante moltiplicativa legata alla gestione dell'heap.
+\end{property}
+
+\FloatBarrier
+\subsection{Reservoir Sampling (Algoritmo R di Waterman / Knuth)}
+Per ottenere un tempo di elaborazione strettamente $\mathcal{O}(1)$ nel caso peggiore senza l'onere computazionale dell'heap, l'algoritmo di riferimento universale è il \textbf{Reservoir Sampling} (originariamente introdotto da Alan G. Waterman e formalizzato come \textbf{Algoritmo R} da Knuth~\cite{knuth1997}).
+
+\subsubsection{Meccanismo Operativo}
+L'algoritmo impiega un semplice array di memoria di lavoro $R[1 \dots m]$, denominato \textbf{serbatoio} (\textit{reservoir}). L'esecuzione si articola in due fasi essenziali:
+\begin{enumerate}
+  \item \textbf{Fase 1 (Inizializzazione Deterministica):} i primi $m$ elementi dello stream vengono inseriti incondizionatamente e direttamente nei rispettivi slot del reservoir:
+  \begin{equation}
+    R[j] \leftarrow i_j, \qquad \forall j \in \{1, 2, \dots, m\}.
+  \end{equation}
+  Durante questa fase non viene spesa alcuna chiamata al generatore di numeri casuali.
+  \item \textbf{Fase 2 (Sostituzione Online Competitiva):} per ogni elemento successivo $i_j$ con indice temporale $j = m + 1, m + 2, \dots$:
+  \begin{enumerate}
+    \item Si estrae un numero intero pseudo-casuale uniforme discreto $k$ nell'intervallo compreso tra $1$ e $j$:
+    \begin{equation}
+      k \sim \operatorname{rand}(1, j).
+    \end{equation}
+    \item Si valuta la condizione di ammissione:
+    \begin{itemize}
+      \item Se $k \le m$: l'elemento corrente $i_j$ entra a far parte del serbatoio, \textbf{rimpiazzando} lo slot $k$:
+      \begin{equation}
+        R[k] \leftarrow i_j.
+      \end{equation}
+      L'elemento precedentemente occupante $R[k]$ viene rimosso definitivamente e scartato.
+      \item Se $k > m$: l'elemento corrente $i_j$ viene scartato immediatamente senza modificare il reservoir.
+    \end{itemize}
+  \end{enumerate}
+\end{enumerate}
+
+\begin{algorithm}[H]
+  \caption{Reservoir Sampling (Algoritmo R di Waterman / Knuth)}
+  \label{alg:reservoir-sampling-stream}
+  \KwInput{Stream continuo $S = \langle i_1, i_2, \dots \rangle$, dimensione serbatoio $m$}
+  \KwOutput{Array $R[1 \dots m]$ contenente il campione casuale uniforme in ogni istante}
+  \For{$j \leftarrow 1$ \KwTo $m$}{
+    $R[j] \leftarrow i_j$\tcp*{Riempi il serbatoio iniziale senza RNG}
+  }
+  $j \leftarrow m + 1$\;
+  \While{Stream non terminato ed esiste un nuovo elemento $i_j$}{
+    $k \leftarrow \operatorname{RandomInteger}(1, j)$\;
+    \If{$k \le m$}{
+      $R[k] \leftarrow i_j$\tcp*{Sostituisci lo slot k con probabilità m/j}
+    }
+    $j \leftarrow j + 1$\;
+  }
+  \Return $R$\;
+\end{algorithm}
+
+L'architettura e il meccanismo di rimpiazzo dinamico sono schematizzati nella \autoref{fig:reservoir-sampling-flow}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    box/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=1.1cm, align=center, font=\small},
+    slot/.style={rectangle, draw=blue!85!black, thick, minimum width=1.1cm, minimum height=1.1cm, align=center, font=\small\bfseries},
+    replaced/.style={rectangle, draw=teal!85!black, fill=teal!25, line width=1.5pt, minimum width=1.1cm, minimum height=1.1cm, align=center, font=\small\bfseries},
+    decision/.style={diamond, draw=teal!85!black, fill=teal!15, thick, aspect=1.8, align=center, font=\footnotesize\bfseries, inner sep=2pt},
+    arrow/.style={-{Stealth[scale=0.95]}, thick, draw=blue!80!black}
+  ]
+    % Elemento in arrivo
+    \node[box, fill=gray!15, draw=gray!70!black] (stream) at (0, 0) {
+      Stream $S$\\
+      \footnotesize Elemento $i_j$ ($j > m$)
+    };
+
+    % Generatore intero
+    \node[box, fill=teal!15, draw=teal!80!black, right=1.0cm of stream] (rng) {
+      Generatore $k$\\
+      \footnotesize $k \in \{1, \dots, j\}$
+    };
+
+    % Decisione k <= m
+    \node[decision, right=1.1cm of rng] (dec) {
+      $k \le m$?
+    };
+
+    % Scarto (NO)
+    \node[box, fill=red!10, draw=red!70!black, below=1.3cm of dec] (drop) {
+      Scarta $i_j$\\
+      \footnotesize Probabilità $1 - \frac{m}{j}$
+    };
+
+    % Reservoir Array
+    \node[slot, fill=blue!8, right=2.2cm of dec] (s1) {$R[1]$};
+    \node[slot, fill=blue!8, right=0pt of s1] (s2) {$R[2]$};
+    \node[slot, fill=gray!15, right=0pt of s2] (dots) {$\dots$};
+    \node[replaced, right=0pt of dots] (sk) {$i_j$};
+    \node[slot, fill=blue!8, right=0pt of sk] (sm) {$R[m]$};
+
+    \node[below=8pt of dots, font=\small\bfseries, text=blue!85!black] {Reservoir di memoria $R[1 \dots m]$};
+
+    % Frecce di flusso
+    \draw[arrow] (stream) -- (rng);
+    \draw[arrow] (rng) -- node[above=1pt, font=\scriptsize] {$k$} (dec);
+    \draw[arrow] (dec) -- node[right=1pt, font=\scriptsize\bfseries, text=red!80!black] {NO} (drop);
+    \draw[arrow, draw=teal!85!black, very thick] (dec.north) -- ++(0, 0.8) -| node[pos=0.25, above=2pt, font=\scriptsize\bfseries, text=teal!80!black] {SÌ (Probabilità $\frac{m}{j}$)} (sk.north)
+      node[pos=0.88, right=3pt, font=\footnotesize\bfseries, text=teal!90!black] {Slot $R[k] \leftarrow i_j$};
+  \end{tikzpicture}%
+  }
+  \caption{Flusso operativo di inserimento e sostituzione del Reservoir Sampling (Algoritmo R).}
+  \label{fig:reservoir-sampling-flow}
+\end{figure}
+
+\FloatBarrier
+\subsection{Esecuzione Guidata ed Esempio Pratico di Reservoir Sampling}
+Illustriamo la dinamica del Reservoir Sampling ripercorrendo l'esempio didattico su uno stream di cardinalità finita.
+
+\begin{example}[Traccia di Esecuzione di Reservoir Sampling]
+Si consideri il flusso sequenziale:
+\begin{equation}
+  S = \langle a, b, c, d, e, f, g, h, i \rangle, \qquad \text{con taglia serbatoio } m = 3.
+\end{equation}
+\begin{itemize}
+  \item \textbf{Inizializzazione ($j = 1, 2, 3$):} i primi $m = 3$ elementi vengono memorizzati in $R$:
+  \begin{equation}
+    R = [a, \; b, \; c].
+  \end{equation}
+  \item \textbf{Passi successivi ($j = 4, 5, 6, 7$):} l'evoluzione con i valori casuali di $k$ estratti è riassunta nella \autoref{tab:trace-reservoir-sampling}.
+\end{itemize}
+
+\begin{table}[H]
+  \centering
+  \caption{Traccia dell'esecuzione del Reservoir Sampling ($m = 3$).}
+  \label{tab:trace-reservoir-sampling}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{c c c c l c}
+    \toprule
+    Passo $j$ & Elemento $i_j$ & Intero Casuale $k$ & $k \le m$ & Azione Eseguita & Stato Reservoir $R[1 \dots 3]$ \\
+    \midrule
+    $1 \dots 3$ & $a, b, c$ & --- & --- & Inizializzazione deterministica & $[a, b, c]$ \\
+    \addlinespace
+    $4$ & $d$ & $k = 2 \in \{1 \dots 4\}$ & Vero ($2 \le 3$) & Sostituzione nello slot $R[2] \leftarrow d$ & $[a, d, c]$ \\
+    \addlinespace
+    $5$ & $e$ & $k = 5 \in \{1 \dots 5\}$ & Falso ($5 > 3$) & Scarto immediato di $e$ & $[a, d, c]$ \\
+    \addlinespace
+    $6$ & $f$ & $k = 1 \in \{1 \dots 6\}$ & Vero ($1 \le 3$) & Sostituzione nello slot $R[1] \leftarrow f$ & $[f, d, c]$ \\
+    \addlinespace
+    $7$ & $g$ & $k = 4 \in \{1 \dots 7\}$ & Falso ($4 > 3$) & Scarto immediato di $g$ & $[f, d, c]$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+\end{example}
+
+\FloatBarrier
+\section{Dimostrazione Formale per Induzione del Reservoir Sampling}
+\label{sec:reservoir-sampling-proof}
+
+La correttezza matematica del Reservoir Sampling garantisce che, in qualunque istante si interrompa il flusso, ogni elemento transitato ha pari probabilità di risiedere nel campione. Presentiamo la dimostrazione analitica completa.
+
+\begin{theorem}[Correttezza del Reservoir Sampling]
+Per ogni flusso $S$, al generico passo temporale $n \ge m$, per ciascun elemento $i_j$ transitato fino a quel momento ($1 \le j \le n$), la probabilità che esso appartenga al serbatoio $R$ è esattamente:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = \frac{m}{n}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Procediamo per induzione matematica sulla lunghezza $n$ del flusso osservato finora, considerando fissata la taglia del serbatoio $m$.
+
+\textbf{Base dell'induzione ($n = m$):}\\
+Al termine dei primi $m$ passi, tutti gli elementi $i_1, \dots, i_m$ sono stati inseriti deterministicamente nel serbatoio $R$:
+\begin{equation}
+  R = [i_1, i_2, \dots, i_m].
+\end{equation}
+Pertanto, per ogni $j \in \{1, \dots, m\}$:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = 1 = \frac{m}{m}.
+\end{equation}
+La base induttiva è verificata.
+
+\textbf{Ipotesi induttiva:}\\
+Assumiamo che la proprietà sia verificata al passo $n - 1$, ovvero che per ogni elemento $i_j$ con $1 \le j \le n - 1$:
+\begin{equation}
+  \mathbb{P}(i_j \in R \text{ al termine del passo } n - 1) = \frac{m}{n - 1}.
+  \label{eq:induction-hypothesis}
+\end{equation}
+
+\textbf{Passo induttivo (transizione dal passo $n - 1$ al passo $n$):}\\
+All'arrivo dell'elemento $n$-esimo $i_n$, l'algoritmo estrae un indice casuale uniforme discreto:
+\begin{equation}
+  k \sim \operatorname{rand}(1, n).
+\end{equation}
+Distinguiamo due casi mutuamente esaustivi:
+\begin{itemize}
+  \item \textbf{Caso 1: Ultimo elemento transitato ($j = n$):}\\
+  L'elemento $i_n$ viene ammesso nel serbatoio $R$ se e solo se l'indice estratto soddisfa $k \le m$. Poiché $k$ è scelto uniformemente tra i valori interi $\{1, 2, \dots, n\}$:
+  \begin{equation}
+    \mathbb{P}(i_n \in R) = \mathbb{P}(k \le m) = \frac{m}{n}.
+  \end{equation}
+  L'asserzione è verificata per $j = n$.
+
+  \item \textbf{Caso 2: Qualsiasi elemento precedente ($j < n$):}\\
+  Consideriamo un generico elemento $i_j$ con $1 \le j \le n - 1$. Affinché $i_j$ si trovi ancora all'interno del serbatoio al termine del passo $n$, devono realizzarsi due condizioni congiunte:
+  \begin{enumerate}
+    \item $i_j$ doveva appartenere al serbatoio $R$ al termine del passo precedente $n - 1$;
+    \item $i_j$ deve \textbf{sopravvivere} al passo $n$, ossia non deve essere sovrascritto dal nuovo arrivato $i_n$.
+  \end{enumerate}
+  Formalmente, applicando la regola del prodotto di probabilità condizionata:
+  \begin{align}
+    \mathbb{P}(i_j \in R \text{ al passo } n) &= \mathbb{P}(i_j \in R \text{ al passo } n - 1) \notag\\
+    &\quad \cdot \mathbb{P}(i_j \text{ non sostituito} \mid i_j \in R \text{ al passo } n - 1).
+  \end{align}
+  Per l'ipotesi induttiva~\eqref{eq:induction-hypothesis}, il primo fattore è pari a $\frac{m}{n - 1}$.
+
+  Valutiamo l'evento di sopravvivenza $E_{\text{surv}}$, ovvero che $i_j$ non sia sovrascritto al passo $n$. Un elemento presente in $R$ sopravvive in due scenari:
+  \begin{itemize}
+    \item \emph{Scenario A:} Il nuovo elemento $i_n$ non entra nel serbatoio (ovvero $k > m$). Questo evento accade con probabilità:
+    \begin{equation}
+      \mathbb{P}(k > m) = 1 - \frac{m}{n}.
+    \end{equation}
+    In tale eventualità, nessuno slot viene alterato e $i_j$ si preserva con certezza.
+    \item \emph{Scenario B:} Il nuovo elemento $i_n$ entra nel serbatoio ($k \le m$, evento con probabilità $\frac{m}{n}$), \textbf{MA} il numero di slot estratto per la sostituzione è diverso da quello attualmente occupato da $i_j$. Poiché lo slot $k$ viene scelto con distribuzione uniforme tra gli $m$ slot disponibili $\{1, \dots, m\}$, la probabilità di colpire uno degli altri $m - 1$ slot è:
+    \begin{equation}
+      \frac{m - 1}{m}.
+    \end{equation}
+  \end{itemize}
+  Sommando le probabilità dei due scenari mutuamente disgiunti, otteniamo la probabilità totale di sopravvivenza:
+  \begin{align}
+    \mathbb{P}(E_{\text{surv}}) &= \left(1 - \frac{m}{n}\right) + \left(\frac{m}{n} \cdot \frac{m - 1}{m}\right) \notag\\[1ex]
+    &= \frac{n - m}{n} + \frac{m - 1}{n} \notag\\[1ex]
+    &= \frac{n - m + m - 1}{n} \notag\\[1ex]
+    &= \frac{n - 1}{n}.
+    \label{eq:survival-probability}
+  \end{align}
+  Sostituendo l'espressione di sopravvivenza~\eqref{eq:survival-probability} e l'ipotesi induttiva:
+  \begin{align}
+    \mathbb{P}(i_j \in R \text{ al passo } n) &= \left(\frac{m}{n - 1}\right) \cdot \left(\frac{n - 1}{n}\right) \notag\\[1ex]
+    &= \frac{m}{n}.
+  \end{align}
+  Il termine $(n - 1)$ si elide algebricamente, dimostrando l'asserto per ogni elemento pregresso $j < n$.
+\end{itemize}
+Avendo validato la proprietà sia per $j = n$ sia per tutti i $j < n$, il passo induttivo è completato:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = \frac{m}{n}, \qquad \forall j \in \{1, 2, \dots, n\}.
+\end{equation}
+Il teorema di correttezza del Reservoir Sampling è formalmente dimostrato.
+\end{proof}
+
+\FloatBarrier
+\FloatBarrier
+\section{Sintesi Comparativa}
+\label{sec:comparative-synthesis}
+
+A integrazione dell'analisi teorica, la \autoref{tab:sampling-comparison-streaming} sintetizza le caratteristiche prestazionali, la memoria di lavoro e i costi computazionali dei tre paradigmi di campionamento esaminati.
+
+\begin{table}[H]
+  \centering
+  \caption{Confronto sintetico tra le metodologie di campionamento su flussi di dati.}
+  \label{tab:sampling-comparison-streaming}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{l c c c c l}
+    \toprule
+    \textbf{Algoritmo} & \textbf{Conoscenza di $n$} & \textbf{Memoria} & \textbf{Costo / Elemento} & \textbf{Chiamate RNG} & \textbf{Struttura Dati} \\
+    \midrule
+    Algorithm S (Knuth) & Nota a priori & $\mathcal{O}(1)$ & $\mathcal{O}(1)$ & $n$ ($1$ per elemento) & Array statico del campione \\
+    \addlinespace
+    Priority Sampling & Non nota & $\mathcal{O}(m)$ & $\mathcal{O}(\log m)$ & $n$ ($1$ per elemento) & Min-Heap di capienza fissa $m$ \\
+    \addlinespace
+    Reservoir Sampling (Alg. R) & Non nota & $\mathcal{O}(m)$ & $\mathcal{O}(1)$ & $n - m$ ($0$ nei primi $m$) & Array serbatoio di taglia $m$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\paragraph{Nota di Ingegneria degli Algoritmi (Approfondimento Facoltativo: Limite Pratico dell'RNG):}
+Nelle applicazioni reali ad altissimo throughput ($n \gg 10^9$), l'Algoritmo R classico presenta un costo pratico non trascurabile: sebbene richieda tempo $\mathcal{O}(1)$ per elemento, esso interroga il generatore di numeri pseudo-casuali (RNG) per ciascuno degli $n - m$ elementi successivi. Poiché la probabilità di ammissione $\frac{m}{j}$ decresce verso zero, la stragrande maggioranza delle chiamate genera un valore $k > m$, traducendosi in un'inutile perdita di cicli CPU per elementi immediatamente scartati.
+Per eliminare questo overhead, l'\textbf{Algoritmo Z di Vitter}~\cite{vitter1985} modella il numero di elementi da scartare prima del successivo inserimento come una variabile casuale (\textit{skip distance}). Campionando direttamente tale distanza, l'algoritmo salta interi blocchi di dati senza interrogare l'RNG per ogni elemento ignorato, riducendo le chiamate casuali totali da $\mathcal{O}(n)$ ad $\mathcal{O}(m(1 + \log(n/m)))$.

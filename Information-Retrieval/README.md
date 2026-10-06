@@ -67,7 +67,7 @@ latexmk -c
 
 ## Chapters Overview
 
-- **Chapter 1: Introduction and Architecture of Information Retrieval**
+- **Chapter 0: Introduction and Architecture of Information Retrieval**
   - IR definitions, motivations, IR vs. Data Retrieval (SQL/DBMS).
   - The two fundamental goals: Effectiveness vs. Efficiency (pipelining, hazards, memory hierarchy, SIMD, parallel computing).
   - Language properties (Zipf's law, Heaps' law), text preprocessing pipeline.
@@ -77,14 +77,7 @@ latexmk -c
   - Embedding families: Dense single-vector, Dense multi-vector (ColBERT late interaction / MaxSim), Sparse single-vector (SPLADE).
   - $k$-Approximate Nearest Neighbor Search ($k$-ANN, MIPS, TusKANNy).
 
-- **Chapter 2: Evaluation of Information Retrieval Systems**
-
-- **Chapter 3: Efficiency on Modern CPU Architectures** *(Italian only)*
-  - Memory hierarchy (L1/L2/L3/RAM), cache lines, spatial/temporal locality, hardware prefetchers.
-  - Sequential scan vs. pointer-chasing benchmark (Rust) and cache-line-aware jumping.
-  - 5-stage pipelining, latency vs. throughput, superscalar execution and execution ports.
-  - Structural hazards, RAW data hazards and dependency-chain interleaving.
-  - Control hazards, speculative execution, branch misprediction cost and branchless techniques.
+- **Chapter 1: Evaluation of Information Retrieval Systems**
   - Evaluating search quality: efficiency, side services, intrinsic effectiveness.
   - Measuring User Happiness: CTR, zero-click searches, conversions, retention, Dwell Time, paradigm shifts with LLMs.
   - The Cranfield Paradigm (Cyril Cleverdon), benchmark test collections (corpus, queries, qrels).
@@ -93,5 +86,31 @@ latexmk -c
   - Information need vs. surface query.
   - Unranked evaluation (contingency table, Precision, Recall, $F_1$-score harmonic mean, weighted $F_\beta$).
   - Ranked evaluation (Precision@k, Recall@k, Average Precision, MAP macro-averaging, MRR for known-item search).
-  - Graded relevance evaluation: Cumulative Gain, Discounted Cumulative Gain (standard vs. exponential), Ideal DCG, and Normalized Discounted Cumulative Gain (NDCG) with full step-by-step numerical traces.
+
+- **Chapter 2: Efficiency on Modern CPU Architectures** *(Italian only)*
+  - Memory hierarchy (L1/L2/L3/RAM), cache lines, spatial/temporal locality, hardware prefetchers.
+  - Sequential scan vs. pointer-chasing benchmark (Rust) and cache-line-aware jumping.
+  - 5-stage pipelining, latency vs. throughput, superscalar execution and execution ports.
+  - Structural hazards, RAW data hazards and dependency-chain interleaving.
+  - Control hazards, speculative execution, branch misprediction cost and branchless techniques.
+
+- **Chapter 3: Natural Language Processing and Text Representation**
+  - Graded relevance evaluation recap (CG, DCG, and query-dependent NDCG normalization rationale).
+  - Characteristics of natural language (ambiguity, world knowledge, temporal drift) and Zipf's law (least effort principle, hapax legomena, stop word trade-offs).
+  - Web data scraping pipeline with `urllib` and HTML stripping with `BeautifulSoup`.
+  - Text preprocessing pipeline: tokenization and sentence boundary disambiguation (`sent_tokenize`).
+  - Vocabulary formalization and term frequency collection counting algorithm.
+  - Morphological normalization: heuristic Stemming (Porter) vs. syntax-aware Lemmatization (WordNet).
+  - Bag of Words (BoW) representations and the semantic collapse under compositional language.
+  - Subword and sequence enrichment: word $n$-grams (local syntax order) and character $n$-grams (typo tolerance).
+  - Vector Space Model (VSM) geometry, one-hot basis vectors, and extreme vector sparsity.
+
+- **Chapter 4: Retrieval Models and Ranking: Vector Space Model and BM25**
+  - Retrieval paradigms: Boolean match pathology (feast or famine) vs. Ranked Retrieval.
+  - Jaccard similarity coefficient and its three fundamental failure modes in IR.
+  - Term weighting: logarithmic Term Frequency, Document Frequency vs. Collection Frequency, Inverse Document Frequency (IDF).
+  - Vector length normalization ($L_2$) and Cosine Similarity: failure of Euclidean distance and 3-novel worked comparison.
+  - SMART notation taxonomy (`ddd.qqq`) and full step-by-step trace of `lnc.ltc` scoring.
+  - Okapi BM25 probabilistic model: asymptotic term frequency saturation ($k_1$) and document length normalization ($b$).
+  - Integrated conceptual flowchart from web crawling to vector/probabilistic scoring.
 

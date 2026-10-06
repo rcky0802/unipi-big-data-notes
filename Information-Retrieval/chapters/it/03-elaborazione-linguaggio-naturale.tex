@@ -1,0 +1,508 @@
+\chapter{Elaborazione del Linguaggio Naturale e Rappresentazione del Testo}
+\label{chap:nlp-testo}
+
+\FloatBarrier
+\section[Recap: Metriche di Valutazione per Rilevanza Graduata]{Recap: Metriche di Valutazione per Rilevanza Graduata (CG, DCG, NDCG)}
+\label{sec:recap-ndcg}
+
+Nei sistemi di Information Retrieval reali, l'assunzione di rilevanza meramente binaria (documento rilevante o non rilevante) non riflette la variet\`a qualitativa dei risultati restituiti da un motore di ricerca. I giudizi di rilevanza vengono pertanto espressi su scale graduate (ad esempio su scala Likert da $0$ a $3$ o da $0$ a $4$, indicando livelli crescenti di pertinenza).
+
+La valutazione di una graduatoria ordinata (\textit{ranking}) di documenti alla posizione $p$ si fonda su due principi cardine:
+\begin{enumerate}
+    \item \textbf{Guadagno (\textit{Gain}):} pi\`u in alto compaiono documenti a elevata rilevanza all'interno della SERP (\textit{Search Engine Results Page}), maggiore \`e l'utilit\`a percepita dall'utente.
+    \item \textbf{Sconto Posizionale (\textit{Discounting}):} documenti rilevanti collocati in posizioni basse della classifica forniscono un'utilit\`a progressivamente inferiore rispetto alla medesima rilevanza posizionata in cima, poich\'e l'attenzione dell'utente decresce monotonicamente scorrendo la lista.
+\end{enumerate}
+
+\subsection{Cumulative Gain (CG) e Discounted Cumulative Gain (DCG)}
+
+Dato un vettore di rilevanze graduate $\mathbf{r} = [r_1, r_2, \dots, r_p]$ per i primi $p$ documenti restituiti per una query $q$:
+\begin{definition}[Cumulative Gain a Rango $p$]
+Il \textbf{Cumulative Gain} ($CG_p$) somma linearmente i valori di rilevanza fino alla soglia $p$:
+\begin{equation}
+CG_p = \sum_{i=1}^{p} r_i.
+\end{equation}
+\textit{Limite intrinseco:} il $CG_p$ \`e del tutto insensibile all'ordine: collocare un documento con $r_i = 3$ al primo o al decimo posto produce lo stesso valore di $CG$.
+\end{definition}
+
+Per modellare il decadimento dell'attenzione dell'utente con il progredire della posizione $i$, si introduce una funzione di sconto logaritmico al rango:
+
+\begin{definition}[Discounted Cumulative Gain a Rango $p$]
+Nella formulazione standard e nella variante a guadagno esponenziale ampiamente impiegata nei motori di ricerca industriali:
+\begin{align}
+\text{DCG}_p &= r_1 + \sum_{i=2}^{p} \frac{r_i}{\log_2(i)}, \label{eq:dcg-std} \\
+\text{DCG}_p^{\text{exp}} &= \sum_{i=1}^{p} \frac{2^{r_i} - 1}{\log_2(i + 1)}. \label{eq:dcg-exp}
+\end{align}
+La formulazione esponenziale~\eqref{eq:dcg-exp} enfatizza marcatamente il recupero di documenti a rilevanza massima nelle primissime posizioni della graduatoria.
+\end{definition}
+
+\subsection[Normalized Discounted Cumulative Gain (NDCG)]{Normalized Discounted Cumulative Gain (NDCG) e la Necessit\`a della Normalizzazione}
+
+Il DCG grezzo presenta un limite strutturale fondamentale: \`e una misura strettamente \textbf{query-dependent}. 
+Se per una specifica query $q_A$ esistono nella collezione $100$ documenti altamente rilevanti ($r=3$), il valore assoluto di DCG ottenibile sar\`a intrinsecamente elevato. Se per un'altra query $q_B$ esiste un solo documento rilevante in tutto il corpus, il valore massimo teorico di DCG sar\`a modesto. Di conseguenza, i valori grezzi di DCG non possono essere confrontati n\'e mediati direttamente tra query eterogenee.
+
+Per consentire la comparabilit\`a e il calcolo della media globale delle prestazioni (\textit{macro-averaging}) su un intero banco di valutazione (\textit{benchmark}), si definisce l'\textbf{Ideal DCG} ($\text{IDCG}_p$), calcolato sulla graduatoria ideale ottenuta ordinando tutti i documenti per rilevanza decrescente:
+\begin{equation}
+\text{NDCG}_p = \frac{\text{DCG}_p}{\text{IDCG}_p} \quad \in [0, 1].
+\end{equation}
+In virt\`u della normalizzazione, un valore di $\text{NDCG}_p = 1.0$ certifica che il sistema ha ordinato i documenti esattamente nella sequenza ottima possibile fino alla profondit\`a $p$.
+
+\FloatBarrier
+\section{Caratteristiche del Linguaggio Naturale e Legge di Zipf}
+\label{sec:linguaggio-zipf}
+
+\subsection{Propriet\`a e Complessit\`a del Linguaggio Naturale}
+
+L'elaborazione automatica del linguaggio naturale pone ostacoli computazionali intrinseci dovuti alla sua peculiare struttura:
+\begin{itemize}
+    \item \textbf{Migliaia di simboli distinti:} i vocabolari reali comprendono centinaia di migliaia di parole uniche.
+    \item \textbf{Sintassi gerarchica e complessa:} le frasi non sono semplici catene sequenziali, ma alberi sintattici caratterizzati da dipendenze a lungo raggio.
+    \item \textbf{Semantica composizionale:} il significato complessivo di un enunciato deriva dal significato dei singoli costituenti e dall'ordine sintattico preciso con cui si combinano.
+    \item \textbf{Ambiguit\`a poliedrica:}
+    \begin{itemize}
+        \item \textit{Part-of-Speech (POS) ambiguity:} il medesimo termine funge da verbo o da sostantivo a seconda del contesto (es. \textit{beat}: \textit{``Listen to this cool beat''} [sostantivo] vs \textit{``I'll beat you at checkers!''} [verbo]).
+        \item \textit{Word sense ambiguity (Polisemia e Omonimia):} un termine possiede pi\`u accezioni semantiche (es. \textit{interest}: \textit{``There is interest on this topic''} [attenzione] vs \textit{``The bank raised the interest rate''} [tasso di interesse bancario]).
+        \item \textit{Syntactic ambiguity:} proposizioni con molteplici alberi di derivazione plausibili (es. \textit{``I shot an elephant in my pajamas''}, dove il sintagma preposizionale pu\`o legarsi sintatticamente al soggetto o all'oggetto).
+    \end{itemize}
+    \item \textbf{Forte dipendenza dalla conoscenza del mondo (\textit{Shared World Knowledge}):}
+    \begin{itemize}
+        \item \textit{``I'm faster than Lewis Hamilton''}: richiede la conoscenza ontologica pregressa che Lewis Hamilton sia un pilota di Formula 1 per disambiguare l'ambito sportivo della velocit\`a.
+        \item \textit{``Alexis and Kate are sisters''}: esprime una relazione di parentela simmetrica tra due entit\`a.
+        \item \textit{``Alexis and Kate are mothers''}: attribuisce la medesima propriet\`a a entrambe le persone, senza implicare alcuna relazione diretta tra loro.
+        \item \textit{``My mother is younger than me''}: sintatticamente corretta, ma semanticamente e biologicamente impossibile.
+    \end{itemize}
+    \item \textbf{Evoluzione temporale continua:} il lessico muta rapidamente per effetto del progresso tecnologico e di eventi socio-culturali con neologismi e slittamenti semantici (es. \textit{``to google''}, \textit{``crowdfunded''}, \textit{``in the cloud''}, \textit{``super spreader''}, \textit{``wear a mask''}).
+\end{itemize}
+
+\subsection{La Legge di Zipf e il Principio del Minimo Sforzo}
+
+In qualsiasi corpus testuale di linguaggio naturale, la frequenza empirica $f$ di un termine \`e inversamente proporzionale al suo rango $r$ nella tabella delle frequenze ordinate in modo decrescente:
+\begin{equation}
+f \propto \frac{1}{r} \implies f \cdot r \approx C,
+\end{equation}
+dove $C$ \`e una costante caratteristica del corpus.
+Nella generalizzazione analitica proposta da Mandelbrot (\textit{Zipf-Mandelbrot law}):
+\begin{equation}
+f(r) \propto \frac{1}{(r + \beta)^\alpha},
+\end{equation}
+con parametri tipicamente calibrati a $\alpha \approx 1$ e $\beta \approx 2.7$.
+
+\begin{noteblock}{Principio del Minimo Sforzo di Zipf (\textit{Principle of Least Effort})}
+George Kingsley Zipf teorizz\`o che questa distribuzione iperbolica emerga dall'equilibrio dinamico tra due forze cognitive contrapposte:
+\begin{enumerate}
+    \item \textbf{Sforzo del Parlante (\textit{Speaker}):} mira a minimizzare il dispendio energetico impiegando un vocabolario ristretto, costituito da parole corte, frequentissime e polisemiche.
+    \item \textbf{Sforzo dell'Ascoltatore (\textit{Hearer}):} predilige un lessico ampio, formato da parole distinte, rare e precise, cos\`i da azzerare l'ambiguit\`a e il costo di decodifica semantica.
+\end{enumerate}
+Il compromesso evolutivo tra queste due esigenze di economia cognitiva produce la curva iperbolica di Zipf.
+\end{noteblock}
+
+Dalla formulazione di Zipf discendono due propriet\`a strutturali:
+\begin{itemize}
+    \item Il numero di significati $m$ di una parola \`e inversamente proporzionale alla radice della sua frequenza: $m \propto 1 / \sqrt{f}$ (oppure $m \propto 1/f$).
+    \item Esiste una stretta correlazione inversa tra frequenza e lunghezza dei vocaboli: i termini ad altissima frequenza sono quasi invariabilmente i pi\`u brevi.
+\end{itemize}
+
+\subsection{Feature Rare e Stop Words}
+
+Dall'andamento della curva di Zipf emergono due estremi con implicazioni decisive per l'architettura dei motori di ricerca:
+\begin{enumerate}
+    \item \textbf{Feature Rare ed \textit{Hapax Legomena}:} termini che compaiono una sola volta all'interno dell'intera collezione (\textit{hapax legomena}). Rappresentano tipicamente tra il $40\%$ e il $50\%$ della dimensione totale del vocabolario $|V|$. Una feature pu\`o risultare rara per due motivi divergenti:
+    \begin{itemize}
+        \item \`E un vocabolo specialistico a bassissima frequenza ma ad \textbf{altissimo contenuto informativo e discriminante} (es. \textit{``arachnocentric''}).
+        \item \`E un refuso ortografico (\textit{typo}) o un identificatore sintetico privo di generalit\`a (es. stringhe alfanumeriche di URL o hash di file).
+    \end{itemize}
+    La rimozione indiscriminata delle feature rare riduce drasticamente lo spazio occupato dall'indice, ma espone al rischio di eliminare chiavi di ricerca altamente specifiche.
+    \item \textbf{Stop Words:} parole ad altissima frequenza con ruolo prevalentemente sintattico-funzionale (\textit{``the'', ``of'', ``a'', ``to'', ``in''}). Tradizionalmente, le stop words vengono filtrate nella fase di indicizzazione per risparmiare memoria e velocizzare l'elaborazione dei posting list (\textit{``the president of the united states of america''} $\to$ \textit{``president united states america''}).
+\end{enumerate}
+
+\begin{alertblock}{Avvertenza sulle Liste di Stop Words}
+Le stop word list non hanno validit\`a universale e dipendono dal dominio applicativo. Ad esempio, la lista predefinita dello stop word filter di MySQL includeva originariamente parole come \textit{``appreciate''}, \textit{``serious''} e \textit{``unfortunately''}: termini che risulterebbero fatali se rimossi da un classificatore di \textit{Sentiment Analysis} o da query mirate a recensioni e opinioni.
+\end{alertblock}
+
+\FloatBarrier
+\section{Acquisizione Dati e Parsing da Web: urllib e BeautifulSoup}
+\label{sec:crawling-parsing}
+
+Il punto di ingresso per la costruzione di una collezione documentale \`e il processo di crawling ed estrazione del contenuto testuale, schematizzato nella Figura~\ref{fig:web-crawling-pipeline}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    stage/.style={
+        rectangle,
+        rounded corners=6pt,
+        thick,
+        align=center,
+        inner sep=8pt,
+        minimum width=11.0cm,
+        minimum height=1.3cm
+    },
+    server/.style={stage, draw=blue!70!black, fill=blue!5},
+    html/.style={stage, draw=orange!80!black, fill=orange!6},
+    clean/.style={stage, draw=teal!70!black, fill=teal!6},
+    arr/.style={
+        -{Stealth[length=3.5mm, width=2.5mm]},
+        very thick,
+        draw=gray!75!black
+    },
+    toolbadge/.style={
+        midway,
+        fill=white,
+        inner sep=4pt,
+        thick,
+        rounded corners=4pt,
+        font=\small
+    }
+]
+    % Livello 1: Server Web Remoto
+    \node[server] (server) {
+        \textbf{\large\color{blue!85!black}1. Server Web Remoto (Sorgente)}\\[2pt]
+        {\footnotesize Endpoint HTTP/HTTPS $\;\cdot\;$ Risorsa web da scansionare $\;\cdot\;$ Connessione remota}
+    };
+
+    % Livello 2: HTML Grezzo
+    \node[html, below=1.5cm of server] (html) {
+        \textbf{\large\color{orange!85!black}2. Documento HTML Grezzo}\\[2pt]
+        {\footnotesize Albero DOM con tag di markup, metadati XML, script e fogli di stile CSS}
+    };
+
+    % Livello 3: Testo Pulito
+    \node[clean, below=1.5cm of html] (clean) {
+        \textbf{\large\color{teal!85!black}3. Testo Pulito Estratto}\\[2pt]
+        {\footnotesize Solo payload testuale $\;\cdot\;$ Privo di codice e markup $\;\cdot\;$ Pronto per tokenizzazione}
+    };
+
+    % Frecce verticali con badge centrati degli strumenti
+    \draw[arr] (server) -- (html)
+        node[toolbadge, draw=blue!50!black] {
+            \textbf{\texttt{urllib.request}} \quad {\footnotesize\color{black!75}(Download HTTP e recupero pagina)}
+        };
+
+    \draw[arr] (html) -- (clean)
+        node[toolbadge, draw=teal!60!black] {
+            \textbf{\texttt{BeautifulSoup}} (\texttt{bs4}) \quad {\footnotesize\color{black!75}(Parsing del DOM ed estrazione testo)}
+        };
+\end{tikzpicture}%
+}
+\caption{Pipeline di recupero HTTP e pulizia da markup del documento web.}
+\label{fig:web-crawling-pipeline}
+\end{figure}
+
+\subsection{Acquisizione con urllib}
+In Python, il protocollo HTTP/HTTPS viene gestito a basso livello tramite \texttt{urllib.request}:
+
+\begin{lstlisting}[style=pythoncode,caption={Scaricamento grezzo di una risorsa web via HTTP.}]
+from urllib import request
+
+url = "http://hpc.isti.cnr.it/~nardini/"
+response = request.urlopen(url)
+html = response.read().decode('utf8')
+# Restituisce l'intero albero HTML comprensivo di tag strutturali
+\end{lstlisting}
+
+\subsection{Parsing e Normalizzazione con BeautifulSoup}
+I documenti web includono tag di rendering e script che costituirebbero rumore per il calcolo delle frequenze. La libreria \texttt{BeautifulSoup} analizza il DOM HTML ed estrae selettivamente il testo:
+
+\begin{lstlisting}[style=pythoncode,caption={Estrazione del testo privo di markup con BeautifulSoup.}]
+from bs4 import BeautifulSoup
+
+soup = BeautifulSoup(html, "html5lib")
+
+# Estrazione diretta dell'intero payload testuale concatenato:
+text_all = soup.get_text()
+
+# Estrazione granulare confinata ai soli paragrafi di testo (<p>):
+text_paragraphs = [''.join(s.findAll(text=True)) for s in soup.findAll('p')]
+\end{lstlisting}
+
+\FloatBarrier
+\section{Pipeline di Pre-elaborazione: Tokenizzazione e Sentence Splitting}
+\label{sec:tokeniz-splitting}
+
+\begin{noteblock}{Regola Empirica dell'Ingegneria dei Dati}
+Nei sistemi industriali di IR e NLP, \textbf{l'80\% del tempo e dello sforzo ingegneristico} viene assorbito dalla pipeline di acquisizione, pulizia, normalizzazione e pre-elaborazione del testo prima di poter alimentare gli algoritmi di indicizzazione o machine learning.
+\end{noteblock}
+
+\subsection{Tokenizzazione}
+
+La tokenizzazione consiste nella segmentazione del testo grezzo in unit\`a atomiche lessicali denominate \textbf{token}:
+
+\begin{lstlisting}[style=pythoncode,caption={Tokenizzazione ed eliminazione di stop words con NLTK.}]
+import nltk
+from nltk import word_tokenize
+from nltk.corpus import stopwords
+
+text = "the president of the united states of america"
+tokens = word_tokenize(text)
+# Output: ['the', 'president', 'of', 'the', 'united', 'states', 'of', 'america']
+
+stop_words = set(stopwords.words('english'))
+features = set(tokens)
+filtered_features = features.difference(stop_words)
+# Output: {'america', 'president', 'states', 'united'}
+\end{lstlisting}
+
+\subsection{Sentence Splitting e le Ambiguit\`a della Punteggiatura}
+
+La suddivisione di un testo continuo in frasi indipendenti (\textit{sentence boundary disambiguation}) \`e resa complessa dalla molteplicit\`a d'uso del punto ortografico (\texttt{.}):
+\begin{enumerate}
+    \item Delimitatore canonico di chiusura proposizionale.
+    \item Indicatore di acronimo, sigla o titolo onorifico (\textit{U.S.A.}, \textit{e.g.}, \textit{St. Louis}, \textit{Dr.}).
+    \item Separatore numerico o orario (\textit{8.30}).
+    \item Sospensione discorsiva o ellissi (\textit{...}).
+\end{enumerate}
+
+\begin{example}[Disambiguazione Sintattica delle Frasi]
+Si consideri il seguente enunciato discusso in aula:
+\begin{center}
+\textit{``I'll take the 8.30 train to St. Louis... or maybe I'll stay in LA. Time will tell!''}
+\end{center}
+Un parser ingenuo basato su \texttt{split('.')} genererebbe errori madornali:
+\begin{itemize}
+    \item Il punto in \textit{8.30} \`e parte integrante di un valore temporale numerico.
+    \item Il punto in \textit{St.} appartiene all'abbreviazione per \textit{Saint}.
+    \item I punti di sospensione (\textit{...}) rappresentano un'esitazione sintattica, senza chiudere la proposizione logica principale.
+    \item Solo il punto successivo a \textit{LA.} e il punto esclamativo in \textit{Time will tell!} fungono da autentici terminatori di frase.
+\end{itemize}
+In NLTK, la funzione \texttt{sent\_tokenize} adotta l'algoritmo non supervisionato \textit{Punkt}, addestrato a riconoscere collocazioni lessicali e abbreviazioni per preservare i confini enunciativi corretti.
+\end{example}
+
+\FloatBarrier
+\section[Costruzione del Vocabolario e Conteggio]{Costruzione del Vocabolario e Algoritmo di Conteggio}
+\label{sec:vocabolario-conteggio}
+
+\subsection{Definizione Formale di Vocabolario}
+
+\begin{definition}[Vocabolario della Collezione]
+Dato un corpus documentale $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$, il \textbf{Vocabolario} (o \textit{Feature Set}, denotato con $V$ o $F$) \`e l'unione dei tipi lessicali (\textit{types}) distinti estratti da tutti i documenti:
+\begin{equation}
+V = \bigcup_{d \in \mathcal{D}} \{ t \in d \}.
+\end{equation}
+La cardinalit\`a $|V|$ definisce la dimensionalit\`a dello spazio vettoriale delle feature. \`E una grandezza strettamente \textbf{dataset-dependent}: qualsiasi inserimento o rimozione di documenti modifica il perimetro e la dimensione di $V$.
+\end{definition}
+
+\subsection{Discussione Algoritmica: Struttura Dati per il Conteggio}
+
+Durante la progettazione dell'algoritmo di conteggio delle frequenze di collezione ($cf_t$), \`e frequente l'errore di proporre la memorizzazione dei token in una struttura a insieme (\texttt{set}):
+\begin{itemize}
+    \item \textbf{Inadeguatezza del \texttt{set}:} un insieme mantiene per definizione unicamente l'univocit\`a delle chiavi eliminando qualsiasi duplicato al primo inserimento, impedendo cos\`i il tracciamento della frequenza numerica del termine.
+    \item \textbf{Soluzione corretta:} una tabella hash (in Python, \texttt{dict} o \texttt{Counter}), avente il token lessicale come chiave e il conteggio cumulativo intero come valore associato.
+\end{itemize}
+
+L'Algoritmo~\ref{alg:costruzione-vocabolario} formalizza il processo di estrazione e computazione delle frequenze di collezione.
+
+\begin{algorithm}[H]
+\caption{Costruzione del Vocabolario e Conteggio delle Frequenze di Collezione}
+\label{alg:costruzione-vocabolario}
+\KwInput{Collezione di documenti $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$}
+\KwOutput{Vocabolario $V$ e tabella delle frequenze $\text{freq\_dict}$}
+$\text{freq\_dict} \gets \text{dizionario vuoto}$\;
+\ForEach{$d \in \mathcal{D}$}{
+    $\text{tokens} \gets \text{WordTokenize}(d)$\;
+    \ForEach{$t \in \text{tokens}$}{
+        \eIf{$t \in \text{freq\_dict}$}{
+            $\text{freq\_dict}[t] \gets \text{freq\_dict}[t] + 1$\;
+        }{
+            $\text{freq\_dict}[t] \gets 1$\;
+        }
+    }
+}
+$V \gets \text{chiavi}(\text{freq\_dict})$\;
+\Return{$V, \text{freq\_dict}$}\;
+\end{algorithm}
+
+Al termine della procedura, $|V| = \text{len}(\text{freq\_dict})$ e per ciascun termine $t \in V$ \`e nota la frequenza totale $cf_t$.
+
+\FloatBarrier
+\section{Normalizzazione Morfologica: Stemming vs. Lemmatizzazione}
+\label{sec:stemming-lemmatizzazione}
+
+Per raggruppare varianti flesse della stessa parola sotto un'unica forma canonica, si adottano due metodologie contrapposte, confrontate nella Tabella~\ref{tab:stem-vs-lemma}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Parametro} & \textbf{Stemming} & \textbf{Lemmatizzazione} \\
+\midrule
+\textbf{Obiettivo} & Ridurre la parola alla radice minima (\textit{stem}) tramite euristiche. & Ridurre la parola al lemma canonico esistente a vocabolario. \\
+\addlinespace
+\textbf{Metodologia} & Troncamento algoritmico basato su regole prefissate di riscrittura suffissi. & Analisi morfologica e morfosintattica completa basata su dizionario e grafi. \\
+\addlinespace
+\textbf{Correttezza lessicale} & Bassa: genera frequentemente non-parole o radici inesistenti. & Alta: produce sempre forme canoniche lessicalmente e grammaticalmente valide. \\
+\addlinespace
+\textbf{Dipendenza da POS} & Nessuna: opera puramente sulla stringa di caratteri. & Fondamentale: necessita del \textit{Part-of-Speech tagging} contestuale. \\
+\addlinespace
+\textbf{Costo computazionale} & Minimo: trasformazioni su stringhe ultra-rapide in tempo costante. & Elevato: richiede inferenza contestuale su modelli o interrogazione a database lessicali. \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto sistematico tra Stemming euristico e Lemmatizzazione morfosintattica.}
+\label{tab:stem-vs-lemma}
+\end{table}
+
+\subsection{Stemming ed Esempio Porter Stemmer}
+Lo stemmer applica regole sequenziali di eliminazione o sostituzione di suffissi tipici (es. \texttt{-ing}, \texttt{-s}, \texttt{-ed}). 
+
+\begin{lstlisting}[style=pythoncode,caption={Stemming con PorterStemmer ed evidenza dell'errore lessicale.}]
+from nltk.stem.porter import PorterStemmer
+
+stemmer = PorterStemmer()
+stemmer.stem('cars')  # Risultato: 'car' (corretto)
+stemmer.stem('was')   # Risultato: 'wa'  (ERRORE LESSICALE)
+\end{lstlisting}
+
+\begin{alertblock}{Origine dell'Errore dello Stemmer su ``was''}
+Lo stemmer individua la lettera finale \texttt{'s'} in \textit{``was''} e applica ciecamente la regola grammaticale di riduzione del plurale inglese, rimuovendo la desinenza. Non disponendo di alcuna informazione sulla categoria sintattica (voce del verbo \textit{to be}), produce la pseudo-radice inesistente \texttt{'wa'}.
+\end{alertblock}
+
+\subsection{Lemmatizzazione con WordNet}
+La lemmatizzazione consulta un dizionario lessicale strutturato (come WordNet). Se non viene fornito il tag POS, l'algoritmo assume come ipotesi predefinita che il termine sia un sostantivo:
+
+\begin{lstlisting}[style=pythoncode,caption={Lemmatizzazione contestuale con WordNetLemmatizer.}]
+from nltk.stem.wordnet import WordNetLemmatizer
+
+lmtzr = WordNetLemmatizer()
+lmtzr.lemmatize('cars')                  # Output: 'car'
+lmtzr.lemmatize('was')                   # Output: 'wa' (default: sostantivo)
+lmtzr.lemmatize('was', pos='v')          # Output: 'be' (FORMA CORRETTA: verbo essere)
+\end{lstlisting}
+
+\subsection{Il Trade-off Ingegneristico nei Motori di Ricerca}
+Nei motori di ricerca commerciali su scala planetaria, lo \textbf{Stemming} \`e rimasto storicamente la soluzione dominante per l'indicizzazione: pur introducendo distorsioni ortografiche occasionali, richiede un costo computazionale infinitesimo rispetto all'esecuzione di un POS tagger e di una disambiguazione su miliardi di pagine web.
+
+\FloatBarrier
+\section{Il Modello Bag of Words (BoW)}
+\label{sec:bag-of-words}
+
+\subsection{Transizione da Sequenza a Insieme}
+Un testo non strutturato nasce originariamente come sequenza ordinata di token:
+\begin{equation}
+\text{text} \longrightarrow [t_1, t_2, t_3, \dots, t_k].
+\end{equation}
+Questa rappresentazione sequenziale pone due complessit\`a: lunghezza variabile tra testi differenti e difficolt\`a di mappatura su uno spazio a dimensionalit\`a fissa.
+
+Il modello \textbf{Bag of Words (BoW)} astrae il documento collassando la sequenza dei token in un insieme di termini unici (o multinsieme con frequenze):
+\begin{lstlisting}[style=pythoncode,caption={Rappresentazione insiemistica Bag of Words.}]
+text = 'the president of the united states of america'
+tokens = word_tokenize(text)      # Lista di 8 elementi
+bow = set(tokens)                 # Insieme di 6 elementi unici
+# bow: {'america', 'of', 'president', 'states', 'the', 'united'}
+\end{lstlisting}
+
+\subsection{Limiti Strutturali del BoW}
+\begin{enumerate}
+    \item \textbf{Perdita della frequenza locale:} nella variante insiemistica pura si annulla il numero di volte in cui una parola ricorre nel testo.
+    \item \textbf{Perdita totale dell'ordine lessicale e della sintassi:} il BoW assume che la posizione reciproca delle parole sia ininfluente per la determinazione del significato del documento.
+\end{enumerate}
+
+\begin{example}[Collasso Semantico nel Modello Bag of Words]
+Si considerino due proposizioni aventi significato diametralmente opposto:
+\begin{itemize}
+    \item $t_1$: \textit{``I won, and thus you lose.''} (celebra la vittoria dell'emittente)
+    \item $t_2$: \textit{``I lose, and thus you won.''} (ammette la sconfitta dell'emittente)
+\end{itemize}
+Eseguendo la rappresentazione BoW insiemistica in Python:
+\begin{lstlisting}[style=pythoncode,caption={Dimostrazione dell'indistinguibilit\`a semantica in BoW.}]
+t1 = set(word_tokenize('I won, and thus you lose.'))
+t2 = set(word_tokenize('I lose, and thus you won.'))
+
+# Insieme t1: {'and', 'lose', 'thus', 'won', 'you'}
+# Insieme t2: {'and', 'lose', 'thus', 'won', 'you'}
+print(t1 == t2)  # Output: True
+\end{lstlisting}
+Per la macchina, sotto l'ipotesi BoW, i due enunciati sono identici. Questo limite nasce dal fatto che la semantica umana \`e \textbf{composizionale}, dipendendo in modo vincolante dall'ordine sintattico dei costituenti.
+\end{example}
+
+\FloatBarrier
+\section{N-grammi: Word n-grams e Character n-grams}
+\label{sec:ngrams}
+
+Per ovviare alla perdita dell'ordine senza dover ricorrere a costosi alberi di parsing sintattico, si estende il vocabolario tramite gli \textbf{n-grammi}.
+
+\subsection{Word n-grams}
+Un \textbf{word n-gram} \`e una sequenza contigua di $n$ parole estratte dal testo. Preserva le relazioni di adiacenza e l'ordine locale:
+
+\begin{lstlisting}[style=pythoncode,caption={Distinzione semantica locale mediante bigrammi di parole.}]
+import nltk
+
+t1 = set(nltk.ngrams(nltk.word_tokenize('I won, and thus, you lose.'), 2))
+t2 = set(nltk.ngrams(nltk.word_tokenize('I lose, and thus, you won.'), 2))
+
+# t1 genera: ('won', 'and'), ('you', 'lose'), ...
+# t2 genera: ('lose', 'and'), ('you', 'won'), ...
+print(t1 == t2)  # Output: False
+\end{lstlisting}
+Tramite bigrammi ($n=2$), la rappresentazione preserva il legame tra soggetto e predicato verbale, distinguendo correttamente i due enunciati.
+
+\subsection{Character n-grams}
+I \textbf{character n-grams} scompongono i termini in sottostringhe contigue di lunghezza $n$ (tipicamente trigrammi di caratteri, $n=3$). Questa tecnica \`e fondamentale per garantire la tolleranza ai refusi di battitura (\textit{typo tolerance}) e catturare affinit\`a morfologiche:
+
+\begin{lstlisting}[style=pythoncode,caption={Resistenza ai refusi tramite trigrammi di caratteri.}]
+t1 = set(nltk.ngrams('rainbow', 3))
+t2 = set(nltk.ngrams('rainbaw', 3))  # Contiene un typo: 'a' al posto di 'o'
+
+intersezione = t1.intersection(t2)
+# Output: {('r', 'a', 'i'), ('a', 'i', 'n'), ('i', 'n', 'b')}
+\end{lstlisting}
+Nonostante l'errore ortografico sul singolo carattere, i due vocaboli condividono il $60\%$ dei loro trigrammi (3 su 5), consentendo al motore di stimare una somiglianza metrica elevata e proporre correzioni (\textit{``Forse cercavi...''}).
+
+\FloatBarrier
+\section{Il Modello a Spazio Vettoriale (Vector Space Model - VSM)}
+\label{sec:vsm-intro}
+
+Nel \textbf{Vector Space Model} (VSM), il corpus documentale e le query dell'utente vengono mappati in uno spazio vettoriale reale a dimensionalit\`a finita:
+\begin{equation}
+\text{Dimensione dello spazio} = |F| = |V|.
+\end{equation}
+Ogni asse ortogonale dello spazio corrisponde a uno specifico termine $f \in V$. Sia i documenti $d$ sia le query $q$ sono rappresentati come vettori immersi in tale spazio:
+\begin{equation}
+\vec{v}(d) \in \mathbb{R}^{|V|}, \quad \vec{v}(q) \in \mathbb{R}^{|V|}.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.82\linewidth}{!}{%
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Assi cartesiani
+    \draw[->, thick, gray!70!black] (0,0) -- (6.0, 0) node[below] {\small Dimensione 1 ($f_1$: \texttt{"weekend"})};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.5) node[left] {\small Dimensione 2 ($f_2$: \texttt{"weather"})};
+
+    % Vettori documenti
+    \draw[->, very thick, blue!80!black] (0,0) -- (2.0, 3.8) node[above right] {\small $\vec{v}(d_1)$ (\textit{``best weather on the weekend''})};
+    \draw[->, very thick, teal!80!black] (0,0) -- (4.2, 2.2) node[right] {\small $\vec{v}(d_2)$ (\textit{``nice weather''})};
+
+    % Angolo theta
+    \draw[red!80!black, thick] (0.8, 1.52) arc[start angle=62, end angle=28, radius=1.7];
+    \node[red!80!black] at (1.6, 1.25) {\small $\theta$};
+\end{tikzpicture}%
+}
+\caption{Rappresentazione geometrica bidimensionale di documenti nel Vector Space Model.}
+\label{fig:vsm-geometric-2d}
+\end{figure}
+
+\subsection{Mappatura Formale tramite Vettori Canonici Unitari}
+Ciascuna feature $f_i \in V$ corrisponde a un vettore base canonico one-hot dello spazio reale:
+\begin{equation}
+\vec{v}(f_1) = \begin{bmatrix} 1 \\ 0 \\ \vdots \\ 0 \end{bmatrix}, \quad
+\vec{v}(f_2) = \begin{bmatrix} 0 \\ 1 \\ \vdots \\ 0 \end{bmatrix}, \quad
+\vec{v}(f_{|V|}) = \begin{bmatrix} 0 \\ 0 \\ \vdots \\ 1 \end{bmatrix}.
+\end{equation}
+Un generico documento $d$ viene formalizzato come la \textbf{combinazione lineare pesata} dei vettori base dei termini che vi compaiono:
+\begin{equation}
+\vec{v}(d) = \sum_{f \in d} w_{f,d} \, \vec{v}(f),
+\end{equation}
+dove $w_{f,d} \in \mathbb{R}$ indica il peso (l'importanza informativa) del termine $f$ nel documento $d$.
+
+\subsection{Sparsit\`a Estrema dei Vettori di Documento}
+Si consideri un vocabolario di taglia reale $|V| = 10^6$ (un milione di termini) e un documento medio $d$ composto da $200$ vocaboli unici:
+\begin{equation}
+\vec{v}(d) = [0, \, w_{t_1, d}, \, 0, \, \dots, \, 0, \, w_{t_{200}, d}, \, 0, \, \dots, \, 0]^T.
+\end{equation}
+La frazione di componenti non nulle del vettore \`e:
+\begin{equation}
+\frac{|\{ i \mid v_i(d) \ne 0 \}|}{|V|} = \frac{200}{1\,000\,000} = 0.0002 = 0.02\%.
+\end{equation}
+Oltre il \textbf{99.98\%} dei valori nel vettore \`e rigorosamente pari a zero. Rappresentare tali vettori come array densi in virgola mobile a 32 bit ($4\,\text{MB}$ per singolo documento) comporterebbe un collasso della memoria di sistema. Risulta pertanto inderogabile l'adozione di strutture per dati sparsi (\textit{sparse vectors}, mappe chiave-valore o l'\textit{Inverted Index}).
+
