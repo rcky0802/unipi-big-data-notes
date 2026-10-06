@@ -1,0 +1,716 @@
+\chapter{Random Sampling Algorithms on Data Streams}
+\label{chap:random-sampling-data-streams}
+
+\begin{center}
+  \textbf{Lecture 7}\\
+  \emph{Random Sampling Algorithms on Data Streams: Streaming Model, Uniform Sampling, Algorithm S, Priority Sampling, and Reservoir Sampling}\\[0.5em]
+  Date: October 6, 2026
+\end{center}
+
+In previous lectures, we thoroughly examined data processing under the \textit{External Memory Model}, focusing on massive datasets stored on secondary storage through multiway external merge sort and distribution sort algorithms. In those scenarios, although access costs were dominated by block I/O transfers, multiple scans (\textit{multi-pass}) over the stored dataset were still permissible.
+
+In this chapter, we explore a fundamental paradigm shift: the \textbf{Data Streaming Model}. In this setting, data arrives as a continuous, massive, or potentially infinite sequence at high arrival rates, subject to stringent working memory and per-item processing constraints. Among the fundamental stream processing tasks, \textbf{Uniform Random Sampling} plays a critical role in constructing statistical synopses, network monitoring, high-volume log debugging, and online aggregate estimation.
+
+We investigate both principal categories of sampling without replacement: when stream length $n$ is known in advance (analyzing single-item selection and Knuth's \textbf{Algorithm S}, supported by a complete combinatorial derivation) and when cardinality $n$ is unknown ahead of time (\textbf{Priority Sampling} with Min-Heaps and the Waterman--Knuth \textbf{Reservoir Sampling} framework). We prove the correctness of Reservoir Sampling by mathematical induction, present comprehensive step-by-step traces, and examine engineering optimizations (including Vitter's \textbf{Algorithm Z}).
+
+\FloatBarrier
+\section{Foundations of the Streaming Model and Random Sampling}
+\label{sec:streaming-model-foundations}
+
+\subsection{The Data Streaming Computation Model}
+In traditional computational paradigms (both in RAM and secondary storage), datasets remain available for repeated scans. Under the \textit{Data Streaming Model}, conversely, the algorithm can neither control data ordering nor request data retransmission.
+
+The streaming scenario is formally characterized by four architectural pillars:
+\begin{enumerate}
+  \item \textbf{Data Stream $S$:} a time-ordered sequence of discrete items, potentially infinite or of massive size $n$ ($n \to \infty$ or $n \gg M$):
+  \begin{equation}
+    S = \langle i_1, i_2, \dots, i_j, \dots, i_n \rangle.
+  \end{equation}
+  \item \textbf{Strict Working Memory Constraint ($M \ll n$):} the fast internal working memory $M$ available to the algorithm satisfies $M \ll n$. Typically, storage is strictly bounded by:
+  \begin{equation}
+    M = \mathcal{O}(m) \quad \text{or} \quad M = \mathcal{O}(\operatorname{polylog}(n)) \text{ words of memory},
+  \end{equation}
+  where $m$ denotes the desired sample size. Consequently, storing the entire stream or any substantial fraction thereof is impossible.
+  \item \textbf{Single-Pass Sequential Access:} elements arrive one by one in chronological order. Once an item $i_j$ has passed, if the algorithm chooses not to store it in working memory, it is \textbf{lost forever} and can never be re-examined.
+  \item \textbf{Strictly Bounded Per-Item Processing Time:} to avoid input buffer exhaustion and packet drops on high-speed feeds (such as backbone routers or real-time trading systems), the processing time allocated to each arriving item $i_j$ must remain strictly constant:
+  \begin{equation}
+    T(i_j) = \mathcal{O}(1) \quad \text{or at most} \quad T(i_j) = \mathcal{O}(\log m).
+  \end{equation}
+\end{enumerate}
+
+\subsection{Formal Definition of the Uniform Random Sampling Problem}
+Given a continuous stream $S$, our objective is to select and maintain a subset of $m$ items that represents a \textbf{Simple Random Sample without Replacement} (SRSWOR).
+
+Formally, at any step $n$ (or upon stream completion if $n$ is finite), two probabilistic uniformity criteria must hold:
+
+\begin{definition}[Marginal Uniformity]
+Every single element $i_j \in S$ (for $1 \le j \le n$) must possess an identical marginal inclusion probability:
+\begin{equation}
+  \mathbb{P}(i_j \in \text{Sample}) = \frac{m}{n}.
+  \label{eq:marginal-uniformity}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Joint Uniformity]
+Every possible subset $S^* \subseteq S$ of cardinality $m$ must have an identical joint extraction probability:
+\begin{equation}
+  \mathbb{P}(\text{Sample} = S^*) = \frac{1}{\binom{n}{m}}, \qquad \forall S^* \subseteq S \text{ such that } |S^*| = m.
+  \label{eq:joint-uniformity}
+\end{equation}
+\end{definition}
+
+Depending on prior knowledge of stream cardinality $n$, sampling algorithms are classified into two primary regimes:
+\begin{itemize}
+  \item \textbf{Case A ($n$ known a priori):} the total stream length $n$ is known before sampling begins (e.g., sequentially reading an unindexed $n$-line log file from tape or storage).
+  \item \textbf{Case B ($n$ unknown a priori):} cardinality $n$ is unavailable upfront, and the stream may terminate arbitrarily or continue indefinitely. The algorithm must guarantee that whenever the stream terminates at any step $t \ge m$, internal memory stores a valid uniform random sample drawn from the first $t$ items.
+\end{itemize}
+
+\FloatBarrier
+\section{Sampling with Known Stream Length (\texorpdfstring{$n$}{n} Known)}
+\label{sec:sampling-known-n}
+
+\subsection{Single-Item Selection (\texorpdfstring{$m = 1$}{m = 1})}
+Consider the elementary case of extracting exactly one element ($m = 1$) from a stream of known length $n$, ensuring each item has uniform probability $\frac{1}{n}$ of being selected while deciding online whether to accept or reject the current item $i_j$.
+
+\subsubsection{Algorithm Formulation}
+The algorithm sequentially inspects elements for $j = 1, 2, \dots, n$:
+\begin{enumerate}
+  \item At step $j$, draw a random variable $p \sim \operatorname{Uniform}(0, 1)$, meaning $p \in [0, 1)$.
+  \item Evaluate the selection condition:
+  \begin{equation}
+    \text{If } p \le \frac{1}{n - j + 1}, \quad \text{select } i_j \text{ and terminate the algorithm.}
+    \label{eq:single-item-threshold}
+  \end{equation}
+  \item If $p > \frac{1}{n - j + 1}$, item $i_j$ is permanently discarded, and processing proceeds to step $j+1$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+  \caption{Online Single-Item Sampling ($m = 1$, $n$ known)}
+  \label{alg:single-element-sampling}
+  \KwInput{Stream $S = \langle i_1, \dots, i_n \rangle$ of known length $n$}
+  \KwOutput{A single item $x \in S$ sampled uniformly with $\mathbb{P}(x = i_j) = \frac{1}{n}$}
+  \For{$j \leftarrow 1$ \KwTo $n$}{
+    $p \leftarrow \operatorname{Uniform}(0, 1)$\;
+    \If{$p \le \frac{1}{n - j + 1}$}{
+      \Return $i_j$\;
+    }
+  }
+\end{algorithm}
+
+\subsubsection{Rigorous Proof by Induction}
+\begin{theorem}
+Algorithm~\ref{alg:single-element-sampling} ensures that every element $i_j \in S$ has exact probability $\frac{1}{n}$ of being chosen:
+\begin{equation}
+  \mathbb{P}(\text{select } i_j) = \frac{1}{n}, \qquad \forall j \in \{1, 2, \dots, n\}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+We proceed by induction on stream index $j$.
+
+\textbf{Base step ($j = 1$):}\\
+At step 1, for item $i_1$, the selection threshold is:
+\begin{equation}
+  \frac{1}{n - 1 + 1} = \frac{1}{n}.
+\end{equation}
+Since $p \sim \operatorname{Uniform}(0, 1)$, the probability that $p \le \frac{1}{n}$ matches the interval length:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_1) = \frac{1}{n}.
+\end{equation}
+The base case holds.
+
+\textbf{Inductive hypothesis:}\\
+Assume the property holds for all preceding indices $k \in \{1, 2, \dots, j - 1\}$, meaning:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_k) = \frac{1}{n}.
+\end{equation}
+Because the algorithm halts immediately upon selecting an element, the events $\{\text{pick } i_k\}$ are mutually disjoint. Thus, the cumulative probability that at least one of the first $j - 1$ elements was selected is:
+\begin{equation}
+  \mathbb{P}\left(\bigcup_{k=1}^{j-1} \{\text{pick } i_k\}\right) = \sum_{k=1}^{j-1} \mathbb{P}(\text{pick } i_k) = \sum_{k=1}^{j-1} \frac{1}{n} = \frac{j - 1}{n}.
+\end{equation}
+The complementary probability that \emph{no} element among the first $j - 1$ was selected is:
+\begin{equation}
+  \mathbb{P}(\text{no element selected in } \{i_1, \dots, i_{j-1}\}) = 1 - \frac{j - 1}{n} = \frac{n - j + 1}{n}.
+  \label{eq:prob-none-selected-before}
+\end{equation}
+
+\textbf{Inductive step:}\\
+For element $i_j$ to be chosen at step $j$, two joint events must occur:
+\begin{enumerate}
+  \item No element among $i_1, \dots, i_{j-1}$ was selected earlier.
+  \item At step $j$, the random draw $p$ satisfies $p \le \frac{1}{n - j + 1}$.
+\end{enumerate}
+\begin{align}
+  \mathbb{P}(\text{pick } i_j) &= \mathbb{P}\left(p \le \frac{1}{n - j + 1} \;\middle|\; \text{no element chosen previously}\right) \notag\\
+  &\quad \cdot \mathbb{P}(\text{no element chosen previously}) \notag\\
+  &= \frac{1}{n - j + 1} \cdot \left(\frac{n - j + 1}{n}\right) = \frac{1}{n}.
+\end{align}
+The factor $(n - j + 1)$ cancels exactly, yielding $\frac{1}{n}$. The assertion holds for all $j \in \{1, \dots, n\}$.
+\end{proof}
+
+\subsubsection{Geometric Interpretation}
+The probabilistic mechanism underlying Algorithm~\ref{alg:single-element-sampling} admits a clear geometric interpretation illustrated in \autoref{fig:streaming-partition-m1}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    box/.style={rectangle, draw=blue!80!black, thick, minimum height=1.3cm, align=center, font=\small},
+    brace/.style={decorate, decoration={brace, amplitude=6pt, raise=4pt}, thick}
+  ]
+    % Segment processed elements
+    \node[box, fill=gray!15, minimum width=4.8cm, text width=4.6cm] (past) at (0, 0) {
+      \textbf{Steps $1 \dots j - 1$ ($j - 1$ items)}\\[2pt]
+      \footnotesize Evaluated: none selected
+    };
+
+    % Current element
+    \node[box, fill=teal!20, draw=teal!80!black, minimum width=2.8cm, text width=2.6cm, right=0.35cm of past] (curr) {
+      \textbf{Step $j$}: item $i_j$\\[2pt]
+      \footnotesize $\mathbb{P} = \frac{1}{n-j+1}$
+    };
+
+    % Future residual elements
+    \node[box, fill=blue!10, minimum width=5.6cm, text width=5.4cm, right=0.35cm of curr] (future) {
+      \textbf{Steps $j + 1 \dots n$ ($n - j$ items)}\\[2pt]
+      \footnotesize Remaining future items awaiting inspection
+    };
+
+    % Brace for remaining pool above boxes
+    \draw[brace, draw=teal!80!black] ($(curr.north west)+(0,0.1)$) -- ($(future.north east)+(0,0.1)$)
+      node[midway, above=8pt, font=\small\bfseries, text=teal!80!black] {
+        Residual candidate pool: $n - j + 1$ equally likely elements
+      };
+
+    % Brace total stream below boxes
+    \draw[brace, decoration={mirror, amplitude=6pt, raise=4pt}, draw=blue!85!black] ($(past.south west)+(0,-0.15)$) -- ($(future.south east)+(0,-0.15)$)
+      node[midway, below=12pt, font=\small\bfseries, text=blue!85!black] {
+        Full Stream of known cardinality $n$
+      };
+  \end{tikzpicture}%
+  }
+  \caption{Stream space partition at step $j$ for single-element sampling ($m = 1$).}
+  \label{fig:streaming-partition-m1}
+\end{figure}
+
+If no element was selected across the first $j - 1$ steps, the target item must reside within the remaining $n - j + 1$ elements. By uniformity, all remaining items share equal rights to selection, so the conditional probability of choosing $i_j$ immediately is the reciprocal of the remaining count: $\frac{1}{n - j + 1}$.
+
+\FloatBarrier
+\subsection{Multi-Item Selection: Algorithm S (Fan, Muller, Rezucha / Knuth)}
+When the requested sample size is $m > 1$ and total stream size $n$ is known upfront, this principle generalizes to \textbf{Algorithm S} (introduced by Fan, Muller, and Rezucha~\cite{fan1962} and popularized by Knuth~\cite{knuth1997}), which maintains a dynamic counter of selected elements.
+
+\subsubsection{State Variable Definitions}
+The algorithm tracks the following quantities during sequential traversal:
+\begin{itemize}
+  \item $n$: total number of stream elements;
+  \item $m$: target sample size;
+  \item $j \in \{1, 2, \dots, n\}$: time index of current candidate element $i_j$;
+  \item $s$: number of items already chosen into the sample across the first $j - 1$ steps ($0 \le s \le m$);
+  \item $m - s$: remaining items \emph{still needed} to complete the sample;
+  \item $n - j + 1$: total remaining items in the stream yet to be evaluated (including $i_j$).
+\end{itemize}
+
+\subsubsection{Selection Rule and Boundary Cases}
+At each iteration $j \in \{1, \dots, n\}$:
+\begin{enumerate}
+  \item Draw $p \sim \operatorname{Uniform}(0, 1)$.
+  \item Compare $p$ against the dynamic threshold $\frac{m - s}{n - j + 1}$:
+  \begin{equation}
+    p \le \frac{m - s}{n - j + 1}.
+    \label{eq:algorithm-s-threshold}
+  \end{equation}
+  \item If satisfied: insert $i_j$ into sample and increment counter:
+  \begin{equation}
+    s \leftarrow s + 1.
+  \end{equation}
+  Otherwise, discard $i_j$ and keep $s$ unchanged.
+\end{enumerate}
+
+The algorithm handles boundary conditions automatically:
+\begin{itemize}
+  \item \textbf{Sample Completed ($s = m$):} the threshold numerator becomes $m - s = 0$. Selection probability falls to zero ($\frac{0}{n - j + 1} = 0$), preventing further additions and enabling early termination.
+  \item \textbf{Forced Inclusion of All Remaining Items ($m - s = n - j + 1$):} the remaining quota matches the remaining elements. The threshold becomes $\frac{m - s}{n - j + 1} = 1$, deterministically forcing inclusion of all remaining elements since $p < 1$ with probability $1$.
+\end{itemize}
+
+\begin{algorithm}[H]
+  \caption{Algorithm S (Selection Sampling by Fan, Muller, Rezucha / Knuth)}
+  \label{alg:algorithm-s}
+  \KwInput{Stream $S = \langle i_1, \dots, i_n \rangle$ of known length $n$, sample size $m \le n$}
+  \KwOutput{Set $C$ containing $m$ items sampled uniformly}
+  $C \leftarrow \emptyset$\;
+  $s \leftarrow 0$\tcp*{Counter of already sampled items}
+  \For{$j \leftarrow 1$ \KwTo $n$}{
+    \If{$s = m$}{
+      \textbf{break}\tcp*{Sample full: terminate early}
+    }
+    $p \leftarrow \operatorname{Uniform}(0, 1)$\;
+    \If{$p \le \frac{m - s}{n - j + 1}$}{
+      $C \leftarrow C \cup \{i_j\}$\;
+      $s \leftarrow s + 1$\;
+    }
+  }
+  \Return $C$\;
+\end{algorithm}
+
+\subsubsection{Combinatorial Derivation of the Threshold}
+The threshold $\frac{m - s}{n - j + 1}$ stems directly from combinatorial principles and the hypergeometric distribution.
+
+\begin{theorem}
+Given that $s$ elements have already been selected across the first $j - 1$ steps, the conditional probability that the current item $i_j$ belongs to a uniform sample of size $m$ drawn from the remaining $n - j + 1$ elements is:
+\begin{equation}
+  \mathbb{P}(i_j \in \text{Sample} \mid s \text{ already sampled}) = \frac{m - s}{n - j + 1}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+The conditional probability is the ratio of favorable combinations to total configurations:
+\begin{equation}
+  \mathbb{P}(\text{pick } i_j \mid s) = \frac{\text{Favorable cases (complete sample with } i_j)}{\text{Possible cases (choose } m - s \text{ from residual elements)}}.
+\end{equation}
+
+Fixing $i_j$ accounts for $1$ item; thus, $m - s - 1$ items must be chosen from the subsequent $n - j$ available stream items. The number of ways is given by the binomial coefficient:
+\begin{equation}
+  \binom{n - j}{m - s - 1}.
+\end{equation}
+Conversely, the unconstrained combinations for choosing $m - s$ items from all $n - j + 1$ remaining candidates is:
+\begin{equation}
+  \binom{n - j + 1}{m - s}.
+\end{equation}
+
+Computing the ratio and expanding factorials:
+\begin{align}
+  \frac{\binom{n - j}{m - s - 1}}{\binom{n - j + 1}{m - s}} &= \frac{\dfrac{(n - j)!}{(m - s - 1)! \, ((n - j) - (m - s - 1))!}}{\dfrac{(n - j + 1)!}{(m - s)! \, ((n - j + 1) - (m - s))!}} \notag\\[1em]
+  &= \frac{\dfrac{(n - j)!}{(m - s - 1)! \, (n - j - m + s + 1)!}}{\dfrac{(n - j + 1)!}{(m - s)! \, (n - j - m + s + 1)!}}.
+\end{align}
+The factor $(n - j - m + s + 1)!$ in the denominator of both fractions cancels completely. Regrouping:
+\begin{equation}
+  = \frac{(n - j)!}{(n - j + 1)!} \cdot \frac{(m - s)!}{(m - s - 1)!}.
+\end{equation}
+Applying the recursive factorial definition $(k! = k \cdot (k-1)!)$:
+\begin{align}
+  (n - j + 1)! &= (n - j + 1) \cdot (n - j)!, \\
+  (m - s)! &= (m - s) \cdot (m - s - 1)!.
+\end{align}
+Substituting into each term:
+\begin{equation}
+  = \frac{1}{n - j + 1} \cdot (m - s) = \frac{m - s}{n - j + 1}.
+\end{equation}
+Thus, the local transition probability exactly matches the global hypergeometric uniform distribution.
+\end{proof}
+
+\FloatBarrier
+\subsection{Step-by-Step Walkthrough: Algorithm S Example}
+To examine how stochastic thresholds operate in practice, we trace the example from lecture notes.
+
+\begin{example}[Algorithm S Execution Trace]
+Consider the following input configuration:
+\begin{itemize}
+  \item Input stream: $S = \langle a, b, c, d, e, f, g, h \rangle \implies n = 8$.
+  \item Target sample size: $m = 2$.
+  \item Sequence of pseudo-random draws $p \in [0, 1)$ drawn per step:
+  \begin{equation}
+    p = \langle 0.5, \; 0.5, \; 0.1, \; 0.5, \; 0.5, \; 0.2, \; 0.9, \; 0.3 \rangle.
+  \end{equation}
+\end{itemize}
+
+The step-by-step state progression is presented in \autoref{tab:trace-algorithm-s}.
+
+\begin{table}[H]
+  \centering
+  \caption{Step-by-step execution trace of Algorithm S ($n = 8$, $m = 2$).}
+  \label{tab:trace-algorithm-s}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{c c c c c c c c c c}
+    \toprule
+    $j$ & $i_j$ & $s$ & $m - s$ & $n - j + 1$ & Threshold $\frac{m-s}{n-j+1}$ & $p$ & Condition $p \le \text{Threshold}$ & Outcome & New $s$ \\
+    \midrule
+    $1$ & $a$ & $0$ & $2$ & $8$ & $\frac{2}{8} = 0.250$ & $0.5$ & $0.5 \le 0.250$ (False) & Discarded ($\times$) & $0$ \\
+    $2$ & $b$ & $0$ & $2$ & $7$ & $\frac{2}{7} \approx 0.286$ & $0.5$ & $0.5 \le 0.286$ (False) & Discarded ($\times$) & $0$ \\
+    $3$ & $c$ & $0$ & $2$ & $6$ & $\frac{2}{6} \approx 0.333$ & $0.1$ & $0.1 \le 0.333$ (True) & \textbf{Selected ($\checkmark$)} & $1$ \\
+    $4$ & $d$ & $1$ & $1$ & $5$ & $\frac{1}{5} = 0.200$ & $0.5$ & $0.5 \le 0.200$ (False) & Discarded ($\times$) & $1$ \\
+    $5$ & $e$ & $1$ & $1$ & $4$ & $\frac{1}{4} = 0.250$ & $0.5$ & $0.5 \le 0.250$ (False) & Discarded ($\times$) & $1$ \\
+    $6$ & $f$ & $1$ & $1$ & $3$ & $\frac{1}{3} \approx 0.333$ & $0.2$ & $0.2 \le 0.333$ (True) & \textbf{Selected ($\checkmark$)} & $2$ \\
+    $7$ & $g$ & $2$ & $0$ & $2$ & $\frac{0}{2} = 0.000$ & $0.9$ & $0.9 \le 0.000$ (False) & Discarded / STOP & $2$ \\
+    $8$ & $h$ & $2$ & $0$ & $1$ & $\frac{0}{1} = 0.000$ & $0.3$ & $0.3 \le 0.000$ (False) & Discarded / STOP & $2$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\textbf{Outcome:} At step $j = 6$, the counter reaches $s = m = 2$, completing the sample $C = \{c, f\}$. At steps $7$ and $8$, the selection threshold drops to zero, systematically discarding subsequent elements immediately.
+\end{example}
+
+\FloatBarrier
+\section{Sampling with Unknown Stream Length (\texorpdfstring{$n$}{n} Unknown)}
+\label{sec:sampling-unknown-n}
+
+In realistic streaming environments—including network telemetry, server logging, and sensor feeds—the stream size $n$ is unknown upfront and data may cease arriving at any arbitrary time. Streaming algorithms must therefore maintain a valid sample at all moments.
+
+\subsection{Priority Sampling with Min-Heap (Random Keys Sampling)}
+A natural strategy for sampling without knowing $n$ relies on \textbf{Random Keys Sampling} (or \textit{Priority Sampling}).
+
+\subsubsection{Functional Principle}
+Each arriving item $i_j$ receives an independent and identically distributed continuous random key:
+\begin{equation}
+  \pi_j \sim \operatorname{Uniform}(0, 1).
+\end{equation}
+The algorithm dynamically tracks the $m$ elements with the highest keys observed so far. Because keys are continuous and i.i.d., every subset of size $m$ from the first $j$ items has equal likelihood of possessing the $m$ largest keys.
+
+\subsubsection{Management via Bounded Min-Heap}
+To confine memory consumption to $\mathcal{O}(m)$, we maintain a \textbf{Min-Heap} $H$ of fixed capacity $m$, storing pairs $\langle \pi_j, i_j \rangle$ keyed by $\pi_j$:
+\begin{itemize}
+  \item \textbf{First $m$ elements ($j \le m$):} insert pairs directly into $H$. Total initial construction time is $\mathcal{O}(m)$.
+  \item \textbf{Subsequent elements ($j > m$):} for each candidate $i_j$ with key $\pi_j$:
+  \begin{enumerate}
+    \item Inspect the heap root, which holds the current minimum priority among the $m$ sample elements:
+    \begin{equation}
+      \pi_{\min} = \operatorname{min\_key}(H).
+    \end{equation}
+    \item \textbf{If $\pi_j \le \pi_{\min}$:} the key fails to enter the top $m$. Item $i_j$ is discarded immediately in $\mathcal{O}(1)$ time.
+    \item \textbf{If $\pi_j > \pi_{\min}$:} the element holding $\pi_{\min}$ is ejected. We replace the root (\texttt{Replace-Min}) with $\langle \pi_j, i_j \rangle$ and restore heap order via \texttt{Heapify-Down} in $\mathcal{O}(\log m)$ time.
+  \end{enumerate}
+\end{itemize}
+
+The functional architecture of Priority Sampling is illustrated in \autoref{fig:priority-sampling-minheap}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    box/.style={rectangle, draw=blue!85!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=1.1cm, align=center, font=\small},
+    heapnode/.style={circle, draw=orange!90!black, fill=orange!15, thick, minimum size=1.0cm, align=center, font=\scriptsize\bfseries},
+    rootnode/.style={circle, draw=red!85!black, fill=red!20, line width=1.5pt, minimum size=1.1cm, align=center, font=\scriptsize\bfseries},
+    decision/.style={diamond, draw=teal!85!black, fill=teal!15, thick, aspect=1.8, align=center, font=\footnotesize\bfseries, inner sep=2pt},
+    arrow/.style={-{Stealth[scale=0.95]}, thick, draw=blue!80!black}
+  ]
+    % Stream
+    \node[box, fill=gray!15, draw=gray!70!black] (stream) at (0, 0) {
+      Stream $S$\\
+      \footnotesize Item $i_j$
+    };
+
+    % Key Generator
+    \node[box, fill=teal!15, draw=teal!80!black, right=1.0cm of stream] (rng) {
+      Key Generator\\
+      \footnotesize $\pi_j \sim \mathcal{U}(0, 1)$
+    };
+
+    % Decision
+    \node[decision, right=1.2cm of rng] (dec) {
+      $\pi_j > \pi_{\min}$?
+    };
+
+    % Drop
+    \node[box, fill=red!10, draw=red!70!black, below=1.4cm of dec] (drop) {
+      Discard Item\\
+      \footnotesize Cost $\mathcal{O}(1)$
+    };
+
+    % Min-Heap Container
+    \node[draw=orange!80!black, dashed, rounded corners, fill=orange!5, minimum width=4.8cm, minimum height=3.6cm, right=2.0cm of dec] (heapbox) {};
+    \node[above=3pt of heapbox.north, font=\small\bfseries, text=orange!90!black] {Min-Heap $H$ (Capacity $m$)};
+
+    % Heap nodes
+    \node[rootnode] (r) at ($(heapbox.north)+(0, -1.0)$) {$\pi_{\min}$\\\tiny (Root)};
+    \node[heapnode] (c1) at ($(r)+(-1.4, -1.2)$) {$\pi_{a}$};
+    \node[heapnode] (c2) at ($(r)+(1.4, -1.2)$) {$\pi_{b}$};
+
+    \draw[thick, draw=orange!80!black] (r) -- (c1);
+    \draw[thick, draw=orange!80!black] (r) -- (c2);
+
+    % Flow arrows
+    \draw[arrow] (stream) -- (rng);
+    \draw[arrow] (rng) -- node[above=1pt, font=\scriptsize] {$\langle \pi_j, i_j \rangle$} (dec);
+    \draw[arrow] (dec) -- node[right=1pt, font=\scriptsize\bfseries, text=red!80!black] {NO} (drop);
+    \draw[arrow] (dec.east) -- ++(0.9, 0) |- node[pos=0.15, above=2pt, font=\scriptsize\bfseries, text=teal!80!black] {YES} node[pos=0.82, below=2pt, font=\scriptsize] {\texttt{Replace-Min}} (r.west);
+  \end{tikzpicture}%
+  }
+  \caption{Functional flow of streaming Priority Sampling using a bounded Min-Heap of capacity $m$.}
+  \label{fig:priority-sampling-minheap}
+\end{figure}
+
+\begin{property}[Complexity Analysis of Priority Sampling]
+Memory space is bounded by $\mathcal{O}(m)$ words. Worst-case processing time per element is $\mathcal{O}(\log m)$. However, because the probability that element $j$ qualifies into the top $m$ is $\frac{m}{j}$, the expected number of heap updates across $n$ stream items is:
+\begin{equation}
+  \sum_{j=m+1}^n \frac{m}{j} = m \sum_{j=m+1}^n \frac{1}{j} = \mathcal{O}(m \log(n/m)).
+\end{equation}
+The expected amortized cost per item is:
+\begin{equation}
+  T_{\text{avg}} = \mathcal{O}\!\left(1 + \frac{m \log m \log(n/m)}{n}\right) = \mathcal{O}(1) \quad \text{for } n \gg m.
+\end{equation}
+Nevertheless, Priority Sampling requires generating a pseudo-random key for \emph{every} stream item, alongside tree management overhead.
+\end{property}
+
+\FloatBarrier
+\subsection{Reservoir Sampling (Algorithm R by Waterman / Knuth)}
+To achieve strict $\mathcal{O}(1)$ worst-case time per item without priority heap overhead, the canonical solution is \textbf{Reservoir Sampling} (originally developed by Alan G. Waterman and formalized as \textbf{Algorithm R} by Knuth~\cite{knuth1997}).
+
+\subsubsection{Operational Mechanism}
+The algorithm maintains a simple linear array $R[1 \dots m]$, called the \textbf{reservoir}. Execution proceeds in two phases:
+\begin{enumerate}
+  \item \textbf{Phase 1 (Deterministic Initialization):} the first $m$ stream items are unconditionally assigned to their matching slots in $R$:
+  \begin{equation}
+    R[j] \leftarrow i_j, \qquad \forall j \in \{1, 2, \dots, m\}.
+  \end{equation}
+  No pseudo-random numbers are generated during this initial phase.
+  \item \textbf{Phase 2 (Competitive Online Replacement):} for every subsequent item $i_j$ arriving at time $j = m + 1, m + 2, \dots$:
+  \begin{enumerate}
+    \item Draw a uniform discrete random integer $k$ within the inclusive range $[1, j]$:
+    \begin{equation}
+      k \sim \operatorname{rand}(1, j).
+    \end{equation}
+    \item Evaluate admission:
+    \begin{itemize}
+      \item If $k \le m$: item $i_j$ enters the reservoir, \textbf{replacing} slot $k$:
+      \begin{equation}
+        R[k] \leftarrow i_j.
+      \end{equation}
+      The item formerly residing at $R[k]$ is permanently evicted.
+      \item If $k > m$: current item $i_j$ is discarded immediately, leaving $R$ unchanged.
+    \end{itemize}
+  \end{enumerate}
+\end{enumerate}
+
+\begin{algorithm}[H]
+  \caption{Reservoir Sampling (Algorithm R by Waterman / Knuth)}
+  \label{alg:reservoir-sampling-stream}
+  \KwInput{Streaming sequence $S = \langle i_1, i_2, \dots \rangle$, reservoir capacity $m$}
+  \KwOutput{Array $R[1 \dots m]$ containing a uniform sample at all times}
+  \For{$j \leftarrow 1$ \KwTo $m$}{
+    $R[j] \leftarrow i_j$\tcp*{Fill initial reservoir without RNG}
+  }
+  $j \leftarrow m + 1$\;
+  \While{Stream continues and new item $i_j$ arrives}{
+    $k \leftarrow \operatorname{RandomInteger}(1, j)$\;
+    \If{$k \le m$}{
+      $R[k] \leftarrow i_j$\tcp*{Replace slot k with probability m/j}
+    }
+    $j \leftarrow j + 1$\;
+  }
+  \Return $R$\;
+\end{algorithm}
+
+The replacement mechanism is illustrated in \autoref{fig:reservoir-sampling-flow}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    box/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum width=2.4cm, minimum height=1.1cm, align=center, font=\small},
+    slot/.style={rectangle, draw=blue!85!black, thick, minimum width=1.1cm, minimum height=1.1cm, align=center, font=\small\bfseries},
+    replaced/.style={rectangle, draw=teal!85!black, fill=teal!25, line width=1.5pt, minimum width=1.1cm, minimum height=1.1cm, align=center, font=\small\bfseries},
+    decision/.style={diamond, draw=teal!85!black, fill=teal!15, thick, aspect=1.8, align=center, font=\footnotesize\bfseries, inner sep=2pt},
+    arrow/.style={-{Stealth[scale=0.95]}, thick, draw=blue!80!black}
+  ]
+    % Stream
+    \node[box, fill=gray!15, draw=gray!70!black] (stream) at (0, 0) {
+      Stream $S$\\
+      \footnotesize Item $i_j$ ($j > m$)
+    };
+
+    % Integer RNG
+    \node[box, fill=teal!15, draw=teal!80!black, right=1.0cm of stream] (rng) {
+      RNG $k$\\
+      \footnotesize $k \in \{1, \dots, j\}$
+    };
+
+    % Decision
+    \node[decision, right=1.1cm of rng] (dec) {
+      $k \le m$?
+    };
+
+    % Discard
+    \node[box, fill=red!10, draw=red!70!black, below=1.3cm of dec] (drop) {
+      Discard $i_j$\\
+      \footnotesize Probability $1 - \frac{m}{j}$
+    };
+
+    % Reservoir Array
+    \node[slot, fill=blue!8, right=2.2cm of dec] (s1) {$R[1]$};
+    \node[slot, fill=blue!8, right=0pt of s1] (s2) {$R[2]$};
+    \node[slot, fill=gray!15, right=0pt of s2] (dots) {$\dots$};
+    \node[replaced, right=0pt of dots] (sk) {$i_j$};
+    \node[slot, fill=blue!8, right=0pt of sk] (sm) {$R[m]$};
+
+    \node[below=8pt of dots, font=\small\bfseries, text=blue!85!black] {Reservoir Memory Array $R[1 \dots m]$};
+
+    % Arrows
+    \draw[arrow] (stream) -- (rng);
+    \draw[arrow] (rng) -- node[above=1pt, font=\scriptsize] {$k$} (dec);
+    \draw[arrow] (dec) -- node[right=1pt, font=\scriptsize\bfseries, text=red!80!black] {NO} (drop);
+    \draw[arrow, draw=teal!85!black, very thick] (dec.north) -- ++(0, 0.8) -| node[pos=0.25, above=2pt, font=\scriptsize\bfseries, text=teal!80!black] {YES (Probability $\frac{m}{j}$)} (sk.north)
+      node[pos=0.88, right=3pt, font=\footnotesize\bfseries, text=teal!90!black] {Slot $R[k] \leftarrow i_j$};
+  \end{tikzpicture}%
+  }
+  \caption{Operational replacement flow of Reservoir Sampling (Algorithm R).}
+  \label{fig:reservoir-sampling-flow}
+\end{figure}
+
+\FloatBarrier
+\subsection{Step-by-Step Walkthrough: Reservoir Sampling Example}
+We trace the step-by-step state progression on a sample stream.
+
+\begin{example}[Reservoir Sampling Execution Trace]
+Consider the sequence:
+\begin{equation}
+  S = \langle a, b, c, d, e, f, g, h, i \rangle, \qquad \text{with capacity } m = 3.
+\end{equation}
+\begin{itemize}
+  \item \textbf{Initialization ($j = 1, 2, 3$):} the first $m = 3$ elements are saved into $R$:
+  \begin{equation}
+    R = [a, \; b, \; c].
+  \end{equation}
+  \item \textbf{Online updates ($j = 4, 5, 6, 7$):} state transitions are detailed in \autoref{tab:trace-reservoir-sampling}.
+\end{itemize}
+
+\begin{table}[H]
+  \centering
+  \caption{Step-by-step trace of Reservoir Sampling ($m = 3$).}
+  \label{tab:trace-reservoir-sampling}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{c c c c l c}
+    \toprule
+    Step $j$ & Item $i_j$ & Random Integer $k$ & $k \le m$ & Executed Action & Reservoir State $R[1 \dots 3]$ \\
+    \midrule
+    $1 \dots 3$ & $a, b, c$ & --- & --- & Deterministic initialization & $[a, b, c]$ \\
+    \addlinespace
+    $4$ & $d$ & $k = 2 \in \{1 \dots 4\}$ & True ($2 \le 3$) & Replace slot $R[2] \leftarrow d$ & $[a, d, c]$ \\
+    \addlinespace
+    $5$ & $e$ & $k = 5 \in \{1 \dots 5\}$ & False ($5 > 3$) & Discard item $e$ immediately & $[a, d, c]$ \\
+    \addlinespace
+    $6$ & $f$ & $k = 1 \in \{1 \dots 6\}$ & True ($1 \le 3$) & Replace slot $R[1] \leftarrow f$ & $[f, d, c]$ \\
+    \addlinespace
+    $7$ & $g$ & $k = 4 \in \{1 \dots 7\}$ & False ($4 > 3$) & Discard item $g$ immediately & $[f, d, c]$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+\end{example}
+
+\FloatBarrier
+\section{Formal Proof by Induction of Reservoir Sampling}
+\label{sec:reservoir-sampling-proof}
+
+The mathematical correctness of Reservoir Sampling ensures that upon stream termination at any point, every observed element has an identical inclusion probability.
+
+\begin{theorem}[Correctness of Reservoir Sampling]
+For any stream $S$, at any step $n \ge m$, every element $i_j$ seen so far ($1 \le j \le n$) belongs to the reservoir $R$ with probability:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = \frac{m}{n}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+We proceed by mathematical induction on observed stream length $n$, keeping capacity $m$ fixed.
+
+\textbf{Base step ($n = m$):}\\
+After the first $m$ steps, elements $i_1, \dots, i_m$ are deterministically placed into reservoir $R$:
+\begin{equation}
+  R = [i_1, i_2, \dots, i_m].
+\end{equation}
+Therefore, for every $j \in \{1, \dots, m\}$:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = 1 = \frac{m}{m}.
+\end{equation}
+The base case holds.
+
+\textbf{Inductive hypothesis:}\\
+Assume the property holds at step $n - 1$, so for every $i_j$ with $1 \le j \le n - 1$:
+\begin{equation}
+  \mathbb{P}(i_j \in R \text{ at step } n - 1) = \frac{m}{n - 1}.
+  \label{eq:induction-hypothesis}
+\end{equation}
+
+\textbf{Inductive step (transition from $n - 1$ to $n$):}\\
+Upon arrival of the $n$-th element $i_n$, the algorithm draws:
+\begin{equation}
+  k \sim \operatorname{rand}(1, n).
+\end{equation}
+We evaluate two mutually exclusive cases:
+\begin{itemize}
+  \item \textbf{Case 1: Newly arrived element ($j = n$):}\\
+  Element $i_n$ enters reservoir $R$ if and only if $k \le m$. Because $k$ is drawn uniformly from $\{1, 2, \dots, n\}$:
+  \begin{equation}
+    \mathbb{P}(i_n \in R) = \mathbb{P}(k \le m) = \frac{m}{n}.
+  \end{equation}
+  The assertion holds for $j = n$.
+
+  \item \textbf{Case 2: Any earlier element ($j < n$):}\\
+  Consider an arbitrary previous element $i_j$ ($1 \le j \le n - 1$). For $i_j$ to remain in $R$ after step $n$, two conditions must hold:
+  \begin{enumerate}
+    \item $i_j$ was present in reservoir $R$ at step $n - 1$;
+    \item $i_j$ \textbf{survives} step $n$, meaning it is not overwritten by $i_n$.
+  \end{enumerate}
+  Applying the conditional probability law:
+  \begin{align}
+    \mathbb{P}(i_j \in R \text{ at step } n) &= \mathbb{P}(i_j \in R \text{ at step } n - 1) \notag\\
+    &\quad \cdot \mathbb{P}(i_j \text{ survives step } n \mid i_j \in R \text{ at step } n - 1).
+  \end{align}
+  By the inductive hypothesis~\eqref{eq:induction-hypothesis}, the first factor is $\frac{m}{n - 1}$.
+
+  We evaluate survival event $E_{\text{surv}}$, meaning $i_j$ is not overwritten at step $n$. An element in $R$ survives under two disjoint scenarios:
+  \begin{itemize}
+    \item \emph{Scenario A:} The new element $i_n$ does not enter $R$ ($k > m$), occurring with probability:
+    \begin{equation}
+      \mathbb{P}(k > m) = 1 - \frac{m}{n}.
+    \end{equation}
+    Here, no slot is modified, and $i_j$ survives with certainty.
+    \item \emph{Scenario B:} The new element $i_n$ enters $R$ ($k \le m$, probability $\frac{m}{n}$), \textbf{BUT} the replacement slot chosen is distinct from the one occupied by $i_j$. Because slot $k$ is chosen uniformly among the $m$ slots, the probability of selecting one of the other $m - 1$ slots is:
+    \begin{equation}
+      \frac{m - 1}{m}.
+    \end{equation}
+  \end{itemize}
+  Summing probabilities of these disjoint outcomes gives total survival probability:
+  \begin{align}
+    \mathbb{P}(E_{\text{surv}}) &= \left(1 - \frac{m}{n}\right) + \left(\frac{m}{n} \cdot \frac{m - 1}{m}\right) \notag\\[1ex]
+    &= \frac{n - m}{n} + \frac{m - 1}{n} \notag\\[1ex]
+    &= \frac{n - m + m - 1}{n} \notag\\[1ex]
+    &= \frac{n - 1}{n}.
+    \label{eq:survival-probability}
+  \end{align}
+  Combining the survival probability~\eqref{eq:survival-probability} with the inductive hypothesis:
+  \begin{align}
+    \mathbb{P}(i_j \in R \text{ at step } n) &= \left(\frac{m}{n - 1}\right) \cdot \left(\frac{n - 1}{n}\right) \notag\\[1ex]
+    &= \frac{m}{n}.
+  \end{align}
+  The factor $(n - 1)$ cancels algebraically, confirming the result for all prior items $j < n$.
+\end{itemize}
+Having established the assertion for both $j = n$ and all $j < n$, the inductive step is complete:
+\begin{equation}
+  \mathbb{P}(i_j \in R) = \frac{m}{n}, \qquad \forall j \in \{1, 2, \dots, n\}.
+\end{equation}
+The correctness of Reservoir Sampling is established.
+\end{proof}
+
+\FloatBarrier
+\FloatBarrier
+\section{Comparative Synthesis}
+\label{sec:comparative-synthesis}
+
+To consolidate our theoretical findings, \autoref{tab:sampling-comparison-streaming} summarizes the operational profiles, working space, and computational costs of the three stream sampling paradigms examined.
+
+\begin{table}[H]
+  \centering
+  \caption{Comparative synthesis of stream sampling strategies.}
+  \label{tab:sampling-comparison-streaming}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{l c c c c l}
+    \toprule
+    \textbf{Algorithm} & \textbf{Knowledge of $n$} & \textbf{Working Space} & \textbf{Cost per Item} & \textbf{RNG Calls} & \textbf{Data Structure} \\
+    \midrule
+    Algorithm S (Knuth) & Known a priori & $\mathcal{O}(1)$ & $\mathcal{O}(1)$ & $n$ ($1$ per item) & Static array for sample \\
+    \addlinespace
+    Priority Sampling & Unknown & $\mathcal{O}(m)$ & $\mathcal{O}(\log m)$ & $n$ ($1$ per item) & Bounded Min-Heap of size $m$ \\
+    \addlinespace
+    Reservoir Sampling (Alg. R) & Unknown & $\mathcal{O}(m)$ & $\mathcal{O}(1)$ & $n - m$ ($0$ for first $m$) & Reservoir array of size $m$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\paragraph{Algorithm Engineering Remark (Optional Insight: Practical RNG Bottleneck):}
+In high-throughput industrial streaming workloads ($n \gg 10^9$), classical Algorithm R incurs a subtle computational penalty: although operating in $\mathcal{O}(1)$ worst-case time per item, it queries the pseudo-random number generator (RNG) for each of the $n - m$ subsequent stream items. Because admission probability $\frac{m}{j}$ rapidly approaches zero, nearly all RNG invocations yield $k > m$, wasting substantial CPU cycles on discarded items.
+To circumvent this bottleneck, \textbf{Vitter's Algorithm Z}~\cite{vitter1985} models the number of elements skipped before the next reservoir replacement as a random variable termed the \emph{skip distance}. By sampling this skip distance directly, the algorithm skips entire blocks of unselected stream elements in bulk without per-item RNG queries, drastically cutting total random draws from $\mathcal{O}(n)$ to $\mathcal{O}(m(1 + \log(n/m)))$.
