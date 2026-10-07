@@ -1,0 +1,336 @@
+\chapter[Convergence and Complexity Analysis of the Gradient Method]{Convergence and Complexity Analysis\\of the Gradient Method for Quadratic Functions}
+\label{chap:convergence-complexity-gradient-method-quadratics}
+
+This chapter investigates the theoretical, computational, and empirical performance of the Gradient Method with exact line search (\textit{Steepest Descent}) applied to the unconstrained minimization of multivariate quadratic functions:
+\begin{equation}
+    f(x) = \frac{1}{2} x^T Q x + q^T x, \quad Q = Q^T \in \R^{n \times n}, \; q \in \R^n.
+\end{equation}
+The discussion is organized into two primary theoretical parts. In the first part, we examine the strictly convex regime ($Q \succ 0$), formalizing the linear decay of the absolute objective error and deriving the theoretical rate of contraction via the Kantorovich inequality. This highlights the unifying role of the spectral condition number $\kappa(Q)$ and the spatial dimension independence of the algorithm. In the second part, we explore algorithmic complexity theory, comparing the output and input spaces, classifying asymptotic convergence rates (sublinear, linear, superlinear, and quadratic), and rigorously analyzing the singular positive semidefinite regime ($Q \succeq 0, \lambda_n = 0$), Bubeck's $\BigO{1/\epsilon}$ sublinear bound, and the computational detection of unbounded problems ($f^* = -\infty$).
+
+\FloatBarrier
+\section{Iterative Algorithms and Minimizing Sequences}
+\label{sec:iterative-algorithms-minimizing-sequences}
+
+\subsection{From Direct Solvers to Iterative Schemes}
+As analyzed in Chapter~\ref{chap:inhomogeneous-quadratic-optimization-gmq} (Section~\ref{sec:optimality-conditions-linear-algebra}), minimizing the quadratic function $f(x) = \frac{1}{2} x^T Q x + q^T x$ is formally equivalent to solving the symmetric linear system $Q x = -q$. Classical direct numerical methods (Gaussian elimination, Cholesky factorization $Q = L L^T$) exhibit a computational complexity of:
+\begin{equation}
+    T_{\text{direct}}(n) \in \BigO{n^3} \text{ FLOPs},
+\end{equation}
+further burdened by matrix fill-in during factorization, which destroys data sparsity and requires $\BigO{n^2}$ memory allocations. For large-scale machine learning and data science problems ($n \ge 10^4$ or $n \ge 10^6$), direct methods become intractable.
+
+Iterative algorithms circumvent this obstacle through low-cost atomic operations, relying solely on matrix-vector products $Q v$ costing $\BigO{n^2}$ (which reduces to $\BigO{n}$ for sparse matrices), generating a sequence of iterates $\{x_k\}$ that systematically converges to the optimum.
+
+\subsection{Fundamental Definitions}
+
+\begin{definition}[Iterative Optimization Algorithm]
+An iterative process begins with an initial estimate $x_0 \in \R^n$ (commonly chosen as $x_0 = 0$) and generates an infinite sequence of iterates:
+\begin{equation}
+    \{x_k\}_{k=0}^\infty \subset \R^n \quad \text{via a transition update } x_k \rightsquigarrow x_{k+1},
+\end{equation}
+with the goal of driving the sequence toward a minimizer $x^*$.
+\end{definition}
+
+\begin{definition}[Minimizing Sequence]
+The sequence of objective function values along the iterate path, defined by $f_k = f(x_k)$, is called a \textbf{minimizing sequence} if:
+\begin{equation}
+    \lim_{k \to \infty} f(x_k) = f^* \equiv \inf_{x \in \R^n} f(x).
+\end{equation}
+If the problem is unbounded below ($f^* = -\infty$), the sequence satisfies $\lim_{k \to \infty} f(x_k) = -\infty$.
+\end{definition}
+
+\begin{definition}[Descent Method (Monotone Algorithm)]
+An iterative algorithm is strictly \textbf{monotone decreasing} (or a descent method) if it guarantees a strict objective reduction at every non-stationary step:
+\begin{equation}
+    f(x_{k+1}) < f(x_k) \quad \forall k \text{ such that } \nabla f(x_k) \neq 0.
+\end{equation}
+\end{definition}
+
+\begin{proposition}[Existence of the Limit for Minimizing Sequences]
+Since every sequence of real numbers $\{f(x_k)\}$ that is strictly monotonically decreasing and bounded below by $f^* > -\infty$ admits a finite limit by the monotone convergence theorem, the descent property guarantees that $\lim_{k \to \infty} f(x_k)$ always exists.
+\end{proposition}
+
+\begin{noteblock}{Output Space vs. Input Space Convergence}
+Does function value convergence in the output space ($f(x_k) \to f^*$) guarantee iterate convergence in the input space ($x_k \to x^*$)?
+\begin{itemize}
+    \item \textbf{When $Q \succ 0$ (strictly convex):} Yes. Sublevel sets $\{x \in \R^n \mid f(x) \le f(x_0)\}$ are compact ellipsoids, ensuring that value convergence implies geometric iterate convergence to the unique global minimum $x^*$.
+    \item \textbf{When $Q \succeq 0$ with zero eigenvalues or in general non-convex settings:} Not necessarily. Null curvature directions allow iterates to drift indefinitely while objective values remain virtually unchanged.
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
+\section{The GMQ Method and Core Geometric Properties}
+\label{sec:gradient-method-exact-line-search}
+
+In Chapter~\ref{chap:inhomogeneous-quadratic-optimization-gmq} (Sections~\ref{sec:iterative-algorithms-gmq} and~\ref{sec:experimental-analysis-gmq}), the Gradient Method for Quadratic functions (\textbf{GMQ}) with exact line search was formulated and analyzed. We summarize here the key analytical and operational properties established there, which form the starting point for convergence and complexity analysis:
+\begin{enumerate}
+    \item \textbf{Direction of steepest descent:} Starting from $x_k \in \R^n$, iterates proceed along the negative instantaneous gradient $g_k \equiv \nabla f(x_k) = Q x_k + q$:
+    \begin{equation}
+        d_k = -g_k, \quad x_{k+1} = x_k - \alpha_k g_k, \quad \alpha_k > 0.
+    \end{equation}
+    \item \textbf{Closed-form optimal step size:} Minimizing the univariate parabolic section along the search ray yields the exact step size:
+    \begin{equation}
+        \alpha_k = \frac{\|g_k\|^2}{g_k^T Q g_k}, \quad \text{with } \frac{1}{\lambda_1} \le \alpha_k \le \frac{1}{\lambda_n},
+        \label{eq:optimal-step-size-en}
+    \end{equation}
+    bounded by the extremal eigenvalues of $Q$ via the Rayleigh quotient characterization for symmetric positive definite matrices.
+    \item \textbf{Strict orthogonality of consecutive gradients:} Line search optimality enforces orthogonality between successive gradients:
+    \begin{equation}
+        \langle g_{k+1}, g_k \rangle = g_{k+1}^T g_k = 0 \quad \forall k \ge 0.
+    \end{equation}
+    This geometric constraint forces iterates to execute sharp $90^\circ$ turns at every iteration, producing the characteristic zig-zag trajectory illustrated in Figure~\ref{fig:zig-zag-gmq-en} of Chapter~\ref{chap:inhomogeneous-quadratic-optimization-gmq}.
+    \item \textbf{Recursive gradient update at $\BigO{n}$ cost:} The update $x_{k+1} = x_k - \alpha_k g_k$ yields the recursive relation:
+    \begin{equation}
+        g_{k+1} = Q(x_k - \alpha_k g_k) + q = g_k - \alpha_k Q g_k = g_k - \alpha_k v_k, \quad \text{where } v_k \coloneqq Q g_k.
+        \label{eq:gradient-update-en}
+    \end{equation}
+    By caching $v_k$, both the step denominator $\langle g_k, v_k \rangle$ and the updated gradient $g_{k+1}$ are obtained with only $\BigO{n}$ FLOPs, limiting overall complexity to \textbf{a single matrix-vector product per iteration} (Algorithm~\ref{alg:optimized-gmq-en}).
+\end{enumerate}
+
+With these algebraic and algorithmic foundations established, we proceed directly to the quantitative analysis of error decay and convergence rates.
+
+\FloatBarrier
+\section{Homogeneous Error Representation and Decay}
+\label{sec:homogeneous-error-decay}
+
+\subsection{Absolute Objective Function Error}
+Assuming $Q \succ 0$, the unique global minimizer satisfies $Q x^* + q = 0 \iff x^* = -Q^{-1}q$. Evaluating the function at $x^*$:
+\begin{equation}
+    f(x^*) = \frac{1}{2} (x^*)^T Q x^* + q^T x^* = -\frac{1}{2} (x^*)^T Q x^*.
+\end{equation}
+Define the \textbf{absolute objective error}:
+\begin{equation}
+    A(x) \equiv f(x) - f(x^*) \ge 0.
+\end{equation}
+Expanding the difference:
+\begin{equation}
+    A(x) = \frac{1}{2} x^T Q x + q^T x + \frac{1}{2} (x^*)^T Q x^* = \frac{1}{2} x^T Q x - x^T Q x^* + \frac{1}{2} (x^*)^T Q x^*.
+\end{equation}
+Recognizing the matrix binomial square:
+\begin{equation}
+    A(x) = \frac{1}{2} (x - x^*)^T Q (x - x^*).
+    \label{eq:error-homogeneous-en}
+\end{equation}
+Moreover, since $g(x) = Q(x - x^*)$, inverting yields $x - x^* = Q^{-1} g(x)$. Substituting into~\eqref{eq:error-homogeneous-en}:
+\begin{equation}
+    A(x) = \frac{1}{2} (Q^{-1} g(x))^T Q (Q^{-1} g(x)) = \frac{1}{2} g(x)^T Q^{-1} g(x).
+    \label{eq:error-gradient-dual-en}
+\end{equation}
+
+\subsection{Exact Recurrence Relation of the Error}
+Evaluating $a_{k+1} \equiv A(x_{k+1})$ in terms of $a_k \equiv A(x_k)$:
+\begin{align}
+    a_{k+1} &= \frac{1}{2} [(x_k - x^*) - \alpha_k g_k]^T Q [(x_k - x^*) - \alpha_k g_k] \nonumber \\
+            &= \frac{1}{2} (x_k - x^*)^T Q (x_k - x^*) - \alpha_k g_k^T Q (x_k - x^*) + \frac{1}{2} \alpha_k^2 (g_k^T Q g_k).
+\end{align}
+Because $Q(x_k - x^*) = g_k$, the middle term simplifies to $g_k^T g_k = \|g_k\|^2$:
+\begin{equation}
+    a_{k+1} = a_k - \alpha_k \|g_k\|^2 + \frac{1}{2} \alpha_k^2 (g_k^T Q g_k).
+\end{equation}
+Substituting $\alpha_k = \frac{\|g_k\|^2}{g_k^T Q g_k}$:
+\begin{equation}
+    a_{k+1} = a_k - \frac{1}{2} \frac{\|g_k\|^4}{g_k^T Q g_k}.
+\end{equation}
+Dividing and multiplying by $a_k = \frac{1}{2} g_k^T Q^{-1} g_k$:
+\begin{equation}
+    a_{k+1} = a_k \left[ 1 - \frac{\|g_k\|^4}{(g_k^T Q g_k)(g_k^T Q^{-1} g_k)} \right].
+    \label{eq:error-exact-recurrence-en}
+\end{equation}
+This fundamental identity captures the exact contraction factor at each step.
+
+\FloatBarrier
+\section{Kantorovich Inequality and Linear Convergence Rate}
+\label{sec:kantorovich-linear-convergence}
+
+\subsection{Spectral Condition Number}
+Let $Q \in \R^{n \times n}$ be symmetric positive definite ($Q \succ 0$) with ordered eigenvalues $\lambda_1 \ge \dots \ge \lambda_n > 0$.
+
+\begin{definition}[Spectral Condition Number]
+The spectral condition number of $Q$ is defined as:
+\begin{equation}
+    \kappa(Q) = \frac{\lambda_1}{\lambda_n} = \frac{\lambda_{\max}(Q)}{\lambda_{\min}(Q)} \ge 1.
+\end{equation}
+\end{definition}
+
+\subsection{Kantorovich Inequality}
+
+\begin{theorem}[Kantorovich Inequality~\cite{nocedal2006numerical}]
+\label{thm:kantorovich-en}
+Let $Q \in \R^{n \times n}$ be symmetric positive definite with maximum eigenvalue $\lambda_1$ and minimum eigenvalue $\lambda_n$. For every non-zero vector $y \in \R^n \setminus \{0\}$:
+\begin{equation}
+    \frac{\|y\|^4}{(y^T Q y)(y^T Q^{-1} y)} \ge \frac{4 \lambda_1 \lambda_n}{(\lambda_1 + \lambda_n)^2}.
+    \label{eq:kantorovich-inequality-en}
+\end{equation}
+\end{theorem}
+
+\subsection{Derivation of the Theoretical Convergence Rate}
+Applying Theorem~\ref{thm:kantorovich-en} to recurrence~\eqref{eq:error-exact-recurrence-en} with $y = g_k$:
+\begin{equation}
+    1 - \frac{\|g_k\|^4}{(g_k^T Q g_k)(g_k^T Q^{-1} g_k)} \le 1 - \frac{4 \lambda_1 \lambda_n}{(\lambda_1 + \lambda_n)^2} = \left( \frac{\lambda_1 - \lambda_n}{\lambda_1 + \lambda_n} \right)^2.
+\end{equation}
+Dividing numerator and denominator by $\lambda_n$ yields the rate expressed in terms of $\kappa = \lambda_1 / \lambda_n$:
+\begin{equation}
+    r = \left( \frac{\kappa - 1}{\kappa + 1} \right)^2 < 1.
+    \label{eq:kantorovich-rate-en}
+\end{equation}
+
+\begin{theorem}[Global Linear Convergence of the Gradient Method for $Q \succ 0$]
+Let $f(x) = \frac{1}{2} x^T Q x + q^T x$ with $Q \succ 0$. The exact line search gradient method satisfies:
+\begin{equation}
+    A(x_{k+1}) \le \left( \frac{\kappa - 1}{\kappa + 1} \right)^2 A(x_k),
+\end{equation}
+implying global geometric decay:
+\begin{equation}
+    f(x_k) - f(x^*) \le \left( \frac{\kappa - 1}{\kappa + 1} \right)^{2k} (f(x_0) - f(x^*)).
+\end{equation}
+\end{theorem}
+
+\subsection{Geometric Interpretation of Extreme Cases}
+\begin{itemize}
+    \item \textbf{Isotropic Ideal Case ($\kappa = 1$):}
+    All eigenvalues are equal: $\lambda_1 = \dots = \lambda_n$. The matrix is a scalar multiple of the identity ($Q = \lambda I$). Level curves are perfect hyperspheres. Substituting $\kappa = 1$:
+    \begin{equation}
+        r = \left( \frac{1 - 1}{1 + 1} \right)^2 = 0 \implies A(x_1) \le 0 \cdot A(x_0) = 0.
+    \end{equation}
+    The algorithm converges to the exact minimizer in \textbf{1 single iteration} from any starting point $x_0$.
+    \item \textbf{Ill-Conditioned Case ($\kappa \gg 1$):}
+    Level curves are elongated ellipsoids. As $\kappa \to \infty$, $r \to 1^-$:
+    \begin{equation}
+        r \approx \left( 1 - \frac{2}{\kappa} \right)^2 \approx 1 - \frac{4}{\kappa}.
+    \end{equation}
+    Each iteration eliminates only a small fraction ($\approx 4/\kappa$) of error, inducing severe orthogonal oscillations.
+\end{itemize}
+
+\FloatBarrier
+\section{Computational Complexity and Convergence Rates}
+\label{sec:computational-complexity-convergence-rates}
+
+\subsection[Derivation of the Iteration Bound O(log(1/epsilon))]{Derivation of the Iteration Bound $\BigO{\log(1/\epsilon)}$}
+Assuming linear error contraction $v_k \le r^k v_0$ with $v_0 = A(x_0)$ and $r < 1$, we find the number of iterations $k$ required to reach tolerance $\epsilon > 0$:
+\begin{equation}
+    r^k v_0 \le \epsilon \iff k \ge \frac{\ln(v_0 / \epsilon)}{\ln(1/r)}.
+\end{equation}
+Under ill-conditioning ($r \to 1^-$), using $\ln(1 + \delta) \approx \delta$ with $\delta = (1-r)/r$:
+\begin{equation}
+    \frac{1}{\ln(1/r)} \approx \frac{r}{1 - r}.
+\end{equation}
+Hence, iteration complexity scales as:
+\begin{equation}
+    k \in \BigO{\frac{r}{1 - r} \ln\left( \frac{v_0}{\epsilon} \right)} = \BigO{\kappa(Q) \log\left( \frac{1}{\epsilon} \right)}.
+\end{equation}
+
+\subsection{Taxonomy of Asymptotic Convergence Rates}
+
+\begin{definition}[Asymptotic Order and Rate of Convergence]
+Let $\{e_k\}_{k=0}^\infty$ denote the error sequence $e_k = f(x_k) - f^* \ge 0$. The order of convergence $p \ge 1$ and asymptotic rate $r > 0$ are given by:
+\begin{equation}
+    \lim_{k \to \infty} \frac{e_{k+1}}{e_k^p} = r.
+\end{equation}
+\end{definition}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c c X c}
+\toprule
+\textbf{Regime} & \textbf{Order $p$} & \textbf{Rate $r$} & \textbf{Decay Law} & \textbf{Complexity $k(\epsilon)$} \\
+\midrule
+\textbf{Sublinear (Slow)}    & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/k}$          & $\BigO{1/\epsilon}$ \\
+\textbf{Sublinear (Nesterov)} & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/k^2}$        & $\BigO{1/\sqrt{\epsilon}}$ \\
+\textbf{Sublinear (Stochastic)} & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/\sqrt{k}}$ & $\BigO{1/\epsilon^2}$ \\
+\textbf{Linear}               & $p = 1$ & $r < 1$ & $e_k \le r^k e_0$                 & $\BigO{\log(1/\epsilon)}$ \\
+\textbf{Superlinear}          & $1 < p < 2$ & $r > 0$ & $e_k \approx r^{k^p}$           & Intermediate \\
+\textbf{Quadratic (Newton)}   & $p = 2$ & $r > 0$ & $e_k \approx r^{2^k}$             & $\BigO{\log(\log(1/\epsilon))}$ \\
+\bottomrule
+\end{tabularx}
+\caption{Taxonomy of convergence regimes in continuous optimization algorithms.}
+\label{tab:convergence-regimes-en}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Sublinear ($p=1, r=1$):} The ratio $e_{k+1}/e_k \to 1$. Gaining an extra decimal digit of precision requires multiplying iteration count by 10 (for $1/k$) or 100 (for $1/\sqrt{k}$).
+    \item \textbf{Linear ($p=1, r<1$):} Appears as a downward straight line on semi-logarithmic plots ($\log(\text{error})$ vs $k$). Gaining an extra digit of precision adds a fixed constant number of iterations.
+    \item \textbf{Quadratic ($p=2$):} The number of correct decimal digits \textbf{doubles at each iteration} ($1 \to 2 \to 4 \to 8 \to 16$), reaching machine precision within 5--8 steps.
+\end{itemize}
+
+\FloatBarrier
+\section[The Singular Semidefinite Regime (Q >= 0)]{The Singular Semidefinite Regime ($Q \succeq 0$)}
+\label{sec:singular-semidefinite-regime}
+
+\subsection{Loss of Strict Convexity and Infinite Conditioning}
+When $Q$ is singular ($\det(Q) = 0$), its minimum eigenvalue vanishes: $\lambda_n = 0$. The theoretical condition number becomes infinite:
+\begin{equation}
+    \kappa(Q) = \frac{\lambda_1}{0} = +\infty \implies r = \left( \frac{\infty - 1}{\infty + 1} \right)^2 = 1.
+\end{equation}
+The Kantorovich bound yields $A(x_{k+1}) \le 1 \cdot A(x_k)$, providing no guarantee of geometric contraction.
+
+\subsection{Bubeck's Sublinear Convergence Theorem}
+
+\begin{theorem}[Sublinear Bound for Singular Matrices~\cite{bubeck2015convex}]
+\label{thm:bubeck-sublinear-en}
+Let $f(x) = \frac{1}{2} x^T Q x + q^T x$ with $Q \succeq 0$ symmetric positive semidefinite and $q \in \operatorname{im}(Q)$. Under the gradient method with exact line search (or constant step size $\alpha = 1/\lambda_1$):
+\begin{equation}
+    f(x_k) - f^* \le \frac{2 \lambda_1 \|x_0 - x^*\|^2}{k - 1}, \quad \forall k \ge 2,
+    \label{eq:bubeck-bound-en}
+\end{equation}
+where $\lambda_1 = \lambda_{\max}(Q)$ and $x^*$ is an optimal solution.
+\end{theorem}
+
+Solving for the number of iterations to achieve $f(x_k) - f^* \le \epsilon$:
+\begin{equation}
+    k \ge 1 + \frac{2 \lambda_1 \|x_0 - x^*\|^2}{\epsilon} \implies k \in \BigO{\frac{1}{\epsilon}}.
+\end{equation}
+Complexity severely degrades from logarithmic to inverse linear:
+\begin{itemize}
+    \item Reaching $\epsilon = 10^{-3}$ requires $\approx 10^3$ iterations;
+    \item Reaching $\epsilon = 10^{-6}$ requires over $10^6$ iterations, rendering standard gradient descent intractable for high-precision demands.
+\end{itemize}
+
+\FloatBarrier
+\section{Computational Detection of Unbounded Problems}
+\label{sec:detection-unbounded-problems}
+
+\subsection{Algebraic Conditions for Unboundedness Below}
+As established in Chapter~\ref{chap:inhomogeneous-quadratic-optimization-gmq} (Section~\ref{sec:inhomogeneous-quadratic-singular} and Theorem~\ref{thm:existence-minimum-psd}), when $Q \succeq 0$ is singular, the space decomposes as $\R^n = \operatorname{im}(Q) \oplus \ker(Q)$. Decomposing the linear term $q = q^+ + q^0$:
+\begin{itemize}
+    \item \textbf{If $q^0 = 0 \iff q \in \operatorname{im}(Q)$:} The system $Q x = -q$ is consistent, admitting the affine manifold of solutions $X^* = x^* + \ker(Q)$ with finite minimum $f^* = -\frac{1}{2} q^T x^*$;
+    \item \textbf{If $q^0 \neq 0 \iff q \notin \operatorname{im}(Q)$:} The system is inconsistent. Along direction $d = -q^0 \in \ker(Q)$, the quadratic term vanishes ($d^T Q d = 0$) while the linear term strictly decreases ($q^T d = -\|q^0\|^2 < 0$), causing the objective to diverge to $-\infty$.
+\end{itemize}
+While this failure mode corresponds algebraically to system inconsistency, computationally it is imperative that the iterative algorithm detects unboundedness promptly to prevent non-terminating loops or arithmetic overflow.
+
+\subsection{Algorithmic Check in GMQ}
+In efficient implementations (such as \texttt{GMQ.m}), unboundedness is caught by examining the step denominator:
+\begin{lstlisting}[style=code,caption={Numerical unboundedness detection in GMQ.}]
+v = Q * g;
+den = g' * v; % computes g_k' * Q * g_k
+
+if den <= 1e-14
+    fprintf('g'' * Q * g = %1.4e ==> unbounded\n', den);
+    status = 'unbounded';
+    break;
+end
+\end{lstlisting}
+This check simultaneously identifies:
+\begin{enumerate}
+    \item $g_k^T Q g_k \approx 0$ with $\|g_k\| > 0$: The gradient lies in $\ker(Q)$, leading to linear divergence $f \to -\infty$;
+    \item $g_k^T Q g_k < 0$: The matrix $Q$ has negative curvature, producing a concave parabola diverging to $-\infty$.
+\end{enumerate}
+
+\FloatBarrier
+\section{Lower Complexity Bounds and Future Directions}
+\label{sec:lower-complexity-bounds}
+
+The slow convergence of gradient descent in singular ($\BigO{1/\epsilon}$) or ill-conditioned ($\BigO{\kappa \log(1/\epsilon)}$) problems prompts an essential theoretical question: is this an algorithm shortcoming or an intrinsic problem barrier?
+
+\textbf{Nesterov and Nemirovski's lower complexity theorems}~\cite{nesterov2004introductory} demonstrate that:
+\begin{itemize}
+    \item For general convex functions with Lipschitz gradients, no first-order method can converge faster than:
+    \begin{equation}
+        f(x_k) - f^* \ge \frac{3 L \|x_0 - x^*\|^2}{32 (k + 1)^2} \implies k \in \Omega\left(\frac{1}{\sqrt{\epsilon}}\right);
+    \end{equation}
+    \item For strongly convex quadratics ($Q \succ 0$), the first-order lower bound scales as:
+    \begin{equation}
+        k \in \Omega\left(\sqrt{\kappa(Q)} \log\left(\frac{1}{\epsilon}\right)\right).
+    \end{equation}
+\end{itemize}
+Standard gradient descent exhibits a linear dependency on $\kappa(Q)$. This gap motivates momentum and accelerated first-order methods (such as the \textbf{Conjugate Gradient Method}), which preserve an $\BigO{n^2}$ per-iteration matrix-vector cost while accelerating condition number dependency from $\kappa$ to $\sqrt{\kappa}$.

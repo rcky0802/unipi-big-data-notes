@@ -1,0 +1,350 @@
+\chapter[Analisi di Convergenza e Complessit\`a del Metodo del Gradiente]{Analisi di Convergenza e Complessit\`a\\del Metodo del Gradiente per Funzioni Quadratiche}
+\label{chap:convergenza-complessita-gradiente-quadratiche}
+
+Il presente capitolo approfondisce l'analisi teorica, computazionale e sperimentale del Metodo del Gradiente con ricerca esatta del passo (\textit{Steepest Descent}) applicato alla minimizzazione di funzioni quadratiche multivariate:
+\begin{equation}
+    f(x) = \frac{1}{2} x^T Q x + q^T x, \quad Q = Q^T \in \R^{n \times n}, \; q \in \R^n.
+\end{equation}
+La trattazione si articola in due parti logiche. Nella prima parte si analizza il caso strettamente convesso ($Q \succ 0$), formalizzando la convergenza lineare dell'errore assoluto e ricavando il tasso di contrazione teorico mediante la celebre disuguaglianza di Kantorovich, evidenziando il ruolo unificante del numero di condizionamento spettrale $\kappa(Q)$ e l'indipendenza dalla dimensione spaziale $n$. Nella seconda parte si affronta la teoria della complessit\`a algoritmica, confrontando lo spazio di output e lo spazio di input, classificando i tassi di convergenza asintotici (sublineare, lineare, superlineare e quadratico) e analizzando in dettaglio il caso singolare semidefinito positivo ($Q \succeq 0, \lambda_n = 0$), il bound sublineare di Bubeck $\BigO{1/\epsilon}$ e la rivelazione computazionale di problemi illimitati inferiormente ($f^* = -\infty$).
+
+\FloatBarrier
+\section{Algoritmi Iterativi e Successioni Minimizzanti}
+\label{sec:algoritmi-iterativi-minimizzanti}
+
+\subsection{Dalla Risoluzione Diretta agli Schemi Iterativi}
+Come analizzato nel Capitolo~\ref{chap:ottimizzazione-quadratica-non-omogenea-gmq} (Sezione~\ref{sec:condizione-ottimalita-algebra-lineare}), minimizzare la funzione quadratica $f(x) = \frac{1}{2} x^T Q x + q^T x$ equivale formalmente a risolvere il sistema lineare simmetrico $Q x = -q$. L'approccio classico basato sui metodi diretti esatti dell'algebra lineare numerica (eliminazione gaussiana, fattorizzazione di Cholesky $Q = L L^T$) comporta una complessit\`a computazionale pari a:
+\begin{equation}
+    T_{\text{diretto}}(n) \in \BigO{n^3} \text{ FLOPs},
+\end{equation}
+a cui si aggiunge il fenomeno del \textit{fill-in} (generazione di elementi non nulli nei fattori triangolari) che distrugge la sparsit\`a originaria della matrice e richiede $\BigO{n^2}$ parole di memoria. Nelle applicazioni su larga scala di Machine Learning e Data Science ($n \ge 10^4$ o $n \ge 10^6$), i metodi diretti sono totalmente impraticabili.
+
+Gli algoritmi iterativi superano questa barriera operando mediante trasformazioni atomiche a basso costo, basate unicamente su prodotti matrice-vettore $Q v$ di costo $\BigO{n^2}$ (che scende a $\BigO{n}$ se $Q$ \`e sparsa), generando una successione di stime $\{x_k\}$ che converge progressivamente alla soluzione ottima.
+
+\subsection{Definizioni Fondamentali}
+
+\begin{definition}[Algoritmo di Ottimizzazione Iterativo]
+Un procedimento iterativo \`e un processo computazionale che, a partire da una stima iniziale $x_0 \in \R^n$ (spesso assunta come $x_0 = 0$), genera una successione infinita di punti (detti iterati):
+\begin{equation}
+    \{x_k\}_{k=0}^\infty \subset \R^n \quad \text{secondo una legge di transizione } x_k \rightsquigarrow x_{k+1},
+\end{equation}
+con l'obiettivo che la successione converga verso un punto di minimo $x^*$.
+\end{definition}
+
+\begin{definition}[Successione Minimizzante]
+La sequenza dei valori assunti dalla funzione obiettivo lungo la traiettoria degli iterati, definita da $f_k = f(x_k)$, si dice \textbf{successione minimizzante} se soddisfa:
+\begin{equation}
+    \lim_{k \to \infty} f(x_k) = f^* \equiv \inf_{x \in \R^n} f(x).
+\end{equation}
+Qualora il problema sia illimitato inferiormente ($f^* = -\infty$), la successione soddisfa $\lim_{k \to \infty} f(x_k) = -\infty$.
+\end{definition}
+
+\begin{definition}[Metodo di Discesa (Algoritmo Monotono)]
+Un algoritmo iterativo si definisce \textbf{strettamente di discesa} (o monotono decrescente) se a ogni passo garantisce una riduzione stretta del valore obiettivo:
+\begin{equation}
+    f(x_{k+1}) < f(x_k) \quad \forall k \text{ tale che } \nabla f(x_k) \neq 0.
+\end{equation}
+\end{definition}
+
+\begin{proposition}[Esistenza del Limite della Successione Minimizzante]
+Poich\'e ogni successione numerica $\{f(x_k)\}$ strettamente monotona decrescente e limitata inferiormente da $f^* > -\infty$ ammette limite finito per il teorema di regolarit\`a delle successioni monotone, la propriet\`a di discesa assicura che il limite $\lim_{k \to \infty} f(x_k)$ esista sempre.
+\end{proposition}
+
+\begin{noteblock}{Spazio di Output vs. Spazio di Input}
+La convergenza dei valori nello spazio di output $f(x_k) \to f^*$ assicura automaticamente che gli iterati convergano a un punto $x^*$ nello spazio di input?
+\begin{itemize}
+    \item \textbf{Se $Q \succ 0$ (strettamente convessa):} la risposta \`e affermativa. Gli insiemi di sottolivello $\{x \in \R^n \mid f(x) \le f(x_0)\}$ sono ellissoidi compatti (chiusi e limitati); pertanto la convergenza del valore implica la convergenza geometrica dell'iterato all'unico minimo globale $x^*$.
+    \item \textbf{Se $Q \succeq 0$ con autovalori nulli o in problemi non convessi:} la risposta \`e in generale negativa, poich\'e esistono direzioni a curvatura nulla lungo cui gli iterati possono allontanarsi illimitatamente pur mantenendo un valore di funzione quasi invariato.
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
+\section{Il Metodo GMQ e Richiamo delle Propriet\`a Cardine}
+\label{sec:metodo-gradiente-passo-ottimo}
+
+Nel Capitolo~\ref{chap:ottimizzazione-quadratica-non-omogenea-gmq} (Sezioni~\ref{sec:algoritmi-iterativi-gmq} e~\ref{sec:analisi-sperimentale-gmq}) \`e stato formalizzato l'algoritmo del Gradiente per Funzioni Quadratiche (\textbf{GMQ}) con ricerca esatta del passo (\textit{exact line search}). Richiamiamo in modo compatto le propriet\`a analitiche ed operative ivi stabilite, che costituiscono il punto di partenza per l'analisi di convergenza e complessit\`a:
+\begin{enumerate}
+    \item \textbf{Direzione di massima discesa (\textit{Steepest Descent}):} Assegnato l'iterato $x_k \in \R^n$, l'avanzamento avviene lungo l'opposto del gradiente istantaneo $g_k \equiv \nabla f(x_k) = Q x_k + q$:
+    \begin{equation}
+        d_k = -g_k, \quad x_{k+1} = x_k - \alpha_k g_k, \quad \alpha_k > 0.
+    \end{equation}
+    \item \textbf{Passo ottimale analitico:} Come dimostrato minimizzando l'incremento univariato lungo la retta d'azione, lo stepsize esatto assume la forma chiusa:
+    \begin{equation}
+        \alpha_k = \frac{\|g_k\|^2}{g_k^T Q g_k}, \quad \text{con } \frac{1}{\lambda_1} \le \alpha_k \le \frac{1}{\lambda_n},
+        \label{eq:passo-ottimo-gmq}
+    \end{equation}
+    dove i limiti inferiore e superiore discendono dalla caratterizzazione variazionale del quoziente di Rayleigh su matrici simmetriche definite positive.
+    \item \textbf{Ortogonalit\`a rigorosa dei gradienti consecutivi:} La scelta esatta del passo impone che il gradiente successivo sia perpendicolare alla direzione di ricerca precedente:
+    \begin{equation}
+        \langle g_{k+1}, g_k \rangle = g_{k+1}^T g_k = 0 \quad \forall k \ge 0.
+    \end{equation}
+    Tale vincolo geometrico costringe le iterate a compiere svolte ad angolo retto esatto ($90^\circ$), originando la dinamica a zig-zag illustrata nella Figura~\ref{fig:zig-zag-gmq} del Capitolo~\ref{chap:ottimizzazione-quadratica-non-omogenea-gmq}.
+    \item \textbf{Aggiornamento ricorsivo del gradiente a costo $\BigO{n}$:} L'aggiornamento $x_{k+1} = x_k - \alpha_k g_k$ induce la formula ricorsiva:
+    \begin{equation}
+        g_{k+1} = Q(x_k - \alpha_k g_k) + q = g_k - \alpha_k Q g_k = g_k - \alpha_k v_k, \quad \text{con } v_k \coloneqq Q g_k.
+        \label{eq:aggiornamento-gradiente}
+    \end{equation}
+    Precalcolando il vettore ausiliario $v_k$, sia il denominatore del passo $\langle g_k, v_k \rangle$ sia il gradiente successivo si valutano con soli $\BigO{n}$ FLOPs, limitando il carico computazionale dell'algoritmo a \textbf{un solo prodotto matrice-vettore per iterazione} (Algoritmo~\ref{alg:gmq-ottimizzato}).
+\end{enumerate}
+
+Sulla scorta di queste premesse algebriche ed algoritmiche, procediamo ora all'analisi quantitativa dell'evoluzione dell'errore e della velocit\`a di convergenza.
+
+\FloatBarrier
+\section{Forma Omogenea dell'Errore e Decadimento}
+\label{sec:forma-omogenea-errore}
+
+\subsection{Errore Assoluto della Funzione Obiettivo}
+Sotto l'ipotesi di non singolarit\`a di $Q \succ 0$, l'unico punto di minimo globale $x^*$ soddisfa $Q x^* + q = 0 \iff x^* = -Q^{-1}q$. Valutando la funzione obiettivo in $x^*$:
+\begin{equation}
+    f(x^*) = \frac{1}{2} (x^*)^T Q x^* + q^T x^* = \frac{1}{2} (x^*)^T Q x^* - (x^*)^T Q x^* = -\frac{1}{2} (x^*)^T Q x^*.
+\end{equation}
+Definiamo l'\textbf{errore assoluto di funzione}:
+\begin{equation}
+    A(x) \equiv f(x) - f(x^*) \ge 0.
+\end{equation}
+Sottraendo le due espressioni:
+\begin{equation}
+    f(x) - f(x^*) = \frac{1}{2} x^T Q x + q^T x + \frac{1}{2} (x^*)^T Q x^* = \frac{1}{2} x^T Q x - x^T Q x^* + \frac{1}{2} (x^*)^T Q x^*.
+\end{equation}
+Riconoscendo il quadrato matriciale:
+\begin{equation}
+    A(x) = \frac{1}{2} (x - x^*)^T Q (x - x^*).
+    \label{eq:errore-forma-omogenea}
+\end{equation}
+Inoltre, poich\'e $g(x) = Q x + q = Q(x - x^*)$, possiamo invertire la relazione: $x - x^* = Q^{-1} g(x)$. Sostituendo in~\eqref{eq:errore-forma-omogenea}:
+\begin{equation}
+    A(x) = \frac{1}{2} (Q^{-1} g(x))^T Q (Q^{-1} g(x)) = \frac{1}{2} g(x)^T Q^{-1} g(x).
+    \label{eq:errore-gradiente-inversa}
+\end{equation}
+
+\subsection{Derivazione Esatta della Ricorrenza dell'Errore}
+Valutiamo l'errore $a_{k+1} \equiv A(x_{k+1})$ in funzione dell'errore precedente $a_k \equiv A(x_k)$:
+\begin{align}
+    a_{k+1} &= \frac{1}{2} (x_{k+1} - x^*)^T Q (x_{k+1} - x^*) \nonumber \\
+            &= \frac{1}{2} [(x_k - x^*) - \alpha_k g_k]^T Q [(x_k - x^*) - \alpha_k g_k] \nonumber \\
+            &= \frac{1}{2} (x_k - x^*)^T Q (x_k - x^*) - \alpha_k g_k^T Q (x_k - x^*) + \frac{1}{2} \alpha_k^2 (g_k^T Q g_k).
+\end{align}
+Poich\'e $Q(x_k - x^*) = g_k$, il termine lineare misto diventa $g_k^T g_k = \|g_k\|^2$:
+\begin{equation}
+    a_{k+1} = a_k - \alpha_k \|g_k\|^2 + \frac{1}{2} \alpha_k^2 (g_k^T Q g_k).
+\end{equation}
+Sostituendo il valore del passo ottimo $\alpha_k = \frac{\|g_k\|^2}{g_k^T Q g_k}$:
+\begin{equation}
+    a_{k+1} = a_k - \frac{\|g_k\|^4}{g_k^T Q g_k} + \frac{1}{2} \frac{\|g_k\|^4}{(g_k^T Q g_k)^2} (g_k^T Q g_k) = a_k - \frac{1}{2} \frac{\|g_k\|^4}{g_k^T Q g_k}.
+\end{equation}
+Raccogliendo $a_k$ ed esprimendolo a denominatore tramite la formula duale~\eqref{eq:errore-gradiente-inversa} ($a_k = \frac{1}{2} g_k^T Q^{-1} g_k$):
+\begin{equation}
+    a_{k+1} = a_k \left[ 1 - \frac{\frac{1}{2} \frac{\|g_k\|^4}{g_k^T Q g_k}}{\frac{1}{2} g_k^T Q^{-1} g_k} \right] = a_k \left[ 1 - \frac{\|g_k\|^4}{(g_k^T Q g_k)(g_k^T Q^{-1} g_k)} \right].
+    \label{eq:ricorrenza-esatta-errore}
+\end{equation}
+Questa fondamentale identit\`a algebrica esprime il fattore di contrazione esatto dell'errore ad ogni singola iterazione.
+
+\FloatBarrier
+\section{Disuguaglianza di Kantorovich e Tasso di Convergenza Lineare}
+\label{sec:kantorovich-tasso-lineare}
+
+\subsection{Numero di Condizionamento Spettrale}
+Sia $Q \in \R^{n \times n}$ una matrice simmetrica definita positiva ($Q \succ 0$). Indichiamo con $\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_n > 0$ i suoi autovalori ordinati.
+
+\begin{definition}[Numero di Condizionamento Spettrale]
+Il numero di condizionamento spettrale di $Q$ \`e definito dal rapporto tra l'autovalore massimo e l'autovalore minimo:
+\begin{equation}
+    \kappa(Q) = \frac{\lambda_1}{\lambda_n} = \frac{\lambda_{\max}(Q)}{\lambda_{\min}(Q)} \ge 1.
+\end{equation}
+\end{definition}
+
+\subsection{Disuguaglianza di Kantorovich}
+
+\begin{theorem}[Disuguaglianza di Kantorovich~\cite{nocedal2006numerical}]
+\label{thm:kantorovich}
+Sia $Q \in \R^{n \times n}$ una matrice simmetrica definita positiva con autovalore massimo $\lambda_1$ e autovalore minimo $\lambda_n$. Per ogni vettore non nullo $y \in \R^n \setminus \{0\}$, vale la disuguaglianza:
+\begin{equation}
+    \frac{\|y\|^4}{(y^T Q y)(y^T Q^{-1} y)} \ge \frac{4 \lambda_1 \lambda_n}{(\lambda_1 + \lambda_n)^2}.
+    \label{eq:disuguaglianza-kantorovich}
+\end{equation}
+\end{theorem}
+
+\subsection{Derivazione del Tasso Teorico di Convergenza}
+Applicando la disuguaglianza di Kantorovich~\eqref{eq:disuguaglianza-kantorovich} al termine sottrattivo della relazione~\eqref{eq:ricorrenza-esatta-errore} con $y = g_k$:
+\begin{equation}
+    1 - \frac{\|g_k\|^4}{(g_k^T Q g_k)(g_k^T Q^{-1} g_k)} \le 1 - \frac{4 \lambda_1 \lambda_n}{(\lambda_1 + \lambda_n)^2}.
+\end{equation}
+Sviluppando algebricamente il membro di destra:
+\begin{align}
+    \frac{(\lambda_1 + \lambda_n)^2 - 4 \lambda_1 \lambda_n}{(\lambda_1 + \lambda_n)^2} &= \frac{(\lambda_1 - \lambda_n)^2}{(\lambda_1 + \lambda_n)^2} = \left( \frac{\lambda_1 - \lambda_n}{\lambda_1 + \lambda_n} \right)^2.
+\end{align}
+Dividendo numeratore e denominatore per $\lambda_n > 0$ ed esprimendo la relazione tramite il numero di condizionamento $\kappa = \lambda_1 / \lambda_n$:
+\begin{equation}
+    r = \left( \frac{\kappa - 1}{\kappa + 1} \right)^2 < 1.
+    \label{eq:tasso-kantorovich}
+\end{equation}
+Si ottiene cos\`i il celebre teorema di convergenza lineare:
+
+\begin{theorem}[Convergenza Lineare Globale del Metodo del Gradiente per $Q \succ 0$]
+Sia $f(x) = \frac{1}{2} x^T Q x + q^T x$ con $Q \succ 0$. Il metodo del gradiente con passo ottimo soddisfa a ogni iterazione:
+\begin{equation}
+    A(x_{k+1}) \le \left( \frac{\kappa - 1}{\kappa + 1} \right)^2 A(x_k),
+\end{equation}
+da cui, applicando ricorsivamente la disuguaglianza per $k$ passi:
+\begin{equation}
+    f(x_k) - f(x^*) \le \left( \frac{\kappa - 1}{\kappa + 1} \right)^{2k} (f(x_0) - f(x^*)).
+\end{equation}
+\end{theorem}
+
+\subsection{Interpretazione Geometrica dei Casi Limite}
+\begin{itemize}
+    \item \textbf{Caso Ideale Isotropo ($\kappa = 1$):}
+    Tutti gli autovalori sono identici: $\lambda_1 = \lambda_2 = \dots = \lambda_n$. La matrice \`e proporzionale all'identit\`a ($Q = \lambda I$). Gli insiemi di livello sono ipersfere perfette. Sostituendo $\kappa = 1$:
+    \begin{equation}
+        r = \left( \frac{1 - 1}{1 + 1} \right)^2 = 0 \implies A(x_1) \le 0 \cdot A(x_0) = 0.
+    \end{equation}
+    L'algoritmo raggiunge l'ottimo esatto in \textbf{1 sola iterazione}, indipendentemente dal punto di partenza $x_0$, poich\'e il gradiente punta esattamente verso il centro della sfera.
+    \item \textbf{Caso Mal Condizionato ($\kappa \gg 1$):}
+    L'autovalore massimo \`e ordini di grandezza superiore al minimo. Gli insiemi di livello sono ellissoidi estremamente schiacciati. Poich\'e $\kappa \to \infty$, il fattore $r \to 1^-$:
+    \begin{equation}
+        r = \left( \frac{1 - 1/\kappa}{1 + 1/\kappa} \right)^2 \approx \left( 1 - \frac{2}{\kappa} \right)^2 \approx 1 - \frac{4}{\kappa}.
+    \end{equation}
+    A ogni iterazione si abbatte solo una minuscola frazione di errore ($\approx 4/\kappa$), costringendo l'algoritmo a una lentissima traiettoria oscillatoria ortogonale lungo le pareti della gola.
+\end{itemize}
+
+\FloatBarrier
+\section{Complessit\`a Computazionale e Tassi di Convergenza}
+\label{sec:complessita-tassi-convergenza}
+
+\subsection[Derivazione del Numero di Iterazioni O(log(1/epsilon))]{Derivazione del Numero di Iterazioni $\BigO{\log(1/\epsilon)}$}
+Supponiamo che l'errore contragga linearmente secondo la legge $v_k \le r^k v_0$, dove $v_0 = A(x_0)$ \`e l'errore iniziale e $r < 1$. Desideriamo calcolare il numero di iterazioni $k$ sufficiente a garantire una tolleranza prefissata $\epsilon > 0$:
+\begin{equation}
+    r^k v_0 \le \epsilon \iff r^k \le \frac{\epsilon}{v_0}.
+\end{equation}
+Applicando il logaritmo naturale ad ambo i membri (ricordando che $\ln(r) < 0$ poich\'e $r < 1$):
+\begin{equation}
+    k \ln(r) \le \ln\left( \frac{\epsilon}{v_0} \right) \iff k \ge \frac{\ln(\epsilon / v_0)}{\ln(r)} = \frac{\ln(v_0 / \epsilon)}{\ln(1/r)}.
+\end{equation}
+Nel regime mal condizionato ($r \to 1^-$), possiamo porre $\delta = \frac{1 - r}{r} \approx 1 - r \to 0$. Utilizzando l'approssimazione al primo ordine di Taylor $\ln(1 + \delta) \approx \delta$:
+\begin{equation}
+    \ln\left( \frac{1}{r} \right) = \ln\left( 1 + \frac{1 - r}{r} \right) \approx \frac{1 - r}{r} \implies \frac{1}{\ln(1/r)} \approx \frac{r}{1 - r}.
+\end{equation}
+Sostituendo l'espressione, il numero di iterazioni necessario scala come:
+\begin{equation}
+    k \in \BigO{\frac{r}{1 - r} \ln\left( \frac{v_0}{\epsilon} \right)} = \BigO{\kappa(Q) \log\left( \frac{1}{\epsilon} \right)}.
+\end{equation}
+
+\subsection{Tassonomia Comparativa dei Regimi di Convergenza}
+
+\begin{definition}[Ordine e Tasso Asintotico di Convergenza]
+Sia $\{e_k\}_{k=0}^\infty$ la sequenza degli errori $e_k = f(x_k) - f^* \ge 0$. Si definisce ordine di convergenza $p \ge 1$ e tasso asintotico $r > 0$ il valore del limite:
+\begin{equation}
+    \lim_{k \to \infty} \frac{e_{k+1}}{e_k^p} = r.
+\end{equation}
+\end{definition}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c c X c}
+\toprule
+\textbf{Regime} & \textbf{Ordine $p$} & \textbf{Tasso $r$} & \textbf{Legge di Decadimento} & \textbf{Complessit\`a $k(\epsilon)$} \\
+\midrule
+\textbf{Sublineare (Lento)}  & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/k}$          & $\BigO{1/\epsilon}$ \\
+\textbf{Sublineare (Nesterov)} & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/k^2}$        & $\BigO{1/\sqrt{\epsilon}}$ \\
+\textbf{Sublineare (Stocastico)} & $p = 1$ & $r = 1$ & $e_k \approx \BigO{1/\sqrt{k}}$ & $\BigO{1/\epsilon^2}$ \\
+\textbf{Lineare}             & $p = 1$ & $r < 1$ & $e_k \le r^k e_0$                 & $\BigO{\log(1/\epsilon)}$ \\
+\textbf{Superlineare}        & $1 < p < 2$ & $r > 0$ & $e_k \approx r^{k^p}$           & Intermedio \\
+\textbf{Quadratico (Newton)} & $p = 2$ & $r > 0$ & $e_k \approx r^{2^k}$             & $\BigO{\log(\log(1/\epsilon))}$ \\
+\bottomrule
+\end{tabularx}
+\caption{Tassonomia universale dei regimi di convergenza negli algoritmi di ottimizzazione continua.}
+\label{tab:regimi-convergenza}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Sublineare ($p=1, r=1$):} il rapporto $e_{k+1}/e_k \to 1$. L'errore non si riduce geometricamente. Per guadagnare un singolo ordine di grandezza sull'accuratezza (da $\epsilon = 10^{-3}$ a $10^{-4}$), il numero di iterazioni viene moltiplicato per 10 (nel caso $1/k$) o per 100 (nel caso stocastico $1/\sqrt{k}$).
+    \item \textbf{Lineare ($p=1, r<1$):} nel grafico semilogaritmico ($\log(\text{errore})$ vs $k$), la convergenza corrisponde a una retta decrescente di pendenza costante $\log(r)$. Guadagnare un ordine di grandezza richiede semplicemente un numero costante aggiuntivo di iterazioni ($\approx 2.3 / \ln(1/r)$).
+    \item \textbf{Quadratico ($p=2$):} l'errore \`e proporzionale al quadrato dell'errore precedente ($e_{k+1} \approx r e_k^2$). Il numero di cifre decimali esatte \textbf{raddoppia ad ogni iterazione} ($1 \to 2 \to 4 \to 8 \to 16$). La complessit\`a $\BigO{\log(\log(1/\epsilon))}$ equivale a una costante pratica (5--8 iterazioni bastano per raggiungere la precisione macchina).
+\end{itemize}
+
+\FloatBarrier
+\section[Il Caso Singolare Semidefinito Positivo (Q >= 0)]{Il Caso Singolare Semidefinito Positivo ($Q \succeq 0$)}
+\label{sec:caso-singolare-semidefinito}
+
+\subsection{Perdita di Stretta Convessit\`a e Condizionamento Infinito}
+Quando la matrice $Q$ \`e singolare ($\det(Q) = 0$), il suo autovalore minimo \`e identicamente nullo: $\lambda_n = 0$. Il numero di condizionamento teorico diventa infinito:
+\begin{equation}
+    \kappa(Q) = \frac{\lambda_1}{0} = +\infty \implies r = \left( \frac{\infty - 1}{\infty + 1} \right)^2 = 1.
+\end{equation}
+Il bound di Kantorovich restituisce $A(x_{k+1}) \le 1 \cdot A(x_k)$, che non fornisce alcuna garanzia di contrazione geometrica dell'errore.
+
+\subsection{Teorema di Bubeck sulla Convergenza Sublineare}
+
+\begin{theorem}[Bound Sublineare per Matrici Singolari~\cite{bubeck2015convex}]
+\label{thm:bubeck-sublineare}
+Sia $f(x) = \frac{1}{2} x^T Q x + q^T x$ con $Q \succeq 0$ simmetrica semidefinita positiva e $q \in \operatorname{im}(Q)$. Applicando il metodo del gradiente con passo ottimo (o con passo costante $\alpha = 1/\lambda_1$), la successione soddisfa:
+\begin{equation}
+    f(x_k) - f^* \le \frac{2 \lambda_1 \|x_0 - x^*\|^2}{k - 1}, \quad \forall k \ge 2,
+    \label{eq:bubeck-bound}
+\end{equation}
+dove $\lambda_1 = \lambda_{\max}(Q)$ e $x^*$ \`e una soluzione ottima.
+\end{theorem}
+
+\begin{proof}[Idea della Dimostrazione]
+La convergenza sublineare discende dal fatto che il gradiente \`e Lipschitziano con costante $L = \lambda_1$. In assenza di forte convessit\`a ($\mu = \lambda_n = 0$), la disuguaglianza di discesa garantisce $f(x_{k+1}) \le f(x_k) - \frac{1}{2L} \|g_k\|^2$, ma la norma del gradiente non pu\`o pi\`u essere legata inferiormente all'errore di funzione tramite un termine quadratico non degenere, conducendo al decadimento armonico $\BigO{1/k}$.
+\end{proof}
+
+Risolvendo la disequazione~\eqref{eq:bubeck-bound} rispetto al numero di iterazioni affinch\'e $f(x_k) - f^* \le \epsilon$:
+\begin{equation}
+    \frac{2 \lambda_1 \|x_0 - x^*\|^2}{k - 1} \le \epsilon \iff k \ge 1 + \frac{2 \lambda_1 \|x_0 - x^*\|^2}{\epsilon} \implies k \in \BigO{\frac{1}{\epsilon}}.
+\end{equation}
+La complessit\`a degrada drasticamente da logaritmica ad algebrica inversa:
+\begin{itemize}
+    \item Per raggiungere $\epsilon = 10^{-3}$, occorrono $\approx 10^3$ iterazioni;
+    \item Per raggiungere $\epsilon = 10^{-6}$, occorrono oltre $10^6$ iterazioni, rendendo il metodo del gradiente convenzionale computazionalmente intrattabile per requisiti di elevata precisione.
+\end{itemize}
+
+\FloatBarrier
+\section{Rivelazione Computazionale di Problemi Illimitati}
+\label{sec:rivelazione-problemi-illimitati}
+
+\subsection{Condizioni Algebriche di Illimitatezza Inferiore}
+Come dimostrato nel Capitolo~\ref{chap:ottimizzazione-quadratica-non-omogenea-gmq} (Sezione~\ref{sec:quadratica-non-omogenea-singolare} e Teorema~\ref{thm:esistenza-minimo-quadratica}), per una matrice singolare $Q \succeq 0$ lo spazio si decompone come $\R^n = \operatorname{im}(Q) \oplus \ker(Q)$. Scomponendo il termine lineare $q = q^+ + q^0$:
+\begin{itemize}
+    \item \textbf{Se $q^0 = 0 \iff q \in \operatorname{im}(Q)$:} il sistema $Q x = -q$ \`e compatibile e ammette la variet\`a affine di minimi $X^* = x^* + \ker(Q)$, con valore ottimo finito $f^* = -\frac{1}{2} q^T x^*$;
+    \item \textbf{Se $q^0 \neq 0 \iff q \notin \operatorname{im}(Q)$:} il sistema \`e incompatibile. Lungo la direzione $d = -q^0 \in \ker(Q)$, la forma quadratica si annulla ($d^T Q d = 0$) mentre il termine lineare decresce strettamente ($q^T d = -\|q^0\|^2 < 0$), causando la divergenza illimitata $f(x) \to -\infty$.
+\end{itemize}
+Mentre sul piano algebrico tale patologia si riflette nell'incompatibilit\`a del sistema di stazionariet\`a, sul piano computazionale \`e indispensabile che l'algoritmo sia in grado di arrestarsi prontamente senza generare cicli infiniti o divergenze numeriche.
+
+\subsection{Il Controllo Algoritmico nello Script GMQ}
+Negli schemi numerici ad alta efficienza (come lo script \texttt{GMQ.m}), la condizione di illimitatezza inferiore viene intercettata automaticamente controllando il denominatore del passo ottimo:
+\begin{lstlisting}[style=code,caption={Verifica numerica di illimitatezza nello script GMQ.}]
+v = Q * g;
+den = g' * v; % calcola g_k' * Q * g_k
+
+if den <= 1e-14
+    fprintf('g'' * Q * g = %1.4e ==> unbounded\n', den);
+    status = 'unbounded';
+    break;
+end
+\end{lstlisting}
+Questo semplice controllo intercetta simultaneamente due condizioni patologiche:
+\begin{enumerate}
+    \item $g_k^T Q g_k \approx 0$ con $\|g_k\| > 0$: il gradiente appartiene al nucleo $\ker(Q)$. La funzione decresce linearmente senza limite lungo $-g_k$ ($f \to -\infty$);
+    \item $g_k^T Q g_k < 0$: la matrice $Q$ \`e indefinita o definita negativa. Muovendosi lungo l'antigradiente la parabola \`e concava e precipita a $-\infty$ parabolicamente.
+\end{enumerate}
+
+\FloatBarrier
+\section{Limiti Inferiori di Complessit\`a e Prospettive}
+\label{sec:limiti-inferiori-complessita}
+
+La lentezza del metodo del gradiente nel caso singolare ($\BigO{1/\epsilon}$) o mal condizionato ($\BigO{\kappa \log(1/\epsilon)}$) solleva un fondamentale quesito teorico: si tratta di una carenza intrinseca dell'algoritmo o di una difficolt\`a insita nella classe del problema?
+
+I teoremi sui \textbf{limiti inferiori di complessit\`a di Nesterov e Nemirovski}~\cite{nesterov2004introductory} stabiliscono che:
+\begin{itemize}
+    \item Per classi generali di funzioni convesse con gradiente Lipschitziano, nessun algoritmo basato esclusivamente su informazioni del primo ordine (valutazioni di $f$ e $\nabla f$) pu\`o convergere pi\`u velocemente di:
+    \begin{equation}
+        f(x_k) - f^* \ge \frac{3 L \|x_0 - x^*\|^2}{32 (k + 1)^2} \implies k \in \Omega\left(\frac{1}{\sqrt{\epsilon}}\right);
+    \end{equation}
+    \item Per funzioni quadratiche fortemente convesse ($Q \succ 0$), il limite inferiore del primo ordine scala come:
+    \begin{equation}
+        k \in \Omega\left(\sqrt{\kappa(Q)} \log\left(\frac{1}{\epsilon}\right)\right).
+    \end{equation}
+\end{itemize}
+Il metodo del gradiente classico presenta invece una dipendenza lineare da $\kappa(Q)$. Questo divario teorico motiva l'introduzione di metodi accelerati del primo ordine dotati di memoria (come il \textbf{Metodo del Gradiente Coniugato}), che mantengono un costo per iterazione di un singolo prodotto matrice-vettore $\BigO{n^2}$, ma abbattono la dipendenza del tasso di convergenza da $\kappa$ a $\sqrt{\kappa}$.
