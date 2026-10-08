@@ -33,16 +33,31 @@ latexmk -pdf -interaction=nonstopmode main_it.tex
 latexmk -pdf -interaction=nonstopmode main_en.tex
 ```
 
-## Struttura della Cartella
+## Struttura della Cartella e Indice dei Capitoli
+
+### Sezione 0: Introduzione Generale ai Modelli Computazionali
+- **Capitolo 0:** Introduzione Generale ai Modelli Computazionali (`00`)
+
+### Parte I: Algebra Lineare Numerica e Analisi dei Dati
+- **Capitolo 1:** Richiami di Algebra Lineare: Vettori, Operazioni e Norme (file `A01`)
+- **Capitolo 2:** Prodotto tra Matrici, Complessità Computazionale e Ortogonalità (file `A02`)
+- **Capitolo 3:** Matrici Ortonormali, Autovalori e Forme Quadratiche (file `A03`)
+- **Capitolo 4:** Decomposizione ai Valori Singolari (SVD) (file `A04`)
+- **Capitolo 5:** SVD: Norme Matriciali e Applicazioni (Eckart-Young, Compressione e PCA) (file `A05`)
+- **Capitolo 6:** Fattorizzazione QR e Riflessioni di Householder (Full/Thin QR, Riflettori elementari, Stabilità numerica ed Esempio $3 \times 3$) (file `A06`)
+
+### Parte II: Ottimizzazione Continua e Machine Learning
+- **Capitolo 7:** Problemi Semplici di Ottimizzazione (file `B02`)
+- **Capitolo 8:** Ottimizzazione Multivariata Lineare e Quadratica (file `B03`)
+- **Capitolo 9:** Ottimizzazione Quadratica Non Omogenea (GMQ) (file `B04`)
+- **Capitolo 10:** Analisi di Convergenza e Complessità del Metodo del Gradiente (file `B05`)
 
 ```text
 Computational-Mathematics/
 ├── assets/                 # Figure, grafici vettoriali e schemi
 ├── chapters/
 │   ├── it/                 # Capitoli in italiano (.tex)
-│   │   └── 01-fondamenti-algebra-lineare-svd.tex
 │   └── en/                 # Capitoli in inglese speculari (.tex)
-│       └── 01-foundations-linear-algebra-svd.tex
 ├── config/                 # Preamboli bilingue
 │   ├── preamble_it.tex
 │   └── preamble_en.tex
