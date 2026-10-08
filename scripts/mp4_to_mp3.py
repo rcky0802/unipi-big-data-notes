@@ -3,8 +3,9 @@
 Convertitore audio da MP4 a MP3 ottimizzato per videolezioni universitarie.
 - Canale: Mono (-ac 1)
 - Bitrate: 64 kbps (-b:a 64k)
-- Divisione automatica: se la lezione supera 1 ora (3600s), viene divisa esattamente in 2 metà
-  (es. lezione_part1.mp3 e lezione_part2.mp3).
+- Di default genera un unico file MP3 completo.
+- Se specificato il flag --split e la lezione supera 1 ora (3600s),
+  viene divisa in 2 metà (es. lezione_part1.mp3 e lezione_part2.mp3).
 - Esecuzione: container Docker con FFmpeg e Python 3
 """
 
@@ -139,11 +140,12 @@ def convert_mp4_to_mp3(
     bitrate: str = "64k",
     channels: int = 1,
     split_threshold: float = 3600.0,
-    no_split: bool = False,
+    split: bool = False,
 ) -> list[Path]:
     """
     Converte un file MP4 in MP3 mono a 64 kbps.
-    Se la durata supera split_threshold (default 3600s = 1 ora) e no_split=False,
+    Di default genera un unico file audio completo.
+    Se split=True e la durata supera split_threshold (default 3600s = 1 ora),
     divide l'output in due metà: <name>_part1.mp3 e <name>_part2.mp3.
     """
     if not input_path.exists():
@@ -169,8 +171,8 @@ def convert_mp4_to_mp3(
     initial_size = input_path.stat().st_size
     duration = get_media_duration(input_path)
 
-    # Verifica se è necessario dividere in 2 metà
-    should_split = (not no_split) and (duration > split_threshold)
+    # Verifica se è richiesto e necessario dividere in 2 metà
+    should_split = split and (duration > split_threshold)
 
     print("\n" + "=" * 65)
     print(" 🎙️  CONVERSIONE VIDEOLEZIONE (MP4 -> MP3 MONO 64K)")
@@ -185,8 +187,11 @@ def convert_mp4_to_mp3(
     if should_split:
         half_duration = duration / 2.0
         print("-" * 65)
-        print("  ✂️  La durata supera 1 ora: l'audio verrà diviso in 2 metà!")
+        print("  ✂️  Flag --split specificato e durata > 1 ora: l'audio verrà diviso in 2 metà!")
         print(f"     - Durata di ciascuna parte: {format_duration(half_duration)} ({format_timestamp(half_duration)})")
+    elif split:
+        print("-" * 65)
+        print("  ℹ️  Flag --split specificato, ma la durata non supera 1 ora: generato file unico.")
     print("=" * 65)
 
     start_clock = time.time()
@@ -262,7 +267,7 @@ def convert_mp4_to_mp3(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Converte videolezioni MP4 in MP3 mono compresso (64k). Se supera 1h viene diviso in 2 metà."
+        description="Converte videolezioni MP4 in MP3 mono compresso (64k). Di default genera un file unico; se specificato --split e supera 1h viene diviso in 2 metà."
     )
     parser.add_argument(
         "input",
@@ -297,9 +302,9 @@ def main():
         help="Soglia in secondi oltre la quale dividere in due metà (default: 3600s = 1 ora)",
     )
     parser.add_argument(
-        "--no-split",
+        "--split",
         action="store_true",
-        help="Disabilita la divisione automatica anche se la durata supera 1 ora",
+        help="Abilita la divisione dell'audio in due metà se la durata supera 1 ora (default: disabilitato, genera file unico)",
     )
 
     args = parser.parse_args()
@@ -314,7 +319,7 @@ def main():
             bitrate=args.bitrate,
             channels=args.channels,
             split_threshold=args.split_threshold,
-            no_split=args.no_split,
+            split=args.split,
         )
     except Exception as exc:
         print(f"\n[ERRORE]: {exc}", file=sys.stderr)

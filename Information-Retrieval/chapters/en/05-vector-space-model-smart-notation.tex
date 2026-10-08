@@ -1,5 +1,6 @@
-\chapter{The Vector Space Model (VSM) and SMART Notation}
+\chapter{The Vector Space Model (VSM), SMART Notation, and Okapi BM25}
 \label{chap:vsm-smart}
+\label{chap:retrieval-vsm-bm25-en}
 
 \FloatBarrier
 \section{Foundations of the Vector Space Model (VSM)}
@@ -355,6 +356,108 @@ Computing the dot product between unit vectors:
     Zero effect on relative document ranking: IDF acts as a constant scaling factor for all matching documents, leaving relative order unchanged.
 \end{enumerate}
 
-\begin{noteblock}{Preview of Lecture 6: The Okapi BM25 Probabilistic Model}
-The subsequent chapter formalizes \textbf{Okapi BM25}, overcoming log-TF limitations through asymptotic frequency saturation ($k_1$) and calibrated document length normalization ($b$).
+\FloatBarrier
+\section{Best Match 25 (Okapi BM25)}
+\label{sec:bm25-deep-en}
+
+Developed by Stephen Robertson and Karen Sp\"arck Jones at City University London, \textbf{BM25} remains the premier state-of-the-art non-linear lexical baseline:
+\begin{equation}
+\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \dfrac{|D|}{\text{avgdl}}\right)},
+\end{equation}
+with Robertson-Sp\"arck Jones IDF:
+\begin{equation}
+\text{IDF}(q_i) = \ln\left( \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5} + 1 \right).
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.82\linewidth}{!}{%
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    \draw[->, thick, gray!70!black] (0,0) -- (8.5, 0) node[below] {\small Term Frequency ($f(q_i, D)$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.2) node[left] {\small Term Weight};
+
+    \draw[dashed, blue!70!black, thick] (0,0) -- (6.5, 3.8) node[above right] {\footnotesize Linear TF};
+
+    \draw[domain=0.1:8.0, smooth, variable=\x, orange!80!black, thick] 
+        plot ({\x}, {0.8 + 0.9*ln(\x)}) node[right] {\footnotesize Log-TF: $1 + \log(tf)$};
+
+    \draw[domain=0.0:8.0, smooth, variable=\x, red!85!black, very thick] 
+        plot ({\x}, {(\x * 2.5) / (\x + 1.5)}) node[right] {\footnotesize BM25: saturation at $k_1 + 1$};
+
+    \draw[dotted, gray!60!black, thick] (0, 2.5) -- (8.0, 2.5) node[above left, font=\scriptsize] {Asymptote: $k_1 + 1$};
+\end{tikzpicture}%
+}
+\caption{Qualitative comparison of linear TF, log-TF, and BM25 asymptotic saturation.}
+\label{fig:bm25-saturation-curve}
+\end{figure}
+
+\begin{itemize}
+    \item $k_1 \in [1.2, 2.0]$ governs term frequency saturation, bounded by $\lim_{f \to \infty} = k_1 + 1$.
+    \item $b \in [0, 1]$ (typically $0.75$) governs relative document length normalization against average length $\text{avgdl}$.
+\end{itemize}
+
+\begin{noteblock}{Large-Scale BM25 Evaluation}
+Okapi BM25 defines the scoring function for individual query--document pairs. On web-scale collections containing billions of documents, evaluating BM25 across inverted lists using modern query processing strategies (\textit{Term-at-a-Time} and \textit{Document-at-a-Time} with WAND dynamic pruning) is detailed in Chapter~\ref{chap:indexing-query-processing-en}.
+\end{noteblock}
+
+\FloatBarrier
+\section{Summary Conceptual Map}
+\label{sec:conceptual-map-en}
+
+Figure~\ref{fig:nlp-vsm-workflow-en} synthesizes the full trajectory from raw text acquisition to vector and probabilistic scoring.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.2cm,
+    raw/.style={rectangle, rounded corners=3pt, draw=gray!70!black, fill=gray!8,
+                thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    stepb/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6,
+                  thick, font=\small, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    splitb/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!6,
+                   thick, font=\footnotesize, minimum width=3.5cm, minimum height=0.7cm, align=center},
+    modelb/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8,
+                   thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    finalb/.style={rectangle, rounded corners=3pt, draw=red!70!black, fill=red!6,
+                   thick, font=\footnotesize, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    arr/.style={-Stealth, thick, gray!80!black}
+]
+    \node[raw] (raw) {Raw Web Text};
+    \node[stepb, below=of raw] (parse) {Extracted Text\\{\scriptsize urllib + BeautifulSoup (markup removal)}};
+    \node[stepb, below=of parse] (prep) {Cleaning and Segmentation\\{\scriptsize Tokenization · Stopword Filtering · Sentence Splitting}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of prep] (stem) {\textbf{Stemming (Porter)}\\{\scriptsize Heuristic / Fast}};
+    \node[splitb, below right=0.8cm and -0.8cm of prep] (lemma) {\textbf{Lemmatization (WordNet)}\\{\scriptsize Morphosyntax (POS) / Heavy}};
+
+    \node[modelb, below=2.4cm of prep] (vocab) {Collection Vocabulary ($V$)\\{\scriptsize Space dimension $|V|$}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of vocab] (bow) {\textbf{Bag of Words (BoW)}\\{\scriptsize Loses frequency and syntax}};
+    \node[splitb, below right=0.8cm and -0.8cm of vocab] (ngram) {\textbf{N-gram Extensions}\\{\scriptsize Word n-grams (local order)}\\{\scriptsize Char n-grams (typo tolerance)}};
+
+    \node[modelb, below=2.4cm of vocab] (vsm) {Vector Space Model (VSM)\\{\scriptsize Sparse vectors in $\mathbb{R}^{|V|}$ (One-Hot linear combination)}};
+
+    \node[finalb, below left=0.8cm and -0.9cm of vsm] (tfidf) {\textbf{TF-IDF / SMART Notation}\\{\scriptsize Log-TF + IDF ($\log(N/df)$)}\\{\scriptsize Cosine Normalization ($L_2$)}};
+    \node[finalb, below right=0.8cm and -0.9cm of vsm] (bm25) {\textbf{Okapi BM25}\\{\scriptsize Asymptotic TF Saturation ($k_1$)}\\{\scriptsize Length Normalization ($b$, avgdl)}};
+
+    \draw[arr] (raw) -- (parse);
+    \draw[arr] (parse) -- (prep);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (stem.north);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (lemma.north);
+    \draw[arr] (stem.south) |- (vocab.west);
+    \draw[arr] (lemma.south) |- (vocab.east);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (bow.north);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (ngram.north);
+    \draw[arr] (bow.south) |- (vsm.west);
+    \draw[arr] (ngram.south) |- (vsm.east);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (tfidf.north);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (bm25.north);
+\end{tikzpicture}%
+}
+\caption{Integrated conceptual map of the IR pipeline: from text scraping to vector and probabilistic retrieval models.}
+\label{fig:nlp-vsm-workflow-en}
+\end{figure}
+
+\begin{noteblock}{From Mathematical Scoring to Search Engine Architecture}
+With the mathematical formalization of the Vector Space Model, SMART schemes, and Okapi BM25, the principles of \textit{what} must be computed are established. Chapter~\ref{chap:indexing-query-processing-en} investigates the architectural and systems dimension of \textit{how} to evaluate these continuous scores within milliseconds across web-scale inverted indexes.
 \end{noteblock}

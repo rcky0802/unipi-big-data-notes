@@ -1,5 +1,6 @@
-\chapter{Il Modello a Spazio Vettoriale (VSM) e la Notazione SMART}
+\chapter{Il Modello a Spazio Vettoriale (VSM), la Notazione SMART e Okapi BM25}
 \label{chap:vsm-smart}
+\label{chap:retrieval-vsm-bm25}
 
 \FloatBarrier
 \section[Fondamenti del Vector Space Model (VSM)]{Fondamenti del Vector\\ Space Model (VSM)}
@@ -362,6 +363,144 @@ Il punteggio \`e il prodotto scalare tra i vettori normalizzati:
     Nullo sul ranking relativo: il fattore IDF agisce come una costante moltiplicativa identica per tutti i documenti contenenti la parola, lasciando invariato l'ordinamento.
 \end{enumerate}
 
-\begin{noteblock}{Verso la Lezione 6: Il Modello Probabilistico Okapi BM25}
-Nel capitolo successivo verr\`a formalizzato il modello probabilistico \textbf{Okapi BM25}, superando i limiti del TF-IDF logaritmico tramite saturazione asintotica della frequenza dei termini ($k_1$) e normalizzazione calibrata della lunghezza del documento ($b$).
+\FloatBarrier
+\section{Best Match 25 (Okapi BM25)}
+\label{sec:bm25-deep}
+
+Sviluppato negli anni '80 e '90 da Stephen Robertson e Karen Sp\"arck Jones all'interno del sistema sperimentale Okapi presso la City University di Londra, \textbf{BM25} (\textit{Best Match 25}) \`e una funzione di ranking non-lineare basata sul modello probabilistico di reperimento. Costituisce tuttora la baseline di riferimento pi\`u solida e performante per il reperimento lessicale primario (\textit{first-stage retrieval}) nei motori di ricerca industriali.
+
+\subsection{Formulazione Matematica di BM25}
+
+Dato un documento $D$ e una query a testo libero $Q = \{q_1, q_2, \dots, q_n\}$, il punteggio BM25 \`e:
+\begin{equation}
+\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \dfrac{|D|}{\text{avgdl}}\right)},
+\label{eq:bm25-full}
+\end{equation}
+dove l'IDF probabilistico di Robertson-Sp\"arck Jones \`e formulato come:
+\begin{equation}
+\text{IDF}(q_i) = \ln\left( \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5} + 1 \right),
+\end{equation}
+con le seguenti variabili operative:
+\begin{itemize}
+    \item $N$: numero totale di documenti nell'intera collezione $\mathcal{D}$,
+    \item $n(q_i)$: numero di documenti contenenti il termine di query $q_i$ (equivalente a $df_{q_i}$),
+    \item $f(q_i, D)$: frequenza grezza del termine $q_i$ nel documento $D$ (pari a $\text{tf}_{q_i, D}$),
+    \item $|D|$: lunghezza complessiva del documento misurata in numero di token,
+    \item $\text{avgdl}$: lunghezza media dei documenti nell'intera collezione (\textit{average document length}).
+\end{itemize}
+
+\subsection{Ruolo e Calibrazione degli Iperparametri}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.82\linewidth}{!}{%
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Assi
+    \draw[->, thick, gray!70!black] (0,0) -- (8.5, 0) node[below] {\small Term Frequency ($f(q_i, D)$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.2) node[left] {\small Term Weight};
+
+    % TF Lineare
+    \draw[dashed, blue!70!black, thick] (0,0) -- (6.5, 3.8) node[above right] {\footnotesize TF Lineare (senza limiti)};
+
+    % Log-TF
+    \draw[domain=0.1:8.0, smooth, variable=\x, orange!80!black, thick] 
+        plot ({\x}, {0.8 + 0.9*ln(\x)}) node[right] {\footnotesize Log-TF: $1 + \log(tf)$};
+
+    % BM25 TF Curve (k1=1.5, saturazione a k1+1 = 2.5)
+    \draw[domain=0.0:8.0, smooth, variable=\x, red!85!black, very thick] 
+        plot ({\x}, {(\x * 2.5) / (\x + 1.5)}) node[right] {\footnotesize BM25: saturazione a $k_1 + 1$};
+
+    % Asintoto orizzontale
+    \draw[dotted, gray!60!black, thick] (0, 2.5) -- (8.0, 2.5) node[above left, font=\scriptsize] {Asintoto: $k_1 + 1$};
+\end{tikzpicture}%
+}
+\caption{Confronto qualitativo tra crescita del TF lineare, TF logaritmico e saturazione asintotica in BM25.}
+\label{fig:bm25-saturation-curve}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Parametro $k_1 \in [1.2, 2.0]$ (Saturazione della frequenza):}
+    Controlla la rapidit\`a con cui il contributo della Term Frequency converge asintoticamente al proprio limite superiore. Al tendere della frequenza locale all'infinito:
+    \begin{equation}
+    \lim_{f(q_i, D) \to \infty} \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + \dots} = k_1 + 1.
+    \end{equation}
+    A differenza del modello TF-IDF classico in cui il peso continua a salire indefinitamente, in BM25 il contributo informativo di un singolo termine \`e rigorosamente limitato superiormente da $k_1 + 1$. 
+    \textit{Caso limite:} se $k_1 = 0$, la componente di frequenza si annulla e il modello degenera in un ranking puramente binario basato unicamente su presenza/assenza e IDF.
+    
+    \item \textbf{Parametro $b \in [0, 1]$ (Penalizzazione della lunghezza documentale):}
+    Regola l'incidenza della lunghezza del documento rispetto alla media della collezione:
+    \begin{equation}
+    B = \left(1 - b + b \cdot \frac{|D|}{\text{avgdl}}\right).
+    \end{equation}
+    \begin{itemize}
+        \item Se $b = 1$, la normalizzazione \`e totale: un documento lungo il doppio rispetto alla media deve presentare il doppio delle occorrenze del termine per vedersi riconosciuto lo stesso score.
+        \item Se $b = 0$, la normalizzazione \`e disattivata ($B = 1$ costante): la lunghezza del documento viene totalmente ignorata.
+        \item Valore standard consigliato in letteratura: $b \approx 0.75$.
+    \end{itemize}
+\end{enumerate}
+
+\begin{noteblock}{Valutazione di BM25 su Larga Scala}
+La formula di Okapi BM25 definisce la funzione analitica di scoring per ciascuna coppia query--documento. Tuttavia, nei moderni motori di ricerca con miliardi di documenti, la valutazione non pu\`o avvenire scansionando l'intera collezione. L'esecuzione ottimizzata di BM25 tramite liste invertite e gli algoritmi di query processing (\textit{Term-at-a-Time} e \textit{Document-at-a-Time} con tecniche di pruning dinamico come WAND) vengono trattati in dettaglio nel Capitolo~\ref{chap:indicizzazione-query-processing}.
+\end{noteblock}
+
+\FloatBarrier
+\section{Mappa Concettuale Riassuntiva}
+\label{sec:mappa-concettuale-vsm}
+
+La Figura~\ref{fig:nlp-vsm-workflow} offre una visione d'insieme del flusso completo di elaborazione: dall'acquisizione della risorsa web grezza fino alle funzioni di scoring vettoriale e probabilistico.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.2cm,
+    raw/.style={rectangle, rounded corners=3pt, draw=gray!70!black, fill=gray!8,
+                thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    stepb/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6,
+                  thick, font=\small, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    splitb/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!6,
+                   thick, font=\footnotesize, minimum width=3.5cm, minimum height=0.7cm, align=center},
+    modelb/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8,
+                   thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
+    finalb/.style={rectangle, rounded corners=3pt, draw=red!70!black, fill=red!6,
+                   thick, font=\footnotesize, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    arr/.style={-Stealth, thick, gray!80!black}
+]
+    \node[raw] (raw) {Testo Web Grezzo};
+    \node[stepb, below=of raw] (parse) {Testo Estratto\\{\scriptsize urllib + BeautifulSoup (rimozione markup)}};
+    \node[stepb, below=of parse] (prep) {Pulizia e Segmentazione\\{\scriptsize Tokenization · Stopword Filtering · Sentence Splitting}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of prep] (stem) {\textbf{Stemming (Porter)}\\{\scriptsize Euristico / Veloce}};
+    \node[splitb, below right=0.8cm and -0.8cm of prep] (lemma) {\textbf{Lemmatizzazione (WordNet)}\\{\scriptsize Morfosintattico (POS) / Pesante}};
+
+    \node[modelb, below=2.4cm of prep] (vocab) {Vocabolario Collezione ($V$)\\{\scriptsize Dimensione dello spazio $|V|$}};
+
+    \node[splitb, below left=0.8cm and -0.8cm of vocab] (bow) {\textbf{Bag of Words (BoW)}\\{\scriptsize Perde frequenza e sintassi}};
+    \node[splitb, below right=0.8cm and -0.8cm of vocab] (ngram) {\textbf{Estensioni N-gram}\\{\scriptsize Word n-gram (ordine locale)}\\{\scriptsize Char n-gram (tolleranza typo)}};
+
+    \node[modelb, below=2.4cm of vocab] (vsm) {Vector Space Model (VSM)\\{\scriptsize Vettori sparsi in $\mathbb{R}^{|V|}$ (combinazione lineare One-Hot)}};
+
+    \node[finalb, below left=0.8cm and -0.9cm of vsm] (tfidf) {\textbf{TF-IDF / Notazione SMART}\\{\scriptsize Log-TF + IDF ($\log(N/df)$)}\\{\scriptsize Normalizzazione Coseno ($L_2$)}};
+    \node[finalb, below right=0.8cm and -0.9cm of vsm] (bm25) {\textbf{Okapi BM25}\\{\scriptsize Saturazione asintotica TF ($k_1$)}\\{\scriptsize Normalizzazione lunghezza ($b$, avgdl)}};
+
+    \draw[arr] (raw) -- (parse);
+    \draw[arr] (parse) -- (prep);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (stem.north);
+    \draw[arr] (prep.south) -- ++(0,-0.2) -| (lemma.north);
+    \draw[arr] (stem.south) |- (vocab.west);
+    \draw[arr] (lemma.south) |- (vocab.east);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (bow.north);
+    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (ngram.north);
+    \draw[arr] (bow.south) |- (vsm.west);
+    \draw[arr] (ngram.south) |- (vsm.east);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (tfidf.north);
+    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (bm25.north);
+\end{tikzpicture}%
+}
+\caption{Mappa concettuale integrata della pipeline di IR: dall'acquisizione del testo ai modelli di recupero vettoriali e probabilistici.}
+\label{fig:nlp-vsm-workflow}
+\end{figure}
+
+\begin{noteblock}{Dallo Scoring Matematico all'Architettura di Sistema}
+Con la formalizzazione dello Spazio Vettoriale, degli schemi SMART e del modello probabilistico BM25 si conclude la trattazione teorica di \textit{cosa} calcolare. Il Capitolo~\ref{chap:indicizzazione-query-processing} affronta la dimensione ingegneristica di \textit{come} eseguire tali calcoli in pochi millisecondi tramite l'architettura a due stadi, gli indici invertiti compressi e gli algoritmi di query processing TAAT e DAAT.
 \end{noteblock}

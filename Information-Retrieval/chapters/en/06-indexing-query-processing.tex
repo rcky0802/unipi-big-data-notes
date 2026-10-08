@@ -15,7 +15,7 @@ Large-scale search engines must satisfy stringent throughput and latency constra
 The offline pipeline processes an unstructured corpus $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ through three stages:
 \begin{enumerate}
     \item \textbf{Text Processing and Parsing:} Web crawled documents are stripped of markup, tokenized, and normalized (Section~\ref{sec:tokeniz-splitting-en}).
-    \item \textbf{Vocabulary and Index Construction:} The lexicon $\mathcal{V} = \{t_1, t_2, \dots, t_M\}$ is extracted, mapping every unique term to its occurrences across documents.
+    \item \textbf{Vocabulary and Index Construction:} The lexicon $\mathcal{V} = \{t_1, \dots, t_M\}$ is extracted, mapping every unique term to its occurrences across documents.
     \item \textbf{Lossless Integer Compression:} Because raw index data can rival or exceed the raw text size, integer compression algorithms are applied to ensure index segments reside in high-speed memory tiers (RAM and CPU caches, Chapter~\ref{chap:efficienza-cpu}).
 \end{enumerate}
 
@@ -74,7 +74,7 @@ Commercial web search engines resolve queries using a two-stage pipeline:
 \label{sec:scoring-bridge-en}
 
 \subsection{Recap: Limitations of Exact Boolean and Jaccard Scoring}
-As established in Chapter~\ref{chap:retrieval-vsm-bm25-en} (Sections~\ref{sec:boolean-vs-ranked-en} and~\ref{sec:jaccard-scoring-en}), exact Boolean matching suffers from the \textit{Feast or Famine} pathology, while unweighted set-based Jaccard scoring unfairly penalizes longer documents and ignores term frequency ($tf$) and collection specificity ($idf$).
+As established in Chapter~\ref{chap:retrieval-models-scoring-en} (Sections~\ref{sec:boolean-vs-ranked-en} and~\ref{sec:jaccard-scoring-en}), exact Boolean matching suffers from the \textit{Feast or Famine} pathology, while unweighted set-based Jaccard scoring unfairly penalizes longer documents and ignores term frequency ($tf$) and collection specificity ($idf$).
 
 \subsection{The Dot Product as a Unified Scoring Operator}
 The Vector Space Model and statistical weighting schemes resolve these limitations by formulating relevance as a vector dot product:
@@ -115,7 +115,7 @@ Sparse representations record only non-zero $(\text{ID}, \text{Value})$ pairs:
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{l X X}
+\begin{tabularx}{\linewidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Property} & \textbf{Forward Index} & \textbf{Inverted Index} \\
 \midrule
@@ -140,14 +140,18 @@ Sparse representations record only non-zero $(\text{ID}, \text{Value})$ pairs:
 The lexicon stores the vocabulary $\mathcal{V}$, recording for each term $t$ its text string, document frequency $df_t$ (for precomputed IDF), and memory pointer or disk offset to its posting list. The lexicon is kept memory-resident in \textbf{RAM} using fast structures (B-Trees, Trie, or front-coded arrays).
 
 \subsection{Posting Lists: Physical Stream Decoupling}
-Conceptually, a posting list is a sequence of tuples: $\mathcal{L}(t) = [\langle d_1, \text{tf}_1 \rangle, \langle d_2, \text{tf}_2 \rangle, \dots]$. In high-performance implementations, storing interleaved structs wastes compression potential. Engines decouple posting lists into two distinct physical streams:
+Conceptually, a posting list is a sequence of tuples:
+\begin{equation}
+\mathcal{L}(t) = [\langle d_1, \text{tf}_1 \rangle, \langle d_2, \text{tf}_2 \rangle, \dots].
+\end{equation}
+In high-performance implementations, storing interleaved structs wastes compression potential. Engines decouple posting lists into two distinct physical streams:
 \begin{enumerate}
     \item \textbf{DocID Stream (Strictly Monotonic):}
     $\mathbf{D}_t = [\text{DocID}_1, \dots, \text{DocID}_m]$ with $\text{DocID}_i < \text{DocID}_{i+1}$. Storing successive differences ($d\text{-gaps}$):
     \begin{equation}
     \Delta_1 = \text{DocID}_1, \quad \Delta_i = \text{DocID}_i - \text{DocID}_{i-1} \quad (i \ge 2)
     \end{equation}
-    yields small integers compressed via Variable Byte, Elias-Fano, PForDelta, or Binary Interpolative Coding~\cite{moffat2000}.
+    yields small integers compressed with methods such as Variable Byte, Elias\allowbreak--Fano, PFor\-Delta, or interpolative coding~\cite{moffat2000}.
     \item \textbf{Term Frequency Stream (Unordered):}
     $\mathbf{F}_t = [\text{tf}_1, \dots, \text{tf}_m]$. Values are small positive integers ($1, 2, 3$) compressed using symmetric variable-length integer codes.
 \end{enumerate}
@@ -156,7 +160,7 @@ Conceptually, a posting list is a sequence of tuples: $\mathcal{L}(t) = [\langle
 Search engines universally store \textbf{compressed integers} rather than precomputed floating-point scores. Large-scale search systems are \textbf{memory-bound} (Chapter~\ref{chap:efficienza-cpu}): RAM-to-CPU transfer latencies ($\approx 80\text{ ns}$) dominate execution time. Compressing postings drastically reduces memory bandwidth demands; the minor CPU arithmetic required to compute BM25 scores on the fly is negligible compared to memory wait cycles.
 
 \FloatBarrier
-\section[Query Types and Query Expansion]{Query Types, Positional Indexes, and Query Expansion}
+\section[Query Types and Query Expansion]{Query Types, Positional\\ Indexes, and Query Expansion}
 \label{sec:query-expansion-positional-en}
 
 \subsection{Phrase Queries and Positional Indexes}
@@ -171,7 +175,10 @@ Engines expand raw user queries with synonyms, spell corrections, and acronyms. 
 \begin{enumerate}
     \item \textit{Babbo} is expanded to its regional synonym \textit{pap\`a} (father).
     \item Normalization strips accents, mapping \textit{pap\`a} to \textit{papa} (Pope).
-    \item The query becomes \texttt{("babbo" OR "pap\textasciigrave a" OR "papa") AND "francesco"}.
+    \item The query becomes:
+    \begin{center}
+    \texttt{("babbo" OR "pap\textasciigrave a" OR "papa") AND "francesco"}
+    \end{center}
     \item High PageRank pages for Pope Francis (\textit{Papa Francesco}) overwhelm relevance, making Wikipedia's biography of the Pontiff the top result.
 \end{enumerate}
 
@@ -179,7 +186,7 @@ Engines expand raw user queries with synonyms, spell corrections, and acronyms. 
 While stemming and lemmatization reduce words along morphological lines (e.g., \textit{connecting} $\to$ \textit{connect}, Section~\ref{sec:stemming-lemmatizzazione-en}), they cannot link etymologically distinct synonyms (such as \textit{babbo} and \textit{pap\`a}). Modern engines avoid aggressive indexing-time stemming and instead resolve synonyms dynamically via contextual neural query expansion.
 
 \FloatBarrier
-\section[Query Processing: TAAT vs. DAAT]{Query Processing: Term-at-a-Time (TAAT) vs. Document-at-a-Time (DAAT)}
+\section[Query Processing: TAAT vs. DAAT]{Query Processing:\\ Term-at-a-Time (TAAT)\\ vs. Document-at-a-Time (DAAT)}
 \label{sec:taat-vs-daat-en}
 
 \subsection{Term-at-a-Time (TAAT)}
@@ -224,13 +231,16 @@ $H \gets \text{InitializeMinHeap}(\text{capacity}=k)$\;
 \Return{$H$}\;
 \end{algorithm}
 
-\textit{Characteristics:} Excellent sequential memory locality and hardware prefetching, but suffers from explosive RAM accumulator footprints and cannot perform dynamic early pruning.
+\paragraph{Characteristics.} High sequential memory locality and hardware prefetching, but incurs a heavy RAM accumulator footprint and cannot perform dynamic early pruning.
 
 \subsection{Document-at-a-Time (DAAT)}
 DAAT processes all query posting lists **in parallel across synchronized pointers**:
 \begin{enumerate}
     \item Initializes cursors $p_i$ at the head of each list $\mathcal{L}(t_i)$.
-    \item Identifies the current minimum document identifier: $d_{\min} = \min_{i} \{p_i.\text{CurrentDocID}()\}$.
+    \item Identifies the current minimum DocID across cursors:
+    \begin{equation}
+    d_{\min} = \min_{i} \{p_i.\text{CurrentDocID}()\}.
+    \end{equation}
     \item Accumulates the full final score $S(q, d_{\min})$ across all cursors matching $d_{\min}$.
     \item Updates the fixed-size top-$k$ min-heap immediately.
     \item Advances all cursors matching $d_{\min}$ to their next entry.
@@ -273,7 +283,7 @@ $H \gets \text{InitializeMinHeap}(\text{capacity}=k)$\;
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{l X X}
+\begin{tabularx}{\linewidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Dimension} & \textbf{Term-at-a-Time (TAAT)} & \textbf{Document-at-a-Time (DAAT)} \\
 \midrule

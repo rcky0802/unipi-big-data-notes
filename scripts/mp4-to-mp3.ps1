@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Converte una videolezione MP4 in MP3 mono a 64 kbps eseguendo Python e FFmpeg nel container Docker.
-    Se la durata dell'audio supera 1 ora, viene automaticamente diviso in due meta'.
+    Di default genera un unico file MP3 completo; se specificato il flag -Split e la durata supera 1 ora, viene diviso in due meta'.
 .PARAMETER FilePath
     Percorso del file MP4 da convertire (relativo o assoluto).
 .PARAMETER OutputPath
@@ -10,9 +10,12 @@
     Bitrate audio (default: "64k").
 .PARAMETER Channels
     Numero di canali audio (default: 1 per mono).
+.PARAMETER Split
+    Se specificato, divide l'audio in due meta' se la durata supera 1 ora (default: false, file unico).
 .EXAMPLE
     .\scripts\mp4-to-mp3.ps1 "D:\Archivio\Download\Lecture5.mp4"
     .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -OutputPath "audio_lezione.mp3"
+    .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -Split
 #>
 [CmdletBinding()]
 param(
@@ -23,7 +26,8 @@ param(
     [string]$OutputPath,
 
     [string]$Bitrate = "64k",
-    [int]$Channels = 1
+    [int]$Channels = 1,
+    [switch]$Split
 )
 
 if ([string]::IsNullOrWhiteSpace($FilePath)) {
@@ -78,6 +82,9 @@ if ($OutputPath) {
             "-b", $Bitrate,
             "-c", "$Channels"
         )
+        if ($Split) {
+            $dockerArgs += "--split"
+        }
         & docker @dockerArgs
         exit $LASTEXITCODE
     } else {
@@ -100,6 +107,9 @@ if ($outputArgs.Count -gt 0) {
     $dockerArgs += $outputArgs
 }
 $dockerArgs += @("-b", $Bitrate, "-c", "$Channels")
+if ($Split) {
+    $dockerArgs += "--split"
+}
 
 & docker @dockerArgs
 exit $LASTEXITCODE

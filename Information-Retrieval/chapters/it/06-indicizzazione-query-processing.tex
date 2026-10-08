@@ -9,13 +9,13 @@ In questo capitolo si affronta la sfida ingegneristica complementare: \textbf{co
 \section{Architettura di Sistema e Paradigma a Due Stadi}
 \label{sec:architettura-due-stadi}
 
-Un motore di ricerca su scala Web deve conciliare requisiti architetturali apparentemente inconciliabili: processare collezioni testuali non strutturate di dimensioni sterminate garantendo al contempo una latenza di risposta interattiva ($< 50\text{--}100\text{ ms}$) per ciascuna interrogazione utente. Per soddisfare tali vincoli, il flusso computazionale viene rigidamente ripartito tra processi asincroni massivi (\textbf{fase offline}) e processi sincroni a latenza vincolata (\textbf{fase online}), come schematizzato nella Sezione~\ref{sec:architettura-motore}.
+Un motore di ricerca su scala Web deve conciliare requisiti architetturali apparentemente inconciliabili: processare collezioni testuali non strutturate di dimensioni sterminate garantendo al contempo una latenza di risposta interattiva ($< 50\text{--}100\text{ ms}$) per ciascuna interrogazione utente. Per soddisfare tali vincoli, il flusso computazionale viene rigidamente ripartito tra processi asincroni massivi (\textbf{fase offline}) e processi sincroni a latenza vincolata (\textbf{fase online}), come schematizzato nella Sezione~\ref{sec:architettura-due-stadi}.
 
-\subsection[Pipeline Offline: Ingestione e Indicizzazione]{Pipeline Offline: Ingestione, Indicizzazione e Compressione}
+\subsection[Pipeline Offline: Ingestione e Indicizzazione]{Pipeline Offline: Ingestione,\\ Indicizzazione e Compressione}
 La pipeline offline opera sulla collezione documentale $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ attraverso tre macro-fasi:
 \begin{enumerate}
     \item \textbf{Text Processing e Parsing:} I flussi testuali grezzi raccolti tramite web crawling vengono ripuliti dal markup, tokenizzati e normalizzati secondo le pipeline analizzate nella Sezione~\ref{sec:tokeniz-splitting}.
-    \item \textbf{Generazione del Vocabolario e dell'Indice:} Viene estratto il lessico $\mathcal{V} = \{t_1, t_2, \dots, t_M\}$ e costruita la struttura associativa che mappa ciascun termine alle relative occorrenze nei documenti.
+    \item \textbf{Generazione del Vocabolario e dell'Indice:} Viene estratto il lessico $\mathcal{V} = \{t_1, \dots, t_M\}$ e costruita la struttura associativa che mappa ciascun termine alle relative occorrenze nei documenti.
     \item \textbf{Compressione Numerica Lossless:} Poich\'e l'overhead dimensionale dell'indice grezzo pu\`o eguagliare o superare la dimensione del corpus di partenza, vengono applicati algoritmi di compressione per interi volti a massimizzare la residenza dei dati nei livelli alti della gerarchia di memoria (RAM e cache di sistema, come approfondito nel Capitolo~\ref{chap:efficienza-cpu}).
 \end{enumerate}
 
@@ -125,7 +125,7 @@ Per eliminare gli zeri, la matrice viene memorizzata come un insieme di vettori 
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{l X X}
+\begin{tabularx}{\linewidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Propriet\`a} & \textbf{Forward Index} & \textbf{Indice Invertito} \\
 \midrule
@@ -150,6 +150,7 @@ Un indice invertito di livello industriale si articola in due componenti fisiche
 
 \begin{figure}[H]
 \centering
+\resizebox{0.95\linewidth}{!}{%
 \begin{tikzpicture}[
     node distance=0.6cm and 1.2cm,
     lex/.style={rectangle, rounded corners=2pt, draw=blue!70!black, fill=blue!6, thick,
@@ -187,7 +188,8 @@ Un indice invertito di livello industriale si articola in due componenti fisiche
     \draw[arr] (l1.east) -- (p1.west);
     \draw[arr] (l2.east) -- (p2.west);
     \draw[arr] (l3.east) -- (p3.west);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Anatomia di un indice invertito con disaccoppiamento fisico tra stream dei $\text{DocID}$ (compressi tramite $d\text{-gaps}$) e stream delle frequenze $\text{tf}$.}
 \label{fig:inverted-index-anatomy}
 \end{figure}
@@ -229,7 +231,7 @@ Una decisione progettuale critica consiste nello stabilire se memorizzare nell'i
 \small
 \begin{tabularx}{\linewidth}{l X X}
 \toprule
-\textbf{Parametro} & \textbf{Punteggio Float Precalcolato} & \textbf{Intero Grezzo TF Compresso} \\
+\textbf{Parametro} & \textbf{Punteggio Float Precalcolato} & \textbf{Intero TF Compresso} \\
 \midrule
 \textbf{Occupazione Spazio} & $32$ o $64$ bit per posting (\texttt{float}/\texttt{double}). & Intero compresso (spesso $< 8$ bit medi per posting). \\
 \addlinespace
@@ -278,7 +280,7 @@ I motori di ricerca industriali intercettano la query grezza dell'utente attrave
 Tuttavia, espansioni lessicali non supervisionate basate su matrici di co-occorrenza o regole euristiche possono innescare gravi derive semantiche (\textit{semantic drift}), come illustrato dal celebre caso riscontrato nei motori commerciali in lingua italiana:
 \begin{enumerate}
     \item \textbf{Query Utente:} L'utente inserisce la query a intento personale/familiare \texttt{"babbo francesco"}.
-    \item \textbf{Espansione Sinonimica:} Il modulo associa il termine dialettale/regionale \textit{babbo} al sinonimo standard \textit{pap\`a}.
+    \item \textbf{Espansione Sinonimica:} Il modulo associa il termine regionale \textit{babbo} al sinonimo \textit{pap\`a}.
     \item \textbf{Normalizzazione e Troncamento Accenti:} La pipeline rimuove gli accenti trasformando \textit{pap\`a} in \textit{papa} (omografo non accentato che designa il Pontefice).
     \item \textbf{Query Riscritta all'Indice:} La disgiunzione risultante inviata al motore diventa \texttt{("babbo" OR "pap\`a" OR "papa") AND "francesco"}.
     \item \textbf{Scoring \& Authority Ranking:} L'entit\`a globale \textit{"Papa Francesco"} possiede un'autorevolezza a priori (PageRank) e una co-occorrenza web sterminata rispetto a qualunque testo privato.
@@ -442,7 +444,7 @@ $H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{l X X}
+\begin{tabularx}{\linewidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Dimensione} & \textbf{Term-at-a-Time (TAAT)} & \textbf{Document-at-a-Time (DAAT)} \\
 \midrule

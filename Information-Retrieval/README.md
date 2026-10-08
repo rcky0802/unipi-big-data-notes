@@ -115,8 +115,18 @@ latexmk -c
   - Composite TF-IDF weighting and full chalkboard worked trace (Chiara, $N=806\,791$, raw vs. log-TF rebalancing).
   - Real-valued TF-IDF weight matrix in $\mathbb{R}^{|V|}$.
 
-<<<<<<< HEAD
-- **Chapter 5: Search Engine Architecture: Indexing and Query Processing**
+- **Chapter 5: The Vector Space Model (VSM), SMART Notation, and Okapi BM25**
+  - Vector Space Model (VSM) geometric foundations and extreme vector sparsity.
+  - Why Euclidean distance fails in IR: the concatenated duplicate document experiment ($d' = d \circ d$) and direction vs. magnitude.
+  - Direction vs. magnitude, Cosine Similarity derivation, and $L_2$ length normalization onto the unit hypersphere.
+  - Offline/online decoupled computational architecture in production search engines.
+  - Full worked comparative case study across three classic novels (Jane Austen's *Sense and Sensibility* / *Pride and Prejudice* vs. Emily Brontë's *Wuthering Heights*).
+  - Standardized SMART notation taxonomy (`ddd.qqq`), the asymmetric `lnc.ltc` protocol, and full worked execution trace ($N=1\,000\,000$).
+  - Best Match 25 (Okapi BM25) probabilistic scoring: asymptotic term frequency saturation ($k_1$) and document length normalization ($b$).
+  - Integrated conceptual flowchart connecting text preprocessing, VSM, SMART notation, and Okapi BM25.
+  - Key review questions and transition to system architecture.
+
+- **Chapter 6: Search Engine Architecture: Indexing and Query Processing**
   - System architecture: offline ingestion/indexing pipeline vs. online latency-bounded query processing ($< 50\text{--}100\text{ ms}$).
   - Two-Stage Retrieval Paradigm: first-stage high-throughput candidate extraction (BM25 over inverted lists) followed by second-stage complex machine-learned re-ranking (Learning-to-Rank / Transformer cross-encoders).
   - Dot product formulation bridging classical lexical retrieval and dense neural retrieval.
@@ -126,14 +136,3 @@ latexmk -c
   - Query models and extensions: phrase queries via positional indexing ($2\times\text{--}3\times$ storage overhead), query expansion, semantic drift pathology ("Babbo Francesco" case study), and lexical stemming vs. runtime query expansion.
   - Query processing algorithmic formalization: Term-at-a-Time (TAAT, horizontal sequential scan, memory accumulator overhead) vs. Document-at-a-Time (DAAT, vertical synchronous pointer merge, minimal top-$k$ heap footprint, native dynamic early pruning via WAND).
   - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration, and dedicated vector search engines (Qdrant).
-
-=======
-- **Chapter 5: The Vector Space Model (VSM) and SMART Notation**
-  - Vector Space Model (VSM) geometric foundations and extreme vector sparsity.
-  - Why Euclidean distance fails in IR: the concatenated duplicate document experiment ($d' = d \circ d$) and direction vs. magnitude.
-  - Direction vs. magnitude, Cosine Similarity derivation, and $L_2$ length normalization onto the unit hypersphere.
-  - Offline/online decoupled computational architecture in production search engines.
-  - Full worked comparative case study across three classic novels (Jane Austen's *Sense and Sensibility* / *Pride and Prejudice* vs. Emily Brontë's *Wuthering Heights*).
-  - Standardized SMART notation taxonomy (`ddd.qqq`), the asymmetric `lnc.ltc` protocol, and full worked execution trace ($N=1\,000\,000$).
-  - Key review questions and preview of Lecture 6 (Okapi BM25 probabilistic model).
->>>>>>> b0b761141fd0cd216a0c53d1c99ed79ed805f72a
