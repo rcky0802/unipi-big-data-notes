@@ -1,589 +1,552 @@
-\chapter{External Distribution Sort, Over-Sampling and Random Sampling}
-\label{chap:external-distribution-sort-en}
+\chapter{External Distribution Sort, Over-Sampling, and Random Sampling Foundations}
+\label{chap:external-distribution-sort}
 
 \begin{center}
   \textbf{Lecture 6}\\
-  \emph{External Distribution Sort, Over-Sampling with Chernoff Bounds, and Random Sampling}\\[0.5em]
+  \emph{External Distribution Sort, Over-Sampling Technique, and Foundations of Random Sampling}\\[0.5em]
   Date: September 30, 2026
 \end{center}
 
-In the context of hierarchical memory models and out-of-core sorting (\textit{External Memory Model}), the \textbf{Multiway Merge Sort} studied in \autoref{cha:lecture-three} represents the canonical \textit{bottom-up} paradigm: data elements are initially arranged into sorted sequences (\textit{runs}) and subsequently merged recursively in $k$-way passes until a single sorted array is obtained.
+\section{The External Sorting Problem and Multi-Way Partitioning}
+\label{sec:external-sorting-multiway}
 
-However, a dual paradigm of fundamental theoretical and practical significance exists: \textbf{External Distribution Sort} (often referred to as out-of-core \textit{Multiway Quicksort}). This approach embraces a \textit{top-down} philosophy: instead of merging pre-sorted runs, it partitions the entire unsorted dataset into multiple disjoint partitions (\textit{buckets}), each corresponding to an ordered interval of key values, and recursively processes each bucket independently.
+\subsection{The Computational I/O Model (Secondary Memory)}
+In systems processing massive datasets, the size of the dataset to be sorted $S$ far exceeds the capacity of random access internal memory (RAM). We adopt the standard two-level secondary memory model introduced by Aggarwal and Vitter~\cite{aggarwal1988}:
+\begin{itemize}
+  \item $N$ (or $n$): total number of records in sequence $S = \langle S[1], \dots, S[n] \rangle$;
+  \item $M$: internal memory (RAM) capacity, measured in number of records ($M \ll n$);
+  \item $B$: disk transfer block size, measured in number of records transferred per single Input/Output (I/O) operation.
+\end{itemize}
 
-In this chapter, we investigate the architecture of External Distribution Sort, addressing the critical challenge of balanced pivot selection through the statistical technique of \textbf{Over-Sampling}. We then formally derive the failure probability bound using \textbf{Chernoff Bounds} (measure concentration inequalities) and examine uniform \textbf{Random Sampling} algorithms, comparing hash-based rejection methods with the streaming paradigm of \textbf{Reservoir Sampling}.
+The number of blocks that can reside simultaneously in internal memory is $\frac{M}{B}$.
 
-\section{External Distribution Sort and \texorpdfstring{$k$}{k}-Way Partitioning}
-\label{sec:external-distribution-sort-model-en}
+To sort the dataset $S$ with optimal I/O complexity, a standard binary recursive partition algorithm (such as classical Quicksort) is insufficient, as it yields a recursion tree of depth $\Theta(\log_2(n/B))$, which is asymptotically too deep and incurs excessive random disk seeks.
 
-Consider a dataset comprising $n$ elements stored on secondary storage under the two-level memory model of Aggarwal and Vitter~\cite{aggarwal1988}, characterized by an internal primary memory capacity of $M$ elements and block transfers of size $B$ elements. The goal is to sort the array $S[1 \dots n]$ while minimizing the total number of I/O operations.
-
-\subsection{Operational Mechanism and Bucket Definition}
-The algorithm partitions the array $S$ into $k$ contiguous, disjoint partitions, termed \textbf{buckets} $B_1, B_2, \dots, B_k$, through the selection of $k - 1$ strictly increasing \textbf{pivots}:
+Instead, algorithms rely on multi-way partitioning (\textbf{Multi-Way Partitioning} or \textbf{External Distribution Sort}), dividing the dataset recursively into $k$ disjoint partitions (called \textit{buckets}), where the partition fan-out is calibrated to available memory:
 \begin{equation}
-  s_1 < s_2 < \dots < s_{k-1}.
+  k = \mathcal{O}\left(\frac{M}{B}\right).
 \end{equation}
 
-To handle boundary conditions uniformly, two conceptual sentinel values are introduced:
+\subsection{Formal Definition of Buckets and Pivots}
+Given the unsorted array $S[1 \dots n]$, the goal is to select an ordered set of $k - 1$ sentinel elements, called \textbf{pivots}:
+\begin{equation}
+  s_1 \le s_2 \le \dots \le s_{k-1}.
+\end{equation}
+The notation $s$ emphasizes that these elements originate from a sampling procedure (\textit{sampled}).
+
+For analytical convenience and to ensure boundary completeness, we introduce two conceptual sentinel pivots:
 \begin{equation}
   s_0 \coloneqq -\infty, \qquad s_k \coloneqq +\infty.
 \end{equation}
 
-\begin{definition}[Bucket $B_i$]
-For each index $i \in \{1, \dots, k\}$, bucket $B_i$ is the subset of elements from $S$ whose keys fall within the half-open interval bounded by adjacent pivots:
+\begin{definition}[Buckets $B_i$]
+The $k$ buckets $B_1, B_2, \dots, B_k$ are defined as the disjoint partitions formed by all elements of $S$ that fall within the respective half-open intervals determined by adjacent pivots:
 \begin{equation}
-  B_i \coloneqq \left\{ x \in S \mid s_{i-1} < x \le s_i \right\}.
-  \label{eq:bucket-definition-en}
+  B_i \coloneqq \Big\{ S[j] \in S \;\mid\; s_{i-1} < S[j] \le s_i \Big\}, \qquad \forall i \in \{1, 2, \dots, k\}.
+  \label{eq:bucket-formal-def}
 \end{equation}
 \end{definition}
 
-The topology of $k$-way partitioning is illustrated in \autoref{fig:k-way-partitioning-model-en}.
+The resulting partition topology is illustrated in \autoref{fig:k-way-partitioning-model}.
 
 \begin{figure}[H]
   \centering
   \resizebox{0.95\textwidth}{!}{%
   \begin{tikzpicture}[
     scale=1.0,
-    bucket/.style={rectangle, draw=blue!80!black, thick, minimum height=1.3cm, align=center, font=\small\bfseries},
+    bucket/.style={rectangle, draw=blue!80!black, thick, minimum height=1.2cm, align=center, font=\small\bfseries},
     sentinel/.style={font=\footnotesize\bfseries, text=red!80!black},
-    pivot/.style={font=\footnotesize\bfseries, text=blue!85!black},
-    ptr/.style={-{Stealth[scale=0.9]}, very thick, draw=blue!85!black}
+    pivot/.style={font=\footnotesize\bfseries, text=blue!85!black}
   ]
-    % Bucket segments
-    \node[bucket, fill=blue!12, minimum width=2.8cm, anchor=west] (b1) at (0, 0) {
-      $B_1$\\[2pt]\footnotesize ($s_0 < x \le s_1$)
-    };
-    \node[bucket, fill=orange!15, minimum width=2.8cm, anchor=west] (b2) at (b1.east) {
-      $B_2$\\[2pt]\footnotesize ($s_1 < x \le s_2$)
-    };
-    \node[bucket, fill=teal!15, minimum width=2.8cm, anchor=west] (b3) at (b2.east) {
-      $B_3$\\[2pt]\footnotesize ($s_2 < x \le s_3$)
-    };
-    \node[draw=none, minimum width=1.5cm, anchor=west, align=center, font=\Large\bfseries] (dots) at (b3.east) {
-      $\dots$
-    };
-    \node[bucket, fill=purple!15, minimum width=2.8cm, anchor=west] (bk) at (dots.east) {
-      $B_k$\\[2pt]\footnotesize ($s_{k-1} < x \le s_k$)
-    };
+    % Buckets B_1, B_2, dots, B_k
+    \node[bucket, fill=blue!10, minimum width=2.6cm] (b1) at (0, 0) {$B_1$\\[2pt]\footnotesize $s_0 < x \le s_1$};
+    \node[bucket, fill=teal!12, minimum width=2.6cm, right=0pt of b1] (b2) {$B_2$\\[2pt]\footnotesize $s_1 < x \le s_2$};
+    \node[bucket, fill=gray!12, minimum width=2.4cm, right=0pt of b2] (dots) {$\dots$\\[2pt]\footnotesize $\dots$};
+    \node[bucket, fill=orange!12, minimum width=2.6cm, right=0pt of dots] (bk) {$B_k$\\[2pt]\footnotesize $s_{k-1} < x \le s_k$};
 
-    % Pivots and Sentinels at top
-    \node[above=14pt, sentinel] at (b1.north west) {$s_0 = -\infty$};
-    \draw[ptr] ([yshift=18pt]b1.north east) -- (b1.north east)
-      node[pos=0.0, above, pivot] {$s_1$};
-    \draw[ptr] ([yshift=18pt]b2.north east) -- (b2.north east)
-      node[pos=0.0, above, pivot] {$s_2$};
-    \draw[ptr] ([yshift=18pt]b3.north east) -- (b3.north east)
-      node[pos=0.0, above, pivot] {$s_3$};
-    \draw[ptr] ([yshift=18pt]bk.north west) -- (bk.north west)
-      node[pos=0.0, above, pivot] {$s_{k-1}$};
-    \node[above=14pt, sentinel] at (bk.north east) {$s_k = +\infty$};
+    % Delimiters and Pivots
+    \node[sentinel, above=6pt of b1.north west] (s0) {$s_0 = -\infty$};
+    \node[pivot, above=6pt of b1.north east] (s1) {$s_1$};
+    \node[pivot, above=6pt of b2.north east] (s2) {$s_2$};
+    \node[pivot, above=6pt of bk.north west] (skm1) {$s_{k-1}$};
+    \node[sentinel, above=6pt of bk.north east] (sk) {$s_k = +\infty$};
 
-    % Decorative bottom braces
-    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, blue!85!black]
-      ([yshift=-4pt]b1.south west) -- ([yshift=-4pt]b1.south east)
-      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_1| \approx \frac{n}{k}$};
-
-    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, orange!90!black]
-      ([yshift=-4pt]b2.south west) -- ([yshift=-4pt]b2.south east)
-      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_2| \approx \frac{n}{k}$};
-
-    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, teal!90!black]
-      ([yshift=-4pt]b3.south west) -- ([yshift=-4pt]b3.south east)
-      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_3| \approx \frac{n}{k}$};
-
-    \draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, purple!85!black]
-      ([yshift=-4pt]bk.south west) -- ([yshift=-4pt]bk.south east)
-      node[midway, below=7pt, font=\scriptsize\bfseries] {$|B_k| \approx \frac{n}{k}$};
+    % Vertical demarcation lines
+    \draw[thick, red!70!black] (b1.north west) -- (b1.south west);
+    \draw[thick, blue!80!black] (b1.north east) -- (b1.south east);
+    \draw[thick, blue!80!black] (b2.north east) -- (b2.south east);
+    \draw[thick, blue!80!black] (bk.north west) -- (bk.south west);
+    \draw[thick, red!70!black] (bk.north east) -- (bk.south east);
   \end{tikzpicture}%
   }
-  \caption{Key universe partitioning into $k$ disjoint buckets using $k-1$ sorted pivots and two conceptual sentinel boundaries.}
-  \label{fig:k-way-partitioning-model-en}
+  \caption{Partitioning of dataset $S$ into $k$ buckets using $k-1$ sorted pivots.}
+  \label{fig:k-way-partitioning-model}
 \end{figure}
 
-\begin{property}[Immediate Concatenation Property]
-Unlike Merge Sort, where the final phase necessitates merging sorted streams, External Distribution Sort satisfies:
+\subsection{Optimal Balancing Condition}
+For the sorting algorithm to maintain optimal I/O complexity, bucket sizes must not deviate excessively from the ideal average size $\frac{n}{k}$.
+
+\begin{property}[Formal Balancing Objective]
+All buckets must have asymptotically uniform cardinality:
 \begin{equation}
-  \forall x \in B_i, \quad \forall y \in B_j \quad \text{with } i < j \implies x \le y.
+  |B_i| = \Theta\left(\frac{n}{k}\right), \qquad \forall i \in \{1, 2, \dots, k\}.
 \end{equation}
-Consequently, once each individual bucket $B_i$ has been recursively sorted, the globally sorted array is simply the direct sequential concatenation of all buckets:
-\begin{equation}
-  S_{\text{sorted}} = B_1 \circ B_2 \circ \dots \circ B_k.
-\end{equation}
-No subsequent merging step is required, eliminating pointer overhead and post-processing computations entirely.
 \end{property}
 
-\subsection{The Balancing Objective and Its Impact on I/O}
-For the algorithm to achieve optimal I/O complexity in the external memory model, the choice of branching factor $k$ and pivot locations must satisfy two architectural constraints:
-
+The architectural significance of this balance is two-fold:
 \begin{enumerate}
-  \item \textbf{Internal buffer capacity:} During the distribution pass over $S$, internal RAM must maintain at least one block-sized write buffer of size $B$ for each of the $k$ buckets. Since total memory is $M$, the maximum admissible partitioning degree is:
+  \item \textbf{Asymptotic Optimality of Recursion Depth:} When all buckets remain balanced across recursion levels, tree depth is bounded by:
   \begin{equation}
-    k = \Theta\left(\frac{M}{B}\right), \quad \text{with } k \ge 2.
-    \label{eq:k-branching-factor-en}
+    \mathcal{O}\left(\log_k \frac{n}{B}\right) = \mathcal{O}\left(\frac{\log(n/B)}{\log(M/B)}\right).
   \end{equation}
-  Whenever the write buffer for bucket $B_i$ becomes full, it is flushed to disk via a single sequential block write of $B$ elements.
-  
-  \item \textbf{Dimensional bucket balance:} Each bucket must be evenly sized:
+  Distributing elements among $k$ buckets at each level requires a single linear scan taking $\mathcal{O}\left(\frac{n}{B}\right)$ I/Os (allocating one output write buffer for each of the $k = \mathcal{O}(M/B)$ buckets). Total I/O complexity matches Aggarwal and Vitter's lower bound:
   \begin{equation}
-    |B_i| = \Theta\left(\frac{n}{k}\right), \quad \forall i \in \{1, \dots, k\}.
-    \label{eq:balance-condition-en}
+    \mathcal{O}\left(\frac{n}{B} \log_{M/B} \frac{n}{B}\right) \text{ I/Os}.
   \end{equation}
+  \item \textbf{Prevention of Memory Overflow:} No bucket exceeds internal memory capacity during the base case where individual buckets are loaded into RAM and sorted locally.
 \end{enumerate}
 
-\begin{theorem}[I/O Complexity of Balanced External Distribution Sort]
-When balance condition~\eqref{eq:balance-condition-en} is maintained across all recursive levels, the depth of the recursion tree satisfies:
-\begin{equation}
-  h = \mathcal{O}\left(\log_k \frac{n}{M}\right) = \mathcal{O}\left(\log_{M/B} \frac{n}{B}\right).
-\end{equation}
-Because each recursion level performs a linear distribution pass over the entire dataset costing $\mathcal{O}(n/B)$ block transfers, the overall I/O complexity is:
-\begin{equation}
-  \text{I/O}(n) = \mathcal{O}\left(\frac{n}{B} \log_{M/B} \frac{n}{B}\right),
-\end{equation}
-matching the theoretical sorting lower bound established by Aggarwal and Vitter.
-\end{theorem}
-
-\begin{property}[Catastrophic Degeneracy from Skewed Buckets]
-If even a single bucket $B_j$ is oversized (e.g., $|B_j| = \Omega(n)$), tree height ceases to shrink logarithmically and degenerates linearly toward $\Omega(n/M)$. Under this pathological case, total I/O would collapse to quadratic complexity $\mathcal{O}((n/B)^2)$. Accurate pivot selection is therefore the central pillar of the entire algorithm.
-\end{property}
-
+\FloatBarrier
 \section{The Over-Sampling Technique}
-\label{sec:oversampling-technique-en}
+\label{sec:oversampling-technique}
 
-How can we identify $k - 1$ pivots that guarantee, with overwhelming confidence, that each of the $k$ buckets contains $\Theta(n/k)$ elements?
-
-A naive approach would simply sample $k - 1$ random elements from $S$ uniformly and sort them. However, order statistics theory for uniform random variables shows that the maximum bucket size exhibits high variance, with an expected maximum bucket size of:
+\subsection{Shortcomings of Naive Sampling}
+Directly extracting only $k - 1$ random pivots from $S$ yields high statistical variance in the spacing between successive pivot keys. Consequently, with high probability, dense clusters and empty gaps emerge, creating pathological buckets with:
 \begin{equation}
-  \mathbb{E}\left[\max_{1 \le i \le k} |B_i|\right] \approx \frac{n}{k} \ln k.
+  |B_i| \gg \frac{n}{k}.
 \end{equation}
-For realistic values of $k$ ($k = M/B \approx 10^3 \div 10^5$), the factor $\ln k \approx 7 \div 12$ introduces unacceptable skew.
+This severe skew destroys the optimal I/O bounds of external distribution sort.
 
-To resolve this limitation without computing exact medians and quantiles on disk (which would incur heavy linear I/O overheads), the \textbf{Over-Sampling} technique is deployed.
+To sharply suppress this variance and mathematically guarantee that no bucket exceeds a target threshold, we employ \textbf{Over-Sampling}: we draw substantially more than $k$ samples, sort them in RAM, and select the final pivots at equidistant regular strides.
 
-\subsection{Parameters and Operational Procedure}
-We introduce an oversampling multiplier $a = \Theta(\log_2 k)$, termed the \textbf{oversampling factor}. As derived analytically below, we set:
+\subsection{Formalization of Over-Sampling Parameters}
+We define an over-sampling parameter $a$:
 \begin{equation}
-  a \coloneqq 12 \ln k.
-  \label{eq:oversampling-factor-en}
+  a = \Theta(\log_2 k).
+\end{equation}
+Specifically, to align analytical constants with exponential concentration bounds, we calibrate:
+\begin{equation}
+  a + 1 \coloneqq 12 \ln k \qquad (\text{for } k \ge 2).
+  \label{eq:oversampling-parameter-a}
 \end{equation}
 
-The pivot selection procedure operates in three concise stages:
+The total size of the random sample pool $A \subset S$ is:
+\begin{equation}
+  |A| = (a + 1)k - 1.
+  \label{eq:sample-size-a}
+\end{equation}
 
+\subsection{Pivot Selection Algorithm via Over-Sampling}
+The selection workflow proceeds through three sequential phases:
 \begin{enumerate}
-  \item \textbf{Global sample extraction:} Draw $(a + 1)k - 1$ items uniformly at random with replacement from $S$, accumulating them into an auxiliary internal buffer $A$:
+  \item \textbf{Random Extraction:} Draw $(a + 1)k - 1$ elements uniformly at random from $S$, forming sample set $A$.
+  \item \textbf{Sample Sorting:} Sort set $A$ in internal memory (incurring 0 extra disk I/Os since $|A| \le M$):
   \begin{equation}
-    |A| = (a + 1)k - 1.
-    \label{eq:sample-size-en}
+    A = [A[1], A[2], \dots, A[|A|]], \qquad \text{where } A[1] \le A[2] \le \dots \le A[|A|].
   \end{equation}
-  
-  \item \textbf{Internal sorting of sample:} Sort array $A$ entirely within fast internal memory using an optimal comparison sort. Since $|A| = \mathcal{O}(k \ln k) = \mathcal{O}(\frac{M}{B} \ln \frac{M}{B}) \ll M$, sorting $A$ requires 0 disk I/O and negligible CPU time.
-  
-  \item \textbf{Equidistant pivot selection:} Select the $k - 1$ pivots by picking elements from sorted array $A$ at regular strides of $(a + 1)$:
+  \item \textbf{Equidistant Pivot Selection:} For each index $i \in \{1, 2, \dots, k - 1\}$, pivot $s_i$ is chosen as the element occupying the exact multiple position of $(a + 1)$ in the sorted array $A$:
   \begin{equation}
-    s_i \coloneqq A[(a + 1) \cdot i], \quad \text{for } i = 1, \dots, k - 1.
-    \label{eq:pivot-selection-rule-en}
+    s_i \coloneqq A\big[(a + 1) \cdot i\big], \qquad \forall i \in \{1, 2, \dots, k - 1\}.
+    \label{eq:pivot-selection-rule}
   \end{equation}
 \end{enumerate}
 
-The internal structure of sorted sample $A$ is illustrated in \autoref{fig:oversampling-sample-layout-en}.
-
-\begin{figure}[H]
-  \centering
-  \resizebox{0.95\textwidth}{!}{%
-  \begin{tikzpicture}[
-    scale=1.0,
-    box/.style={rectangle, draw=black!80, thick, minimum height=1.1cm, align=center, font=\small},
-    pivotBox/.style={rectangle, draw=blue!90!black, fill=blue!20, thick, minimum height=1.1cm, minimum width=1.1cm, align=center, font=\small\bfseries},
-    arr/.style={-{Stealth[scale=0.9]}, very thick, draw=blue!85!black}
-  ]
-    % Cells of sample A
-    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap0) at (0, 0) {$a$ samples};
-    \node[pivotBox, anchor=west] (p1) at (gap0.east) {$s_1$};
-    
-    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap1) at (p1.east) {$a$ samples};
-    \node[pivotBox, anchor=west] (p2) at (gap1.east) {$s_2$};
-    
-    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gap2) at (p2.east) {$a$ samples};
-    \node[draw=none, minimum width=1.2cm, anchor=west, font=\large\bfseries] (dots) at (gap2.east) {$\dots$};
-    \node[pivotBox, anchor=west] (pk) at (dots.east) {$s_{k-1}$};
-    
-    \node[box, fill=gray!12, minimum width=2.4cm, anchor=west] (gapk) at (pk.east) {$a$ samples};
-
-    % Index pointers above
-    \draw[arr] ([yshift=16pt]p1.north) -- (p1.north)
-      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[a+1]$};
-      
-    \draw[arr] ([yshift=16pt]p2.north) -- (p2.north)
-      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[2(a+1)]$};
-
-    \draw[arr] ([yshift=16pt]pk.north) -- (pk.north)
-      node[pos=0.0, above, font=\scriptsize\bfseries, text=blue!90!black] {$A[(k-1)(a+1)]$};
-
-    % Overall bottom brace
-    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick]
-      ([yshift=-4pt]gap0.south west) -- ([yshift=-4pt]gapk.south east)
-      node[midway, below=8pt, font=\small\bfseries] {Overall sorted sample $|A| = (a+1)k - 1$};
-  \end{tikzpicture}%
-  }
-  \caption{Layout of sorted auxiliary array $A$: exactly $a$ intermediate sample items lie between any two consecutive pivots.}
-  \label{fig:oversampling-sample-layout-en}
-\end{figure}
-
-\begin{property}[Intermediate Sample Invariant]
-By algorithmic design, between any two consecutive pivots $s_{i-1}$ and $s_i$, there reside \textbf{exactly $a$ intermediate samples} from $A$. Across all $k$ intervals, this accounts for $k \cdot a$ elements; adding the $k - 1$ pivots yields:
-\begin{equation}
-  k \cdot a + (k - 1) = (a + 1)k - 1 = |A|,
-\end{equation}
-confirming perfect conservation of sample capacity.
-\end{property}
-
-\subsection{Concrete Numerical Trace}
-\begin{example}[Oversampling Trace with $n=64$, $k=4$, $a=3$]
-To make the mechanics tangible, let $n = 64$ and target $k = 4$ buckets with $a = 3$:
-\begin{enumerate}
-  \item Sample size:
-  \begin{equation}
-    |A| = (a + 1)k - 1 = (3 + 1) \cdot 4 - 1 = 15 \text{ elements}.
-  \end{equation}
-  \item Suppose uniform random sampling and internal sorting produce:
-  \begin{equation*}
-    A = [\, 4,\, 7,\, 9,\, \mathbf{12},\, 15,\, 18,\, 22,\, \mathbf{29},\, 33,\, 38,\, 41,\, \mathbf{50},\, 55,\, 61,\, 68 \,].
-  \end{equation*}
-  \item Selection stride is $a + 1 = 4$. The $k - 1 = 3$ pivots are:
-  \begin{align*}
-    s_1 &= A[1 \cdot 4] = A[4] = \mathbf{12}, \\
-    s_2 &= A[2 \cdot 4] = A[8] = \mathbf{29}, \\
-    s_3 &= A[3 \cdot 4] = A[12] = \mathbf{50}.
-  \end{align*}
-  \item The 4 resulting bucket boundaries are:
-  \begin{align*}
-    B_1 &= \{ x \in S \mid -\infty < x \le 12 \}, \\
-    B_2 &= \{ x \in S \mid 12 < x \le 29 \}, \\
-    B_3 &= \{ x \in S \mid 29 < x \le 50 \}, \\
-    B_4 &= \{ x \in S \mid 50 < x \le +\infty \}.
-  \end{align*}
-\end{enumerate}
-Each bucket interval $(s_{i-1}, s_i]$ encloses exactly $a = 3$ items from sample $A$, faithfully tracking the empirical key density.
-\end{example}
-
-\section{Failure Probability Bound via Chernoff Bounds}
-\label{sec:chernoff-bound-proof-en}
-
-We now formally prove that oversampling guarantees dimensional bucket balance with overwhelming probability.
-
-\subsection{Formal Definition of Failure}
-Pivot extraction results in a \textbf{failure} if at least one bucket $B_i$ is severely imbalanced, holding at least four times its expected average capacity $n/k$:
-\begin{equation}
-  \mathbb{P}(\text{failure}) \coloneqq \mathbb{P}\left(\exists i \in \{1, \dots, k\} : |B_i| \ge \frac{4n}{k}\right).
-  \label{eq:failure-definition-en}
-\end{equation}
-
-\subsection{Geometric Construction on Conceptual Sorted Array \texorpdfstring{$S_{\text{sort}}$}{S\_sort}}
-Consider the hypothetically sorted array $S_{\text{sort}}$. Subdivide $S_{\text{sort}}$ into $\frac{k}{2}$ contiguous segments of uniform width, denoted $t_j$ for $j = 1, \dots, \frac{k}{2}$:
-\begin{equation}
-  |t_j| \coloneqq \frac{n}{k/2} = \frac{2n}{k}.
-  \label{eq:segment-width-en}
-\end{equation}
-
-The geometric relationship between segment $t_j$ and an oversized bucket $B_i$ is visualized in \autoref{fig:pigeonhole-chernoff-construction-en}.
-
-\begin{figure}[H]
-  \centering
-  \resizebox{0.95\textwidth}{!}{%
-  \begin{tikzpicture}[
-    scale=1.0,
-    segment/.style={rectangle, draw=black!80, thick, minimum height=1.1cm, align=center, font=\small},
-    bucketBox/.style={rectangle, draw=red!80!black, fill=red!15, very thick, minimum height=1.2cm, align=center, font=\small\bfseries}
-  ]
-    % Sorted array S_sort partitioned into k/2 segments of size 2n/k
-    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (t1) at (0, 0) {$t_1$\\\footnotesize($\frac{2n}{k}$)};
-    \node[segment, fill=yellow!20, minimum width=2.4cm, anchor=west] (t2) at (t1.east) {$t_2$\\\footnotesize($\frac{2n}{k}$)};
-    \node[segment, fill=orange!25, minimum width=2.4cm, anchor=west] (t3) at (t2.east) {$t^* = t_3$\\\footnotesize($\frac{2n}{k}$)};
-    \node[segment, fill=yellow!20, minimum width=2.4cm, anchor=west] (t4) at (t3.east) {$t_4$\\\footnotesize($\frac{2n}{k}$)};
-    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (t5) at (t4.east) {$t_5$\\\footnotesize($\frac{2n}{k}$)};
-    \node[draw=none, minimum width=1.2cm, anchor=west, font=\large\bfseries] (dots) at (t5.east) {$\dots$};
-    \node[segment, fill=gray!10, minimum width=2.4cm, anchor=west] (tk) at (dots.east) {$t_{k/2}$\\\footnotesize($\frac{2n}{k}$)};
-
-    % Imbalanced bucket Bi containing segment t3 entirely
-    \node[bucketBox, minimum width=6.6cm, anchor=south] (bi) at ([yshift=14pt]t3.north) {
-      Imbalanced Bucket $B_i$ with $|B_i| \ge \frac{4n}{k}$\\
-      \footnotesize(Completely encloses $t_3 \implies t_3 \subseteq B_i$)
-    };
-
-    \draw[-{Stealth[scale=1.0]}, very thick, red!80!black] (bi.south) -- (t3.north);
-
-    % Array endpoints
-    \node[above=4pt, font=\scriptsize\bfseries] at (t1.north west) {$S_{\text{sort}}[1]$};
-    \node[above=4pt, font=\scriptsize\bfseries] at (tk.north east) {$S_{\text{sort}}[n]$};
-  \end{tikzpicture}%
-  }
-  \caption{Geometric containment construction: any bucket $B_i$ with size $\ge 4n/k$ spans across and fully encloses at least one segment $t^* \subset S_{\text{sort}}$ of width $2n/k$.}
-  \label{fig:pigeonhole-chernoff-construction-en}
-\end{figure}
-
-\begin{lemma}[Geometric Containment Lemma]
-\label{lem:containment-en}
-If bucket $B_i$ contains $|B_i| \ge \frac{4n}{k}$ elements, it must \textbf{completely enclose at least one} canonical segment $t_j$:
-\begin{equation}
-  \exists j \in \left\{1, \dots, \frac{k}{2}\right\} \quad \text{such that} \quad t_j \subseteq B_i.
-\end{equation}
-\end{lemma}
-
-\begin{proof}
-Follows from the continuous pigeonhole principle. The separation boundaries between consecutive segments $t_j$ are spaced exactly $\frac{2n}{k}$ apart. An interval $B_i$ of length at least $\frac{4n}{k}$ has twice the width of a segment, thereby spanning across at least two consecutive boundaries and encompassing the full segment $t_j$ between them.
-\end{proof}
-
-\subsection{The Sample Count Contradiction}
-Contrast this containment with the oversampling construction:
+\subsubsection{Structural Layout of the Sorted Sample Vector \texorpdfstring{$A$}{A}}
+The sorted array $A$ is partitioned into $k$ logical segments containing $a$ items each, separated by sentinel pivots:
 \begin{itemize}
-  \item By definition, bucket $B_i$ is bounded by consecutive pivots $s_{i-1}$ and $s_i$.
-  \item By pivot selection rule~\eqref{eq:pivot-selection-rule-en}, exactly $a$ samples from $A$ lie strictly between $s_{i-1}$ and $s_i$.
-  \item Hence, $B_i$ contains at most $a$ samples from $A$.
-  \item Because $t_j \subseteq B_i$, the number of samples from $A$ falling within $t_j$ cannot exceed the number in $B_i$.
+  \item Exactly $a$ samples of $A$ lie strictly between $s_{i-1}$ and $s_i$.
+  \item Including the right boundary $s_i$, exactly $a + 1$ samples of $A$ fall into the half-open interval $(s_{i-1}, s_i]$.
 \end{itemize}
 
-This yields the fundamental deduction:
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    blk/.style={rectangle, draw=blue!80!black, fill=blue!10, thick, minimum height=1.1cm, align=center, font=\small},
+    pvt/.style={rectangle, draw=teal!85!black, fill=teal!25, line width=1.4pt, minimum height=1.1cm, minimum width=1.1cm, align=center, font=\small\bfseries}
+  ]
+    % Blocks and pivot nodes
+    \node[blk, minimum width=2.4cm] (b1) at (0, 0) {$a$ items\\ \scriptsize pos. $1 \dots a$};
+    \node[pvt, right=0pt of b1] (s1) {$s_1$\\ \tiny $a+1$};
+    \node[blk, minimum width=2.6cm, right=0pt of s1] (b2) {$a$ items\\ \scriptsize pos. $a+2 \dots 2a+1$};
+    \node[pvt, right=0pt of b2] (s2) {$s_2$\\ \tiny $2(a+1)$};
+    \node[blk, fill=gray!12, minimum width=1.8cm, right=0pt of s2] (dots) {$\dots$};
+    \node[pvt, right=0pt of dots] (skm1) {$s_{k-1}$\\ \tiny $(k-1)(a+1)$};
+    \node[blk, minimum width=2.4cm, right=0pt of skm1] (bk) {$a$ items\\ \scriptsize pos. $(k-1)(a+1)+1 \dots |A|$};
+
+    \node[above=8pt of s1, font=\footnotesize\bfseries, text=teal!90!black] {Pivot 1};
+    \node[above=8pt of s2, font=\footnotesize\bfseries, text=teal!90!black] {Pivot 2};
+    \node[above=8pt of skm1, font=\footnotesize\bfseries, text=teal!90!black] {Pivot $k-1$};
+  \end{tikzpicture}%
+  }
+  \caption{Structural segmentation of sorted sample array $A$ into $k$ blocks of size $a$ spaced by pivots.}
+  \label{fig:oversampling-vector-structure}
+\end{figure}
+
+\begin{algorithm}[H]
+  \caption{Pivot Selection via Over-Sampling}
+  \label{alg:oversampling-pivot-selection}
+  \KwInput{Unsorted dataset $S[1 \dots n]$, fan-out $k \ge 2$, parameter $a + 1 = 12 \ln k$}
+  \KwOutput{Sorted pivot vector $s = \langle s_1, s_2, \dots, s_{k-1} \rangle$}
+  $m \leftarrow (a + 1)k - 1$\;
+  $A \leftarrow \operatorname{RandomSample}(S, m)$\tcp*{Draw m items uniformly at random}
+  $\operatorname{Sort}(A)$\tcp*{Internal sort in RAM: A[1] <= ... <= A[m]}
+  \For{$i \leftarrow 1$ \KwTo $k - 1$}{
+    $s_i \leftarrow A[(a + 1) \cdot i]$\tcp*{Equidistant pivots at stride a+1}
+  }
+  \Return $s$\;
+\end{algorithm}
+
+\FloatBarrier
+\section{Probabilistic Failure Analysis and Chernoff Bound}
+\label{sec:failure-analysis-chernoff}
+
+\subsection{Formal Definition of Failure Event}
+Our algorithmic goal is to prevent any bucket from growing excessively large. We establish the critical failure threshold at twice the average bucket capacity $\frac{2n}{k}$.
+
+\begin{definition}[Failure Event ($\text{Failure}$)]
+Failure occurs if at least one of the $k$ buckets exceeds the critical threshold:
 \begin{equation}
-  \left( |B_i| \ge \frac{4n}{k} \right) \implies \left( \exists j \in \left\{1, \dots, \frac{k}{2}\right\} : |t_j \cap A| < a + 1 \right).
+  \text{Failure} \iff \exists i \in \{1, 2, \dots, k\} \text{ such that } |B_i| \ge \frac{2n}{k}.
+  \label{eq:failure-definition}
+\end{equation}
+\end{definition}
+
+We aim to prove that the failure probability is bounded by a constant strictly less than 1:
+\begin{equation}
+  \mathbb{P}(\text{Failure}) \le \frac{1}{2}.
 \end{equation}
 
-Applying the Union Bound over all $\frac{k}{2}$ identical segments:
+\begin{property}[Practical Relevance of $\mathbb{P}(\text{Failure}) \le \frac{1}{2}$]
+A failure probability $\le \frac{1}{2}$ is ideal in the analysis of \textbf{Las Vegas} randomized algorithms.
+If the algorithm verifies bucket balance a posteriori (costing a linear $\frac{n}{B}$ I/O scan) and restarts sampling upon failure, the expected number of iterations is geometrically distributed with mean:
 \begin{equation}
-  \mathbb{P}(\text{failure}) \le \frac{k}{2} \cdot \mathbb{P}\left(t^* \text{ contains } < a + 1 \text{ samples from } A\right),
-  \label{eq:union-bound-final-en}
+  \mathbb{E}[\text{trials}] = \frac{1}{1 - \mathbb{P}(\text{Failure})} \le \frac{1}{1 - 1/2} = 2.
 \end{equation}
-where $t^*$ represents an arbitrary fixed segment of width $\frac{2n}{k}$.
+Furthermore, after $r$ independent attempts, the probability of remaining unbalanced decays exponentially to $\le \left(\frac{1}{2}\right)^r$, ensuring extreme operational robustness.
+\end{property}
 
-\subsection{Indicator Variables and Expectation}
-Let $t^*$ be fixed. For each sample $A[r] \in A$ ($r = 1, \dots, |A|$), define the Bernoulli indicator:
+\subsection{Ideal Sample Space \texorpdfstring{$S_{\text{sort}}$}{S\_sort} and Fixed-Block Partitioning}
+To analyze this stochastic behavior, consider the ideal fully sorted sequence of all $n$ elements in $S$, denoted $S_{\text{sort}}$:
+\begin{equation}
+  S_{\text{sort}} = [x_1, x_2, \dots, x_n], \qquad \text{with } x_1 \le x_2 \le \dots \le x_n.
+\end{equation}
+Because every bucket $B_i$ gathers all elements in the interval $(s_{i-1}, s_i]$, the contents of each bucket $B_i$ occupy a contiguous subarray inside $S_{\text{sort}}$.
+
+We conceptually partition the sorted sequence $S_{\text{sort}}$ into fixed, disjoint blocks $t_j$ of uniform size $\frac{2n}{k}$. The total count of such fixed blocks is:
+\begin{equation}
+  \text{Number of blocks } t_j = \frac{n}{\frac{2n}{k}} = \frac{k}{2}.
+\end{equation}
+We denote these $\frac{k}{2}$ blocks as $t_1, t_2, \dots, t_{k/2}$.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=1.0,
+    box/.style={rectangle, draw=blue!85!black, fill=blue!10, thick, minimum height=1.1cm, align=center, font=\small},
+    brace/.style={decorate, decoration={brace, amplitude=5pt, raise=3pt}, thick}
+  ]
+    % Blocks t_j of S_sort
+    \node[box, minimum width=2.8cm] (t1) at (0, 0) {$t_1$};
+    \node[box, minimum width=2.8cm, right=0pt of t1] (t2) {$t_2$};
+    \node[box, minimum width=2.8cm, right=0pt of t2] (t3) {$t3$};
+    \node[box, fill=gray!12, minimum width=2.0cm, right=0pt of t3] (dots) {$\dots$};
+    \node[box, minimum width=2.8cm, right=0pt of dots] (tk2) {$t_{k/2}$};
+
+    % Block width indicators
+    \draw[brace, decoration={mirror}] ($(t1.south west)+(0,-0.1)$) -- ($(t1.south east)+(0,-0.1)$)
+      node[midway, below=8pt, font=\footnotesize\bfseries, text=blue!85!black] {$\frac{2n}{k}$};
+    \draw[brace, decoration={mirror}] ($(t2.south west)+(0,-0.1)$) -- ($(t2.south east)+(0,-0.1)$)
+      node[midway, below=8pt, font=\footnotesize\bfseries, text=blue!85!black] {$\frac{2n}{k}$};
+
+    % Full S_sort brace
+    \draw[brace, draw=teal!80!black] ($(t1.north west)+(0,0.1)$) -- ($(tk2.north east)+(0,0.1)$)
+      node[midway, above=8pt, font=\small\bfseries, text=teal!85!black] {
+        $S_{\text{sort}}$ ($n$ items partitioned into $\frac{k}{2}$ contiguous fixed blocks)
+      };
+  \end{tikzpicture}%
+  }
+  \caption{Theoretical partitioning of $S_{\text{sort}}$ into $\frac{k}{2}$ fixed blocks $t_j$ of size $\frac{2n}{k}$.}
+  \label{fig:fixed-blocks-partition}
+\end{figure}
+
+\subsection{Logical Implication of the Failure Event}
+Examine the geometric configuration when failure occurs for an arbitrary bucket $B_i$, meaning $|B_i| \ge \frac{2n}{k}$:
+\begin{enumerate}
+  \item Since $B_i$ forms a contiguous interval in $S_{\text{sort}}$ of length at least $\frac{2n}{k}$, it must completely contain (or span across) at least one fixed block $t_j$:
+  \begin{equation}
+    \exists j \in \left\{1, \dots, \frac{k}{2}\right\} \text{ such that } t_j \subseteq B_i.
+  \end{equation}
+  \item The delimiting pivots $s_{i-1}$ and $s_i$ sit strictly outside block $t_j$ (to the left and right, respectively).
+  \item By construction of over-sampling, the entire bucket $B_i$ contains at most $a$ interior samples, plus boundary pivot $s_i$. Thus, the total count of samples from $A$ falling within $B_i$ is at most $a + 1$.
+  \item Since $t_j \subseteq B_i$ and pivot $s_i$ lies outside $t_j$, fixed block $t_j$ can contain strictly fewer than $a + 1$ samples of $A$:
+  \begin{equation}
+    |t_j \cap A| < a + 1.
+  \end{equation}
+\end{enumerate}
+
+Thus, the logical implication holds:
+\begin{equation}
+  X \implies Y,
+\end{equation}
+where:
+\begin{align}
+  X &\colon \exists B_i \text{ such that } |B_i| \ge \frac{2n}{k}, \\
+  Y &\colon \exists t_j \text{ such that } t_j \text{ contains } < a + 1 \text{ samples of } A.
+\end{align}
+
+By fundamental probability laws:
+\begin{equation}
+  X \implies Y \implies \mathbb{P}(X) \le \mathbb{P}(Y).
+\end{equation}
+We upper-bound the failure probability by analyzing the likelihood that at least one fixed block receives too few samples:
+\begin{equation}
+  \mathbb{P}(\text{Failure}) \le \mathbb{P}\left(\exists j \in \left\{1, \dots, \frac{k}{2}\right\} \colon |t_j \cap A| < a + 1\right).
+\end{equation}
+
+\subsection{Union Bound}
+Applying Boole's inequality (Union Bound) across all $\frac{k}{2}$ fixed blocks:
+\begin{equation}
+  \mathbb{P}\left(\bigcup_{j=1}^{k/2} \big\{|t_j \cap A| < a + 1\big\}\right) \le \sum_{j=1}^{k/2} \mathbb{P}\big(|t_j \cap A| < a + 1\big).
+\end{equation}
+
+Because each block $t_j$ has identical length $|t_j| = \frac{2n}{k}$, the probability of an individual sample landing in $t_j$ is identical for every $j$. Selecting an arbitrary reference block $t^*$:
+\begin{equation}
+  \mathbb{P}(\text{Failure}) \le \frac{k}{2} \cdot \mathbb{P}\big(t^* \text{ contains } < a + 1 \text{ samples of } A\big).
+  \label{eq:union-bound-failure}
+\end{equation}
+
+\subsection{Expectation Computation}
+Fix block $t^*$. Let $X$ be the random variable counting how many sample items from $A$ land in $t^*$. Define indicator variables for each drawn sample $r \in \{1, \dots, |A|\}$:
 \begin{equation}
   X_r \coloneqq \begin{cases}
-    1 & \text{if sample } A[r] \in t^*, \\
-    0 & \text{otherwise}.
+    1 & \text{if sample } r \text{ of } A \text{ belongs to } t^*, \\
+    0 & \text{otherwise.}
   \end{cases}
 \end{equation}
-
-Because samples are chosen uniformly at random from $S$:
+Total random count is:
 \begin{equation}
-  p \coloneqq \mathbb{P}(X_r = 1) = \frac{|t^*|}{n} = \frac{\frac{2n}{k}}{n} = \frac{2}{k}.
+  X = \sum_{r=1}^{|A|} X_r.
 \end{equation}
 
-The total number of samples falling in $t^*$ is $X \coloneqq \sum_{r=1}^{|A|} X_r$. By linearity of expectation:
+The marginal probability that an arbitrary uniform sample from $S$ falls into $t^*$ is:
 \begin{equation}
-  \mathbb{E}[X] = |A| \cdot p = [(a + 1)k - 1] \cdot \frac{2}{k} = 2(a + 1) - \frac{2}{k}.
+  \mathbb{P}(\text{sample } \in t^*) = \frac{|t^*|}{n} = \frac{\frac{2n}{k}}{n} = \frac{2}{k}.
 \end{equation}
 
-Since $k \ge 2$, we have $\frac{2}{k} \le 1$. Given $a \ge 1$, we obtain:
+By linearity of expectation:
 \begin{equation}
-  \mathbb{E}[X] \ge 2(a + 1) - 1 \ge \frac{3}{2}(a + 1).
-  \label{eq:expected-value-bound-en}
+  \mathbb{E}[X] = \mathbb{E}\left[ \sum_{r=1}^{|A|} X_r \right] = \sum_{r=1}^{|A|} \mathbb{E}[X_r] = \sum_{r=1}^{|A|} \mathbb{P}(X_r = 1) = |A| \cdot \frac{2}{k}.
 \end{equation}
 
-Inverting this relation yields:
+Substituting total sample size $|A| = (a + 1)k - 1$:
+\begin{align}
+  \mathbb{E}[X] &= \big[(a + 1)k - 1\big] \cdot \frac{2}{k} \notag\\
+  &= 2(a + 1) - \frac{2}{k}.
+\end{align}
+
+Since $k \ge 2$, the subtracted fraction satisfies:
 \begin{equation}
-  a + 1 \le \frac{2}{3} \mathbb{E}[X] = \left(1 - \frac{1}{3}\right) \mathbb{E}[X].
-  \label{eq:delta-derivation-en}
+  \frac{2}{k} \le \frac{2}{2} = 1.
+\end{equation}
+We lower-bound the expectation:
+\begin{equation}
+  \mathbb{E}[X] \ge 2(a + 1) - 1.
 \end{equation}
 
-\subsection{Chernoff Lower Tail Bound}
-The standard \textbf{Chernoff Lower Tail Bound}~\cite{chernoff1952,motwani1995} states that for independent Bernoulli trials and any deviation parameter $\delta \in (0, 1)$:
+Since $a \ge 1$ (as $a + 1 = 12 \ln k \ge 12 \ln 2 \approx 8.31$ for all $k \ge 2$):
+\begin{align}
+  2(a + 1) - 1 &= \frac{3}{2}(a + 1) + \underbrace{\frac{1}{2}(a + 1) - 1}_{\ge 0} \notag\\
+  &\ge \frac{3}{2}(a + 1).
+\end{align}
+We establish the key inequality relating expectation to threshold:
 \begin{equation}
-  \mathbb{P}(X < (1 - \delta)\mathbb{E}[X]) \le e^{-\frac{\delta^2}{2} \mathbb{E}[X]}.
-  \label{eq:chernoff-lower-tail-en}
+  \mathbb{E}[X] \ge \frac{3}{2}(a + 1) \iff a + 1 \le \frac{2}{3}\mathbb{E}[X].
+  \label{eq:expectation-lower-bound}
 \end{equation}
 
-Setting $\delta = \frac{1}{3}$:
+\subsection{Chernoff Bound Application (Lower Tail)}
+The Chernoff lower-tail concentration bound establishes that for a sum $X = \sum X_r$ of independent random variables bounded in $[0, 1]$, for any relative deviation $\delta \in (0, 1)$:
 \begin{equation}
-  \mathbb{P}(X < a + 1) \le \mathbb{P}\left(X < \left(1 - \frac{1}{3}\right)\mathbb{E}[X]\right) \le e^{-\frac{(1/3)^2}{2} \mathbb{E}[X]} = e^{-\frac{1}{18} \mathbb{E}[X]}.
+  \mathbb{P}\big(X < (1 - \delta)\mathbb{E}[X]\big) \le e^{-\frac{\delta^2}{2}\mathbb{E}[X]}.
+  \label{eq:chernoff-lower-tail-theorem}
 \end{equation}
 
-Substituting $\mathbb{E}[X] \ge \frac{3}{2}(a + 1)$:
-\begin{equation}
-  -\frac{1}{18} \mathbb{E}[X] \le -\frac{1}{18} \cdot \frac{3}{2}(a + 1) = -\frac{a + 1}{12}.
-\end{equation}
-
-Inserting our choice $a = 12 \ln k$:
-\begin{equation}
-  -\frac{a + 1}{12} < -\frac{a}{12} = -\frac{12 \ln k}{12} = -\ln k.
-\end{equation}
-
-Exponentiating yields:
-\begin{equation}
-  \mathbb{P}(X < a + 1) \le e^{-\ln k} = \frac{1}{k}.
-  \label{eq:single-interval-bound-en}
-\end{equation}
-
-\subsection{Proof Conclusion and Las Vegas Strategy}
-Combining single-interval bound~\eqref{eq:single-interval-bound-en} with Union Bound~\eqref{eq:union-bound-final-en}:
-\begin{equation}
-  \mathbb{P}(\text{failure}) \le \frac{k}{2} \cdot \frac{1}{k} = \frac{1}{2}.
-  \label{eq:total-failure-bound-en}
-\end{equation}
-
-\begin{theorem}[Success Guarantee of Over-Sampling]
-With parameter $a = 12 \ln k$, the probability that \textbf{all} $k$ buckets are strictly balanced satisfies:
-\begin{equation}
-  \mathbb{P}(\text{success}) = 1 - \mathbb{P}(\text{failure}) \ge 1 - \frac{1}{2} = \frac{1}{2} \quad (50\%).
-\end{equation}
-\end{theorem}
-
-\begin{property}[Zero Amortized I/O Las Vegas Restart]
-If bucket validation detects an oversized bucket ($|B_i| \ge \frac{4n}{k}$), the algorithm discards the pivots and resamples independently. The number of trials $T \sim \text{Geom}(p)$ with $p \ge 1/2$ has expectation:
-\begin{equation}
-  \mathbb{E}[T] = \frac{1}{p} \le 2.
-\end{equation}
-Because sampling and sorting $A$ occur entirely in RAM with 0 disk I/O, retrying 1 or 2 times adds negligible overhead, preserving optimal $\mathcal{O}\left(\frac{n}{B} \log_{M/B}\frac{n}{B}\right)$ I/O performance.
+\begin{property}[Intuitive Interpretation of Chernoff Bound]
+Random variable $X$ concentrates sharply around its mean $\mathbb{E}[X]$. The probability of falling far below the expectation decays exponentially with respect to deviation square $\delta^2$.
 \end{property}
 
-\section{Uniform Random Sampling Algorithms}
-\label{sec:random-sampling-algorithms-en}
-
-The probabilistic guarantees of External Distribution Sort rely upon extracting truly uniform random samples without replacement.
-
-\subsection{Problem Formulation}
-Given a collection of $n$ elements $S[1 \dots n]$, extract a subset $D \subset S$ of fixed cardinality $|D| = m$ (here $m = |A| = (a+1)k - 1$) such that:
+We match $\mathbb{P}(X < a + 1)$ with Chernoff's format. From inequality~\eqref{eq:expectation-lower-bound}, $a + 1 \le \frac{2}{3}\mathbb{E}[X]$. Setting relative deviation:
 \begin{equation}
-  \mathbb{P}(S[i] \in D) = \frac{m}{n}, \quad \forall i \in \{1, \dots, n\}.
+  1 - \delta = \frac{2}{3} \implies \delta = 1 - \frac{2}{3} = \frac{1}{3}.
 \end{equation}
 
-\subsection{Algorithm 1: Hash-Based Rejection Sampling}
-The most direct approach iteratively generates pseudo-random indices in $[1, n]$, discarding duplicates via a hash set.
-
-\begin{algorithm}[H]
-\caption{Hash Set Random Sampling (\textit{HashSampling})}
-\label{alg:hash-sampling-en}
-\KwInput{Index range $[1 \dots n]$, sample size $m \le n$}
-\KwOutput{Sorted set of $m$ distinct sampled indices $D$}
-
-Initialize empty hash table $D \leftarrow \emptyset$\;
-\While{$|D| < m$}{
-  $p \leftarrow \text{rand}(1, n)$ \tcp*{Uniform integer in $[1, n]$}
-  \If{$p \notin D$}{
-    Insert $p$ into $D$\;
-  }
-}
-Sort elements of $D$\;
-\Return $D$\;
-\end{algorithm}
-
-\subsection{Collision Probability and Expected Trials}
-When $|D| = j$, the probability that the next draw collides with an existing member is:
+Consequently:
 \begin{equation}
-  \mathbb{P}(\text{collision at step } j) = \frac{j}{n}.
+  \mathbb{P}(X < a + 1) \le \mathbb{P}\left(X < \frac{2}{3}\mathbb{E}[X]\right) = \mathbb{P}\left(X < \left(1 - \frac{1}{3}\right)\mathbb{E}[X]\right).
 \end{equation}
 
-Collision probability peaks on the final draw:
+Applying Chernoff bound~\eqref{eq:chernoff-lower-tail-theorem} with $\delta = \frac{1}{3}$:
 \begin{equation}
-  \mathbb{P}(\text{collision}) \le \frac{m - 1}{n} < \frac{m}{n}.
+  \mathbb{P}\left(X < \left(1 - \frac{1}{3}\right)\mathbb{E}[X]\right) \le e^{-\frac{(1/3)^2}{2}\mathbb{E}[X]} = e^{-\frac{1/9}{2}\mathbb{E}[X]} = e^{-\frac{1}{18}\mathbb{E}[X]}.
 \end{equation}
 
-\begin{property}[Efficiency for Small Samples ($m \le n/2$)]
-When $m \le \frac{n}{2}$ (as in oversampling where $m \ll n$), collision probability remains bounded by:
+Substituting our expectation lower bound $\mathbb{E}[X] \ge \frac{3}{2}(a + 1)$:
+\begin{align}
+  e^{-\frac{1}{18}\mathbb{E}[X]} &\le e^{-\frac{1}{18} \cdot \frac{3}{2}(a + 1)} \notag\\
+  &= e^{-\frac{3}{36}(a + 1)} \notag\\
+  &= e^{-\frac{1}{12}(a + 1)}.
+\end{align}
+
+\subsection{Exact Calibration of \texorpdfstring{$a$}{a} and Conclusion}
+Substituting our chosen parameter $a + 1 = 12 \ln k$:
 \begin{equation}
-  \mathbb{P}(\text{collision}) < \frac{1}{2}.
+  e^{-\frac{1}{12}(a + 1)} = e^{-\frac{1}{12} \cdot (12 \ln k)} = e^{-\ln k} = \frac{1}{k}.
 \end{equation}
-Thus, more than $50\%$ of generated numbers yield successful insertions.
-\end{property}
 
-The total expected number of random generations is:
+Therefore, for any individual reference block $t^*$:
 \begin{equation}
-  \mathbb{E}[\text{trials}] = \sum_{j=0}^{m-1} \frac{n}{n - j} = n \left( H_n - H_{n-m} \right) \approx n \ln\left( \frac{n}{n - m} \right).
-  \label{eq:sampling-expected-attempts-en}
+  \mathbb{P}(t^* \text{ contains } < a + 1 \text{ samples}) \le \frac{1}{k}.
 \end{equation}
-Taylor expanding for $m \ll n$ gives $m + \frac{m^2}{2n} + \mathcal{O}(m^3/n^2)$. When $m = o(\sqrt{n})$, empty attempts are negligible, giving $\mathcal{O}(m)$ time.
 
-\subsection{Structural Limitations and Access Models}
-Despite simplicity, \autoref{alg:hash-sampling-en} has two architectural bottlenecks:
-
-\begin{enumerate}
-  \item \textbf{Variable-Length Keys and Strings:} Sampling index $p$ assumes $\mathcal{O}(1)$ random access. For variable-length strings or text records lacking fixed offsets, scalar byte positions cannot be indexed directly, requiring an auxiliary pointer index $P[1 \dots n]$ with $\Theta(n)$ space.
-  
-  \item \textbf{Absence of Streaming Property:} The algorithm cannot operate on data streams because it requires prior knowledge of $n$ and arbitrary random access across the dataset.
-\end{enumerate}
-
-\subsection{Streaming Paradigm: Reservoir Sampling}
-When data arrives as an unbuffered stream with unknown length $n$, \textbf{Reservoir Sampling} (Algorithm R by Waterman and Vitter~\cite{vitter1985}) provides an optimal single-pass solution.
-
-\begin{algorithm}[H]
-\caption{Reservoir Sampling (\textit{Vitter's Algorithm R})}
-\label{alg:reservoir-sampling-en}
-\KwInput{Data stream $S = \langle x_1, x_2, \dots \rangle$, reservoir capacity $m$}
-\KwOutput{Reservoir array $R[1 \dots m]$ containing $m$ uniform samples}
-
-Initialize reservoir with first $m$ stream items: $R[1 \dots m] \leftarrow [x_1, \dots, x_m]$\;
-$t \leftarrow m$\;
-\While{stream yields next item $x_{t+1}$}{
-  $t \leftarrow t + 1$\;
-  $j \leftarrow \text{rand}(1, t)$ \tcp*{Uniform integer in $[1, t]$}
-  \If{$j \le m$}{
-    $R[j] \leftarrow x_t$ \tcp*{Replace element at index $j$}
-  }
-}
-\Return $R$\;
-\end{algorithm}
-
-\begin{theorem}[Correctness of Reservoir Sampling]
-After scanning any prefix of $n \ge m$ items from the stream, each item $x_i$ ($1 \le i \le n$) is present in reservoir $R$ with exact uniform probability:
+Multiplying by factor $\frac{k}{2}$ from the Union Bound~\eqref{eq:union-bound-failure}:
 \begin{equation}
-  \mathbb{P}(x_i \in R) = \frac{m}{n}.
+  \mathbb{P}(\text{Failure}) \le \frac{k}{2} \cdot \mathbb{P}\big(t^* \text{ contains } < a + 1 \text{ samples}\big) \le \frac{k}{2} \cdot \frac{1}{k} = \frac{1}{2}.
 \end{equation}
+
+\begin{theorem}[Over-Sampling Balance Theorem]
+With success probability at least $1 - \frac{1}{2} = \frac{1}{2}$, over-sampling yields a partition where all buckets $B_i$ strictly satisfy size bound $|B_i| < \frac{2n}{k}$:
+\begin{equation}
+  \mathbb{P}\left(\forall i \in \{1, \dots, k\} \colon |B_i| < \frac{2n}{k}\right) \ge \frac{1}{2}.
+\end{equation}
+This establishes uniform balancing and closes the I/O efficiency analysis of External Distribution Sort. \qedhere
 \end{theorem}
 
-\begin{proof}
-By mathematical induction on stream length $n \ge m$.
+\FloatBarrier
+\section{Introduction to Random Sampling and Non-Streaming Limits}
+\label{sec:intro-random-sampling-non-streaming}
+
+Following the analysis of distribution sort, we must study the extraction primitive itself: how to formally draw $m$ random elements from a universe $S$ of size $n$?
+
+\subsection{Formal Problem Definition}
+Given an indexed array $S[1 \dots n]$ containing $n$ elements, extract subset $D \subseteq S$ of target cardinality $m$ satisfying:
 \begin{itemize}
-  \item \textbf{Base Case ($n = m$):} The first $m$ elements enter $R$ unconditionally. Probability is $m/m = 1$.
-  \item \textbf{Inductive Step ($n > m$):} Assume that after $n - 1$ items, each item satisfies $\mathbb{P}(x_i \in R) = \frac{m}{n - 1}$.
-  Upon the arrival of item $x_n$:
-  \begin{enumerate}
-    \item Item $x_n$ enters $R$ if $j \le m$, which occurs with probability $\frac{m}{n}$.
-    \item A pre-existing element $x_i$ remains in $R$ if it is not replaced, which occurs with probability $1 - (\frac{m}{n} \cdot \frac{1}{m}) = \frac{n - 1}{n}$.
-    \item By the induction hypothesis, $\mathbb{P}(x_i \in R \text{ at step } n) = \frac{m}{n - 1} \cdot \frac{n - 1}{n} = \frac{m}{n}$.
-  \end{enumerate}
+  \item \textbf{Marginal Uniformity:} Each item $i \in S$ shares identical inclusion probability:
+  \begin{equation}
+    \mathbb{P}(i \in D) = \frac{m}{n}.
+  \end{equation}
+  \item \textbf{Exact Cardinality Without Replacement:} The sample contains exactly $m$ distinct items:
+  \begin{equation}
+    |D| = m.
+  \end{equation}
 \end{itemize}
-The theorem holds for all $n \ge m$.
-\end{proof}
 
-\section{Comparative Synthesis}
-\label{sec:distribution-sort-synthesis-en}
+We assume access to an integer random generator primitive:
+\begin{equation}
+  \operatorname{Rand}(a, b) \to r \in [a, b], \qquad \text{where } r \text{ is drawn uniformly.}
+\end{equation}
 
-\autoref{tab:sorting-paradigms-comparison-en} summarizes the trade-offs between external sorting paradigms, while \autoref{tab:sampling-strategies-comparison-en} contrasts uniform sampling strategies.
+\subsection{Algorithm 1: Rejection Sampling (Naive Insertion Sampling)}
+The simplest scheme draws random candidate indices, inserting new ones into a dynamic set while discarding duplicates until reaching size $m$.
 
-\begin{table}[H]
+\begin{algorithm}[H]
+  \caption{Rejection Sampling via Dynamic Set Insertion}
+  \label{alg:rejection-sampling}
+  \KwInput{Index universe $[1 \dots n]$, target sample size $m \le n$}
+  \KwOutput{Sorted set $D$ containing $m$ distinct indices}
+  $D \leftarrow \emptyset$\;
+  \While{$|D| < m$}{
+    $p \leftarrow \operatorname{Rand}(1, n)$\;
+    \If{$p \notin D$}{
+      $D \leftarrow D \cup \{p\}$\;
+    }
+  }
+  $\operatorname{Sort}(D)$\;
+  \Return $D$\;
+\end{algorithm}
+
+\subsubsection{Collision Analysis and Failure Probability}
+At each step of the \texttt{while} loop, the probability that candidate $p$ is already in $D$ (causing a collision and a wasted attempt) is:
+\begin{equation}
+  \mathbb{P}(\text{collision}) = \mathbb{P}(p \in D) = \frac{|D|}{n}.
+\end{equation}
+
+Across execution, $|D|$ rises from $0$ to $m - 1$. The collision probability at any step is bounded by:
+\begin{equation}
+  \mathbb{P}(\text{failure}) < \frac{m}{n}.
+\end{equation}
+
+\begin{property}[Operating Regimes]
+Efficiency depends heavily on the ratio of $m$ to $n$:
+\begin{itemize}
+  \item \textbf{Sparse Regime ($m \le \frac{n}{2}$):} Step failure probability satisfies $\mathbb{P}(\text{failure}) < \frac{1}{2}$. Expected draws before success is less than 2, ensuring fast execution. Smaller $m/n$ ratios yield even fewer collisions.
+  \item \textbf{Dense Regime ($m \to n$):} As $m$ nears $n$, drawing an unselected element becomes increasingly improbable, degenerating into the classical \textbf{Coupon Collector's Problem} and inflating expected iterations to:
+  \begin{equation}
+    \Theta(n \ln m).
+  \end{equation}
+\end{itemize}
+\end{property}
+
+\subsubsection{Impact of Underlying Data Structures}
+As highlighted in lecture:
+\begin{itemize}
+  \item \textbf{Set Management for $D$:} Implementing $D$ as a \textbf{hash table} enables membership checks $p \notin D$ and insertions in expected $\mathcal{O}(1)$ time. An unsorted array would require linear search taking $\mathcal{O}(|D|) = \mathcal{O}(m)$ per draw.
+  \item \textbf{Final Sorting:} Operation $\operatorname{Sort}(D)$ consumes $\mathcal{O}(m \log m)$ CPU time to return sorted positions.
+\end{itemize}
+
+\subsection{Handling Variable-Length Records (Strings)}
+How do we sample when elements of $S$ are arbitrary variable-length records or text strings?
+
+\begin{figure}[H]
   \centering
-  \caption{Architectural comparison between external sorting paradigms.}
-  \label{tab:sorting-paradigms-comparison-en}
-  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}p{0.36\textwidth}p{0.36\textwidth}@{}}
-    \toprule
-    Metric & Multiway Merge Sort (Chap. 3) & External Distribution Sort \\
-    \midrule
-    Philosophy & \textit{Bottom-Up} (progressive merging) & \textit{Top-Down} (recursive partitioning) \\
-    \addlinespace
-    I/O Complexity & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{B}\right)$ & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{B}\right)$ (high probability) \\
-    \addlinespace
-    RAM Buffers & $k$ read buffers, 1 write buffer & 1 read buffer, $k$ write buffers \\
-    \addlinespace
-    Final Phase & Complex $k$-way heap-based merge & Direct bucket concatenation (0 I/O) \\
-    \addlinespace
-    Vulnerability & High initial run generation traffic & Sensitivity to bucket skew \\
-    \addlinespace
-    Mitigation & Run size $2M$ via Loser Tree & Over-Sampling ($a = 12 \ln k$) with Chernoff \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
+  \resizebox{0.95\textwidth}{!}{%
+  \begin{tikzpicture}[
+    scale=0.95,
+    str/.style={rectangle, draw=blue!85!black, fill=blue!10, thick, minimum height=1.0cm, align=center, font=\small\ttfamily},
+    ptr/.style={rectangle, draw=teal!85!black, fill=teal!15, thick, minimum height=0.9cm, minimum width=1.1cm, align=center, font=\footnotesize\bfseries},
+    arrow/.style={-{Stealth[scale=0.85]}, thick, draw=teal!90!black}
+  ]
+    % Pointer array
+    \node[ptr] (p1) at (0, 2) {$P[1]$};
+    \node[ptr, right=0pt of p1] (p2) {$P[2]$};
+    \node[ptr, right=0pt of p2] (p3) {$P[3]$};
+    \node[ptr, right=0pt of p3] (p4) {$P[4]$};
+    \node[right=8pt of p4, font=\small\bfseries, text=teal!90!black] {Indexed contiguous pointer array ($1 \dots n$)};
 
-\begin{table}[H]
-  \centering
-  \caption{Analytical comparison of uniform random sampling algorithms.}
-  \label{tab:sampling-strategies-comparison-en}
-  \begin{tabularx}{\textwidth}{@{}>{\bfseries\arraybackslash}p{0.22\textwidth}p{0.22\textwidth}p{0.24\textwidth}Y@{}}
-    \toprule
-    Algorithm & Data Model & Time Cost & Characteristics and Limits \\
-    \midrule
-    Hash Table (\textit{Rejection}) & Random Access $\mathcal{O}(1)$ array & $\mathcal{O}(m)$ expected ($m \le n/2$) & Requires prior $n$; unusable on variable-length records without index. \\
-    \addlinespace
-    Reservoir Sampling (Vitter) & Data Stream (\textit{One-Pass}) & $\mathcal{O}(n)$ & No prior $n$ required; bounded $\mathcal{O}(m)$ RAM; strict sequential access. \\
-    \addlinespace
-    Partial Fisher-Yates & In-Place mutable array & $\mathcal{O}(m)$ & Mutates input array by swapping first $m$ entries; requires writable RAM. \\
-    \bottomrule
-  \end{tabularx}
-\end{table}
+    % Variable length string records
+    \node[str, minimum width=1.8cm] (s1) at (0, 0) {"data"};
+    \node[str, minimum width=3.2cm, right=0pt of s1] (s2) {"algorithms"};
+    \node[str, minimum width=2.4cm, right=0pt of s2] (s3) {"system"};
+    \node[str, minimum width=1.4cm, right=0pt of s3] (s4) {"io"};
+    \node[right=8pt of s4, font=\small\bfseries, text=blue!85!black] {Variable-length disk records};
+
+    % Pointer arrows
+    \draw[arrow] (p1.south) -- (s1.north);
+    \draw[arrow] (p2.south) -- (s2.north);
+    \draw[arrow] (p3.south) -- (s3.north);
+    \draw[arrow] (p4.south) -- (s4.north);
+  \end{tikzpicture}%
+  }
+  \caption{Mapping variable-length string records using a contiguous indexed pointer array.}
+  \label{fig:variable-length-pointers}
+\end{figure}
+
+In a raw sequential file of variable-length strings, scalar index $p \in [1, n]$ from $\operatorname{Rand}(1, n)$ has no immediate $\mathcal{O}(1)$ byte offset.
+
+To solve this, we construct a contiguous \textbf{array of pointers} $P[1 \dots n]$, where pointer $P[i]$ references the exact byte offset of the $i$-th record. Random draws operate directly over pointer indices in $\mathcal{O}(1)$ time, granting instant access to the targeted record.
+
+\subsection{Why Algorithm 1 Fails in the Streaming Model}
+The lecture concludes with a vital structural observation bridging into data streams:
+
+\begin{property}[Professor's Critical Observation: \textit{``Our algorithm is not Streaming!''}]
+Algorithm~\ref{alg:rejection-sampling} suffers from fundamental constraints preventing its application to data streams:
+\begin{enumerate}
+  \item \textbf{Arbitrary Random Access:} It requires querying any arbitrary index $p \in [1, n]$ on demand at any iteration.
+  \item \textbf{Violation of Single-Pass Constraint:} Stream elements arrive in strict sequential order; rewinding or random hopping is strictly prohibited.
+  \item \textbf{Requirement of Known $n$:} Primitive $\operatorname{Rand}(1, n)$ requires knowing total cardinality $n$ upfront before processing begins.
+\end{enumerate}
+\end{property}
+
+This limitation motivates the development of \textbf{Random Sampling Algorithms on Data Streams} (examined in \autoref{chap:random-sampling-data-streams}), where cardinality $n$ may be unknown and admission decisions must be finalized \emph{on-the-fly} as elements arrive.

@@ -1,0 +1,326 @@
+\chapter{Retrieval Models, Scoring, and TF-IDF Weighting}
+\label{chap:retrieval-models-tfidf}
+
+\FloatBarrier
+\section{Evolutionary Paradigms of Information Retrieval}
+\label{sec:evolution-ir-en}
+
+The technological evolution of Information Retrieval spans four major architectural eras:
+
+\begin{enumerate}
+    \item \textbf{Statistical Era (1960s -- Mid-1990s):} relevance functions relied purely on lexical statistics within documents ($tf$) and collection frequency ($idf$). This framework was vulnerable to \textit{keyword stuffing}, where artificial repetition of keywords trivially boosted rankings.
+    \item \textbf{Structural Era and PageRank (1998):} Sergey Brin and Larry Page addressed the collapse of pure lexical ranking by exploiting Web graph topology. Inbound hyperlinks function as authority endorsements from source pages. Manipulating the global link graph is exponentially harder than altering on-page text.
+    \item \textbf{Machine Learning and Learning-to-Rank Era (2000s):} relevance was modeled through supervised learners fusing hundreds of disparate features: text matching signals, link graph reputation, and user interaction signals (click-through rates, query reformulation, dwell time).
+    \item \textbf{Neural Era and Dense Encoders (2018 -- Present):} Transformers enabled deep contextual linguistic understanding. Documents and queries are projected into dense metric embedding spaces or weighted via learned sparse expansions.
+\end{enumerate}
+
+\FloatBarrier
+\section{Boolean Retrieval vs. Ranked Retrieval}
+\label{sec:boolean-vs-ranked-en}
+
+The distinction between exact propositional matching and continuous scored ranking defines modern retrieval systems:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l Y Y}
+\toprule
+\textbf{Property} & \textbf{Boolean Retrieval} & \textbf{Ranked Retrieval} \\
+\midrule
+\textbf{Matching Criterion} & Exact, binary propositional truth ($d \models q \implies \{0, 1\}$). & Continuous real-valued relevance score: $\text{Score}(q, d) \in \mathbb{R}$. \\
+\addlinespace
+\textbf{Query Formulation} & Constrained Boolean expressions (\texttt{AND}, \texttt{OR}, \texttt{NOT}). & Free natural language queries (\textit{free-text query}). \\
+\addlinespace
+\textbf{Returned Output} & Unordered set of satisfying documents. & Monotonically sorted ranking by estimated relevance score. \\
+\addlinespace
+\textbf{User Experience} & \textit{Feast or Famine} pathology. & Immediate delivery of top-$k$ results (typically $k \approx 10$). \\
+\addlinespace
+\textbf{Target Audience} & Expert searchers (information specialists, patent lawyers). & General web users. \\
+\bottomrule
+\end{tabularx}
+\caption{Systematic comparison between Boolean and Ranked Retrieval models.}
+\label{tab:boolean-vs-ranked-en}
+\end{table}
+
+\begin{noteblock}{The ``Feast or Famine'' Pathology}
+Unranked Boolean search causes two undesirable extremes for regular users:
+\begin{itemize}
+    \item \textbf{Famine:} using conjunctive \texttt{AND} constraints excessively restricts matches. Missing even one keyword (e.g., due to synonymy) completely excludes a document, often returning zero results.
+    \item \textbf{Feast:} disjunctive \texttt{OR} operators relax constraints too aggressively, returning tens of thousands of unranked documents without quality guidance.
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
+\section{Set-Based Proximity Measures: The Jaccard Coefficient}
+\label{sec:jaccard-coefficient-en}
+
+A foundational approach to grading document relevance without vector algebra employs the Jaccard set overlap coefficient:
+
+\begin{definition}[Jaccard Similarity Coefficient]
+Given two term sets $A$ and $B$, the Jaccard similarity is the ratio of their intersection cardinality over their union cardinality:
+\begin{equation}
+J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}.
+\end{equation}
+\textit{Properties:} bounded within $[0, 1]$, where $J(A, A) = 1$ and $J(A, B) = 0 \iff A \cap B = \emptyset$.
+\end{definition}
+
+\subsection{Worked Example and the Document Length Paradox}
+
+Consider query $q$ and two candidate documents:
+\begin{itemize}
+    \item \textbf{Query $q$:} \textit{``ides of march''}\\
+    $Q = \{\text{ides}, \text{of}, \text{march}\}$, $|Q| = 3$.
+    \item \textbf{Document $d_1$:} \textit{``caesar died in march''}\\
+    $D_1 = \{\text{caesar}, \text{died}, \text{in}, \text{march}\}$, $|D_1| = 4$.
+    \item \textbf{Document $d_2$:} \textit{``the long march''}\\
+    $D_2 = \{\text{the}, \text{long}, \text{march}\}$, $|D_2| = 3$.
+\end{itemize}
+
+\paragraph{Analytical Evaluation:}
+\begin{align}
+Q \cap D_1 &= \{\text{march}\} \implies |Q \cap D_1| = 1, \\
+J(q, d_1) &= \frac{1}{3 + 4 - 1} = \frac{1}{6} \approx 0.166. \\[0.2cm]
+Q \cap D_2 &= \{\text{march}\} \implies |Q \cap D_2| = 1, \\
+J(q, d_2) &= \frac{1}{3 + 3 - 1} = \frac{1}{5} = 0.200.
+\end{align}
+
+\begin{alertblock}{The Jaccard Relevance Paradox}
+Because $J(q, d_2) = 0.200 > J(q, d_1) = 0.166$, Jaccard ranks $d_2$ ahead of $d_1$.
+However, historically and semantically, $d_1$ describes the assassination of Julius Caesar (the actual Ides of March), while $d_2$ describes an unrelated historical retreat (the Chinese Long March). Document $d_2$ obtains a higher score simply because it is shorter, inflating the denominator union $|A \cup B|$ less.
+\end{alertblock}
+
+\subsection{Structural Flaws of Jaccard Similarity for IR}
+\begin{enumerate}
+    \item \textbf{Ignores Term Frequency ($tf$):} whether a query term occurs once or 50 times in a document, its set intersection count remains exactly 1.
+    \item \textbf{Ignores Collection Term Rarity ($df$):} pervasive stopwords like \textit{``of''} contribute the exact same weight as ultra-discriminating keywords like \textit{``ides''}.
+    \item \textbf{Unjust Length Penalization:} comprehensive and relevant documents with broader vocabularies suffer artificial denominator inflation, collapsing their score.
+\end{enumerate}
+
+\FloatBarrier
+\section{From Incidence Matrices to Count Matrices}
+\label{sec:incidence-to-count-en}
+
+Moving beyond discrete sets, document modeling naturally transitions into linear algebra.
+
+\subsection{Binary Incidence Matrix}
+Given vocabulary $V = \{t_1, \dots, t_{|V|}\}$ and corpus $D = \{d_1, \dots, d_N\}$, the incidence matrix $M \in \{0, 1\}^{|V| \times N}$ records binary term presence:
+\begin{equation}
+M_{t, d} = \begin{cases} 1 & \text{if } t \in d, \\ 0 & \text{otherwise.} \end{cases}
+\end{equation}
+
+\subsection{Term--Document Count Matrix}
+Reflecting topical emphasis through occurrence frequencies yields the count matrix $C \in \mathbb{N}^{|V| \times N}$, where $C_{t, d} = \text{count}(t, d) = tf_{t,d}$.
+
+\begin{table}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l cccccc}
+\toprule
+\textbf{Term} & \textbf{Antony \& Cleo.} & \textbf{Julius Caesar} & \textbf{The Tempest} & \textbf{Hamlet} & \textbf{Othello} & \textbf{Macbeth} \\
+\midrule
+\textbf{Antony}    & 157 & 73  & 0 & 0 & 0 & 0 \\
+\textbf{Brutus}    & 4   & 157 & 0 & 1 & 0 & 0 \\
+\textbf{Caesar}    & 232 & 227 & 0 & 2 & 1 & 1 \\
+\textbf{Calpurnia} & 0   & 10  & 0 & 0 & 0 & 0 \\
+\textbf{Cleopatra} & 57  & 0   & 0 & 0 & 0 & 0 \\
+\textbf{mercy}     & 2   & 0   & 3 & 5 & 5 & 1 \\
+\textbf{worser}    & 2   & 0   & 1 & 1 & 1 & 0 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Term--document frequency count matrix across selected Shakespearean plays.}
+\label{tab:shakespeare-counts-en}
+\end{table}
+
+\FloatBarrier
+\section[Term Frequency Weighting: Log-Frequency Weighting]{Term Frequency Weighting:\\ Log-Frequency Weighting}
+\label{sec:log-frequency-weighting-en}
+
+\subsection{Why Raw Counts are Inadequate}
+Relevance perceived by users does not scale linearly with raw term frequencies:
+\begin{itemize}
+    \item A document mentioning a word $10$ times is likely more relevant than one mentioning it once, but it is certainly \textbf{not 10 times more relevant}.
+    \item Additional occurrences offer diminishing marginal returns of topical information.
+\end{itemize}
+
+\subsection[Logarithmic Dampening of tf]{Logarithmic Dampening of $tf$}
+To dampen the influence of large raw counts, sublinear logarithmic weighting is applied:
+\begin{equation}
+w_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{if } tf_{t,d} > 0, \\ 0 & \text{otherwise.} \end{cases}
+\end{equation}
+
+\paragraph{Weight Progression:}
+\begin{itemize}
+    \item $tf = 0 \implies w = 0$
+    \item $tf = 1 \implies w = 1 + \log_{10}(1) = 1.0$
+    \item $tf = 2 \implies w = 1 + \log_{10}(2) \approx 1.301$
+    \item $tf = 10 \implies w = 1 + \log_{10}(10) = 2.0$
+    \item $tf = 100 \implies w = 1 + \log_{10}(100) = 3.0$
+    \item $tf = 1000 \implies w = 1 + \log_{10}(1000) = 4.0$
+\end{itemize}
+In continuous optimization settings, $\log(1 + tf_{t,d})$ is frequently used, preserving zero-origin continuity ($\log(1+0)=0$).
+
+Scoring purely on log-dampened term frequencies computes:
+\begin{equation}
+\text{Score}(q, d) = \sum_{t \in q \cap d} \left( 1 + \log_{10}(tf_{t,d}) \right).
+\end{equation}
+
+\FloatBarrier
+\section[Document Frequency (df) and Inverse Document Frequency (idf)]{Document Frequency ($df$) and\\ Inverse Document Frequency ($idf$)}
+\label{sec:df-idf-en}
+
+\subsection{Semantic Informativeness and Corpus Rarity}
+Local within-document frequency ($tf$) does not reflect collection-wide specificity:
+\begin{itemize}
+    \item Pervasive terms present in nearly all documents (e.g., \textit{increase}, \textit{high}, conjunctions) offer minimal discriminative power.
+    \item Highly localized terms appearing in few documents (e.g., \textit{Calpurnia}, \textit{arachnocentric}) carry concentrated topical signal.
+\end{itemize}
+
+\subsection{Mathematical Formulation of IDF}
+Let $N = |D|$ denote total collection size, and let $df_t$ denote the document frequency of term $t$.
+\textbf{Inverse Document Frequency (IDF)} is defined as:
+\begin{equation}
+idf_t = \log_{10}\left( \frac{N}{df_t} \right).
+\end{equation}
+The logarithm compresses $N / df_t$, ensuring weights remain numerically well-scaled.
+
+\subsection[Worked Collection Example (N = 1 000 000)]{Worked Collection Example ($N = 1\,000\,000$)}
+
+Consider a collection of one million documents:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l ccc}
+\toprule
+\textbf{Term ($t$)} & \textbf{$df_t$} & \textbf{Ratio $N / df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
+\midrule
+\textbf{Calpurnia} & 1         & $10^6$ & $6.0$ \\
+\textbf{animal}    & 100       & $10^4$ & $4.0$ \\
+\textbf{sunday}    & $1\,000$   & $10^3$ & $3.0$ \\
+\textbf{fly}       & $10\,000$  & $10^2$ & $2.0$ \\
+\textbf{under}     & $100\,000$ & $10^1$ & $1.0$ \\
+\textbf{the}       & $1\,000\,000$ & $1$  & $0.0$ \\
+\bottomrule
+\end{tabular}
+\caption{IDF scale across varying Document Frequencies on $N = 10^6$.}
+\label{tab:idf-values-en}
+\end{table}
+
+\begin{noteblock}{Core Properties of IDF}
+\begin{enumerate}
+    \item \textbf{Automatic stopword neutralization:} when a word appears everywhere ($df_t = N$), $idf_t = \log_{10}(1) = 0$. The word contributes zero weight, naturally filtering stop words.
+    \item \textbf{Offline Query-Independent Precomputation:} $idf_t$ depends solely on corpus statistics and \textbf{not on the incoming query}. All $idf_t$ values are computed offline at indexing time and stored in the vocabulary dictionary for $\BigO{1}$ online retrieval.
+\end{enumerate}
+\end{noteblock}
+
+\subsection{IDF Impact on Ranking: Single-Term vs. Multi-Term Queries}
+
+\paragraph{For single-term queries ($|q| = 1$).}
+IDF \textbf{has zero effect on the relative ranking} among matching documents.
+\begin{proof}
+Let $q = \{t\}$. The IDF-weighted score for any matching document $d$ containing $t$ is:
+\begin{equation}
+\text{Score}(q, d) = \log_{10}\left(\frac{N}{df_t}\right).
+\end{equation}
+Since this factor is identical for all matching documents, it acts as a constant multiplier. The relative ranking is determined entirely by $tf_{t,d}$.
+\end{proof}
+
+\paragraph{For multi-term queries ($|q| \ge 2$).}
+IDF becomes the \textbf{critical reweighting factor}: in a query like \textit{``capricious person''}, the common word \textit{``person''} (low $idf$) is suppressed, while the rare keyword \textit{``capricious''} (high $idf$) drives the ranking.
+
+\subsection[Collection Frequency (cf) vs. Document Frequency (df)]{Collection Frequency ($cf_t$) vs. Document Frequency ($df_t$)}
+\begin{itemize}
+    \item \textbf{Collection Frequency ($cf_t$):} total token occurrences across the entire collection: $cf_t = \sum_d tf_{t,d}$.
+    \item \textbf{Document Frequency ($df_t$):} number of unique documents containing $t$ at least once.
+\end{itemize}
+
+\begin{example}[Comparison between ``insurance'' and ``try'']
+In the lecture benchmark:
+\begin{itemize}
+    \item \textit{``try''}: $cf = 10\,422$, spread across $df = 8\,760$ documents.
+    \item \textit{``insurance''}: $cf = 10\,440$, concentrated in only $df = 3\,997$ documents.
+\end{itemize}
+Despite nearly identical total occurrences ($cf$), \textit{``insurance''} is far more topically focused and discriminative, receiving a substantially higher $idf$.
+\end{example}
+
+\FloatBarrier
+\section{The Full TF-IDF Weighting Scheme}
+\label{sec:schema-tfidf-en}
+
+\subsection{Mathematical Formulation}
+Combining local within-document saliency ($tf$) with global corpus rarity ($idf$) produces composite \textbf{tf-idf} weights:
+\begin{equation}
+w_{t,d} = \text{tf-idf}_{t,d} = wf_{t,d} \times idf_t,
+\end{equation}
+where:
+\begin{equation}
+wf_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{if } tf_{t,d} > 0, \\ 0 & \text{otherwise,} \end{cases} \qquad idf_t = \log_{10}\left( \frac{N}{df_t} \right).
+\end{equation}
+
+The preliminary matching score for an unweighted query $q$ against document $d$ is:
+\begin{equation}
+\text{Score}(q, d) = \sum_{t \in q \cap d} \text{tf-idf}_{t,d}.
+\end{equation}
+
+\subsection{Chalkboard Worked Case Study}
+
+\paragraph{Initial setup:}
+$N = 806\,791$, Query: \textit{``car auto insurance best''}.
+
+\begin{table}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tabular}{l ccccc}
+\toprule
+\textbf{Term ($t$)} & \textbf{$tf$ Doc 1} & \textbf{$tf$ Doc 2} & \textbf{$tf$ Doc 3} & \textbf{$df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
+\midrule
+\textbf{car}       & 27 & 4  & 24 & $18\,165$ & $1.65$ \\
+\textbf{auto}      & 3  & 33 & 0  & $6\,723$  & $2.08$ \\
+\textbf{insurance} & 0  & 33 & 29 & $19\,241$ & $1.62$ \\
+\textbf{best}      & 14 & 0  & 17 & $25\,235$ & $1.50$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Chalkboard exercise data: term frequencies and collection statistics.}
+\label{tab:board-exercise-data-en}
+\end{table}
+
+\paragraph{Case A: Raw Frequency Weighting ($tf_{t,d} \times idf_t$).}
+For \textbf{Doc 1}:
+\begin{itemize}
+    \item car: $27 \times 1.65 = 44.55$
+    \item auto: $3 \times 2.08 = 6.24$
+    \item insurance: $0 \times 1.62 = 0.0$
+    \item best: $14 \times 1.50 = 21.0$
+\end{itemize}
+For \textbf{Doc 2}:
+\begin{itemize}
+    \item car: $4 \times 1.65 = 6.60$
+    \item auto: $33 \times 2.08 = 68.64$
+    \item insurance: $33 \times 1.62 = 53.46$
+    \item best: $0 \times 1.50 = 0.0$
+\end{itemize}
+For \textbf{Doc 3}:
+\begin{itemize}
+    \item car: $24 \times 1.65 = 39.60$
+    \item auto: $0 \times 2.08 = 0.0$
+    \item insurance: $29 \times 1.62 = 46.98$
+    \item best: $17 \times 1.50 = 25.50$
+\end{itemize}
+
+\paragraph{Case B: Log-Dampened Weighting $\log_{10}(1 + tf_{t,d}) \times idf_t$.}
+Applying logarithmic dampening on \textbf{Doc 1}:
+\begin{itemize}
+    \item car: $\log_{10}(1 + 27) = \log_{10}(28) \approx 1.447 \implies 1.447 \times 1.65 \approx \mathbf{2.39}$
+    \item auto: $\log_{10}(1 + 3) = \log_{10}(4) \approx 0.602 \implies 0.602 \times 2.08 \approx \mathbf{1.25}$
+    \item insurance: $\log_{10}(1 + 0) = 0 \implies 0 \times 1.62 = \mathbf{0.0}$
+    \item best: $\log_{10}(1 + 14) = \log_{10}(15) \approx 1.176 \implies 1.176 \times 1.50 \approx \mathbf{1.76}$
+\end{itemize}
+Logarithmic scaling prevents massive raw counts from overpowering global informativeness conveyed by IDF.
+
+\subsection{The Weighted Term--Document Matrix}
+Replacing raw frequencies with real-valued $\text{tf-idf}_{t,d}$ weights embeds the corpus into a real-valued matrix:
+\begin{equation}
+W \in \mathbb{R}^{|V| \times N}.
+\end{equation}
+Each document is now mapped to a continuous vector $\vec{d} \in \mathbb{R}^{|V|}$, establishing the geometric foundation of the Vector Space Model.

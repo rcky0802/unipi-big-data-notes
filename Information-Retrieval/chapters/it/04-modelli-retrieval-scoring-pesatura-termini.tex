@@ -1,0 +1,326 @@
+\chapter{Modelli di Retrieval, Scoring e Ponderazione TF-IDF}
+\label{chap:modelli-retrieval-tfidf}
+
+\FloatBarrier
+\section{Evoluzione dei Paradigmi di Information Retrieval}
+\label{sec:evoluzione-ir}
+
+La storia dell'Information Retrieval si articola attraverso quattro grandi ere architetturali:
+
+\begin{enumerate}
+    \item \textbf{Era Statistica (Anni '60 -- Met\`a anni '90):} i motori computavano la rilevanza poggiando unicamente sulla frequenza statistica dei termini all'interno dei documenti ($tf$) e del corpus ($idf$). Questa impostazione soffriva di estrema permeabilit\`a al \textit{keyword stuffing}: era sufficiente ripetere artificialmente parole chiave nel corpo della pagina web per scalarne indebitamente la graduatoria.
+    \item \textbf{Era Strutturale e PageRank (1998):} Sergey Brin e Larry Page affrontano il collasso del ranking puramente statistico sfruttando la topologia del Web Graph. Un collegamento ipertestuale in ingresso (\textit{incoming link}) funge da voto di autorevolezza conferito dalla pagina sorgente. Modificare la struttura del grafo globale \`e esponenzialmente pi\`u costoso rispetto all'alterazione del testo locale.
+    \item \textbf{Era del Machine Learning e Learning-to-Rank (Anni 2000):} la rilevanza viene stimata aggregando centinaia di segnali disomogenei tramite modelli supervisionati: salienza testuale, reputazione topologica, e metriche comportamentali dell'utente (CTR, frequenza di riformulazione, Dwell Time).
+    \item \textbf{Era Neurale e dei Modelli Densi (2018 -- Oggi):} l'avvento dell'architettura Transformer consente la cattura contestuale profonda della semantica. I documenti vengono proiettati in spazi di incorporamento continuo (\textit{dense embeddings}) o tramite rappresentazioni sparse apprese (\textit{learned sparse representations}).
+\end{enumerate}
+
+\FloatBarrier
+\section{Boolean Retrieval vs. Ranked Retrieval}
+\label{sec:boolean-vs-ranked}
+
+Il confronto sistematico tra il modello logico tradizionale e il paradigma moderno a punteggio graduato evidenzia differenze profonde:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l Y Y}
+\toprule
+\textbf{Propriet\`a} & \textbf{Boolean Retrieval} & \textbf{Ranked Retrieval} \\
+\midrule
+\textbf{Criterio di Matching} & Esatto, proposizionale e binario ($d \models q \implies \{0, 1\}$). & Continuo e scalare su numeri reali: $\text{Score}(q, d) \in \mathbb{R}$. \\
+\addlinespace
+\textbf{Formulazione Query} & Espressioni logiche vincolanti (\texttt{AND}, \texttt{OR}, \texttt{NOT}). & Linguaggio naturale libero (\textit{free-text query}). \\
+\addlinespace
+\textbf{Output fornito} & Insieme non ordinato di documenti conformi. & Lista ordinata in modo decrescente per score stimato. \\
+\addlinespace
+\textbf{Esperienza Utente} & Sindrome di \textit{Feast or Famine} (Banchetto o Carestia). & Restituzione istantanea dei primi $k$ elementi (top-$k$, tipicamente $k \approx 10$). \\
+\addlinespace
+\textbf{Destinatari Tipici} & Utenti specialisti (documentalisti, legali, brevettisti). & Utenti generici del Web. \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto analitico tra Boolean Retrieval e Ranked Retrieval.}
+\label{tab:boolean-vs-ranked}
+\end{table}
+
+\begin{noteblock}{La Patologia del ``Feast or Famine''}
+L'interazione ordinaria con il modello booleano si rivela ostica a causa di due estremi indesiderati:
+\begin{itemize}
+    \item \textbf{Carestia (\textit{Famine}):} l'uso dell'operatore congiuntivo \texttt{AND} restringe rigidamente i vincoli. Se un solo termine della query manca nel testo (ad esempio per una lieve variazione sinonimica), il documento viene escluso, producendo frequentemente zero risultati.
+    \item \textbf{Banchetto (\textit{Feast}):} l'operatore disgiuntivo \texttt{OR} rilassa eccessivamente la selezione, restituendo decine di migliaia di documenti senza alcuna prioritizzazione qualitativa.
+\end{itemize}
+\end{noteblock}
+
+\FloatBarrier
+\section{Misure di Similarit\`a Set-Based: Il Coefficiente di Jaccard}
+\label{sec:jaccard-coefficient}
+
+Un primo tentativo di formalizzare un ordinamento continuo senza impiegare algebra vettoriale complessa consiste nell'impiego del coefficiente di sovrapposizione insiemistica di Jaccard:
+
+\begin{definition}[Coefficiente di Jaccard]
+Dati due insiemi di termini $A$ e $B$, la somiglianza di Jaccard \`e il rapporto tra la cardinalit\`a della loro intersezione e la cardinalit\`a della loro unione:
+\begin{equation}
+J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}.
+\end{equation}
+\textit{Propriet\`a:} \`e confinato nell'intervallo $[0, 1]$, dove $J(A, A) = 1$ e $J(A, B) = 0 \iff A \cap B = \emptyset$.
+\end{definition}
+
+\subsection{Esempio Guidato Svolto a Lezione e il Paradosso della Lunghezza}
+
+Si consideri la query $q$ e due documenti candidati:
+\begin{itemize}
+    \item \textbf{Query $q$:} \textit{``ides of march''}\\
+    $Q = \{\text{ides}, \text{of}, \text{march}\}$, $|Q| = 3$.
+    \item \textbf{Documento $d_1$:} \textit{``caesar died in march''}\\
+    $D_1 = \{\text{caesar}, \text{died}, \text{in}, \text{march}\}$, $|D_1| = 4$.
+    \item \textbf{Documento $d_2$:} \textit{``the long march''}\\
+    $D_2 = \{\text{the}, \text{long}, \text{march}\}$, $|D_2| = 3$.
+\end{itemize}
+
+\paragraph{Calcolo analitico:}
+\begin{align}
+Q \cap D_1 &= \{\text{march}\} \implies |Q \cap D_1| = 1, \\
+J(q, d_1) &= \frac{1}{3 + 4 - 1} = \frac{1}{6} \approx 0.166. \\[0.2cm]
+Q \cap D_2 &= \{\text{march}\} \implies |Q \cap D_2| = 1, \\
+J(q, d_2) &= \frac{1}{3 + 3 - 1} = \frac{1}{5} = 0.200.
+\end{align}
+
+\begin{alertblock}{Il Paradosso di Rilevanza nel Coefficiente di Jaccard}
+Poich\'e $J(q, d_2) = 0.200 > J(q, d_1) = 0.166$, l'algoritmo decreta che $d_2$ sia pi\`u rilevante di $d_1$.
+Tuttavia, sotto il profilo semantico e storico, $d_1$ tratta esattamente della morte di Cesare (avvenuta alle idi di marzo), mentre $d_2$ descrive un evento storico disconnesso (la ``lunga marcia'' cinese). Il documento $d_2$ riceve uno score superiore unicamente perch\'e \`e pi\`u breve, subendo una minore espansione del denominatore $|A \cup B|$.
+\end{alertblock}
+
+\subsection{Limiti Strutturali del Coefficiente di Jaccard per l'IR}
+\begin{enumerate}
+    \item \textbf{Ignora la frequenza locale ($tf$):} un termine presente $50$ volte in un testo viene contato nell'intersezione esattamente come un termine presente una volta sola.
+    \item \textbf{Ignora la rarit\`a globale ($df$):} vocaboli frequentissimi come la preposizione \textit{``of''} godono del medesimo peso di termini rari e discriminanti come \textit{``ides''}.
+    \item \textbf{Penalizzazione ingiustificata dei documenti ampi:} testi esaustivi e pertinenti che contengono molti termini addizionali subiscono un rigonfiamento dell'unione, vedendo collassare artificiosamente il proprio punteggio.
+\end{enumerate}
+
+\FloatBarrier
+\section{Dalle Matrici di Incidenza alle Matrici di Conteggio}
+\label{sec:matrici-incidenza-conteggio}
+
+Per superare la rigidit\`a insiemistica, la modellazione documentale evolve verso l'algebra lineare.
+
+\subsection{Matrice Binaria Termine-Documento (Incidence Matrix)}
+Dato un vocabolario $V = \{t_1, \dots, t_{|V|}\}$ e un corpus $D = \{d_1, \dots, d_N\}$, la matrice di incidenza $M \in \{0, 1\}^{|V| \times N}$ mappa la presenza binaria:
+\begin{equation}
+M_{t, d} = \begin{cases} 1 & \text{se } t \in d, \\ 0 & \text{altrimenti.} \end{cases}
+\end{equation}
+
+\subsection[Matrice di Conteggio Termine-Documento]{Matrice di Conteggio Termine-Documento\\ (Count Matrix)}
+Riconoscendo che la frequenza di occorrenza riflette il grado di enfasi tematica, si passa alla matrice dei conteggi grezzi $C \in \mathbb{N}^{|V| \times N}$ in cui $C_{t, d} = \text{count}(t, d) = tf_{t,d}$.
+
+\begin{table}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l cccccc}
+\toprule
+\textbf{Termine} & \textbf{Antony \& Cleo.} & \textbf{Julius Caesar} & \textbf{The Tempest} & \textbf{Hamlet} & \textbf{Othello} & \textbf{Macbeth} \\
+\midrule
+\textbf{Antony}    & 157 & 73  & 0 & 0 & 0 & 0 \\
+\textbf{Brutus}    & 4   & 157 & 0 & 1 & 0 & 0 \\
+\textbf{Caesar}    & 232 & 227 & 0 & 2 & 1 & 1 \\
+\textbf{Calpurnia} & 0   & 10  & 0 & 0 & 0 & 0 \\
+\textbf{Cleopatra} & 57  & 0   & 0 & 0 & 0 & 0 \\
+\textbf{mercy}     & 2   & 0   & 3 & 5 & 5 & 1 \\
+\textbf{worser}    & 2   & 0   & 1 & 1 & 1 & 0 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Matrice di conteggio dei termini su una selezione di opere di Shakespeare.}
+\label{tab:shakespeare-counts}
+\end{table}
+
+\FloatBarrier
+\section[Ponderazione della Frequenza: Log-Frequency Weighting]{Ponderazione della Frequenza dei Termini:\\ Log-Frequency Weighting}
+\label{sec:log-frequency-weighting}
+
+\subsection{Perch\'e il Conteggio Lineare ($tf$) \`e Inadeguato}
+La rilevanza semantica percepita dall'utente non cresce in modo proporzionale al conteggio puro delle parole:
+\begin{itemize}
+    \item Un testo in cui un termine compare $10$ volte \`e plausibilmente pi\`u attinente di uno in cui compare $1$ volta sola, ma certamente \textbf{non \`e $10$ volte pi\`u rilevante}.
+    \item Ogni occorrenza successiva dello stesso termine apporta un incremento marginale di informazione progressivamente decrescente (\textit{legge dei rendimenti decrescenti}).
+\end{itemize}
+
+\subsection[Formulazione Logaritmica di tf]{Formulazione Logaritmica di $tf$}
+Per smorzare l'effetto di frequenze grezze sproporzionate, si introduce la trasformazione logaritmica:
+\begin{equation}
+w_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{se } tf_{t,d} > 0, \\ 0 & \text{altrimenti.} \end{cases}
+\end{equation}
+
+\paragraph{Progressione dei Pesi:}
+\begin{itemize}
+    \item $tf = 0 \implies w = 0$
+    \item $tf = 1 \implies w = 1 + \log_{10}(1) = 1.0$
+    \item $tf = 2 \implies w = 1 + \log_{10}(2) \approx 1.301$
+    \item $tf = 10 \implies w = 1 + \log_{10}(10) = 2.0$
+    \item $tf = 100 \implies w = 1 + \log_{10}(100) = 3.0$
+    \item $tf = 1000 \implies w = 1 + \log_{10}(1000) = 4.0$
+\end{itemize}
+In contesti computazionali continui, si adotta frequentemente la variante continua $\log(1 + tf_{t,d})$, che evita la discontinuit\`a in zero poich\'e $\log(1 + 0) = 0$.
+
+Se il ranking viene calcolato unicamente in base alla frequenza dei termini condivisi:
+\begin{equation}
+\text{Score}(q, d) = \sum_{t \in q \cap d} \left( 1 + \log_{10}(tf_{t,d}) \right).
+\end{equation}
+
+\FloatBarrier
+\section[Document Frequency (df) e Inverse Document Frequency (idf)]{Document Frequency ($df$) e\\ Inverse Document Frequency ($idf$)}
+\label{sec:df-idf}
+
+\subsection{L'Informativit\`a Semantica e la Rarit\`a Globale}
+La salienza locale di una parola all'interno di un documento ($tf$) non ne misura la specificit\`a tematica nella collezione globale:
+\begin{itemize}
+    \item Un termine ubiquo presente in quasi tutti i documenti (es. \textit{increase}, \textit{high}, o le congiunzioni) possiede un potere discriminante pressoch\'e nullo.
+    \item Un termine presente in un numero ristrettissimo di testi (es. \textit{Calpurnia}, \textit{arachnocentric}) possiede un altissimo potere discriminante: la sua comparsa segnala una pertinenza probabilistica quasi certa.
+\end{itemize}
+
+\subsection{Definizione Matematica dell'IDF}
+Sia $N = |D|$ la dimensione totale della collezione e sia $df_t$ (\textit{Document Frequency}) il numero di documenti contenenti almeno un'occorrenza del termine $t$.
+L'\textbf{Inverse Document Frequency (IDF)} \`e formalizzato come:
+\begin{equation}
+idf_t = \log_{10}\left( \frac{N}{df_t} \right).
+\end{equation}
+Il logaritmo smorza l'ampiezza dell'argomento $N / df_t$, evitando che su corpus di milioni di pagine i pesi assumano valori ingestibili.
+
+\subsection[Esempio Completo Svolto a Lezione (N = 1 000 000)]{Esempio Completo Svolto\\ a Lezione ($N = 1\,000\,000$)}
+
+Si consideri un corpus composto da un milione di documenti:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l ccc}
+\toprule
+\textbf{Termine ($t$)} & \textbf{$df_t$} & \textbf{Rapporto $N / df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
+\midrule
+\textbf{Calpurnia} & 1         & $10^6$ & $6.0$ \\
+\textbf{animal}    & 100       & $10^4$ & $4.0$ \\
+\textbf{sunday}    & $1\,000$   & $10^3$ & $3.0$ \\
+\textbf{fly}       & $10\,000$  & $10^2$ & $2.0$ \\
+\textbf{under}     & $100\,000$ & $10^1$ & $1.0$ \\
+\textbf{the}       & $1\,000\,000$ & $1$  & $0.0$ \\
+\bottomrule
+\end{tabular}
+\caption{Calcolo analitico dell'IDF al variare della Document Frequency su $N = 10^6$.}
+\label{tab:idf-values}
+\end{table}
+
+\begin{noteblock}{Propriet\`a Chiave dell'IDF}
+\begin{enumerate}
+    \item \textbf{Neutralizzazione automatica dei termini onnipresenti:} se una parola compare in ogni documento ($df_t = N$), si ha $idf_t = \log_{10}(1) = 0$. Il termine si auto-annulla nel calcolo del punteggio, agendo come filtro naturale per le stopwords.
+    \item \textbf{Precomputazione Offline Disaccoppiata:} il valore $idf_t$ dipende unicamente dalla statistica della collezione e \textbf{non dalla query}. Di conseguenza, tutti gli $idf_t$ vengono calcolati offline durante l'indicizzazione e memorizzati nelle tabelle del vocabolario, richiedendo solo un tempo di accesso $\BigO{1}$ a tempo di query.
+\end{enumerate}
+\end{noteblock}
+
+\subsection{L'Effetto dell'IDF sull'Ordinamento: Query a Termine Singolo vs. Multi-Termine}
+
+\paragraph{Per query monoremiche ($|q| = 1$).}
+L'IDF \textbf{non altera l'ordinamento relativo} tra i documenti.
+\begin{proof}
+Sia la query $q = \{t\}$. Lo score ponderato da solo IDF per un documento $d$ che contiene $t$ \`e:
+\begin{equation}
+\text{Score}(q, d) = \log_{10}\left(\frac{N}{df_t}\right).
+\end{equation}
+Poich\'e questo valore \`e identico per qualunque documento contenente $t$, l'IDF agisce come una costante moltiplicativa uniforme. L'ordinamento dipender\`a unicamente dal termine $tf_{t,d}$.
+\end{proof}
+
+\paragraph{Per query multi-termine ($|q| \ge 2$).}
+L'IDF diviene il \textbf{fattore cardine di ri-pesatura}: in una query come \textit{``capricious person''}, il termine generico \textit{``person''} (basso $idf$) viene pesato pochissimo, mentre il termine raro \textit{``capricious''} (alto $idf$) domina la graduatoria, premiando i documenti mirati.
+
+\subsection[Collection Frequency (cf) vs. Document Frequency (df)]{Collection Frequency ($cf_t$) vs. Document Frequency ($df_t$)}
+\begin{itemize}
+    \item \textbf{Collection Frequency ($cf_t$):} numero totale di occorrenze di $t$ nel corpus: $cf_t = \sum_d tf_{t,d}$.
+    \item \textbf{Document Frequency ($df_t$):} numero di documenti unici contenenti $t$ almeno una volta.
+\end{itemize}
+
+\begin{example}[Confronto tra ``insurance'' e ``try'']
+Nel corpus d'esame:
+\begin{itemize}
+    \item \textit{``try''}: $cf = 10\,422$, distribuito su $df = 8\,760$ documenti.
+    \item \textit{``insurance''}: $cf = 10\,440$, concentrato in soli $df = 3\,997$ documenti.
+\end{itemize}
+Nonostante la frequenza complessiva $cf$ sia pressoch\'e identica, \textit{``insurance''} \`e nettamente pi\`u informativa e discriminante, e riceve un $idf$ marcatamente superiore.
+\end{example}
+
+\FloatBarrier
+\section{Lo Schema di Ponderazione TF-IDF Completo}
+\label{sec:schema-tfidf}
+
+\subsection{Formulazione Matematica}
+La combinazione tra salienza locale del termine ($tf$) e specificit\`a globale nel corpus ($idf$) definisce il peso \textbf{tf-idf}:
+\begin{equation}
+w_{t,d} = \text{tf-idf}_{t,d} = wf_{t,d} \times idf_t,
+\end{equation}
+dove:
+\begin{equation}
+wf_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{se } tf_{t,d} > 0, \\ 0 & \text{altrimenti,} \end{cases} \qquad idf_t = \log_{10}\left( \frac{N}{df_t} \right).
+\end{equation}
+
+Lo score preliminare tra una query non ponderata $q$ e un documento $d$ \`e:
+\begin{equation}
+\text{Score}(q, d) = \sum_{t \in q \cap d} \text{tf-idf}_{t,d}.
+\end{equation}
+
+\subsection{Esercizio Numerico Svolto alla Lavagna}
+
+\paragraph{Dati di partenza:}
+$N = 806\,791$, Query: \textit{``car auto insurance best''}.
+
+\begin{table}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tabular}{l ccccc}
+\toprule
+\textbf{Termine ($t$)} & \textbf{$tf$ Doc 1} & \textbf{$tf$ Doc 2} & \textbf{$tf$ Doc 3} & \textbf{$df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
+\midrule
+\textbf{car}       & 27 & 4  & 24 & $18\,165$ & $1.65$ \\
+\textbf{auto}      & 3  & 33 & 0  & $6\,723$  & $2.08$ \\
+\textbf{insurance} & 0  & 33 & 29 & $19\,241$ & $1.62$ \\
+\textbf{best}      & 14 & 0  & 17 & $25\,235$ & $1.50$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Dati dell'esercizio alla lavagna: conteggi locali e statistiche di collezione.}
+\label{tab:board-exercise-data}
+\end{table}
+
+\paragraph{Caso A: Calcolo con conteggio grezzo ($tf_{t,d} \times idf_t$).}
+Per \textbf{Doc 1}:
+\begin{itemize}
+    \item car: $27 \times 1.65 = 44.55$
+    \item auto: $3 \times 2.08 = 6.24$
+    \item insurance: $0 \times 1.62 = 0.0$
+    \item best: $14 \times 1.50 = 21.0$
+\end{itemize}
+Per \textbf{Doc 2}:
+\begin{itemize}
+    \item car: $4 \times 1.65 = 6.60$
+    \item auto: $33 \times 2.08 = 68.64$
+    \item insurance: $33 \times 1.62 = 53.46$
+    \item best: $0 \times 1.50 = 0.0$
+\end{itemize}
+Per \textbf{Doc 3}:
+\begin{itemize}
+    \item car: $24 \times 1.65 = 39.60$
+    \item auto: $0 \times 2.08 = 0.0$
+    \item insurance: $29 \times 1.62 = 46.98$
+    \item best: $17 \times 1.50 = 25.50$
+\end{itemize}
+
+\paragraph{Caso B: Calcolo con smorzamento logaritmico $\log_{10}(1 + tf_{t,d}) \times idf_t$.}
+Applicando la compressione logaritmica su \textbf{Doc 1}:
+\begin{itemize}
+    \item car: $\log_{10}(1 + 27) = \log_{10}(28) \approx 1.447 \implies 1.447 \times 1.65 \approx \mathbf{2.39}$
+    \item auto: $\log_{10}(1 + 3) = \log_{10}(4) \approx 0.602 \implies 0.602 \times 2.08 \approx \mathbf{1.25}$
+    \item insurance: $\log_{10}(1 + 0) = 0 \implies 0 \times 1.62 = \mathbf{0.0}$
+    \item best: $\log_{10}(1 + 14) = \log_{10}(15) \approx 1.176 \implies 1.176 \times 1.50 \approx \mathbf{1.76}$
+\end{itemize}
+Lo smorzamento logaritmico impedisce ai singoli conteggi estremi di sopraffare la rilevanza informativa globale veicolata dall'IDF.
+
+\subsection{La Matrice Termine-Documento Ponderata}
+Sostituendo i valori di conteggio con i pesi reali $\text{tf-idf}_{t,d}$, la collezione documentale viene proiettata in una matrice reale:
+\begin{equation}
+W \in \mathbb{R}^{|V| \times N}.
+\end{equation}
+Ciascun documento della collezione corrisponde ora a un vettore geometrico $\vec{d} \in \mathbb{R}^{|V|}$, ponendo le fondamenta per l'analisi geometrica dello spazio vettoriale.

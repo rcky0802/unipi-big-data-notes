@@ -94,26 +94,28 @@ latexmk -c
   - Structural hazards, RAW data hazards and dependency-chain interleaving.
   - Control hazards, speculative execution, branch misprediction cost and branchless techniques.
 
-- **Chapter 3: Natural Language Processing and Text Representation**
+- **Chapter 3: Natural Language Processing and Text Preprocessing**
   - Graded relevance evaluation recap (CG, DCG, and query-dependent NDCG normalization rationale).
   - Characteristics of natural language (ambiguity, world knowledge, temporal drift) and Zipf's law (least effort principle, hapax legomena, stop word trade-offs).
   - Web data scraping pipeline with `urllib` and HTML stripping with `BeautifulSoup`.
   - Text preprocessing pipeline: tokenization and sentence boundary disambiguation (`sent_tokenize`).
-  - Vocabulary formalization and term frequency collection counting algorithm.
   - Morphological normalization: heuristic Stemming (Porter) vs. syntax-aware Lemmatization (WordNet).
   - Bag of Words (BoW) representations and the semantic collapse under compositional language.
   - Subword and sequence enrichment: word $n$-grams (local syntax order) and character $n$-grams (typo tolerance).
-  - Vector Space Model (VSM) geometry, one-hot basis vectors, and extreme vector sparsity.
 
-- **Chapter 4: Retrieval Models and Ranking: Vector Space Model and BM25**
-  - Retrieval paradigms: Boolean match pathology (feast or famine) vs. Ranked Retrieval.
-  - Jaccard similarity coefficient and its three fundamental failure modes in IR.
-  - Term weighting: logarithmic Term Frequency, Document Frequency vs. Collection Frequency, Inverse Document Frequency (IDF).
-  - Vector length normalization ($L_2$) and Cosine Similarity: failure of Euclidean distance and 3-novel worked comparison.
-  - SMART notation taxonomy (`ddd.qqq`) and full step-by-step trace of `lnc.ltc` scoring.
-  - Okapi BM25 probabilistic model: asymptotic term frequency saturation ($k_1$) and document length normalization ($b$).
-  - Integrated conceptual flowchart from web crawling to vector/probabilistic scoring.
+- **Chapter 4: Retrieval Models, Scoring, and TF-IDF Weighting**
+  - Text preprocessing recap and evolutionary timeline of IR (Statistical era, Link analysis/PageRank era, Neural/ML era).
+  - Exact Boolean retrieval model, specialist niches, and the "feast or famine" pathology.
+  - Ranked Retrieval foundations and free-text queries.
+  - Jaccard similarity coefficient, the "Ides of March" failure paradox, and its three structural limitations in IR.
+  - Term--document matrix representations (binary incidence vs. count matrix) and the syntactic inversion limit in Bag of Words.
+  - Sublinear logarithmic Term Frequency ($1 + \log_{10}(\text{tf})$), continuity offset, and damping curves.
+  - Document Frequency ($df_t$) vs. Collection Frequency ($cf_t$), term informativeness, and Inverse Document Frequency ($\text{idf}_t$).
+  - Effect of IDF on single-term vs. multi-term queries.
+  - Composite TF-IDF weighting and full chalkboard worked trace (Chiara, $N=806\,791$, raw vs. log-TF rebalancing).
+  - Real-valued TF-IDF weight matrix in $\mathbb{R}^{|V|}$.
 
+<<<<<<< HEAD
 - **Chapter 5: Search Engine Architecture: Indexing and Query Processing**
   - System architecture: offline ingestion/indexing pipeline vs. online latency-bounded query processing ($< 50\text{--}100\text{ ms}$).
   - Two-Stage Retrieval Paradigm: first-stage high-throughput candidate extraction (BM25 over inverted lists) followed by second-stage complex machine-learned re-ranking (Learning-to-Rank / Transformer cross-encoders).
@@ -125,3 +127,13 @@ latexmk -c
   - Query processing algorithmic formalization: Term-at-a-Time (TAAT, horizontal sequential scan, memory accumulator overhead) vs. Document-at-a-Time (DAAT, vertical synchronous pointer merge, minimal top-$k$ heap footprint, native dynamic early pruning via WAND).
   - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration, and dedicated vector search engines (Qdrant).
 
+=======
+- **Chapter 5: The Vector Space Model (VSM) and SMART Notation**
+  - Vector Space Model (VSM) geometric foundations and extreme vector sparsity.
+  - Why Euclidean distance fails in IR: the concatenated duplicate document experiment ($d' = d \circ d$) and direction vs. magnitude.
+  - Direction vs. magnitude, Cosine Similarity derivation, and $L_2$ length normalization onto the unit hypersphere.
+  - Offline/online decoupled computational architecture in production search engines.
+  - Full worked comparative case study across three classic novels (Jane Austen's *Sense and Sensibility* / *Pride and Prejudice* vs. Emily Brontë's *Wuthering Heights*).
+  - Standardized SMART notation taxonomy (`ddd.qqq`), the asymmetric `lnc.ltc` protocol, and full worked execution trace ($N=1\,000\,000$).
+  - Key review questions and preview of Lecture 6 (Okapi BM25 probabilistic model).
+>>>>>>> b0b761141fd0cd216a0c53d1c99ed79ed805f72a
