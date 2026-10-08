@@ -1,0 +1,303 @@
+\chapter{Search Engine Architecture: Indexing and Query Processing}
+\label{chap:indexing-query-processing-en}
+
+The preceding chapters established the core mathematical foundations of Information Retrieval: evaluation metrics for ranked lists (Chapter~\ref{chap:evaluation}), linguistic properties of textual data (Chapter~\ref{chap:nlp-representation-en}), and the mathematical derivation of relevance scoring under the Vector Space Model and Okapi BM25 (Chapter~\ref{chap:retrieval-vsm-bm25-en}). These models define \textit{what} must be computed to rank documents with respect to user queries.
+
+This chapter addresses the complementary systems and algorithmic challenge: \textbf{how to compute these continuous scores in real time over planetary-scale corpora}, maintaining sub-50 ms latencies across collections containing billions of documents. We examine the two-stage retrieval pipeline, analyze the extreme sparsity of term--document matrices contrasting \textit{Forward Indexes} with \textit{Inverted Indexes}, study memory layout optimizations and integer compression, inspect positional indexes for phrase queries alongside query expansion pathologies, and deliver a detailed algorithmic and architectural comparison between \textit{Term-at-a-Time} (TAAT) and \textit{Document-at-a-Time} (DAAT) query processing.
+
+\FloatBarrier
+\section{System Architecture and the Two-Stage Retrieval Paradigm}
+\label{sec:two-stage-architecture-en}
+
+Large-scale search engines must satisfy stringent throughput and latency constraints ($< 50\text{--}100\text{ ms}$). To achieve this, computation is strictly divided between massive offline batch processes and online interactive query servicing.
+
+\subsection{The Offline Pipeline: Ingestion, Indexing, and Compression}
+The offline pipeline processes an unstructured corpus $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ through three stages:
+\begin{enumerate}
+    \item \textbf{Text Processing and Parsing:} Web crawled documents are stripped of markup, tokenized, and normalized (Section~\ref{sec:tokeniz-splitting-en}).
+    \item \textbf{Vocabulary and Index Construction:} The lexicon $\mathcal{V} = \{t_1, t_2, \dots, t_M\}$ is extracted, mapping every unique term to its occurrences across documents.
+    \item \textbf{Lossless Integer Compression:} Because raw index data can rival or exceed the raw text size, integer compression algorithms are applied to ensure index segments reside in high-speed memory tiers (RAM and CPU caches, Chapter~\ref{chap:efficienza-cpu}).
+\end{enumerate}
+
+\subsection{The Two-Stage Retrieval Pipeline}
+Commercial web search engines resolve queries using a two-stage pipeline:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.5cm,
+    block/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6, thick,
+                  font=\small, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    stage1/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8, thick,
+                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
+    stage2/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!8, thick,
+                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
+    output/.style={rectangle, rounded corners=3pt, draw=green!60!black, fill=green!8, thick,
+                   font=\small\bfseries, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    data/.style={cylinder, shape border rotate=90, draw=gray!70!black, fill=gray!10, thick,
+                 font=\footnotesize, aspect=0.25, minimum width=2.4cm, minimum height=1.2cm, align=center},
+    arr/.style={-Stealth, thick, gray!80!black}
+]
+    % Online components
+    \node[block] (query) {User Query $q$};
+    \node[block, below=of query] (rewrite) {Query Expansion \& Rewriting\\{\scriptsize Typo correction, synonyms, acronyms}};
+    \node[stage1, below=of rewrite] (s1) {\textbf{1$^{\text{st}}$ Stage: Candidate Retrieval}\\{\scriptsize Linear additive scoring (BM25)}\\{\scriptsize Memory-resident Inverted Index}};
+    \node[stage2, below=of s1] (s2) {\textbf{2$^{\text{nd}}$ Stage: Re-Ranking (LtR)}\\{\scriptsize Complex models (LambdaMART, Transformers)}\\{\scriptsize Dense feature evaluation}};
+    \node[output, below=of s2] (serp) {Final SERP (Top-$k$, $k \approx 10$)};
+
+    % Offline sources
+    \node[data, left=2.0cm of s1] (invidx) {Inverted\\Index\\{\scriptsize Compressed}};
+    \node[data, left=2.0cm of s2] (featdb) {Feature\\Store\\{\scriptsize PageRank, CTR...}};
+
+    % Connections
+    \draw[arr] (query) -- (rewrite);
+    \draw[arr] (rewrite) -- (s1);
+    \draw[arr] (invidx) -- (s1);
+    \draw[arr] (s1) -- node[right, font=\scriptsize\itshape] {$\approx 1\,000\text{--}10\,000$ candidates ($\mathcal{C}$)} (s2);
+    \draw[arr] (featdb) -- (s2);
+    \draw[arr] (s2) -- (serp);
+\end{tikzpicture}
+\caption{Architecture of the two-stage retrieval pipeline: high-throughput coarse candidate generation followed by high-capacity machine-learned re-ranking.}
+\label{fig:two-stage-pipeline-en}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{First Stage (Candidate Retrieval):} Operates over the entire corpus ($N \sim 10^9\text{--}10^{10}$ documents) using fast additive scoring functions (Okapi BM25) to isolate a small candidate set:
+    \begin{equation}
+    \mathcal{C} \subset \mathcal{D}, \quad |\mathcal{C}| \approx 1\,000 \text{--} 10\,000 \text{ documents}.
+    \end{equation}
+    \item \textbf{Second Stage (Re-Ranking / Heavy Scoring):} Operates exclusively on $\mathcal{C}$ using complex Machine Learning models (Learning-to-Rank algorithms such as LambdaMART~\cite{burges2010} or cross-encoder Transformers) evaluating hundreds to thousands of dense signals to produce the final top-$k$ ($k \approx 10$).
+\end{enumerate}
+
+\FloatBarrier
+\section{Scoring Models: The Dot Product Bridge to Dense Retrieval}
+\label{sec:scoring-bridge-en}
+
+\subsection{Recap: Limitations of Exact Boolean and Jaccard Scoring}
+As established in Chapter~\ref{chap:retrieval-vsm-bm25-en} (Sections~\ref{sec:boolean-vs-ranked-en} and~\ref{sec:jaccard-scoring-en}), exact Boolean matching suffers from the \textit{Feast or Famine} pathology, while unweighted set-based Jaccard scoring unfairly penalizes longer documents and ignores term frequency ($tf$) and collection specificity ($idf$).
+
+\subsection{The Dot Product as a Unified Scoring Operator}
+The Vector Space Model and statistical weighting schemes resolve these limitations by formulating relevance as a vector dot product:
+\begin{equation}
+\text{Score}(q, d) = \mathbf{q} \cdot \mathbf{d} = \sum_{t \in \mathcal{V}} w(t, q) \cdot w(t, d) = \sum_{t \in q \cap d} w(t, q) \cdot w(t, d).
+\label{eq:dot-product-en}
+\end{equation}
+This formulation bridges classical lexical retrieval and modern neural dense retrieval:
+\begin{itemize}
+    \item \textbf{Lexical Sparse Retrieval:} Vectors reside in $\mathbb{R}^{|\mathcal{V}|}$, with dimensions corresponding to exact vocabulary terms ($|\mathcal{V}| \sim 10^7$). Vectors are ultra-sparse, scored using statistical weights (TF-IDF, BM25).
+    \item \textbf{Dense Neural Retrieval:} Transformer-based encoders project queries and passages into low-dimensional dense embeddings $\mathbf{v}_q, \mathbf{v}_d \in \mathbb{R}^k$ ($k \approx 768\text{--}1\,536$). Semantic similarity is determined by vector dot product:
+    \begin{equation}
+    \text{Score}_{\text{neural}}(q, d) = \mathbf{v}_q \cdot \mathbf{v}_d = \sum_{i=1}^k v_{q,i} \cdot v_{d,i}.
+    \end{equation}
+\end{itemize}
+In both domains, real-time efficiency depends on aggregating dot products over massive corpora.
+
+\FloatBarrier
+\section{High-Performance Data Structures: Forward Index vs. Inverted Index}
+\label{sec:forward-vs-inverted-en}
+
+\subsection{Matrix Sparsity and the Dense Bottleneck}
+For a web-scale search engine:
+\begin{itemize}
+    \item Vocabulary size: $|\mathcal{V}| \sim 10^7$ unique terms.
+    \item Document collection size: $|\mathcal{D}| \sim 10^9 \text{--} 10^{10}$ documents.
+    \item Total matrix cells: $|\mathcal{V}| \times |\mathcal{D}| \approx 10^{16} \text{--} 10^{17}$ cells.
+\end{itemize}
+Because an average document contains only $10^2\text{--}10^3$ distinct words, the non-zero density is below $0.001\%$; over $99.99\%$ of matrix entries are identically zero. Allocating a dense matrix would require petabytes of redundant memory and demand an unacceptable $\BigO{|\mathcal{V}| \cdot |\mathcal{D}|}$ scan per query.
+
+\subsection{Sparse Serialization: Forward Index vs. Inverted Index}
+Sparse representations record only non-zero $(\text{ID}, \text{Value})$ pairs:
+\begin{itemize}
+    \item \textbf{Forward Index (Column-Wise / Document-Oriented):} Maps each document to its constituent terms: $\text{DocID} \to [(t_a, w_a), \dots]$. While memory-efficient, evaluating a query still requires inspecting all $N$ documents ($\BigO{|\mathcal{D}|}$).
+    \item \textbf{Inverted Index (Row-Wise / Term-Oriented):} Maps each term to the ordered sequence of documents containing it: $t \to [(\text{DocID}_i, w_i), \dots]$. This enables instantaneous static pruning: documents containing none of the query terms are skipped entirely without executing CPU cycles.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Property} & \textbf{Forward Index} & \textbf{Inverted Index} \\
+\midrule
+\textbf{Orientation} & Column-wise (Document-Oriented). & Row-wise (Term-Oriented). \\
+\addlinespace
+\textbf{Mapping} & $\text{DocID} \to [(t_a, \text{tf}_a), \dots]$ & $t \to [(\text{DocID}_i, \text{tf}_i), \dots]$ \\
+\addlinespace
+\textbf{Query Complexity} & $\BigO{|\mathcal{D}|}$ (full collection scan). & $\BigO{\sum_{t \in q} |\mathcal{L}(t)|}$ (candidate postings only). \\
+\addlinespace
+\textbf{Engine Function} & Document metadata storage, snippet generation. & Primary indexing core for candidate retrieval. \\
+\bottomrule
+\end{tabularx}
+\caption{Systematic comparison between Forward Index and Inverted Index.}
+\label{tab:fwd-vs-inv-en}
+\end{table}
+
+\FloatBarrier
+\section{Inverted Index Anatomy, Memory Layout, and Compression}
+\label{sec:inverted-index-anatomy-en}
+
+\subsection{The Lexicon (Dictionary)}
+The lexicon stores the vocabulary $\mathcal{V}$, recording for each term $t$ its text string, document frequency $df_t$ (for precomputed IDF), and memory pointer or disk offset to its posting list. The lexicon is kept memory-resident in \textbf{RAM} using fast structures (B-Trees, Trie, or front-coded arrays).
+
+\subsection{Posting Lists: Physical Stream Decoupling}
+Conceptually, a posting list is a sequence of tuples: $\mathcal{L}(t) = [\langle d_1, \text{tf}_1 \rangle, \langle d_2, \text{tf}_2 \rangle, \dots]$. In high-performance implementations, storing interleaved structs wastes compression potential. Engines decouple posting lists into two distinct physical streams:
+\begin{enumerate}
+    \item \textbf{DocID Stream (Strictly Monotonic):}
+    $\mathbf{D}_t = [\text{DocID}_1, \dots, \text{DocID}_m]$ with $\text{DocID}_i < \text{DocID}_{i+1}$. Storing successive differences ($d\text{-gaps}$):
+    \begin{equation}
+    \Delta_1 = \text{DocID}_1, \quad \Delta_i = \text{DocID}_i - \text{DocID}_{i-1} \quad (i \ge 2)
+    \end{equation}
+    yields small integers compressed via Variable Byte, Elias-Fano, PForDelta, or Binary Interpolative Coding~\cite{moffat2000}.
+    \item \textbf{Term Frequency Stream (Unordered):}
+    $\mathbf{F}_t = [\text{tf}_1, \dots, \text{tf}_m]$. Values are small positive integers ($1, 2, 3$) compressed using symmetric variable-length integer codes.
+\end{enumerate}
+
+\subsection{Compressed Integers vs. Precomputed Floats}
+Search engines universally store \textbf{compressed integers} rather than precomputed floating-point scores. Large-scale search systems are \textbf{memory-bound} (Chapter~\ref{chap:efficienza-cpu}): RAM-to-CPU transfer latencies ($\approx 80\text{ ns}$) dominate execution time. Compressing postings drastically reduces memory bandwidth demands; the minor CPU arithmetic required to compute BM25 scores on the fly is negligible compared to memory wait cycles.
+
+\FloatBarrier
+\section[Query Types and Query Expansion]{Query Types, Positional Indexes, and Query Expansion}
+\label{sec:query-expansion-positional-en}
+
+\subsection{Phrase Queries and Positional Indexes}
+Phrase queries (e.g., \texttt{"neural network architecture"}) require terms to appear adjacent ($\text{pos}(t_{i+1}) = \text{pos}(t_i) + 1$). Frequency-only inverted indexes cannot verify this constraint. The engine extends the posting structure into a \textbf{Positional Index}:
+\begin{equation}
+t \longrightarrow \big[ \langle \text{DocID}_k, \text{tf}_k, [\text{pos}_1, \dots, \text{pos}_{\text{tf}}] \rangle \big].
+\end{equation}
+Positional tracking incurs a $2\times\text{--}3\times$ storage overhead over non-positional indexes.
+
+\subsection{Query Expansion and Semantic Drift}
+Engines expand raw user queries with synonyms, spell corrections, and acronyms. Unconstrained lexical expansion can cause severe \textit{semantic drift}. A classic example in Italian occurs when expanding \texttt{"babbo francesco"}:
+\begin{enumerate}
+    \item \textit{Babbo} is expanded to its regional synonym \textit{pap\`a} (father).
+    \item Normalization strips accents, mapping \textit{pap\`a} to \textit{papa} (Pope).
+    \item The query becomes \texttt{("babbo" OR "pap\textasciigrave a" OR "papa") AND "francesco"}.
+    \item High PageRank pages for Pope Francis (\textit{Papa Francesco}) overwhelm relevance, making Wikipedia's biography of the Pontiff the top result.
+\end{enumerate}
+
+\subsection{Stemming vs. Query Expansion}
+While stemming and lemmatization reduce words along morphological lines (e.g., \textit{connecting} $\to$ \textit{connect}, Section~\ref{sec:stemming-lemmatizzazione-en}), they cannot link etymologically distinct synonyms (such as \textit{babbo} and \textit{pap\`a}). Modern engines avoid aggressive indexing-time stemming and instead resolve synonyms dynamically via contextual neural query expansion.
+
+\FloatBarrier
+\section[Query Processing: TAAT vs. DAAT]{Query Processing: Term-at-a-Time (TAAT) vs. Document-at-a-Time (DAAT)}
+\label{sec:taat-vs-daat-en}
+
+\subsection{Term-at-a-Time (TAAT)}
+TAAT iterates through posting lists **sequentially, one term at a time**:
+\begin{enumerate}
+    \item Allocates a global accumulator array $A[\text{DocID}] \in \mathbb{R}$.
+    \item Reads the first posting list $\mathcal{L}(t_1)$, updating accumulator scores.
+    \item Proceeds to $\mathcal{L}(t_2)$, accumulating scores until all query terms are exhausted.
+    \item Extracts the top-$k$ entries using a min-heap over $A$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Term-at-a-Time (TAAT)}
+\label{alg:taat-en}
+\KwInput{Query $q = \{t_1, \dots, t_m\}$, Inverted Index, integer $k$}
+\KwOutput{Min-Heap $H$ of Top-$k$ scored documents}
+
+$A \gets \text{InitializeAccumulatorTable}()$\;
+\ForEach{term $t_i \in q$}{
+    $\mathcal{L}_i \gets \text{FetchPostingList}(t_i)$\;
+    $\text{idf}_i \gets \text{ComputeIDF}(t_i)$\;
+    \ForEach{$\langle d, \text{tf} \rangle \in \mathcal{L}_i$}{
+        $s_{\text{partial}} \gets \text{EvaluateTermScore}(\text{tf}, \text{idf}_i)$\;
+        \eIf{$d \in A$}{
+            $A[d] \gets A[d] + s_{\text{partial}}$\;
+        }{
+            $A[d] \gets s_{\text{partial}}$\;
+        }
+    }
+}
+$H \gets \text{InitializeMinHeap}(\text{capacity}=k)$\;
+\ForEach{entry $(d, \text{score}) \in A$}{
+    \eIf{$H.\text{Size}() < k$}{
+        $H.\text{Insert}(d, \text{score})$\;
+    }{
+        \If{$\text{score} > H.\text{MinScore}()$}{
+            $H.\text{ExtractMin}()$\;
+            $H.\text{Insert}(d, \text{score})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\textit{Characteristics:} Excellent sequential memory locality and hardware prefetching, but suffers from explosive RAM accumulator footprints and cannot perform dynamic early pruning.
+
+\subsection{Document-at-a-Time (DAAT)}
+DAAT processes all query posting lists **in parallel across synchronized pointers**:
+\begin{enumerate}
+    \item Initializes cursors $p_i$ at the head of each list $\mathcal{L}(t_i)$.
+    \item Identifies the current minimum document identifier: $d_{\min} = \min_{i} \{p_i.\text{CurrentDocID}()\}$.
+    \item Accumulates the full final score $S(q, d_{\min})$ across all cursors matching $d_{\min}$.
+    \item Updates the fixed-size top-$k$ min-heap immediately.
+    \item Advances all cursors matching $d_{\min}$ to their next entry.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Document-at-a-Time (DAAT)}
+\label{alg:daat-en}
+\KwInput{Query $q = \{t_1, \dots, t_m\}$, Inverted Index, integer $k$}
+\KwOutput{Min-Heap $H$ of Top-$k$ scored documents}
+
+$\text{cursors} \gets \text{InitializeListCursors}(q)$\;
+$H \gets \text{InitializeMinHeap}(\text{capacity}=k)$\;
+
+\While{$\text{HasActiveCursors}(\text{cursors})$}{
+    $d_{\min} \gets \min \{p.\text{CurrentDocID}() \mid p \in \text{cursors} \land p.\text{IsActive}()\}$\;
+    $\text{score}_{\text{tot}} \gets 0.0$\;
+    
+    \ForEach{$p \in \text{cursors}$}{
+        \If{$p.\text{IsActive}() \land p.\text{CurrentDocID}() == d_{\min}$}{
+            $\text{score}_{\text{tot}} \gets \text{score}_{\text{tot}} + \text{EvaluateTermScore}(p.\text{CurrentTF}(), p.\text{Term}())$\;
+            $p.\text{Advance}()$\;
+        }
+    }
+    
+    \eIf{$H.\text{Size}() < k$}{
+        $H.\text{Insert}(d_{\min}, \text{score}_{\text{tot}})$\;
+    }{
+        \If{$\text{score}_{\text{tot}} > H.\text{MinScore}()$}{
+            $H.\text{ExtractMin}()$\;
+            $H.\text{Insert}(d_{\min}, \text{score}_{\text{tot}})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\textit{Characteristics:} Minimal working memory ($\BigO{k}$ heap and $\BigO{m}$ cursor state) and native support for dynamic early termination algorithms (WAND and Block-Max WAND), at the cost of non-contiguous interleaved memory access patterns.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Dimension} & \textbf{Term-at-a-Time (TAAT)} & \textbf{Document-at-a-Time (DAAT)} \\
+\midrule
+\textbf{Traversal Direction} & Horizontal (term-by-term, sequential). & Vertical (document-by-document, synchronous). \\
+\addlinespace
+\textbf{Score State} & Partial progressive accumulators. & Fully consolidated score per document. \\
+\addlinespace
+\textbf{RAM Footprint} & High ($\BigO{|\bigcup \mathcal{L}(t_i)|}$ accumulators). & Minimal ($\BigO{k}$ for Top-$k$ min-heap). \\
+\addlinespace
+\textbf{Cache Locality} & Excellent (contiguous stream scans). & Interleaved (pointer jumping across lists). \\
+\addlinespace
+\textbf{Early Termination} & Ineffective. & Native and powerful (WAND, Block-Max). \\
+\addlinespace
+\textbf{Industry Role} & GPU and SIMD accelerator architectures. & Core CPU search engines (Lucene, Elasticsearch). \\
+\bottomrule
+\end{tabularx}
+\caption{Systematic comparison between TAAT and DAAT query processing strategies.}
+\label{tab:taat-vs-daat-summary-en}
+\end{table}
+
+\subsection{Significance in Modern Vector and Hybrid Search}
+The TAAT vs. DAAT paradigm extends directly into modern retrieval systems:
+\begin{itemize}
+    \item \textbf{Sparse Neural Retrieval (e.g., SPLADE~\cite{formal2021}):} Employs inverted indexes over expanded neural vocabularies evaluated using DAAT with Block-Max WAND pruning.
+    \item \textbf{Hardware Acceleration:} GPU-based vector accelerators leverage TAAT-style batching to exploit streaming multiprocessors and high memory bandwidth.
+    \item \textbf{Dedicated Vector Engines (e.g., Qdrant):} Modern engines combine approximate nearest neighbor graphs ($k$-ANN on HNSW) with inverted indexes for payload filtering, combining DAAT and TAAT principles for hybrid multi-stage retrieval.
+\end{itemize}

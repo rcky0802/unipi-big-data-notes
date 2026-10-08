@@ -1,0 +1,472 @@
+\chapter{Architettura dei Motori di Ricerca: Indicizzazione e Query Processing}
+\label{chap:indicizzazione-query-processing}
+
+Nei capitoli precedenti sono stati formalizzati i principi cardine dell'Information Retrieval: dalla valutazione dell'efficacia delle graduatorie (Capitolo~\ref{chap:evaluation}) alle propriet\`a statistiche del linguaggio (Capitolo~\ref{chap:nlp-testo}), fino alla definizione formale delle funzioni di rilevanza nello Spazio Vettoriale e del modello probabilistico Okapi BM25 (Capitolo~\ref{chap:retrieval-vsm-bm25}). Tali modelli definiscono \textit{cosa} calcolare per stimare la pertinenza di un documento rispetto a una query.
+
+In questo capitolo si affronta la sfida ingegneristica complementare: \textbf{come calcolare tale graduatoria in tempo reale su architetture hardware moderne}, garantendo tempi di risposta nell'ordine di poche decine di millisecondi su archivi composti da miliardi di documenti. Vengono analizzati il paradigma di retrieval a due stadi, la risoluzione dell'intrinseca sparsit\`a della matrice termini--documenti attraverso il confronto tra \textit{Forward Index} e \textit{Indice Invertito}, le tecniche di disaccoppiamento e compressione fisica degli stream posizionali, le patologie di \textit{Query Expansion} e, infine, il confronto analitico tra gli algoritmi di scansione \textit{Term-at-a-Time} (TAAT) e \textit{Document-at-a-Time} (DAAT).
+
+\FloatBarrier
+\section{Architettura di Sistema e Paradigma a Due Stadi}
+\label{sec:architettura-due-stadi}
+
+Un motore di ricerca su scala Web deve conciliare requisiti architetturali apparentemente inconciliabili: processare collezioni testuali non strutturate di dimensioni sterminate garantendo al contempo una latenza di risposta interattiva ($< 50\text{--}100\text{ ms}$) per ciascuna interrogazione utente. Per soddisfare tali vincoli, il flusso computazionale viene rigidamente ripartito tra processi asincroni massivi (\textbf{fase offline}) e processi sincroni a latenza vincolata (\textbf{fase online}), come schematizzato nella Sezione~\ref{sec:architettura-motore}.
+
+\subsection[Pipeline Offline: Ingestione e Indicizzazione]{Pipeline Offline: Ingestione, Indicizzazione e Compressione}
+La pipeline offline opera sulla collezione documentale $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ attraverso tre macro-fasi:
+\begin{enumerate}
+    \item \textbf{Text Processing e Parsing:} I flussi testuali grezzi raccolti tramite web crawling vengono ripuliti dal markup, tokenizzati e normalizzati secondo le pipeline analizzate nella Sezione~\ref{sec:tokeniz-splitting}.
+    \item \textbf{Generazione del Vocabolario e dell'Indice:} Viene estratto il lessico $\mathcal{V} = \{t_1, t_2, \dots, t_M\}$ e costruita la struttura associativa che mappa ciascun termine alle relative occorrenze nei documenti.
+    \item \textbf{Compressione Numerica Lossless:} Poich\'e l'overhead dimensionale dell'indice grezzo pu\`o eguagliare o superare la dimensione del corpus di partenza, vengono applicati algoritmi di compressione per interi volti a massimizzare la residenza dei dati nei livelli alti della gerarchia di memoria (RAM e cache di sistema, come approfondito nel Capitolo~\ref{chap:efficienza-cpu}).
+\end{enumerate}
+
+\subsection{Pipeline Online e Paradigma di Retrieval a Due Stadi}
+L'architettura moderna di risoluzione delle query adotta una pipeline a due stadi (\textit{Two-Stage Retrieval Pipeline}), volta a bilanciare l'efficienza computazionale del recupero lessicale con l'elevata accuratezza semantica dei modelli predittivi complessi:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.5cm,
+    block/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6, thick,
+                  font=\small, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    stage1/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8, thick,
+                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
+    stage2/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!8, thick,
+                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
+    output/.style={rectangle, rounded corners=3pt, draw=green!60!black, fill=green!8, thick,
+                   font=\small\bfseries, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    data/.style={cylinder, shape border rotate=90, draw=gray!70!black, fill=gray!10, thick,
+                 font=\footnotesize, aspect=0.25, minimum width=2.4cm, minimum height=1.2cm, align=center},
+    arr/.style={-Stealth, thick, gray!80!black}
+]
+    % Componenti Online
+    \node[block] (query) {Query Utente $q$};
+    \node[block, below=of query] (rewrite) {Query Expansion \& Riscrittura\\{\scriptsize Correzione refusi, sinonimi, acronimi}};
+    \node[stage1, below=of rewrite] (s1) {\textbf{1$^\circ$ Stadio: Candidate Retrieval}\\{\scriptsize Scoring additivo lineare (BM25)}\\{\scriptsize Indice Invertito residente}};
+    \node[stage2, below=of s1] (s2) {\textbf{2$^\circ$ Stadio: Re-Ranking (LtR)}\\{\scriptsize Modelli ad alta complessit\`a (LambdaMART, Neural)}\\{\scriptsize Centinaia/migliaia di feature dense}};
+    \node[output, below=of s2] (serp) {SERP Finale (Top-$k$, $k \approx 10$)};
+
+    % Sorgenti Dati Offline
+    \node[data, left=2.0cm of s1] (invidx) {Indice\\Invertito\\{\scriptsize Compresso}};
+    \node[data, left=2.0cm of s2] (featdb) {Feature\\Store\\{\scriptsize PageRank, CTR...}};
+
+    % Collegamenti
+    \draw[arr] (query) -- (rewrite);
+    \draw[arr] (rewrite) -- (s1);
+    \draw[arr] (invidx) -- (s1);
+    \draw[arr] (s1) -- node[right, font=\scriptsize\itshape] {$\approx 1\,000\text{--}10\,000$ candidati ($\mathcal{C}$)} (s2);
+    \draw[arr] (featdb) -- (s2);
+    \draw[arr] (s2) -- (serp);
+\end{tikzpicture}
+\caption{Architettura del paradigma di retrieval a due stadi: filtraggio massivo ad alta efficienza (primo stadio) e riordinamento semantico ad alta accuratezza (secondo stadio).}
+\label{fig:two-stage-pipeline}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Primo Stadio (Candidate Retrieval):} opera sull'intera collezione ($N \sim 10^9\text{--}10^{10}$ documenti). Impiega funzioni di scoring additive veloci (tipicamente Okapi BM25) per estrarre rapidamente un sottoinsieme ristretto di candidati promettenti:
+    \begin{equation}
+    \mathcal{C} \subset \mathcal{D}, \quad |\mathcal{C}| \approx 1\,000 \text{--} 10\,000 \text{ documenti}.
+    \end{equation}
+    \item \textbf{Secondo Stadio (Re-Ranking / Heavy Scoring):} opera esclusivamente sull'insieme $\mathcal{C}$. Applica modelli di Machine Learning complessi (\textit{Learning-to-Rank}, quali LambdaMART~\cite{burges2010} o reti neurali basate su Transformer) valutando feature contestuali, grafiche, storiche e di autorit\`a documentale per produrre la graduatoria finale Top-$k$ ($k \approx 10$).
+\end{enumerate}
+
+\FloatBarrier
+\section{Modelli di Scoring: Prodotto Scalare e Connessione con il Dense Retrieval}
+\label{sec:scoring-dotproduct-ponte}
+
+\subsection{Richiamo dei Limiti del Modello Booleano e di Jaccard}
+Nei sistemi delle prime generazioni, il reperimento dei documenti poggiava sul modello booleano esatto. Come formalizzato nella Sezione~\ref{sec:boolean-vs-ranked}, tale approccio soffre della grave anomalia del \textit{Feast or Famine}: una congiunzione stringente (\texttt{AND}) svuota l'insieme soluzione, mentre una disgiunzione (\texttt{OR}) restituisce centinaia di migliaia di risultati non graduati. Analogamente, l'applicazione ingenua del coefficiente insiemistico di Jaccard (analizzato in Sezione~\ref{sec:jaccard-scoring}) fallisce poich\'e penalizza arbitrariamente i documenti lunghi e non discrimina tra parole comuni e parole altamente informative.
+
+\subsection{Il Prodotto Scalare come Misura Unificante di Rilevanza}
+Per superare tali limitazioni, lo Spazio Vettoriale (VSM) e i moderni schemi di ponderazione (formalizzati nel Capitolo~\ref{chap:retrieval-vsm-bm25}) proiettano documenti e query in vettori pesati, trasformando la misura di pertinenza nel calcolo di un \textbf{prodotto scalare}:
+\begin{equation}
+\text{Score}(q, d) = \mathbf{q} \cdot \mathbf{d} = \sum_{t \in \mathcal{V}} w(t, q) \cdot w(t, d).
+\label{eq:dot-product-general}
+\end{equation}
+Poich\'e per una query standard i termini non menzionati hanno peso $w(t, q) = 0$, la sommatoria~\eqref{eq:dot-product-general} si restringe ai soli termini condivisi:
+\begin{equation}
+\text{Score}(q, d) = \sum_{t \in q \cap d} w(t, q) \cdot w(t, d).
+\label{eq:dot-product-intersection}
+\end{equation}
+
+Questa formulazione evidenzia una profonda convergenza concettuale tra l'Information Retrieval lessicale classico e il moderno retrieval neurale:
+\begin{itemize}
+    \item \textbf{Lexical Sparse Retrieval:} I vettori appartengono allo spazio $\mathbb{R}^{|\mathcal{V}|}$, dove ciascuna dimensione corrisponde a un lessema univoco del vocabolario ($|\mathcal{V}| \sim 10^7$). I vettori sono fortemente sparsi e lo score \`e calcolato tramite pesi statistici (TF-IDF, BM25).
+    \item \textbf{Dense Neural Retrieval:} Modelli basati su Transformer (es. bi-encoder, Sentence-BERT) mappano testi e query in vettori continui densi di dimensionalit\`a ridotta $\mathbf{v}_q, \mathbf{v}_d \in \mathbb{R}^k$ ($k \approx 768 \text{ o } 1\,536$). La rilevanza semantica \`e determinata dal prodotto scalare o similarit\`a coseno:
+    \begin{equation}
+    \text{Score}_{\text{neural}}(q, d) = \mathbf{v}_q \cdot \mathbf{v}_d = \sum_{i=1}^{k} v_{q,i} \cdot v_{d,i}.
+    \end{equation}
+\end{itemize}
+In entrambi i paradigmi, l'operazione fondamentale a runtime \`e l'aggregazione di prodotti scalari su collezioni su larga scala.
+
+\FloatBarrier
+\section{Strutture Dati ad Alte Prestazioni: Forward Index vs. Indice Invertito}
+\label{sec:forward-vs-inverted}
+
+\subsection{La Matrice Termini--Documenti e il Problema della Sparsit\`a}
+Consideriamo la matrice globale termini--documenti $M \in \mathbb{R}^{|\mathcal{V}| \times |\mathcal{D}|}$. I parametri dimensionali di un motore di ricerca web reale evidenziano l'impossibilit\`a fisica di allocare e scansionare tale struttura in forma densa:
+\begin{itemize}
+    \item Dimensione del lessico: $|\mathcal{V}| \sim 10^7$ termini unici.
+    \item Dimensione della collezione: $|\mathcal{D}| \sim 10^9 \text{--} 10^{10}$ documenti web.
+    \item Numero totale di celle: $|\mathcal{V}| \times |\mathcal{D}| \approx 10^{16} \text{--} 10^{17}$ posizioni.
+\end{itemize}
+Poich\'e un documento medio contiene tra $10^2$ e $10^3$ vocaboli distinti, la densit\`a di elementi non nulli \`e infinitesima:
+\begin{equation}
+\frac{\text{elementi non nulli}}{|\mathcal{V}| \times |\mathcal{D}|} \ll 0.001\%.
+\end{equation}
+Oltre il $99.99\%$ delle celle contiene il valore zero. Memorizzare la matrice in formato denso comporterebbe la saturazione immediata della memoria secondaria e una complessit\`a temporale di valutazione query proibitiva, pari a $\BigO{|\mathcal{V}| \cdot |\mathcal{D}|}$, costringendo la CPU a esaminare miliardi di documenti irrilevanti.
+
+\subsection{Rappresentazione tramite Vettori Sparsi: Forward Index vs. Indice Invertito}
+Per eliminare gli zeri, la matrice viene memorizzata come un insieme di vettori sparsi composti da coppie $(\text{Identificatore}, \text{Valore})$. L'orientamento di serializzazione determina due strutture complementari, sintetizzate nella Tabella~\ref{tab:fwd-vs-inv}:
+\begin{itemize}
+    \item \textbf{Forward Index (Column-Wise / Document-Oriented):} memorizza per ciascun documento la lista dei termini che vi compaiono, ad esempio $d_1 \to [(t_2, w_2), (t_7, w_7)]$.
+    \item \textbf{Indice Invertito (Row-Wise / Term-Oriented):} memorizza per ciascun termine la lista dei documenti in cui ricorre, ad esempio $t_1 \to [(d_2, w_1), (d_5, w_5)]$.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Propriet\`a} & \textbf{Forward Index} & \textbf{Indice Invertito} \\
+\midrule
+\textbf{Orientamento} & Per colonna (Document-Oriented). & Per riga (Term-Oriented). \\
+\addlinespace
+\textbf{Struttura logica} & $\text{DocID} \to [(t_a, \text{tf}_a), \dots]$ & $t \to [(\text{DocID}_i, \text{tf}_i), \dots]$ \\
+\addlinespace
+\textbf{Complessit\`a query} & $\BigO{|\mathcal{D}|}$: richiede ispezione di tutti i documenti. & $\BigO{\sum_{t \in q} |\mathcal{L}(t)|}$: accede solo ai documenti candidati. \\
+\addlinespace
+\textbf{Ruolo nel motore} & Memorizzazione metadati, feature store, snippet generation. & Cuore computazionale del First-Stage Retrieval (matching rapido). \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto sistematico tra Forward Index e Indice Invertito.}
+\label{tab:fwd-vs-inv}
+\end{table}
+
+\FloatBarrier
+\section{Anatomia, Layout di Memoria e Compressione dell'Indice Invertito}
+\label{sec:anatomia-compressione-indice}
+
+Un indice invertito di livello industriale si articola in due componenti fisiche distinte: il \textbf{Dizionario} (o Lessico) e l'insieme delle \textbf{Posting List}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.6cm and 1.2cm,
+    lex/.style={rectangle, rounded corners=2pt, draw=blue!70!black, fill=blue!6, thick,
+                font=\small, minimum width=4.5cm, align=left},
+    post/.style={rectangle, rounded corners=2pt, draw=orange!80!black, fill=orange!8, thick,
+                 font=\small, minimum width=6.2cm, align=left},
+    arr/.style={-Stealth, thick, blue!70!black}
+]
+    % Dizionario
+    \node[lex] (l1) {\textbf{``caesar''} \hfill $df=3$ \hfill $\bullet$};
+    \node[lex, below=of l1] (l2) {\textbf{``mercy''} \hfill $df=3$ \hfill $\bullet$};
+    \node[lex, below=of l2] (l3) {\textbf{``worser''} \hfill $df=2$ \hfill $\bullet$};
+
+    % Titolo Dizionario
+    \node[above=0.2cm of l1, font=\footnotesize\bfseries, text=blue!80!black] {DIZIONARIO (In RAM / B-Tree)};
+
+    % Posting Lists
+    \node[post, right=1.5cm of l1] (p1) {
+        \textbf{DocIDs:} $[1, 2, 4]$ \quad $\to \Delta = [1, 1, 2]$\\
+        \textbf{TFs:} \phantom{Doc} $[232, 227, 2]$
+    };
+    \node[post, right=1.5cm of l2] (p2) {
+        \textbf{DocIDs:} $[1, 3, 4]$ \quad $\to \Delta = [1, 2, 1]$\\
+        \textbf{TFs:} \phantom{Doc} $[2, 3, 5]$
+    };
+    \node[post, right=1.5cm of l3] (p3) {
+        \textbf{DocIDs:} $[1, 3]$ \quad\quad $\to \Delta = [1, 2]$\\
+        \textbf{TFs:} \phantom{Doc} $[2, 1]$
+    };
+
+    % Titolo Posting List
+    \node[above=0.2cm of p1, font=\footnotesize\bfseries, text=orange!90!black] {POSTING LISTS (Stream Disaccoppiati)};
+
+    % Collegamenti
+    \draw[arr] (l1.east) -- (p1.west);
+    \draw[arr] (l2.east) -- (p2.west);
+    \draw[arr] (l3.east) -- (p3.west);
+\end{tikzpicture}
+\caption{Anatomia di un indice invertito con disaccoppiamento fisico tra stream dei $\text{DocID}$ (compressi tramite $d\text{-gaps}$) e stream delle frequenze $\text{tf}$.}
+\label{fig:inverted-index-anatomy}
+\end{figure}
+
+\subsection{Il Dizionario (Lexicon)}
+Il dizionario memorizza il vocabolario $\mathcal{V}$. Per ciascun termine $t$, registra la stringa lessicale, la Document Frequency $df_t$ (utilizzata per ricavare l'IDF precalcolato) e il puntatore di memoria o l'offset su storage secondario che localizza la corrispondente posting list.
+Dato che $|\mathcal{V}|$ \`e dell'ordine di milioni di lessemi, il dizionario viene mantenuto interamente residente in \textbf{RAM}, indicizzato tramite strutture di accesso rapido come B-Tree, Trie compressi o tabelle hash.
+
+\subsection{Le Posting List: Disaccoppiamento Fisico degli Stream}
+Concettualmente, la posting list associata al termine $t$ \`e una sequenza di tuple:
+\begin{equation}
+\mathcal{L}(t) = \big[ \langle d_1, \text{tf}_{t,d_1} \rangle, \langle d_2, \text{tf}_{t,d_2} \rangle, \dots \big].
+\end{equation}
+A livello implementativo, memorizzare array continui di strutture composte (es. struct C++ contenenti \texttt{uint32\_t doc\_id} e \texttt{uint32\_t tf}) \`e altamente sub-ottimale. Per massimizzare i fattori di compressione numerica, i motori di ricerca operano il \textbf{disaccoppiamento fisico in stream paralleli}:
+
+\begin{enumerate}
+    \item \textbf{Stream dei DocID (Monotono Crescente):}
+    \begin{equation}
+    \mathbf{D}_t = [\text{DocID}_1, \text{DocID}_2, \dots, \text{DocID}_m] \quad \text{con } \text{DocID}_i < \text{DocID}_{i+1}.
+    \end{equation}
+    Sfruttando la stretta monotonicit\`a, i valori assoluti vengono convertiti nelle differenze tra identificatori contigui, dette \textbf{$d\text{-gaps}$} o delta:
+    \begin{equation}
+    \Delta_1 = \text{DocID}_1, \quad \Delta_i = \text{DocID}_i - \text{DocID}_{i-1} \quad (\forall i \ge 2).
+    \end{equation}
+    I delta generati sono interi piccoli (spesso $\Delta \le 5$ per termini ad alta frequenza), comprimibili ad altissima densit\`a tramite algoritmi dedicati (\textit{Variable Byte}, \textit{Elias-Fano}, \textit{PForDelta}, \textit{Binary Interpolative Coding}~\cite{moffat2000}).
+    
+    \item \textbf{Stream delle Frequenze (Non Ordinato):}
+    \begin{equation}
+    \mathbf{F}_t = [\text{tf}(t, d_1), \text{tf}(t, d_2), \dots, \text{tf}(t, d_m)].
+    \end{equation}
+    Le frequenze locali non godono di ordinamento; tuttavia, per la legge di Zipf, la loro distribuzione empirica \`e fortemente concentrata su valori minimi ($1, 2, 3$). Esse vengono compresse simmetricamente tramite codici a lunghezza variabile senza richiedere la differenziazione delta.
+\end{enumerate}
+
+\subsection{Trade-Off Architetturale: Interi Compressi vs. Float Precalcolati}
+Una decisione progettuale critica consiste nello stabilire se memorizzare nell'indice il punteggio finale precalcolato $w(t, d) \in \mathbb{R}$ a virgola mobile oppure l'intero grezzo $\text{tf}(t, d) \in \mathbb{N}$:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Parametro} & \textbf{Punteggio Float Precalcolato} & \textbf{Intero Grezzo TF Compresso} \\
+\midrule
+\textbf{Occupazione Spazio} & $32$ o $64$ bit per posting (\texttt{float}/\texttt{double}). & Intero compresso (spesso $< 8$ bit medi per posting). \\
+\addlinespace
+\textbf{Comprimibilit\`a} & Scarsa o nulla: mantissa float a entropia quasi-casuale. & Elevatissima: concentrazione statistica su delta piccoli. \\
+\addlinespace
+\textbf{Flessibilit\`a Ranking} & Nulla: vincola l'indice alla specifica formula usata a build-time. & Totale: consente di calcolare qualsiasi funzione (BM25, varianti) a runtime. \\
+\addlinespace
+\textbf{Throughput CPU} & Nessun calcolo a runtime (lettura diretta). & Pochi cicli ALU per posting per calcolare la formula. \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto di sistema tra memorizzazione float e interi compressi.}
+\label{tab:float-vs-int}
+\end{table}
+
+\begin{noteblock}{Risoluzione del Vincolo Memory-Bound}
+Come analizzato nel Capitolo~\ref{chap:efficienza-cpu}, i sistemi di Information Retrieval su larga scala sono rigorosamente \textbf{memory-bound}: il vero fattore limitante delle prestazioni \`e la banda di trasferimento dalla memoria principale (DRAM) ai registri della CPU ($\approx 80\text{ ns}$ di latenza), non il throughput dell'unit\`a aritmetica (ALU, $0.5\text{ ns}$). Ridurre la dimensione dei posting attraverso la compressione degli interi abbatte il volume di byte trasferiti sul bus di memoria; il modesto costo computazionale richiesto per valutare la formula a runtime (es. BM25) viene ampiamente compensato dal risparmio di banda.
+\end{noteblock}
+
+\FloatBarrier
+\section{Tipologie di Query, Indici Posizionali e Riscrittura del Testo}
+\label{sec:query-expansion-posizionali}
+
+\subsection{Phrase Queries e la Necessit\`a dell'Indice Posizionale}
+Nelle ricerche per frase esatta (\textit{Phrase Queries}), la query \`e racchiusa tra virgolette (es. \texttt{"neural network architecture"}). L'utente impone che i termini compaiano nel medesimo documento, nello stesso ordine e in posizioni adiacenti:
+\begin{equation}
+\text{pos}(t_{i+1}) = \text{pos}(t_i) + 1.
+\end{equation}
+L'indice invertito standard a sole frequenze $(\text{DocID}, \text{tf})$ non permette di validare questo vincolo, avendo scartato la posizione delle parole. Per supportare le phrase queries, la struttura viene estesa a \textbf{Indice Posizionale}, memorizzando per ogni posting la lista degli offset ordinali:
+\begin{equation}
+t \longrightarrow \big[ \langle \text{DocID}_k, \text{tf}_k, [\text{pos}_1, \text{pos}_2, \dots, \text{pos}_{\text{tf}}] \rangle \big].
+\end{equation}
+
+\begin{example}[Intersezione Posizionale per Phrase Match]
+Si consideri la query \texttt{"neural network"}:
+\begin{itemize}
+    \item Posting per \texttt{"neural"}: $\dots \to \langle \text{Doc } 14, \text{tf}=2, \text{pos}=[4, 21] \rangle \to \dots$
+    \item Posting per \texttt{"network"}: $\dots \to \langle \text{Doc } 14, \text{tf}=3, \text{pos}=[5, 89, 102] \rangle \to \dots$
+\end{itemize}
+L'algoritmo esegue l'intersezione su $\text{DocID} = 14$ e confronta le liste posizionali: poich\'e $\text{pos}(\texttt{neural}) = 4$ e $\text{pos}(\texttt{network}) = 5$, la condizione $\text{pos}(t_{i+1}) = \text{pos}(t_i) + 1$ \`e soddisfatta e il documento viene validato.
+\end{example}
+\textit{Overhead spaziale:} L'inclusione delle posizioni incrementa l'impronta complessiva su disco dell'indice invertito di un fattore compreso tra $2\times$ e $3\times$.
+
+\subsection{Moduli di Query Expansion e il Caso Studio ``Babbo Francesco''}
+I motori di ricerca industriali intercettano la query grezza dell'utente attraverso un modulo di \textbf{Query Expansion} e riscrittura, con l'obiettivo di correggere refusi, risolvere acronimi ed espandere sinonimi contestuali. 
+
+Tuttavia, espansioni lessicali non supervisionate basate su matrici di co-occorrenza o regole euristiche possono innescare gravi derive semantiche (\textit{semantic drift}), come illustrato dal celebre caso riscontrato nei motori commerciali in lingua italiana:
+\begin{enumerate}
+    \item \textbf{Query Utente:} L'utente inserisce la query a intento personale/familiare \texttt{"babbo francesco"}.
+    \item \textbf{Espansione Sinonimica:} Il modulo associa il termine dialettale/regionale \textit{babbo} al sinonimo standard \textit{pap\`a}.
+    \item \textbf{Normalizzazione e Troncamento Accenti:} La pipeline rimuove gli accenti trasformando \textit{pap\`a} in \textit{papa} (omografo non accentato che designa il Pontefice).
+    \item \textbf{Query Riscritta all'Indice:} La disgiunzione risultante inviata al motore diventa \texttt{("babbo" OR "pap\`a" OR "papa") AND "francesco"}.
+    \item \textbf{Scoring \& Authority Ranking:} L'entit\`a globale \textit{"Papa Francesco"} possiede un'autorevolezza a priori (PageRank) e una co-occorrenza web sterminata rispetto a qualunque testo privato.
+    \item \textbf{Risultato Top-1 Restituito:} La SERP collassa restituendo in prima posizione la voce enciclopedica su \textit{Papa Francesco (Jorge Mario Bergoglio)}, stravolgendo completamente l'intento informativo dell'utente.
+\end{enumerate}
+
+\subsection{Stemming vs. Query Expansion}
+\`E fondamentale chiarire la linea di demarcazione tra normalizzazione morfologica ed espansione semantica:
+\begin{itemize}
+    \item \textbf{Stemming e Lemmatizzazione:} Operano riduzioni sintattiche all'interno della medesima radice etimologica (es. \textit{running}, \textit{runs} $\to$ \textit{run}, come descritto in Sezione~\ref{sec:stemming-lemmatizzazione}). Non possono collegare vocaboli con radici distinte aventi identico significato (es. \textit{babbo} e \textit{pap\`a}).
+    \item \textbf{Approccio Moderno:} I sistemi scalabili contemporanei riducono l'uso di stemming aggressivo in fase di indicizzazione (per preservare la specificit\`a semantica dei termini nell'indice) e gestiscono le varianti flessive e sinonimiche a runtime tramite modelli linguistici neurali di espansione contestuale.
+\end{itemize}
+
+\FloatBarrier
+\section{Algoritmi di Query Processing: Term-at-a-Time (TAAT) vs. Document-at-a-Time (DAAT)}
+\label{sec:taat-vs-daat}
+
+Individuate le posting list associate ai termini di query $q = \{t_1, t_2, \dots, t_m\}$, il motore deve scansionare i dati ed estrarre i primi $k$ documenti con punteggio pi\`u elevato per popolare una coda con priorit\`a (min-heap di dimensione fissa $k$). Esistono due paradigmi algoritmici fondamentali: \textbf{Term-at-a-Time (TAAT)} e \textbf{Document-at-a-Time (DAAT)}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.5cm and 1.5cm,
+    listblock/.style={rectangle, draw=gray!80!black, fill=gray!6, font=\scriptsize, minimum height=0.6cm, align=center},
+    taatb/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6, thick, font=\small, minimum width=6.2cm, align=left},
+    daatb/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!6, thick, font=\small, minimum width=6.2cm, align=left}
+]
+    % Schematizzazione Posting Lists
+    \node[taatb] (t1) {
+        \textbf{Term-at-a-Time (TAAT) --- Scansione Orizzontale}\\
+        \scriptsize
+        $\mathcal{L}(t_1)$: $[(1, 2) \to (4, 1) \to (9, 3)]$ $\implies$ Aggiorna accumulatori\\
+        $\mathcal{L}(t_2)$: $[(2, 1) \to (4, 5) \to (7, 2)]$ $\implies$ Somma su accumulatori\\
+        $\mathcal{L}(t_3)$: $[(1, 4) \to (3, 2) \to (9, 1)]$ $\implies$ Somma su accumulatori\\
+        \textbf{Fine:} Estrazione Top-$k$ dalla tabella degli accumulatori.
+    };
+
+    \node[daatb, right=1.2cm of t1] (t2) {
+        \textbf{Document-at-a-Time (DAAT) --- Scansione Verticale}\\
+        \scriptsize
+        Cursori: $p_1 \to \text{Doc } 1$, $p_2 \to \text{Doc } 2$, $p_3 \to \text{Doc } 1$\\
+        \textbf{Step 1:} $d_{\min} = 1$. Calcola Score finale per Doc 1.\\
+        \phantom{\textbf{Step 1:}} Inserisce direttamente in Min-Heap Top-$k$.\\
+        \phantom{\textbf{Step 1:}} Avanza puntatori $p_1$ e $p_3$.\\
+        \textbf{Step 2:} $d_{\min} = 2$. Calcola Score finale per Doc 2...
+    };
+\end{tikzpicture}%
+}
+\caption{Confronto visivo delle modalit\`a di scorrimento delle posting list: TAAT orizzontale sequenziale vs. DAAT verticale sincrono.}
+\label{fig:taat-vs-daat-vis}
+\end{figure}
+
+\subsection{La Strategia Term-at-a-Time (TAAT)}
+Nell'approccio TAAT, le posting list vengono elaborate in modo \textbf{sequenziale, una alla volta}:
+\begin{enumerate}
+    \item Viene allocata una struttura di \textbf{accumulatori} $A[\text{DocID}] \in \mathbb{R}$ (tabella hash o array denso indicizzato per $\text{DocID}$).
+    \item Il motore apre la posting list del primo termine $\mathcal{L}(t_1)$ e itera su tutti i suoi posting, calcolando il punteggio parziale e incrementando l'accumulatore corrispondente.
+    \item Conclusa $\mathcal{L}(t_1)$, si passa a $\mathcal{L}(t_2)$ sommando i nuovi contributi, procedendo fino all'ultima lista $\mathcal{L}(t_m)$.
+    \item Al termine, si estraggono i top-$k$ documenti scansionando la struttura degli accumulatori tramite un min-heap.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Term-at-a-Time (TAAT)}
+\label{alg:taat}
+\KwInput{Query $q = \{t_1, t_2, \dots, t_m\}$, Indice Invertito, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti per punteggio}
+
+$A \gets \text{InizializzaTabellaAccumulatori}()$ \tcp*{Mappa DocID $\to$ Score Parziale}
+
+\ForEach{termine $t_i \in q$}{
+    $\mathcal{L}_i \gets \text{RecuperaPostingList}(t_i)$\;
+    $\text{idf}_i \gets \text{CalcolaIDF}(t_i)$\;
+    \ForEach{$\langle d, \text{tf} \rangle \in \mathcal{L}_i$}{
+        $s_{\text{parz}} \gets \text{CalcolaContributo}(\text{tf}, \text{idf}_i)$\;
+        \eIf{$d \in A$}{
+            $A[d] \gets A[d] + s_{\text{parz}}$\;
+        }{
+            $A[d] \gets s_{\text{parz}}$\;
+        }
+    }
+}
+
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+\ForEach{coppia $(d, \text{score}) \in A$}{
+    \eIf{$H.\text{Dimensione}() < k$}{
+        $H.\text{Inserisci}(d, \text{score})$\;
+    }{
+        \If{$\text{score} > H.\text{MinimoPunteggio}()$}{
+            $H.\text{EstraiMinimo}()$\;
+            $H.\text{Inserisci}(d, \text{score})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\paragraph{Analisi prestazionale di TAAT:}
+\begin{itemize}
+    \item \textbf{Vantaggi:} Accesso strettamente sequenziale alla memoria. Ciascuna posting list viene letta come un blocco contiguo, massimizzando l'efficacia del prefetching hardware della CPU e la localit\`a di cache (Capitolo~\ref{chap:efficienza-cpu}).
+    \item \textbf{Svantaggi:} Footprint di memoria volatile elevatissimo. La tabella degli accumulatori deve contenere l'unione dei documenti di tutte le posting list: con termini ad alta Document Frequency, $A$ pu\`o coinvolgere decine di milioni di record. Inoltre, \`e impossibile effettuare il \textit{dynamic early pruning}, poich\'e uno score parziale basso potrebbe essere incrementato arbitrariamente dalle liste successive.
+\end{itemize}
+
+\subsection{La Strategia Document-at-a-Time (DAAT)}
+Nell'approccio DAAT, le posting list di tutti i termini di query vengono elaborate \textbf{simultaneamente e in parallelo}, operando come un merge multi-cursore:
+\begin{enumerate}
+    \item Viene posizionato un puntatore $p_i$ all'inizio di ciascuna lista $\mathcal{L}(t_i)$.
+    \item A ogni iterazione, il sistema determina il minimo identificatore corrente:
+    \begin{equation}
+    d_{\min} = \min_{i \in \{1, \dots, m\}} \{p_i.\text{CurrentDocID}()\}.
+    \end{equation}
+    \item Vengono identificati tutti i cursori posizionati su $d_{\min}$, calcolando immediatamente il \textbf{punteggio finale consolidato} del documento:
+    \begin{equation}
+    S(q, d_{\min}) = \sum_{i : p_i.\text{DocID} = d_{\min}} \text{ScoreTerm}(p_i.\text{TF}, t_i).
+    \end{equation}
+    \item Il punteggio definitivo viene confrontato all'istante con il Min-Heap di taglia $k$: se $S(q, d_{\min}) > H.\text{Minimo}()$, il documento entra nella Top-$k$ scalzando il vecchio minimo.
+    \item Tutti i cursori attestati su $d_{\min}$ avanzano al prossimo elemento.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Document-at-a-Time (DAAT)}
+\label{alg:daat}
+\KwInput{Query $q = \{t_1, t_2, \dots, t_m\}$, Indice Invertito, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti per punteggio}
+
+$\text{cursori} \gets \text{InizializzaCursoriPerOgniLista}(q)$\;
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+
+\While{$\text{EsistonoCursoriAttivi}(\text{cursori})$}{
+    $d_{\min} \gets \min \{p.\text{CurrentDocID}() \mid p \in \text{cursori} \land p.\text{\`EAttivo}()\}$\;
+    $\text{score}_{\text{tot}} \gets 0.0$\;
+    
+    \ForEach{$p \in \text{cursori}$}{
+        \If{$p.\text{\`EAttivo}() \land p.\text{CurrentDocID}() == d_{\min}$}{
+            $\text{score}_{\text{tot}} \gets \text{score}_{\text{tot}} + \text{CalcolaContributo}(p.\text{CurrentTF}(), p.\text{Termine}())$\;
+            $p.\text{Avanza}()$\;
+        }
+    }
+    
+    \tcp{Il documento è completo: inserimento immediato nell'heap}
+    \eIf{$H.\text{Dimensione}() < k$}{
+        $H.\text{Inserisci}(d_{\min}, \text{score}_{\text{tot}})$\;
+    }{
+        \If{$\text{score}_{\text{tot}} > H.\text{MinimoPunteggio}()$}{
+            $H.\text{EstraiMinimo}()$\;
+            $H.\text{Inserisci}(d_{\min}, \text{score}_{\text{tot}})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\paragraph{Analisi prestazionale di DAAT:}
+\begin{itemize}
+    \item \textbf{Vantaggi:} Memoria di lavoro trascurabile ($\BigO{k}$ per il Min-Heap e $\BigO{m}$ per lo stato dei cursori), senza alcuna tabella intermedia di accumulo. Supporto nativo all'\textbf{Early Pruning dinamico}: conoscendo la soglia minima corrente dell'heap $\theta = H.\text{MinimoPunteggio}()$, algoritmi avanzati come \textbf{WAND} (\textit{Weak AND}) o \textbf{Block-Max WAND} possono stimare i limiti superiori (\textit{upper bounds}) di punteggio residuo e saltare a blocchi intere sequenze di posting che matematicamente non possono superare $\theta$, evitando decompressioni superflue.
+    \item \textbf{Svantaggi:} Accesso alla memoria frammentato su pi\`u stream contigui, con frequenti salti tra puntatori che riducono l'efficacia del caching rispetto alla lettura lineare di TAAT.
+\end{itemize}
+
+\subsection{Quadro Sinottico Comparativo}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Dimensione} & \textbf{Term-at-a-Time (TAAT)} & \textbf{Document-at-a-Time (DAAT)} \\
+\midrule
+\textbf{Direzione di Scansione} & Orizzontale (lista per lista, sequenziale). & Verticale (documento per documento, parallelo). \\
+\addlinespace
+\textbf{Stato del Punteggio} & Punteggi parziali progressivi in memoria. & Punteggio completo definitivo per ciascun $d$. \\
+\addlinespace
+\textbf{Occupazione di RAM} & Elevata ($\BigO{|\bigcup \mathcal{L}(t_i)|}$ accumulatori). & Minima ($\BigO{k}$ per il Min-Heap Top-$k$). \\
+\addlinespace
+\textbf{Localit\`a di Cache} & Ottima (scansione continua di stream compresso). & Frammentata (salti alternati tra $m$ cursori). \\
+\addlinespace
+\textbf{Early Termination} & Complessa e poco efficace. & Naturale ed efficientissima (WAND, Block-Max). \\
+\addlinespace
+\textbf{Scelta Industriale Tipica} & Retrieval su GPU / architetture parallele massive. & Core retrieval standard su CPU (Lucene, Elasticsearch). \\
+\bottomrule
+\end{tabularx}
+\caption{Sintesi comparativa delle propriet\`a architetturali di TAAT e DAAT.}
+\label{tab:taat-vs-daat-summary}
+\end{table}
+
+\subsection{Rilevanza nei Motori Vettoriali e Sistemi Moderni (Vector Search)}
+Il dualismo tra TAAT e DAAT non appartiene unicamente alla tradizione dell'IR classico, ma definisce le architetture dei motori di ricerca neurale contemporanei:
+\begin{itemize}
+    \item \textbf{Sparse Neural Retrieval (es. SPLADE~\cite{formal2021}):} Quando modelli di deep learning predicono distribuzioni di pesi sparsi su vocabolari estesi, i motori riadattano indici invertiti processati con algoritmi DAAT potenziati da WAND.
+    \item \textbf{Acceleratori Tensoriali e GPU:} In ambienti basati su GPU, il paradigma TAAT torna competitivo per via dell'altissimo throughput garantito da operazioni vettoriali contigue su blocchi di memoria regolari.
+    \item \textbf{Vector Search Engines Dedicati (es. Qdrant):} Motori di ricerca vettoriale moderni integrano indici invertiti di supporto per combinare filtri booleani e metadati con indici di prossimit\`a geometrica ($k$-ANN su grafi HNSW), riutilizzando i pattern di scansione DAAT/TAAT per garantire un'efficienza congiunta nel primo stadio di recupero.
+\end{itemize}

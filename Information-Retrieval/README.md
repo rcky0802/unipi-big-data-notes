@@ -114,3 +114,14 @@ latexmk -c
   - Okapi BM25 probabilistic model: asymptotic term frequency saturation ($k_1$) and document length normalization ($b$).
   - Integrated conceptual flowchart from web crawling to vector/probabilistic scoring.
 
+- **Chapter 5: Search Engine Architecture: Indexing and Query Processing**
+  - System architecture: offline ingestion/indexing pipeline vs. online latency-bounded query processing ($< 50\text{--}100\text{ ms}$).
+  - Two-Stage Retrieval Paradigm: first-stage high-throughput candidate extraction (BM25 over inverted lists) followed by second-stage complex machine-learned re-ranking (Learning-to-Rank / Transformer cross-encoders).
+  - Dot product formulation bridging classical lexical retrieval and dense neural retrieval.
+  - Term-document matrix sparsity ($> 99.99\%$ empty cells) and structural comparison: Forward Index (document-oriented) vs. Inverted Index (term-oriented static pruning).
+  - Inverted index physical layout: memory-resident lexicon, physical decoupling of strictly monotonic DocID streams ($d$-gaps integer compression) and unordered term frequency streams.
+  - Systems trade-off: compressed integers vs. precomputed floats under memory-bound architectural constraints.
+  - Query models and extensions: phrase queries via positional indexing ($2\times\text{--}3\times$ storage overhead), query expansion, semantic drift pathology ("Babbo Francesco" case study), and lexical stemming vs. runtime query expansion.
+  - Query processing algorithmic formalization: Term-at-a-Time (TAAT, horizontal sequential scan, memory accumulator overhead) vs. Document-at-a-Time (DAAT, vertical synchronous pointer merge, minimal top-$k$ heap footprint, native dynamic early pruning via WAND).
+  - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration, and dedicated vector search engines (Qdrant).
+
