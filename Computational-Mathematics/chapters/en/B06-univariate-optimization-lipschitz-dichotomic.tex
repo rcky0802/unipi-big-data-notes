@@ -1,0 +1,687 @@
+\chapter[Univariate Optimization: Lipschitz, Local Models, and Dichotomic Search]{Univariate Optimization:\\Lipschitz Continuity, Local Models, and Dichotomic Search}
+\label{chap:univariate-optimization-lipschitz-dichotomic}
+
+This chapter investigates the theoretical foundations and computational algorithms of non-linear optimization for univariate scalar functions $f: X \to \R$, where $X \subseteq \R$. Beginning with the general mathematical formulation of minimization problems and establishing the conceptual bridge connecting quadratic functions and line search procedures with multivariate optimization, we rigorously demonstrate why finding the global minimum of generic functions via pointwise oracles is intrinsically impossible. This motivates the necessity of imposing an exploitable ``speed limit'' through the condition of Lipschitz continuity. We analyze the minimax sublinear complexity $\BigO{LD/\varepsilon}$ and the implications of the No Free Lunch Theorem in global optimization, motivating the pragmatic transition toward local optimization within unimodal attraction basins. Using first-order linear models and stationary point conditions, we derive and evaluate the \textbf{Dichotomic Search} algorithm (gradient bisection), establishing its linear convergence rate, logarithmic complexity $\BigO{\log(LD/\varepsilon)}$, and dramatic computational speedup over exhaustive global grid sampling.
+
+\FloatBarrier
+\section{Introduction, Context, and Methodological Bridge}
+\label{sec:univariate-intro-context-en}
+
+\subsection{Why Study Univariate Optimization?}
+Optimizing scalar functions of a single variable ($n = 1$) serves as an architectural cornerstone in computational mathematics and machine learning for three key methodological reasons:
+\begin{enumerate}
+    \item \textbf{Bridge to quadratic problems and linear algebra:} In the scalar case, minimizing a strictly convex quadratic parabola $f(x) = \frac{1}{2} a x^2 + b x$ with $a > 0$ is trivial, solved in closed form in $\BigO{1}$ time by setting the derivative to zero ($a x + b = 0 \iff x^* = -b/a$). In arbitrary dimension $n > 1$ (as developed in Chapter~\ref{chap:opt-multivariate-linear-quadratic} and Chapter~\ref{chap:inhomogeneous-quadratic-optimization-gmq}), this problem generalizes to solving the symmetric linear system $Q x = -q$, standing at the direct crossroads between numerical linear algebra and continuous optimization.
+    \item \textbf{Computational engine for multivariate descent ($n > 1$):} Virtually all modern iterative descent methods for multidimensional problems (including gradient descent, conjugate gradients, and quasi-Newton schemes) operate by choosing a descent direction $d_k \in \R^n$ at each iteration and reducing the choice of the step size to a scalar minimization problem along that ray:
+    \begin{equation}
+        \min_{\alpha > 0} \phi(\alpha) \equiv f(x_k + \alpha d_k).
+        \label{eq:line-search-bridge-en}
+    \end{equation}
+    This atomic subproblem, known as \textbf{line search}, is mathematically an unconstrained univariate optimization problem.
+    \item \textbf{Geometric and analytical tractability:} Working in $\R$ enables clear visual intuition for concepts that are harder to visualize in $\R^n$, including curvature, attraction basins, non-convergence pathologies, and uncertainty interval contraction rates.
+\end{enumerate}
+
+\subsection{General Problem Formulation}
+A general univariate scalar minimization problem is expressed as:
+\begin{equation}
+    (P) \quad f^* = \min \{ f(x) : x \in X \},
+\end{equation}
+or, in terms of locating optimal minimizers:
+\begin{equation}
+    x^* \in \argmin_{x \in X} f(x) \equiv \{ x \in X : f(x) \le f(z), \; \forall z \in X \}.
+\end{equation}
+
+\subsubsection{Domain Restriction: Compact Intervals}
+If the admissible domain $X$ were an arbitrary non-measurable set or $f$ were Turing non-computable, problem $(P)$ would be unsolvable a priori. To render optimization computationally tractable, we assume the domain is the real line $X = \R$ or, in an even more structured setting, a closed and bounded (\textbf{compact}) interval:
+\begin{equation}
+    X = [x_-, x_+] \subset \R, \quad \text{with } -\infty < x_- < x_+ < +\infty,
+\end{equation}
+having finite diameter:
+\begin{equation}
+    D = x_+ - x_- < \infty.
+\end{equation}
+
+\subsubsection{Pointwise Evaluation Oracles}
+We assume access to a \textbf{zeroth-order pointwise oracle}: given any query point $x \in X$, the oracle returns the scalar evaluation $f(x)$.
+
+\begin{noteblock}{Computational Abstraction vs.\ Engineering Reality}
+In algorithmic complexity theory, querying the oracle is conventionally abstracted as an atomic $\BigO{1}$ operation. In practical engineering, however, the computational cost of a single evaluation varies widely:
+\begin{itemize}
+    \item it may be a direct closed-form algebraic formula evaluated in sub-microseconds;
+    \item it may involve expensive numerical integration (e.g., Monte Carlo simulations);
+    \item it may stem from complex physical, structural, or aerodynamic simulators (\textit{simulation-based optimization}), where computing $f(x)$ takes hours or days on distributed HPC clusters.
+\end{itemize}
+Consequently, the benchmark of efficiency is not merely CPU overhead, but the \textbf{total number of oracle queries} required to reach a prescribed accuracy.
+\end{noteblock}
+
+\FloatBarrier
+\section{Impossibility of Generic Global Optimization}
+\label{sec:univariate-global-impossibility-en}
+
+\subsection{Pathologies of Isolated Minima and Arbitrarily Narrow Spikes}
+Even when restricting the problem to a compact interval $X = [x_-, x_+]$ of finite diameter $D < \infty$ with an oracle for $f(x)$, global optimization (even approximate) remains mathematically \textbf{impossible}:
+\begin{itemize}
+    \item The interval contains an uncountably infinite number of points ($|\R| = \mathfrak{c}$). Any algorithm terminating in finite time can evaluate the oracle at only finitely many sample points $\{x_1, \dots, x_k\}$.
+    \item Without regularity assumptions (discontinuous functions), the global minimum could reside at a single isolated point $x^*$:
+    \begin{equation}
+        f(x) = \begin{cases} 0 & \text{if } x = x^* \\ 1 & \text{if } x \neq x^* \end{cases}
+    \end{equation}
+    The probability that any finite sampling hits $x^*$ is zero.
+    \item Crucially, \textbf{even requiring classical continuity ($f \in C^0$)}, a continuous function can exhibit downward spikes of arbitrarily narrow width:
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.15, >=Stealth]
+    % Light background reference grid
+    \draw[help lines, color=gray!20, dashed] (0, 0) grid (8.5, 3.2);
+
+    % Coordinate axes
+    \draw[->, thick, gray!80!black] (-0.3, 0) -- (8.8, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, -0.3) -- (0, 3.3) node[left] {$f(x)$};
+
+    % Baseline flat level
+    \draw[dashed, gray!60, thick] (0, 2.2) -- (8.4, 2.2);
+    \node[left, font=\footnotesize] at (0, 2.2) {$1.0$};
+    \node[left, font=\footnotesize] at (0, 0.4) {$0.0$};
+
+    % Compact interval boundaries [x_-, x_+]
+    \draw[thick, gray!90!black] (0.8, -0.15) -- (0.8, 0.15);
+    \node[below=4pt, font=\small\bfseries] at (0.8, 0) {$x_-$};
+    \draw[thick, gray!90!black] (8.0, -0.15) -- (8.0, 0.15);
+    \node[below=4pt, font=\small\bfseries] at (8.0, 0) {$x_+$};
+
+    % Function curve f(x) with narrow spike
+    \draw[very thick, blue!85!black] (0.8, 2.2) -- (4.25, 2.2) -- (4.45, 0.4) -- (4.65, 2.2) -- (8.0, 2.2);
+    \node[above, blue!85!black, font=\small\bfseries] at (2.2, 2.25) {$f(x)$};
+
+    % Isolated global minimum inside spike
+    \filldraw[red!85!black] (4.45, 0.4) circle (2.2pt);
+    \draw[dashed, red!75!black, thin] (4.45, 0.4) -- (4.45, 0);
+    \node[below=4pt, font=\small\bfseries, red!85!black] at (4.45, 0) {$x^*$};
+
+    % Sampled grid points (regular spacing Delta x)
+    \foreach \x in {1.4, 2.6, 3.8, 5.0, 6.2, 7.4} {
+        \filldraw[teal!80!black] (\x, 2.2) circle (2.2pt);
+        \draw[dotted, teal!70!black, thick] (\x, 0) -- (\x, 2.2);
+        \filldraw[teal!80!black] (\x, 0) circle (1.5pt);
+    }
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (2.6, 0) {$x_i$};
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (3.8, 0) {$x_{i+1}$};
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (5.0, 0) {$x_{i+2}$};
+
+    % Spike width dimension (delta)
+    \draw[<->, thick, purple!85!black] (4.25, 2.5) -- (4.65, 2.5) node[midway, above=1pt, font=\scriptsize\bfseries] {Width $\delta \to 0$};
+    \draw[dashed, purple!60!black, thin] (4.25, 2.2) -- (4.25, 2.5);
+    \draw[dashed, purple!60!black, thin] (4.65, 2.2) -- (4.65, 2.5);
+
+    % Non-overlapping callout box
+    \node[draw=red!70!black, fill=red!5, rounded corners=3pt, font=\scriptsize, align=left] at (6.6, 1.3) {
+        \textbf{Undetected Spike:}\\
+        $\delta < x_{i+2} - x_{i+1}$\\
+        $\forall j, \; f(x_j) = 1.0$\\
+        Oracle conceals $x^*$!
+    };
+\end{tikzpicture}
+\caption{The pathology of narrow continuous spikes: even on a compact interval $[x_-, x_+]$, a continuous function can plummet to its minimum across a base $\delta$ narrower than the distance between adjacent samples, evading any finite grid.}
+\label{fig:pathology-spike-en}
+\end{figure}
+
+Because the base width $\delta$ of the spike can be chosen smaller than the sampling step $\Delta x$ of any algorithm, an adversarial oracle can place the minimum between sample points, consistently returning $f(x_i) = 1$ everywhere.
+
+\subsection{The Necessity of a ``Speed Limit''}
+This demonstrates that continuity alone is too weak to ensure computational tractability. To make optimization possible, one must constrain how rapidly the function can change: a \textbf{``speed limit''} on the rate of variation.
+
+Knowing the function value at a sampled point $x_i$, this speed limit guarantees that $f(z)$ cannot drop arbitrarily fast at nearby points, preventing unobserved sharp downward spikes.
+
+\FloatBarrier
+\section[Lipschitz Continuity and the Speed Limit]{Lipschitz Continuity and\\the Speed Limit}
+\label{sec:univariate-lipschitz-speed-limit-en}
+
+\subsection{Definition of Lipschitz Continuity ($L$-continuity)}
+The mathematical formalization of this speed limit is given by Lipschitz continuity:
+
+\begin{definition}[Lipschitz Continuous Function / $L$-continuous]
+\label{def:lipschitz-univariate-en}
+Let $X \subseteq \R$. A scalar function $f: X \to \R$ is \textbf{Lipschitz continuous} (or $L$-continuous) on $X$ if there exists a finite real constant $L > 0$ (the \textbf{Lipschitz constant}) such that:
+\begin{equation}
+    |f(x) - f(z)| \le L |x - z|, \quad \forall x, z \in X.
+    \label{eq:lipschitz-def-en}
+\end{equation}
+\end{definition}
+
+\subsubsection{Geometric Interpretation}
+Dividing by $|x - z| > 0$ yields:
+\begin{equation}
+    \left| \frac{f(x) - f(z)}{x - z} \right| \le L, \quad \forall x \neq z \in X.
+\end{equation}
+The slope of any secant line passing through two points of the graph of $f$ is uniformly bounded in absolute value by $L$. Geometrically, the graph of $f$ is confined within a double cone centered at $(x, f(x))$ with slopes $\pm L$:
+\begin{equation}
+    f(x) - L|z - x| \le f(z) \le f(x) + L|z - x|, \quad \forall z \in X.
+\end{equation}
+
+\subsubsection{Global vs.\ Local Lipschitz Continuity}
+\begin{itemize}
+    \item \textbf{Globally $L$-continuous:} condition~\eqref{eq:lipschitz-def-en} holds uniformly across $X = \R$ with a single constant $L < \infty$.
+    \item \textbf{Locally $L$-continuous at $x$:} for each point $x \in X$ there exists a ball $[x - \varepsilon, x + \varepsilon]$ where~\eqref{eq:lipschitz-def-en} holds with a local constant $L(x)$.
+\end{itemize}
+Crucially, \textbf{being locally $L$-continuous everywhere does not imply global $L$-continuity}.
+
+\subsection{Lipschitz Continuity Implies Continuity ($C^0$)}
+Lipschitz continuity is strictly stronger than Cauchy continuity:
+
+\begin{theorem}[$L\text{-continuity} \implies C^0$]
+If $f: X \to \R$ is Lipschitz continuous with constant $L$ on $X$, then $f$ is continuous everywhere on $X$.
+\end{theorem}
+\begin{proof}
+Let $x \in X$ and $\varepsilon > 0$ be given. Set:
+\begin{equation}
+    \delta = \frac{\varepsilon}{L} > 0.
+\end{equation}
+For any $z \in X$ such that $|z - x| \le \delta$, by~\eqref{eq:lipschitz-def-en}:
+\begin{equation}
+    |f(z) - f(x)| \le L |z - x| \le L \delta = L \left( \frac{\varepsilon}{L} \right) = \varepsilon.
+\end{equation}
+Thus $f$ is continuous at $x$. Since $x$ was arbitrary, $f \in C^0(X)$.
+\end{proof}
+
+\subsection{Notable Examples and Counterexamples}
+\begin{example}[Locally Lipschitz but Not Globally Lipschitz]
+Consider $f(x) = x^2$ on $X = \R$. On any compact interval $[-M, M]$, the secant slope is bounded by $|x + z| \le 2M$. Thus $f$ is locally Lipschitz with $L = 2M$. However, on $X = \R$, the derivative $f'(x) = 2x \to \infty$ as $x \to \infty$, so no single finite $L$ holds globally.
+\end{example}
+
+\begin{example}[Continuous but Not Lipschitz on a Compact Domain]
+Consider $f(x) = \sqrt{|x|}$ on $X = [-1, 1]$. The function is continuous on $[-1, 1]$. However, at the origin with $z = 0$ and $x > 0$:
+\begin{equation}
+    \frac{|f(x) - f(0)|}{|x - 0|} = \frac{\sqrt{x}}{x} = \frac{1}{\sqrt{x}} \to +\infty \quad \text{as } x \to 0^+.
+\end{equation}
+The vertical tangent at $x = 0$ violates any finite bound $L$.
+\end{example}
+
+\FloatBarrier
+\section{Global Optimization of Lipschitz Functions}
+\label{sec:univariate-global-lipschitz-opt-en}
+
+\subsection{Uniform Grid Sampling for $\varepsilon$-Optimality}
+With an upper bound $L$ on the slope and a compact domain $X = [x_-, x_+]$ of diameter $D = x_+ - x_-$, global approximate optimization becomes possible.
+
+\begin{definition}[$\varepsilon$-Global Optimal Point]
+For $\varepsilon > 0$, an admissible point $\bar{x} \in X$ is an \textbf{$\varepsilon$-global optimum} for $\min_{x \in X} f(x)$ if:
+\begin{equation}
+    f(\bar{x}) - f^* \le \varepsilon, \quad \text{where } f^* = \min_{x \in X} f(x).
+\end{equation}
+\end{definition}
+
+\subsubsection{Derivation of the Sampling Step $\Delta x$}
+Consider discretizing $[x_-, x_+]$ with a uniform grid of step size $\Delta x$:
+\begin{equation}
+    x_i = x_- + i \cdot \Delta x, \quad i = 0, 1, 2, \dots, k.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.0, >=Stealth]
+    % Background grid
+    \draw[help lines, color=gray!20, dashed] (0, 0) grid (9.5, 3.4);
+
+    % Coordinate axes
+    \draw[->, thick, gray!80!black] (0, 0) -- (9.8, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, 0) -- (0, 3.5) node[left] {$f(x)$};
+
+    % Consecutive sample coordinates x_i and x_{i+1}
+    \coordinate (XI) at (1.8, 0);
+    \coordinate (XIP1) at (7.8, 0);
+    \coordinate (XMID) at (4.8, 0);
+
+    % Sampled nodes on x-axis
+    \draw[thick, gray!90!black] (1.8, -0.15) -- (1.8, 0.15);
+    \node[below=4pt, font=\small\bfseries, teal!80!black] at (1.8, 0) {$x_i$};
+    \draw[thick, gray!90!black] (7.8, -0.15) -- (7.8, 0.15);
+    \node[below=4pt, font=\small\bfseries, teal!80!black] at (7.8, 0) {$x_{i+1}$};
+    \filldraw[teal!80!black] (1.8, 0) circle (2.2pt);
+    \filldraw[teal!80!black] (7.8, 0) circle (2.2pt);
+
+    % Sample evaluations f(x_i) and f(x_{i+1})
+    \coordinate (FXI) at (1.8, 2.5);
+    \coordinate (FXIP1) at (7.8, 2.5);
+    \draw[dotted, teal!80!black, thick] (XI) -- (FXI);
+    \draw[dotted, teal!80!black, thick] (XIP1) -- (FXIP1);
+    \filldraw[teal!80!black] (FXI) circle (2.4pt) node[above left, font=\footnotesize\bfseries] {$f(x_i)$};
+    \filldraw[teal!80!black] (FXIP1) circle (2.4pt) node[above right, font=\footnotesize\bfseries] {$f(x_{i+1})$};
+
+    % Worst-case position of x* (exact midpoint)
+    \draw[dashed, red!70!black, thin] (XMID) -- (4.8, 0.7);
+    \filldraw[red!85!black] (XMID) circle (2.2pt) node[below=4pt, font=\small\bfseries, red!85!black] {$x^*$ (worst case)};
+    \filldraw[red!85!black] (4.8, 0.7) circle (2.4pt) node[above=3pt, font=\footnotesize\bfseries, red!85!black] {$f(x^*)$};
+
+    % Lower Lipschitz cone (maximum slope -L from x_i and +L to x_{i+1})
+    \draw[very thick, orange!90!black] (FXI) -- (4.8, 0.7) node[midway, left=2pt, font=\scriptsize\bfseries] {Slope $-L$};
+    \draw[very thick, orange!90!black] (4.8, 0.7) -- (FXIP1) node[midway, right=2pt, font=\scriptsize\bfseries] {Slope $+L$};
+
+    % Horizontal dimensions
+    \draw[<->, thick, blue!80!black] (1.8, 3.1) -- (7.8, 3.1) node[midway, above=1pt, font=\small\bfseries] {Sampling step $\Delta x = \frac{2\varepsilon}{L}$};
+    \draw[dashed, blue!50, thin] (1.8, 2.5) -- (1.8, 3.1);
+    \draw[dashed, blue!50, thin] (7.8, 2.5) -- (7.8, 3.1);
+
+    \draw[<->, thick, red!85!black] (1.8, 0.35) -- (4.8, 0.35) node[midway, above=1pt, font=\scriptsize\bfseries] {$|x^* - x_i| \le \frac{\Delta x}{2}$};
+
+    % Vertical maximum error dimension epsilon
+    \draw[<->, thick, purple!85!black] (8.5, 0.7) -- (8.5, 2.5) node[midway, right=2pt, font=\scriptsize\bfseries, align=left] {Maximum error\\$f(x_i) - f(x^*) \le L \frac{\Delta x}{2} = \varepsilon$};
+    \draw[dashed, purple!50, thin] (4.8, 0.7) -- (8.5, 0.7);
+    \draw[dashed, purple!50, thin] (7.8, 2.5) -- (8.5, 2.5);
+\end{tikzpicture}
+\caption{Worst-case error analysis for uniform sampling: if $f$ is $L$-Lipschitz, in the worst case the minimum $x^*$ lies at the midpoint $\Delta x / 2$, bounding function value error by $L \frac{\Delta x}{2} \le \varepsilon$.}
+\label{fig:lipschitz-grid-worst-case-en}
+\end{figure}
+
+The worst-case error analysis proceeds deductively:
+\begin{enumerate}
+    \item The unknown minimum $x^*$ falls in some subinterval $[x_i, x_{i+1}]$.
+    \item In the worst-case scenario, $x^*$ lies at the midpoint of the subinterval, so the distance to the nearest sampled node $x_{\text{near}}$ satisfies:
+    \begin{equation}
+        |x_{\text{near}} - x^*| \le \frac{\Delta x}{2}.
+    \end{equation}
+    \item By Lipschitz continuity:
+    \begin{equation}
+        f(x_{\text{near}}) - f(x^*) \le L |x_{\text{near}} - x^*| \le L \frac{\Delta x}{2}.
+    \end{equation}
+    \item Requiring this error to be at most $\varepsilon$:
+    \begin{equation}
+        L \frac{\Delta x}{2} \le \varepsilon \iff \Delta x \le \frac{2\varepsilon}{L}.
+    \end{equation}
+    \item Setting $\Delta x = \frac{2\varepsilon}{L}$, the total number of evaluations needed to cover the diameter $D$ is:
+    \begin{equation}
+        k = \left\lceil \frac{D}{\Delta x} \right\rceil = \left\lceil \frac{LD}{2\varepsilon} \right\rceil \in \BigO{\frac{LD}{\varepsilon}}.
+        \label{eq:complexity-lipschitz-global-en}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Sublinear Complexity and the No Free Lunch Theorem}
+
+\subsubsection{Minimax Lower Bound $\Omega(LD/\varepsilon)$}
+In computational information theory~\cite{nesterov2004introductory}, it is established that for the general class of univariate $L$-continuous functions on a compact interval, \textbf{no algorithm can achieve $\varepsilon$-optimality with fewer than $\Omega(LD/\varepsilon)$ evaluations in the worst case}.
+
+\subsubsection{Sublinear Convergence}
+The complexity~\eqref{eq:complexity-lipschitz-global-en} scales inversely with $\varepsilon$:
+\begin{itemize}
+    \item For $\varepsilon = 10^{-3}$, $k \approx 100$ evaluations;
+    \item for $\varepsilon = 10^{-5}$, $k \approx 10\,000$ evaluations;
+    \item for $\varepsilon = 10^{-7}$, $k \approx 10^7$ (\textbf{10 million evaluations}).
+\end{itemize}
+Every additional decimal digit of accuracy multiplies the number of required queries by 10. This regime is \textbf{sublinear}.
+
+\subsubsection{Curse of Dimensionality ($n > 1$)}
+In $\R^n$, covering a hypercube requires:
+\begin{equation}
+    k_n = \left(\frac{LD}{2\varepsilon}\right)^n \in \BigO{\left(\frac{1}{\varepsilon}\right)^n} \text{ evaluations},
+\end{equation}
+which becomes astronomically intractable even for moderate $n$.
+
+\subsubsection{Carpet Bombing Analogy}
+The instructor compares uniform grid sampling to carpet bombing: lacking any structural clue as to where the target is located in a square kilometer, the only guaranteed approach is to drop artillery shells across every square centimeter. It is guaranteed to succeed, but computationally brute-force.
+
+\FloatBarrier
+\section[The Local Optimization Compromise and Attraction Basins]{The Local Optimization Compromise\\and Attraction Basins}
+\label{sec:univariate-local-compromise-en}
+
+\subsection{The ``Captain Kirk Strategy''}
+Faced with the intractable $\BigO{1/\varepsilon}$ barrier of global optimization, computational mathematics applies the strategy of Captain Kirk in the \textit{Kobayashi Maru} simulation: \textbf{change the rules of the game}.
+
+Instead of seeking the global minimum, we accept finding a \textbf{local minimum}.
+
+\subsection{Definitions: Local Minima and Unimodality}
+\begin{definition}[Local Minimum and Strict Local Minimum]
+Let $f: X \to \R$ and $x_* \in X$.
+\begin{enumerate}
+    \item $x_*$ is a \textbf{local minimum} if there exists $\varepsilon > 0$ such that $f(x_*) \le f(x)$ for all $x \in X \cap [x_* - \varepsilon, x_* + \varepsilon]$.
+    \item $x_*$ is a \textbf{strict local minimum} if $f(x_*) < f(x)$ for all $x \neq x_*$ in that neighborhood.
+\end{enumerate}
+\end{definition}
+
+\begin{definition}[Unimodal Function]
+Let $f: [x_-, x_+] \to \R$ be a continuous function. We say that $f$ is \textbf{unimodal} on the interval if it has a unique minimum $x_*$, is strictly decreasing on $[x_-, x_*]$, and is strictly increasing on $[x_*, x_+]$.
+\end{definition}
+
+\subsection{Attraction Basins}
+Although realistic functions exhibit complex multi-modal landscapes, restricting attention to the neighborhood of a local minimum yields a well-behaved unimodal structure:
+
+\begin{definition}[Attraction Basin]
+The \textbf{attraction basin} $B(x_*)$ of a local minimum $x_*$ is the maximal open interval containing $x_*$ within which $f$ is unimodal.
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Background grid
+    \draw[help lines, color=gray!15, dashed] (0, 0) grid (10.0, 3.8);
+
+    % Coordinate axes
+    \draw[->, thick, gray!80!black] (0, 0) -- (10.4, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, 0) -- (0, 4.0) node[left] {$f(x)$};
+
+    % Shaded attraction basin region (from crest x=3.0 to crest x=7.0)
+    \fill[purple!8] (3.0, 0) -- (3.0, 2.7) 
+        .. controls (3.8, 2.7) and (4.2, 0.5) .. (5.0, 0.5)
+        .. controls (5.8, 0.5) and (6.2, 2.7) .. (7.0, 2.7)
+        -- (7.0, 0) -- cycle;
+
+    % Multi-modal smooth curve f(x) (Bézier spline)
+    \draw[very thick, blue!85!black] 
+        (0.6, 3.2) .. controls (1.1, 2.0) and (1.3, 1.3) .. (1.8, 1.3)
+        .. controls (2.3, 1.3) and (2.5, 2.7) .. (3.0, 2.7)
+        .. controls (3.8, 2.7) and (4.2, 0.5) .. (5.0, 0.5)
+        .. controls (5.8, 0.5) and (6.2, 2.7) .. (7.0, 2.7)
+        .. controls (7.5, 2.7) and (7.7, 1.3) .. (8.2, 1.3)
+        .. controls (8.7, 1.3) and (8.9, 2.0) .. (9.4, 3.2);
+    \node[above right, blue!85!black, font=\bfseries] at (9.4, 3.2) {$f(x)$};
+
+    % Basin boundary crests (local maxima) - Positioned ABOVE Cartesian plane
+    \node (crest1) [draw=purple!70!black, fill=purple!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt] at (3.0, 4.65) {
+        \textbf{Local maximum}\\(Separation crest)
+    };
+    \node (crest2) [draw=purple!70!black, fill=purple!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt] at (7.0, 4.65) {
+        \textbf{Local maximum}\\(Separation crest)
+    };
+    \draw[dashed, purple!80!black, thick] (3.0, 0) -- (crest1.south);
+    \draw[dashed, purple!80!black, thick] (7.0, 0) -- (crest2.south);
+    \filldraw[purple!80!black] (3.0, 2.7) circle (2.2pt);
+    \filldraw[purple!80!black] (7.0, 2.7) circle (2.2pt);
+
+    % Basin dimension bracket at top
+    \draw[<->, very thick, purple!85!black] (3.0, 3.35) -- (7.0, 3.35);
+    \node[above=2pt, font=\scriptsize\bfseries, align=center, purple!85!black] at (5.0, 3.35) {
+        Attraction Basin\\$B(x^*_{\text{glob}})$
+    };
+
+    % Local minimum 1
+    \filldraw[teal!80!black] (1.8, 1.3) circle (2.4pt);
+    \node (minloc1) [draw=teal!70!black, fill=teal!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (1.8, -0.75) {
+        \textbf{Local minimum}\\$x = x_{\text{loc}, 1}$
+    };
+    \draw[dashed, teal!70!black, thin] (1.8, 1.3) -- (minloc1.north);
+
+    % Global minimum
+    \filldraw[red!85!black] (5.0, 0.5) circle (2.6pt);
+    \node (minglob) [draw=red!75!black, fill=red!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (5.0, -0.75) {
+        \textbf{Global minimum}\\$x = x^*_{\text{glob}}$
+    };
+    \draw[dashed, red!75!black, thick] (5.0, 0.5) -- (minglob.north);
+
+    % Local minimum 2
+    \filldraw[teal!80!black] (8.2, 1.3) circle (2.4pt);
+    \node (minloc2) [draw=teal!70!black, fill=teal!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (8.2, -0.75) {
+        \textbf{Local minimum}\\$x = x_{\text{loc}, 2}$
+    };
+    \draw[dashed, teal!70!black, thin] (8.2, 1.3) -- (minloc2.north);
+    
+    % Educational callout box placed BELOW the Cartesian plane with ample vertical margin
+    \node (unimodalbox) [draw=purple!70!black, fill=purple!5, rounded corners=4pt, font=\footnotesize, align=center, inner sep=6pt] at (5.0, -2.25) {
+        \textbf{Unimodal Basin Property in $B(x^*_{\text{glob}})$:}\\[4pt]
+        $\begin{aligned}
+            x < x^*_{\text{glob}} &\implies f'(x) < 0 \quad \text{(descending to the right)} \\
+            x > x^*_{\text{glob}} &\implies f'(x) > 0 \quad \text{(descending to the left)}
+        \end{aligned}$
+    };
+
+    % Generous lower margin
+    \path (0, -3.15);
+\end{tikzpicture}
+\caption{Non-convex multi-modal landscape: inside the attraction basin $B(x^*_{\text{glob}})$ bounded by adjacent crests, the objective is unimodal, guaranteeing deterministic convergence of local descent algorithms.}
+\label{fig:attraction-basins-en}
+\end{figure}
+
+\subsubsection{Structural Limitation of Local Optimization}
+All local minima look identical from within their basins: the function descends toward the bottom from both sides. A local algorithm has no means of determining whether a detected local minimum is globally optimal.
+
+\subsubsection{Connection to Modern Deep Learning}
+This mirrors modern deep learning: neural loss landscapes have uncountably many local minima, yet local first-order methods (SGD, Adam) locate solutions that generalize remarkably well, making local optimization fully sufficient in practice.
+
+\FloatBarrier
+\section[First-Order Models, Derivatives, and Stationary Points]{First-Order Models, Derivatives,\\and Stationary Points}
+\label{sec:univariate-first-order-models-en}
+
+\subsection{Using Derivatives as Directional Guidance}
+Within a unimodal basin, reaching the minimum requires moving along the local descent direction:
+\begin{itemize}
+    \item For a linear model $L_x(z) = f(x) + f'(x)(z - x)$, the derivative $f'(x)$ determines the slope:
+    \begin{itemize}
+        \item $f'(x) < 0 \implies$ function descends to the right ($z > x$);
+        \item $f'(x) > 0 \implies$ function descends to the left ($z < x$);
+        \item $f'(x) = 0 \implies$ stationary point candidate.
+    \end{itemize}
+\end{itemize}
+
+\subsection{First- and Second-Order Optimality Conditions}
+\begin{theorem}[First-Order Necessary Condition]
+Let $f$ be differentiable on an open neighborhood of $x_*$. If $x_*$ is a local minimum, then:
+\begin{equation}
+    f'(x_*) = 0.
+\end{equation}
+\end{theorem}
+Stationarity ($f'(x_*) = 0$) is necessary but not sufficient, as it also encompasses local maxima and inflection points.
+
+\subsubsection{Discrimination via Second Derivative $f''(x_*)$}
+For $f \in C^2$:
+\begin{itemize}
+    \item \textbf{Strict local minimum:} $f'(x_*) = 0$ and $f''(x_*) > 0$ (curvature curves upwards; derivative transitions from negative to positive).
+    \item \textbf{Strict local maximum:} $f'(x_*) = 0$ and $f''(x_*) < 0$ (curvature curves downwards; derivative transitions from positive to negative).
+    \item \textbf{Inconclusive / Saddle:} $f'(x_*) = 0$ and $f''(x_*) = 0$.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.05, >=Stealth]
+    % =========================================================================
+    % ROW 1: STRICT LOCAL MINIMUM
+    % =========================================================================
+    \begin{scope}[yshift=0cm]
+        % Header box
+        \node[draw=blue!70!black, fill=blue!5, rounded corners=4pt, font=\small, align=center, inner sep=4pt] at (3.0, 3.4) {
+            \textbf{Strict Local Minimum: Optimality Conditions}\\
+            $f'(x_*) = 0 \quad \text{and} \quad f''(x_*) > 0$
+        };
+
+        % Coordinate axes
+        \draw[->, thick, gray!75!black] (-0.2, 0) -- (6.5, 0) node[below] {$x$};
+        \draw[->, thick, gray!75!black] (0, -0.2) -- (0, 2.2);
+        \node[left=2pt, font=\footnotesize, gray!80!black] at (0, 2.2) {$f(x)$};
+
+        % Convex parabola
+        \draw[very thick, blue!85!black, smooth, domain=1.2:4.8] plot (\x, {0.35*(\x-3.0)*(\x-3.0) + 0.6});
+
+        % Minimum point x*
+        \filldraw[red!85!black] (3.0, 0.6) circle (2.5pt);
+        \draw[dashed, red!70!black, thick] (3.0, 0.6) -- (3.0, 0);
+        \node[below=2pt, font=\small\bfseries, red!85!black] at (3.0, 0) {$x_*$};
+        \node[above=3pt, font=\scriptsize\bfseries, red!85!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (3.0, 0.6) {$(x_*, f(x_*))$};
+
+        % Horizontal tangent at f(x*)
+        \draw[dashed, red!85!black, very thick] (1.4, 0.6) -- (4.6, 0.6);
+        \node[right=3pt, font=\scriptsize\bfseries, red!85!black] at (4.6, 0.6) {Horizontal tangent: $f'(x_*) = 0$};
+
+        % Slope on left: f'(x) < 0
+        \draw[->, line width=1.3pt, orange!90!black] (1.5, 1.6) -- (2.2, 0.95);
+        \node[above left=1pt, font=\scriptsize\bfseries, orange!90!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (1.7, 1.5) {Decreasing\\$f'(x) < 0$};
+
+        % Slope on right: f'(x) > 0
+        \draw[->, line width=1.3pt, teal!85!black] (3.8, 0.95) -- (4.5, 1.6);
+        \node[above right=1pt, font=\scriptsize\bfseries, teal!85!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (4.3, 1.5) {Increasing\\$f'(x) > 0$};
+
+        % Curvature summary
+        \node[font=\footnotesize, align=center, text=gray!90!black, text width=12.2cm] at (3.0, -0.85) {
+            \textbf{Upward concavity ($f''(x_*) > 0$):} first derivative strictly increasing (from negative to positive).
+        };
+    \end{scope}
+
+    % =========================================================================
+    % ROW 2: STRICT LOCAL MAXIMUM
+    % =========================================================================
+    \begin{scope}[yshift=-5.6cm]
+        % Header box
+        \node[draw=teal!70!black, fill=teal!5, rounded corners=4pt, font=\small, align=center, inner sep=4pt] at (3.0, 3.4) {
+            \textbf{Strict Local Maximum: Optimality Conditions}\\
+            $f'(x_*) = 0 \quad \text{and} \quad f''(x_*) < 0$
+        };
+
+        % Coordinate axes
+        \draw[->, thick, gray!75!black] (-0.2, 0) -- (6.5, 0) node[below] {$x$};
+        \draw[->, thick, gray!75!black] (0, -0.2) -- (0, 2.2);
+        \node[left=2pt, font=\footnotesize, gray!80!black] at (0, 2.2) {$f(x)$};
+
+        % Concave parabola
+        \draw[very thick, teal!85!black, smooth, domain=1.2:4.8] plot (\x, {-0.35*(\x-3.0)*(\x-3.0) + 2.1});
+
+        % Maximum point x*
+        \filldraw[red!85!black] (3.0, 2.1) circle (2.5pt);
+        \draw[dashed, red!70!black, thick] (3.0, 2.1) -- (3.0, 0);
+        \node[below=2pt, font=\small\bfseries, red!85!black] at (3.0, 0) {$x_*$};
+        \node[above=3pt, font=\scriptsize\bfseries, red!85!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (3.0, 2.1) {$(x_*, f(x_*))$};
+
+        % Horizontal tangent at f(x*)
+        \draw[dashed, red!85!black, very thick] (1.4, 2.1) -- (4.6, 2.1);
+        \node[right=3pt, font=\scriptsize\bfseries, red!85!black] at (4.6, 2.1) {Horizontal tangent: $f'(x_*) = 0$};
+
+        % Slope on left: f'(x) > 0
+        \draw[->, line width=1.3pt, teal!85!black] (1.5, 0.95) -- (2.2, 1.6);
+        \node[below left=1pt, font=\scriptsize\bfseries, teal!85!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (1.7, 1.1) {Increasing\\$f'(x) > 0$};
+
+        % Slope on right: f'(x) < 0
+        \draw[->, line width=1.3pt, orange!90!black] (3.8, 1.6) -- (4.5, 0.95);
+        \node[below right=1pt, font=\scriptsize\bfseries, orange!90!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (4.3, 1.1) {Decreasing\\$f'(x) < 0$};
+
+        % Curvature summary
+        \node[font=\footnotesize, align=center, text=gray!90!black, text width=12.2cm] at (3.0, -0.85) {
+            \textbf{Downward concavity ($f''(x_*) < 0$):} first derivative strictly decreasing (from positive to negative).
+        };
+    \end{scope}
+\end{tikzpicture}
+\caption{Geometric comparison between local minimum and local maximum based on second derivative sign $f''(x_*)$: local curvature determines derivative sign transition across the stationary point.}
+\label{fig:first-second-order-conditions-en}
+\end{figure}
+
+\FloatBarrier
+\section{The Dichotomic Search Algorithm}
+\label{sec:univariate-dichotomic-search-en}
+
+\subsection[Theoretical Foundation: Intermediate Value Theorem]{Theoretical Foundation:\\Intermediate Value Theorem}
+\begin{theorem}[Bolzano's Intermediate Value Theorem for Derivatives]
+Let $f \in C^1([x_-, x_+])$. If the endpoints satisfy:
+\begin{equation}
+    f'(x_-) < 0 \quad \text{and} \quad f'(x_+) > 0,
+\end{equation}
+then there exists at least one point $x_* \in (x_-, x_+)$ where $f'(x_*) = 0$. Moreover, $[x_-, x_+]$ contains at least one \textbf{local minimum} of $f$.
+\end{theorem}
+
+\subsection{Algorithm and Pseudocode}
+The algorithm maintains the bracket invariant $f'(x_-) \le -\varepsilon$ and $f'(x_+) \ge \varepsilon$, evaluating the derivative at the midpoint $x = \frac{x_- + x_+}{2}$ to halve the search interval at each step:
+
+\begin{algorithm}[H]
+\caption{Dichotomic Search for Univariate Optimization (\texttt{DichotomicSearch})}
+\label{alg:dichotomic-search-en}
+\KwInput{Objective $f$, derivative oracle $f'$, bracket $[x_-, x_+]$ with $f'(x_-) < 0$ and $f'(x_+) > 0$, tolerance $\varepsilon > 0$, minimum width $\delta > 0$}
+\KwOutput{Approximate local minimum $x^*$}
+
+\While{$(x_+ - x_- > \delta)$}{
+    $x \gets \frac{x_- + x_+}{2}$\;
+    $g \gets f'(x)$ \tcp*{Oracle derivative query}
+    
+    \If{$|g| \le \varepsilon$}{
+        \Return{$x$} \tcp*{Stationary point found with $|f'(x)| \le \varepsilon$}
+    }
+    
+    \eIf{$g < 0$}{
+        $x_- \gets x$ \tcp*{Minimum lies to the right: discard $[x_-, x]$}
+    }{
+        $x_+ \gets x$ \tcp*{Minimum lies to the left: discard $[x, x_+]$}
+    }
+}
+\Return{$\frac{x_- + x_+}{2}$}\;
+\end{algorithm}
+
+\subsection{Linear Convergence and Logarithmic Complexity}
+\begin{enumerate}
+    \item \textbf{Exact interval halving:}
+    $D_k = \frac{D_0}{2^k} = D_0 (0.5)^k$, yielding \textbf{linear convergence} with contraction factor $r = 0.5$.
+    \item \textbf{Iterations for width $\delta$:}
+    \begin{equation}
+        k \ge \log_2\left(\frac{D_0}{\delta}\right) \approx 3.32 \cdot \log_{10}\left(\frac{D_0}{\delta}\right).
+    \end{equation}
+    Each decimal digit of precision requires only $\approx 3.32$ iterations.
+    \item \textbf{Gradient accuracy $\varepsilon$ under $L$-smoothness ($|f'(x) - f'(z)| \le L_{f'} |x - z|$):}
+    Setting $\delta = \frac{2\varepsilon}{L_{f'}}$ guarantees $|f'(x)| \le \varepsilon$, giving:
+    \begin{equation}
+        k \in \BigO{\log\left(\frac{L_{f'} D_0}{\varepsilon}\right)}.
+    \end{equation}
+\end{enumerate}
+
+\subsection[Comparison: Global Grid Sampling vs. Dichotomic Search]{Comparison: Global Grid Sampling vs.\\Dichotomic Search}
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{l Y Y}
+\toprule
+\textbf{Computational Property} & \textbf{Global Optimization (Grid)} & \textbf{Local Optimization (Dichotomic)} \\
+\midrule
+\textbf{Assumptions} & $f$ is $L$-Lipschitz on compact set & $f'$ continuous with sign change ($f \in C^1$) \\
+\textbf{Guarantee} & $\varepsilon$-global minimum & Local minimum with $|f'(x)| \le \varepsilon$ \\
+\textbf{Complexity} & $\BigO{\dfrac{L D}{\varepsilon}}$ (Sublinear) & $\BigO{\log\left(\dfrac{L_{f'} D}{\varepsilon}\right)}$ (Logarithmic) \\
+\midrule
+\textbf{Queries for $\varepsilon = 10^{-3}$} & $\approx 10^3$ samples & $\approx \mathbf{10\text{ iterations}}$ \\
+\textbf{Queries for $\varepsilon = 10^{-5}$} & $\approx 10^5$ samples & $\approx \mathbf{17\text{ iterations}}$ \\
+\textbf{Queries for $\varepsilon = 10^{-7}$} & $\approx 10^7$ (\textbf{10 Million!}) & $\approx \mathbf{24\text{--}26\text{ iterations}}$ \\
+\bottomrule
+\end{tabularx}
+\caption{Complexity and efficiency comparison between global grid search and dichotomic local search.}
+\label{tab:comparison-global-dichotomic-en}
+\end{table}
+
+\begin{noteblock}{Numerical Demonstration}
+Running \texttt{dichotomic\_search}:
+\begin{itemize}
+    \item In only \textbf{26 iterations}, the algorithm drives $|f'(x)| < 10^{-6}$, identifying the minimizer to 15 decimal places;
+    \item Compared to $10^7$ evaluations for global search, this represents a \textbf{$10^5\text{--}10^6\times$ speedup}.
+\end{itemize}
+\end{noteblock}
+
+\subsection{Interval Initialization: Bracketing}
+When an initial bracket $[x_-, x_+]$ with $f'(x_-) < 0 < f'(x_+)$ is not known, geometric expansion locates it:
+
+\begin{algorithm}[H]
+\caption{Bracketing Procedure via Geometric Expansion}
+\label{alg:bracketing-expansion-en}
+\KwInput{Initial point $x_0$, derivative oracle $f'$, initial step $\Delta x > 0$}
+\KwOutput{Right endpoint $x_+$ such that $f'(x_+) > 0$}
+
+$x_+ \gets x_0$\;
+$\text{step} \gets \Delta x$\;
+\While{$f'(x_+) \le 0$}{
+    $x_+ \gets x_+ + \text{step}$\;
+    $\text{step} \gets 2 \cdot \text{step}$ \tcp*{Step doubling}
+}
+\Return{$x_+$}\;
+\end{algorithm}
+
+\subsubsection{Special Cases and Periodic Pathology}
+\begin{itemize}
+    \item \textbf{Coercive functions} ($\lim_{|x| \to \infty} f(x) = +\infty$) guarantee finite termination.
+    \item \textbf{Unbounded functions} ($f^* = -\infty$) cause divergence unless protected by a maximum step threshold.
+    \item \textbf{Periodic pathology:} For $f(x) = \sin(\pi x + \frac{3\pi}{4})$, $f'(2^k) = \pi \cos(2^k \pi + \frac{3\pi}{4}) = -\pi \frac{\sqrt{2}}{2} \approx -2.22$ for all integer powers $2^k$ ($k \ge 1$). The sampled derivative is \textbf{constant and negative}, causing infinite expansion despite the presence of infinitely many local minima.
+\end{itemize}
+
+\FloatBarrier
+\section{Summary and Outlook: Can We Do Even Better?}
+\label{sec:univariate-outlook-en}
+
+This lecture established three core takeaways:
+\begin{enumerate}
+    \item Generic global optimization is intractable; under Lipschitz continuity alone, minimax complexity scales as $\BigO{LD/\varepsilon}$.
+    \item Shifting to local optimization exploits unimodal attraction basins, transforming optimization into root-finding for $f'(x) = 0$.
+    \item \textbf{Dichotomic Search} halves the search interval each iteration, converging in $\BigO{\log(1/\varepsilon)}$ steps (26 iterations for $10^{-7}$ accuracy).
+\end{enumerate}
+
+The lecture concludes with the open question:
+\begin{quote}
+\textit{``Can we do even better than 26 iterations? Can we achieve the same accuracy in 12 or 18 iterations?''}
+\end{quote}
+The answer is affirmative: higher-order curvature information $f''$ and local polynomial interpolation (secant quadratic interpolation, cubic interpolation, and Newton's method) unlock superlinear and quadratic convergence rates, which will be explored in the subsequent lecture.

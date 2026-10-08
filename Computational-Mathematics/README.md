@@ -51,6 +51,7 @@ latexmk -pdf -interaction=nonstopmode main_en.tex
 - **Capitolo 8:** Ottimizzazione Multivariata Lineare e Quadratica (file `B03`)
 - **Capitolo 9:** Ottimizzazione Quadratica Non Omogenea (GMQ) (file `B04`)
 - **Capitolo 10:** Analisi di Convergenza e Complessità del Metodo del Gradiente (file `B05`)
+- **Capitolo 11:** Ottimizzazione Univariata: Lipschitz, Modelli Locali e Ricerca Dicotomica (file `B06`)
 
 ```text
 Computational-Mathematics/

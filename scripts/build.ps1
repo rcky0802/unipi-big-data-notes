@@ -255,12 +255,6 @@ foreach ($item in $buildPlan) {
 
     Push-Location $dir.FullName
     try {
-        # Se la materia è Data Mining e non esistono le figure o è invocato -Force, genera prima le figure nel container
-        if ($subjectName -eq "Data-Mining" -and ($Force -or -not (Test-Path "$($dir.FullName)\assets\figures\it\iris_scatterplot_real.pdf"))) {
-            Write-Host "     [Docker] Aggiornamento figure vettoriali Data-Mining..." -ForegroundColor DarkCyan
-            & docker compose -f "$rootDir\docker-compose.yml" run --rm figures
-        }
-
         # Esegui latexmk montando il workspace corrente nel container con cartella ausiliaria build/
         & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode -emulate-aux-dir -auxdir=build $texFile
 

@@ -1,0 +1,804 @@
+\chapter[Ottimizzazione Univariata: Lipschitz, Modelli Locali e Ricerca Dicotomica]{Ottimizzazione Univariata:\\Lipschitzianit\`a, Modelli Locali e Ricerca Dicotomica}
+\label{chap:ottimizzazione-univariata-lipschitz-dicotomica}
+
+Il presente capitolo analizza i fondamenti teorici e computazionali dell'ottimizzazione non lineare su funzioni scalari univariata $f: X \to \R$, con $X \subseteq \R$. Partendo dalla formulazione generale del problema di ottimo e dal raccordo concettuale con i modelli quadratici e le tecniche di ricerca lineare (\textit{line search}) propedeutiche all'ottimizzazione multivariata, viene dimostrata l'impossibilit\`a intrinseca di localizzare il minimo globale di funzioni generiche mediante oracoli puntuali, motivando l'introduzione dello ``speed limit'' imposto dalla condizione di Lipschitz-continuit\`a. Si esamina la complessit\`a computazionale sublineare $\BigO{LD/\varepsilon}$ e il principio del \textit{No Free Lunch Theorem} per l'ottimizzazione globale, per poi formalizzare la svolta pragmatica verso l'ottimizzazione locale nei bacini di attrazione unimodali. Attraverso l'uso del modello lineare di primo ordine e delle condizioni di stazionariet\`a, viene infine derivato ed analizzato l'algoritmo di \textbf{Ricerca Dicotomica} (\textit{Dichotomic Search} / bisezione del gradiente), dimostrandone la convergenza lineare, la complessit\`a logaritmica $\BigO{\log(LD/\varepsilon)}$ e la drastica accelerazione rispetto all'esplorazione globale esaustiva.
+
+\FloatBarrier
+\section{Introduzione, Contesto e Raccordo Metodologico}
+\label{sec:univariata-intro-contesto}
+
+\subsection{Perch\'e Studiare l'Ottimizzazione Univariata?}
+L'ottimizzazione di funzioni a una sola variabile scalare ($n = 1$) riveste un ruolo architettonico fondamentale all'interno della matematica computazionale e dell'apprendimento automatico, per tre ragioni metodologiche primarie:
+\begin{enumerate}
+    \item \textbf{Raccordo con i problemi quadratici e l'algebra lineare:} Nel caso univariato, la minimizzazione di una parabola convessa $f(x) = \frac{1}{2} a x^2 + b x$ (con $a > 0$) \`e computazionalmente banale e si risolve in tempo $\BigO{1}$ annullando la derivata prima ($a x + b = 0 \iff x^* = -b/a$). Come analizzato nei capitoli dedicati all'algebra lineare numerica e all'ottimizzazione multivariata (Capitolo~\ref{chap:opt-multivariata-lineare-quadratica} e Capitolo~\ref{chap:ottimizzazione-quadratica-non-omogenea-gmq}), in dimensione arbitraria $n > 1$ tale problema si generalizza nella risoluzione del sistema lineare simmetrico $Q x = -q$, ponendosi all'esatto crocevia tra algebra lineare e ottimizzazione numerica.
+    \item \textbf{Fondamento computazionale per il caso multivariato ($n > 1$):} La quasi totalit\`a dei metodi di discesa per problemi multidimensionali ad alta dimensionalit\`a (come il metodo del gradiente, il gradiente coniugato e i metodi Quasi-Newton) opera selezionando a ogni passo una \textbf{direzione di discesa} ammissibile $d_k \in \R^n$ e riducendo la scelta dell'iterato successivo alla minimizzazione scalare lungo tale semiretta:
+    \begin{equation}
+        \min_{\alpha > 0} \phi(\alpha) \equiv f(x_k + \alpha d_k).
+        \label{eq:line-search-univariate-bridge}
+    \end{equation}
+    Questa procedura atomica, nota come \textit{line search} (ricerca lineare univariata), \`e a tutti gli effetti un problema di ottimizzazione in una sola variabile.
+    \item \textbf{Trattabilit\`a geometrica ed analitica:} Lo spazio $\R$ consente di visualizzare intuitivamente concetti altrimenti astratti in $\R^n$, quali le curvature, i bacini di attrazione, le patologie di non convergenza e i tassi di contrazione degli intervalli di incertezza.
+\end{enumerate}
+
+\subsection{Formulazione Generale del Problema}
+Un problema di ottimizzazione scalare univariato si formula canonicamente come:
+\begin{equation}
+    (P) \quad f^* = \min \{ f(x) : x \in X \},
+\end{equation}
+oppure, sul piano della localizzazione degli argomenti minimizzanti:
+\begin{equation}
+    x^* \in \argmin_{x \in X} f(x) \equiv \{ x \in X : f(x) \le f(z), \; \forall z \in X \}.
+\end{equation}
+
+\subsubsection{Restrizione del Dominio: Il Box Compatto}
+Qualora il dominio ammissibile $X$ fosse un insieme arbitrario con cardinalit\`a inaccessibile o $f$ una funzione non computabile nel senso di Turing, il problema $(P)$ risulterebbe insolubile a priori. Per rendere la trattazione formalmente accessibile, si assume che il dominio sia lo spazio euclideo reale $X = \R$ oppure, in uno scenario ancor pi\`u strutturato e favorevole, un intervallo chiuso e limitato (\textbf{compatto}):
+\begin{equation}
+    X = [x_-, x_+] \subset \R, \quad \text{con } -\infty < x_- < x_+ < +\infty,
+\end{equation}
+caratterizzato da un diametro finito:
+\begin{equation}
+    D = x_+ - x_- < \infty.
+\end{equation}
+
+\subsubsection{Presenza di un Oracolo Puntuale}
+Si assume che la funzione obiettivo sia accessibile mediante un \textbf{oracolo di valutazione puntuale} (\textit{zeroth-order oracle}): dato un qualsiasi punto $x \in X$, l'oracolo restituisce in output il valore numerico scalare $f(x)$.
+
+\begin{noteblock}{Astrazione Computazionale dell'Oracolo vs.\ Realt\`a Ingegneristica}
+Nella teoria della complessit\`a algoritmica, l'interrogazione dell'oracolo viene convenzionalmente conteggiata come un'operazione atomica a costo $\BigO{1}$. Nella realt\`a dell'ingegneria computazionale, tuttavia, il costo temporale ed energetico di una singola valutazione pu\`o variare in modo drastico:
+\begin{itemize}
+    \item pu\`o trattarsi di una semplice espressione algebrica chiusa (eseguita dalla CPU in frazioni di microsecondo);
+    \item pu\`o richiedere l'integrazione numerica complessa di equazioni differenziali ordinarie o stocastiche (metodi Monte Carlo);
+    \item pu\`o essere il risultato di simulatori fluidodinamici o strutturali su larga scala (\textit{simulation-based optimization}), dove calcolare $f(x)$ richiede ore o giorni di calcolo distribuito su cluster HPC.
+\end{itemize}
+Di conseguenza, la metrica primaria di efficienza di un algoritmo non \`e unicamente il tempo di CPU accessorio, ma il \textbf{numero totale di chiamate all'oracolo} necessarie a raggiungere un'accuratezza prefissata.
+\end{noteblock}
+
+\FloatBarrier
+\section{Impossibilit\`a dell'Ottimizzazione Globale per Funzioni Generiche}
+\label{sec:univariata-impossibilita-globale}
+
+\subsection{La Patologia dei Minimi Isolati e degli ``Spike'' Arbitrariamente Stretti}
+Ci si potrebbe domandare se, restringendosi a un compatto $X = [x_-, x_+]$ di diametro finito $D$ e disponendo di un oracolo puntuale, sia sempre possibile determinare numericamente il minimo globale $f^*$ (anche solo con precisione approssimata). 
+
+La risposta teorica \`e categoricamente \textbf{negativa}:
+\begin{itemize}
+    \item L'intervallo $[x_-, x_+]$ contiene una quantit\`a non numerabile di punti ($|\R| = \mathfrak{c}$). Qualsiasi algoritmo eseguibile in tempo finito pu\`o interrogare l'oracolo solo su un sottoinsieme finito di campioni $\{x_1, x_2, \dots, x_k\}$.
+    \item Se alla funzione non viene imposta alcuna regolarit\`a topologica (funzione discontinua), il valore minimo potrebbe essere concentrato in un singolo punto isolato $x^*$:
+    \begin{equation}
+        f(x) = \begin{cases} 0 & \text{se } x = x^* \\ 1 & \text{se } x \neq x^* \end{cases}
+    \end{equation}
+    La probabilit\`a che un campionamento deterministico o stocastico finito intercetti esattamente $x^*$ \`e rigorosamente nulla.
+    \item Ancor pi\`u rilevante: \textbf{anche richiedendo la continuit\`a classica ($f \in C^0$)}, una funzione continua pu\`o esibire picchi verso il basso (\textit{spike}) di ampiezza arbitrariamente sottile:
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.15, >=Stealth]
+    % Griglia leggera di sfondo per riferimento
+    \draw[help lines, color=gray!20, dashed] (0, 0) grid (8.5, 3.2);
+
+    % Assi cartesiani
+    \draw[->, thick, gray!80!black] (-0.3, 0) -- (8.8, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, -0.3) -- (0, 3.3) node[left] {$f(x)$};
+
+    % Livello base piatto
+    \draw[dashed, gray!60, thick] (0, 2.2) -- (8.4, 2.2);
+    \node[left, font=\footnotesize] at (0, 2.2) {$1.0$};
+    \node[left, font=\footnotesize] at (0, 0.4) {$0.0$};
+
+    % Estremi intervallo di ricerca compatto [x_-, x_+]
+    \draw[thick, gray!90!black] (0.8, -0.15) -- (0.8, 0.15);
+    \node[below=4pt, font=\small\bfseries] at (0.8, 0) {$x_-$};
+    \draw[thick, gray!90!black] (8.0, -0.15) -- (8.0, 0.15);
+    \node[below=4pt, font=\small\bfseries] at (8.0, 0) {$x_+$};
+
+    % Curva f(x) con spike stretto
+    \draw[very thick, blue!85!black] (0.8, 2.2) -- (4.25, 2.2) -- (4.45, 0.4) -- (4.65, 2.2) -- (8.0, 2.2);
+    \node[above, blue!85!black, font=\small\bfseries] at (2.2, 2.25) {$f(x)$};
+
+    % Punto di minimo globale isolato nello spike
+    \filldraw[red!85!black] (4.45, 0.4) circle (2.2pt);
+    \draw[dashed, red!75!black, thin] (4.45, 0.4) -- (4.45, 0);
+    \node[below=4pt, font=\small\bfseries, red!85!black] at (4.45, 0) {$x^*$};
+
+    % Punti campionati dall'algoritmo (griglia regolare a passo Delta x)
+    \foreach \x in {1.4, 2.6, 3.8, 5.0, 6.2, 7.4} {
+        \filldraw[teal!80!black] (\x, 2.2) circle (2.2pt);
+        \draw[dotted, teal!70!black, thick] (\x, 0) -- (\x, 2.2);
+        \filldraw[teal!80!black] (\x, 0) circle (1.5pt);
+    }
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (2.6, 0) {$x_i$};
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (3.8, 0) {$x_{i+1}$};
+    \node[below=4pt, font=\scriptsize, teal!80!black] at (5.0, 0) {$x_{i+2}$};
+
+    % Quota ampiezza dello spike (delta)
+    \draw[<->, thick, purple!85!black] (4.25, 2.5) -- (4.65, 2.5) node[midway, above=1pt, font=\scriptsize\bfseries] {Ampiezza $\delta \to 0$};
+    \draw[dashed, purple!60!black, thin] (4.25, 2.2) -- (4.25, 2.5);
+    \draw[dashed, purple!60!black, thin] (4.65, 2.2) -- (4.65, 2.5);
+
+    % Callout esplicativo senza sovrapposizioni
+    \node[draw=red!70!black, fill=red!5, rounded corners=3pt, font=\scriptsize, align=left] at (6.6, 1.3) {
+        \textbf{Spike non rilevato:}\\
+        $\delta < x_{i+2} - x_{i+1}$\\
+        $\forall j, \; f(x_j) = 1.0$\\
+        L'oracolo nasconde $x^*$!
+    };
+\end{tikzpicture}
+\caption{La patologia dello \textit{spike} continuo: anche su un compatto $[x_-, x_+]$, una funzione continua pu\`o precipitare verso il minimo su una base $\delta$ pi\`u stretta della distanza tra due campionamenti adiacenti, eludendo qualsiasi reticolo finito di nodi.}
+\label{fig:pathology-spike}
+\end{figure}
+
+Poich\'e la larghezza di base $\delta$ dello spike pu\`o essere resa arbitrariamente pi\`u piccola della distanza minima tra due campioni consecutivi generati da un algoritmo, l'avversario oracolare potr\`a sempre nascondere il minimo tra due punti campionati, restituendo un valore costantemente piatto ($f(x_i) = 1$) su tutti i nodi ispezionati.
+
+\subsection{La Necessit\`a di uno ``Speed Limit''}
+L'argomento dello spike dimostra in modo ineccepibile che la sola continuit\`a topologica \`e una propriet\`a troppo debole per fondare l'ottimizzazione numerica. Per rendere il problema computazionalmente trattabile, \`e indispensabile vincolare la rapidit\`a con cui la funzione pu\`o variare: occorre imporre uno \textbf{``speed limit''} (limite superiore invalicabile sul tasso di variazione locale).
+
+Conoscendo il valore della funzione in un punto campionato $x_i$, lo speed limit assicura che in nessun punto adiacente $z$ la funzione possa precipitare al di sotto di una barriera geometrica deterministica, impedendo la formazione di spike arbitrariamente ripidi.
+
+\FloatBarrier
+\section{La Condizione di Lipschitz e il Limite di Velocit\`a}
+\label{sec:univariata-lipschitz-speed-limit}
+
+\subsection[Definizione di Lipschitz-continuit\`a]{Definizione di Lipschitz-continuit\`a\\(L-continuit\`a)}
+La formalizzazione matematica dello speed limit \`e fornita dalla nozione di continuit\`a lipschitziana:
+
+\begin{definition}[Funzione Lipschitz-continua / L-continua]
+\label{def:lipschitz-univariata}
+Sia $X \subseteq \R$. Una funzione scalare $f: X \to \R$ si definisce \textbf{Lipschitz-continua} (o $L$-continua) su $X$ se esiste una costante reale finita $L > 0$ (detta \textbf{costante di Lipschitz}) tale che:
+\begin{equation}
+    |f(x) - f(z)| \le L |x - z|, \quad \forall x, z \in X.
+    \label{eq:lipschitz-def}
+\end{equation}
+\end{definition}
+
+\subsubsection{Interpretazione Geometrica}
+Dividendo ambo i membri della disequazione~\eqref{eq:lipschitz-def} per $|x - z| > 0$, si ottiene l'equivalente interpretazione geometrica:
+\begin{equation}
+    \left| \frac{f(x) - f(z)}{x - z} \right| \le L, \quad \forall x \neq z \in X.
+\end{equation}
+La pendenza (coefficiente angolare) di qualunque retta secante passante per una coppia arbitraria di punti del grafo di $f$ \`e uniformemente limitata in valore assoluto da $L$. Geometricamente, il grafo di $f$ \`e confinato all'interno di un doppio cono con vertice in $(x, f(x))$ e pendenze $\pm L$:
+\begin{equation}
+    f(x) - L|z - x| \le f(z) \le f(x) + L|z - x|, \quad \forall z \in X.
+\end{equation}
+
+\subsubsection{L-continuit\`a Globale vs.\ Locale}
+\`E essenziale distinguere l'ambito di validit\`a della propriet\`a:
+\begin{itemize}
+    \item \textbf{Globalmente $L$-continua:} se la condizione~\eqref{eq:lipschitz-def} sussiste uniformemente su tutto il dominio non limitato $X = \R$ con un'unica costante $L < \infty$.
+    \item \textbf{Localmente $L$-continua in $x$:} se per ogni punto $x \in X$ esiste un intorno sferico $B(x, \varepsilon) = [x - \varepsilon, x + \varepsilon]$ tale che la disuguaglianza~\eqref{eq:lipschitz-def} sia soddisfatta per ogni coppia di punti interni a tale intorno, con costante $L(x)$ dipendente dal punto.
+\end{itemize}
+La costante di Lipschitz $L$ dipende intrinsecamente dall'estensione dell'insieme considerato: all'allargarsi del dominio, il modulo delle pendenze massime ammissibili pu\`o crescere illimitatamente. Dunque, \textbf{essere localmente $L$-continua ovunque non implica affatto essere globalmente $L$-continua}.
+
+\subsection{La L-continuit\`a Implica la Continuit\`a Ordinaria ($C^0$)}
+La lipschitzianit\`a \`e una propriet\`a strettamente pi\`u forte della continuit\`a classica secondo Cauchy:
+
+\begin{theorem}[$L\text{-continuit\`a} \implies C^0$]
+Se $f: X \to \R$ \`e Lipschitz-continua con costante $L$ su $X$, allora $f$ \`e continua in ogni punto di $X$.
+\end{theorem}
+\begin{proof}
+Sia fissato ad arbitrio un punto $x \in X$ e una tolleranza di errore $\varepsilon > 0$. Poniamo:
+\begin{equation}
+    \delta = \frac{\varepsilon}{L} > 0.
+\end{equation}
+Consideriamo un qualsiasi punto $z \in X$ tale che $|z - x| \le \delta$. Applicando la disuguaglianza di Lipschitz~\eqref{eq:lipschitz-def}, si ricava immediatamente:
+\begin{equation}
+    |f(z) - f(x)| \le L |z - x| \le L \delta = L \left( \frac{\varepsilon}{L} \right) = \varepsilon.
+\end{equation}
+Dalla definizione di continuit\`a di Cauchy, $f$ \`e continua in $x$. Poich\'e $x$ \`e arbitrario, $f \in C^0(X)$.
+\end{proof}
+
+\subsection{Esempi Notevoli e Controesempi Didattici}
+Per comprendere i limiti della propriet\`a di Lipschitz, analizziamo due casi didattici emblematici:
+
+\begin{example}[Funzione localmente Lipschitziana ma non globalmente Lipschitziana]
+Si consideri la parabola canonica $f(x) = x^2$ su tutto l'asse reale $X = \R$.
+\begin{itemize}
+    \item Fissato un qualunque compatto $[-M, M]$, il rapporto incrementale soddisfa:
+    \begin{equation}
+        \left| \frac{f(x) - f(z)}{x - z} \right| = |x + z| \le |x| + |z| \le 2M.
+    \end{equation}
+    Dunque $f(x)$ \`e localmente $L$-continua su qualsiasi insieme limitato con costante $L = 2M$.
+    \item Tuttavia, se consideriamo $X = \R$, la derivata prima $f'(x) = 2x$ diverge per $x \to \infty$. Scegliendo $z = x + 1$, si ha $|f(x+1) - f(x)| = |2x + 1| \to \infty$ per $x \to \infty$. Non esiste alcuno scalare finito $L$ valido uniformemente su tutto $\R$.
+\end{itemize}
+\end{example}
+
+\begin{example}[Funzione continua ma non Lipschitziana su un insieme compatto]
+Si consideri la funzione $f(x) = \sqrt{|x|}$ (oppure $f(x) = x^{2/3}$) sull'intervallo chiuso e limitato $X = [-1, 1]$.
+\begin{itemize}
+    \item La funzione \`e continua ovunque su $[-1, 1]$ per i teoremi algebrici elementari.
+    \item Tuttavia, calcolando il rapporto incrementale nell'intorno dell'origine ponendo $z = 0$ e $x > 0$:
+    \begin{equation}
+        \frac{|f(x) - f(0)|}{|x - 0|} = \frac{\sqrt{x}}{x} = \frac{1}{\sqrt{x}}.
+    \end{equation}
+    Per $x \to 0^+$, la quantit\`a $1/\sqrt{x} \to +\infty$. La retta tangente al grafico nell'origine diviene rigorosamente verticale ($f'(0) = \infty$), violando qualsiasi barriera finita $L$.
+\end{itemize}
+Questo controesempio dimostra che la compattezza del dominio e la continuit\`a non sono condizioni sufficienti a garantire la lipschitzianit\`a: la pendenza locale non deve mai degenerare all'infinito.
+\end{example}
+
+\FloatBarrier
+\section{Ottimizzazione Globale di Funzioni Lipschitziane}
+\label{sec:univariata-ottimizzazione-globale-lipschitz}
+
+\subsection{Algoritmo di Campionamento Uniforme per $\varepsilon$-Ottimalit\`a}
+Una volta imposto lo ``speed limit'' $L$ e ristretto il problema a un intervallo compatto $X = [x_-, x_+]$ di diametro $D = x_+ - x_- < \infty$, l'ottimizzazione globale approssimata diviene matematicamente possibile.
+
+\begin{definition}[Punto $\varepsilon$-Ottimo Globale]
+Dato $\varepsilon > 0$, un punto ammissibile $\bar{x} \in X$ si definisce \textbf{$\varepsilon$-ottimo globale} per il problema $\min_{x \in X} f(x)$ se:
+\begin{equation}
+    f(\bar{x}) - f^* \le \varepsilon, \quad \text{dove } f^* = \min_{x \in X} f(x).
+\end{equation}
+\end{definition}
+
+\subsubsection{Derivazione del Passo di Campionamento $\Delta x$}
+Supponiamo di discretizzare l'intervallo $[x_-, x_+]$ mediante un reticolo uniforme di punti equispaziati a distanza costante $\Delta x$:
+\begin{equation}
+    x_i = x_- + i \cdot \Delta x, \quad i = 0, 1, 2, \dots, k.
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.0, >=Stealth]
+    % Griglia leggera di sfondo
+    \draw[help lines, color=gray!20, dashed] (0, 0) grid (9.5, 3.4);
+
+    % Assi coordinati
+    \draw[->, thick, gray!80!black] (0, 0) -- (9.8, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, 0) -- (0, 3.5) node[left] {$f(x)$};
+
+    % Estremi dei campioni consecutivi x_i e x_{i+1}
+    \coordinate (XI) at (1.8, 0);
+    \coordinate (XIP1) at (7.8, 0);
+    \coordinate (XMID) at (4.8, 0);
+
+    % Nodi campionati sull'asse x
+    \draw[thick, gray!90!black] (1.8, -0.15) -- (1.8, 0.15);
+    \node[below=4pt, font=\small\bfseries, teal!80!black] at (1.8, 0) {$x_i$};
+    \draw[thick, gray!90!black] (7.8, -0.15) -- (7.8, 0.15);
+    \node[below=4pt, font=\small\bfseries, teal!80!black] at (7.8, 0) {$x_{i+1}$};
+    \filldraw[teal!80!black] (1.8, 0) circle (2.2pt);
+    \filldraw[teal!80!black] (7.8, 0) circle (2.2pt);
+
+    % Valutazioni sui nodi campionati f(x_i) e f(x_{i+1})
+    \coordinate (FXI) at (1.8, 2.5);
+    \coordinate (FXIP1) at (7.8, 2.5);
+    \draw[dotted, teal!80!black, thick] (XI) -- (FXI);
+    \draw[dotted, teal!80!black, thick] (XIP1) -- (FXIP1);
+    \filldraw[teal!80!black] (FXI) circle (2.4pt) node[above left, font=\footnotesize\bfseries] {$f(x_i)$};
+    \filldraw[teal!80!black] (FXIP1) circle (2.4pt) node[above right, font=\footnotesize\bfseries] {$f(x_{i+1})$};
+
+    % Posizione di x* nel caso peggiore (punto medio esatto)
+    \draw[dashed, red!70!black, thin] (XMID) -- (4.8, 0.7);
+    \filldraw[red!85!black] (XMID) circle (2.2pt) node[below=4pt, font=\small\bfseries, red!85!black] {$x^*$ (caso peggiore)};
+    \filldraw[red!85!black] (4.8, 0.7) circle (2.4pt) node[above=3pt, font=\footnotesize\bfseries, red!85!black] {$f(x^*)$};
+
+    % Cono inferiore Lipschitziano (pendenza massima -L da x_i e +L verso x_{i+1})
+    \draw[very thick, orange!90!black] (FXI) -- (4.8, 0.7) node[midway, left=2pt, font=\scriptsize\bfseries] {Pendenza $-L$};
+    \draw[very thick, orange!90!black] (4.8, 0.7) -- (FXIP1) node[midway, right=2pt, font=\scriptsize\bfseries] {Pendenza $+L$};
+
+    % Quote orizzontali ben distanziate
+    \draw[<->, thick, blue!80!black] (1.8, 3.1) -- (7.8, 3.1) node[midway, above=1pt, font=\small\bfseries] {Passo di campionamento $\Delta x = \frac{2\varepsilon}{L}$};
+    \draw[dashed, blue!50, thin] (1.8, 2.5) -- (1.8, 3.1);
+    \draw[dashed, blue!50, thin] (7.8, 2.5) -- (7.8, 3.1);
+
+    \draw[<->, thick, red!85!black] (1.8, 0.35) -- (4.8, 0.35) node[midway, above=1pt, font=\scriptsize\bfseries] {$|x^* - x_i| \le \frac{\Delta x}{2}$};
+
+    % Quota verticale dell'errore massimo epsilon
+    \draw[<->, thick, purple!85!black] (8.5, 0.7) -- (8.5, 2.5) node[midway, right=2pt, font=\scriptsize\bfseries, align=left] {Errore massimo\\$f(x_i) - f(x^*) \le L \frac{\Delta x}{2} = \varepsilon$};
+    \draw[dashed, purple!50, thin] (4.8, 0.7) -- (8.5, 0.7);
+    \draw[dashed, purple!50, thin] (7.8, 2.5) -- (8.5, 2.5);
+\end{tikzpicture}
+\caption{Analisi dell'errore nel caso peggiore per campionamento uniforme: se la funzione \`e $L$-Lipschitziana, nel caso peggiore il minimo $x^*$ si colloca al punto medio $\Delta x / 2$, limitando l'errore di valore a $L \frac{\Delta x}{2} \le \varepsilon$.}
+\label{fig:lipschitz-grid-worst-case}
+\end{figure}
+
+L'analisi dell'errore nel caso peggiore procede per via deduttiva:
+\begin{enumerate}
+    \item Il minimo globale incognito $x^*$ cadr\`a necessariamente all'interno di uno dei sottointervalli contigui $[x_i, x_{i+1}]$.
+    \item Nel caso peggiore sfavorevole, $x^*$ si colloca esattamente nel punto mediano del sottointervallo. Pertanto, la distanza tra $x^*$ e il punto campionato a esso pi\`u vicino (denotato con $x_{\text{near}}$) \`e maggiorata da:
+    \begin{equation}
+        |x_{\text{near}} - x^*| \le \frac{\Delta x}{2}.
+    \end{equation}
+    \item Poich\'e $f$ \`e Lipschitz-continua con costante $L$, la discrepanza tra il valore osservato nel punto campionato e il valore ottimo reale non pu\`o eccedere:
+    \begin{equation}
+        f(x_{\text{near}}) - f(x^*) \le L |x_{\text{near}} - x^*| \le L \frac{\Delta x}{2}.
+    \end{equation}
+    \item Imponendo che tale discrepanza non superi la soglia di tolleranza desiderata $\varepsilon$:
+    \begin{equation}
+        L \frac{\Delta x}{2} \le \varepsilon \iff \Delta x \le \frac{2\varepsilon}{L}.
+    \end{equation}
+    \item Il massimo passo di campionamento ammissibile che garantisce deterministicamente la $\varepsilon$-ottimalit\`a globale \`e dunque:
+    \begin{equation}
+        \Delta x = \frac{2\varepsilon}{L}.
+    \end{equation}
+    \item Il numero complessivo di nodi di campionamento $k$ necessari per coprire l'intero diametro $D = x_+ - x_-$ \`e dato da:
+    \begin{equation}
+        k = \left\lceil \frac{D}{\Delta x} \right\rceil = \left\lceil \frac{D}{\frac{2\varepsilon}{L}} \right\rceil = \left\lceil \frac{LD}{2\varepsilon} \right\rceil \in \BigO{\frac{LD}{\varepsilon}}.
+        \label{eq:complessita-lipschitz-globale}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Complessit\`a Sublineare e il Teorema del ``No Free Lunch''}
+
+\subsubsection{Complessit\`a Minimax $\Omega(LD/\varepsilon)$}
+Il risultato ottenuto non \`e una limitazione specifica dell'algoritmo a griglia uniforme. Nella teoria dell'informazione computazionale~\cite{nesterov2004introductory} \`e rigorosamente dimostrato che, per la classe generale delle funzioni univariate $L$-continue su compatto, \textbf{nessun algoritmo deterministico o stocastico pu\`o scendere al di sotto di $\Omega(LD/\varepsilon)$ valutazioni dell'oracolo nel caso peggiore}.
+
+\subsubsection{Convergenza Sublineare: Il Costo Decimal-by-Decimal}
+La complessit\`a~\eqref{eq:complessita-lipschitz-globale} cresce in modo inversamente proporzionale all'errore $\varepsilon$ ($k \propto 1/\varepsilon$):
+\begin{itemize}
+    \item Se per ottenere un'accuratezza modesta $\varepsilon = 10^{-3}$ occorrono $k = 100$ iterazioni;
+    \item per guadagnare una singola cifra decimale ($\varepsilon = 10^{-4}$) occorrono $k = 1\,000$ iterazioni;
+    \item per $\varepsilon = 10^{-5}$ ne servono $10\,000$;
+    \item per raggiungere la precisione standard dei calcolatori scientifici a 32 bit ($\varepsilon = 10^{-7}$), occorrono oltre \textbf{$10$ milioni ($10^7$) di valutazioni}.
+\end{itemize}
+Ogni singola cifra decimale di precisione aggiuntiva moltiplica il numero di chiamate oracolari per un fattore $10$. Questo regime di convergenza \`e definito \textbf{sublineare}.
+
+\subsubsection{La Maledizione della Dimensione ($n > 1$)}
+Se questo scenario appare gi\`a severo per $n = 1$, nello spazio multidimensionale $\R^n$ il costo computazionale subisce un collasso esponenziale: coprire un ipercubo di diametro $D$ richiede di campionare un reticolo cartesiano contenente:
+\begin{equation}
+    k_n = \left( \frac{LD}{2\varepsilon} \right)^n \in \BigO{\left(\frac{1}{\varepsilon}\right)^n} \text{ valutazioni}.
+\end{equation}
+Per $n = 10$ ed $\varepsilon = 10^{-2}$, il numero di interrogazioni eccede $10^{20}$, rendendo il campionamento globale totalmente impraticabile.
+
+\subsubsection{No Free Lunch Theorem (NFL)}
+Il docente rimarca che, in virt\`u del celebre \textbf{No Free Lunch Theorem}, non esiste alcun algoritmo universale in grado di superare questo limite: qualsiasi euristica progettata per esplorare pi\`u rapidamente determinate classi di funzioni Lipschitziane risulter\`a sistematicamente pi\`u lenta su altre configurazioni avversarie.
+
+\subsubsection{La Metafora Didattica del ``Bombardamento a Tappeto''}
+Per illustrare plasticamente l'inefficienza del campionamento uniforme, il docente ricorre a una metafora bellica: non avendo alcuna informazione preliminare su dove si trovi l'obiettivo nemico all'interno di un'area di un chilometro quadrato, l'unica strategia sicura per colpirlo consiste nell'eseguire un massiccio bombardamento a tappeto, sparando proiettili a reticolo su ogni singolo centimetro quadro di terreno. Si tratta di un approccio a pura forza bruta: esaustivo e sicuro, ma computazionalmente insostenibile.
+
+\FloatBarrier
+\section{Il Compromesso dell'Ottimizzazione Locale e i Bacini di Attrazione}
+\label{sec:univariata-compromesso-locale}
+
+\subsection{Il ``Trucco alla Captain Kirk''}
+Di fronte a una barriera teorica insormontabile come l'intrattabilit\`a dell'ottimizzazione globale per classi generali di funzioni, la matematica computazionale adotta la celebre strategia attribuita al Capitano James T. Kirk in \textit{Star Trek} di fronte alla simulazione impossibile del \textit{Kobayashi Maru}: \textbf{cambiare le regole del gioco}.
+
+Poich\'e localizzare il minimo globale richiede un numero inaccettabile di valutazioni, si rinuncia all'ottimalit\`a globale per convergere efficientemente a un \textbf{minimo locale}.
+
+\subsection{Definizioni Fondamentali: Minimi Locali e Unimodalit\`a}
+
+\begin{definition}[Minimo Locale e Minimo Locale Stretto]
+Sia $f: X \to \R$ e sia $x_* \in X$.
+\begin{enumerate}
+    \item $x_*$ \`e un \textbf{minimo locale} per $f$ se esiste un raggio $\varepsilon > 0$ tale che:
+    \begin{equation}
+        f(x_*) \le f(x), \quad \forall x \in X \cap [x_* - \varepsilon, x_* + \varepsilon].
+    \end{equation}
+    \item $x_*$ \`e un \textbf{minimo locale stretto} se vale la disuguaglianza stretta per ogni punto distinto:
+    \begin{equation}
+        f(x_*) < f(x), \quad \forall x \in X \cap [x_* - \varepsilon, x_* + \varepsilon] \setminus \{x_*\}.
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+\begin{definition}[Funzione Unimodale]
+Una funzione continua $f: [x_-, x_+] \to \R$ si definisce \textbf{unimodale} sull'intervallo se ammette un unico punto di minimo $x_* \in [x_-, x_+]$ ed \`e:
+\begin{itemize}
+    \item strettamente decrescente alla sinistra dell'ottimo, per ogni $x \in [x_-, x_*]$;
+    \item strettamente crescente alla destra dell'ottimo, per ogni $x \in [x_*, x_+]$.
+\end{itemize}
+\end{definition}
+
+\subsection{Bacini di Attrazione (Attraction Basins)}
+Le funzioni obiettivo reali presentano tipicamente una topologia complessa con molteplici oscillazioni, minimi locali, massimi e punti di flesso. Tuttavia, se restringiamo il raggio d'azione all'intorno di uno specifico minimo locale, la funzione assume una configurazione geometrica regolare e prevedibile:
+
+\begin{definition}[Bacino di Attrazione]
+Dato un minimo locale $x_*$, il suo \textbf{bacino di attrazione} \`e il massimo sottointervallo aperto $B(x_*) \subseteq X$ contenente $x_*$ all'interno del quale la funzione risulta unimodale.
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.1, >=Stealth]
+    % Griglia leggera di sfondo
+    \draw[help lines, color=gray!15, dashed] (0, 0) grid (10.0, 3.8);
+
+    % Assi coordinati
+    \draw[->, thick, gray!80!black] (0, 0) -- (10.4, 0) node[below] {$x$};
+    \draw[->, thick, gray!80!black] (0, 0) -- (0, 4.0) node[left] {$f(x)$};
+
+    % Regione del bacino di attrazione ombreggiata (da cresta x=3.0 a cresta x=7.0)
+    \fill[purple!8] (3.0, 0) -- (3.0, 2.7) 
+        .. controls (3.8, 2.7) and (4.2, 0.5) .. (5.0, 0.5)
+        .. controls (5.8, 0.5) and (6.2, 2.7) .. (7.0, 2.7)
+        -- (7.0, 0) -- cycle;
+
+    % Curva multi-modale f(x) perfettamente liscia (spline di Bézier)
+    \draw[very thick, blue!85!black] 
+        (0.6, 3.2) .. controls (1.1, 2.0) and (1.3, 1.3) .. (1.8, 1.3)
+        .. controls (2.3, 1.3) and (2.5, 2.7) .. (3.0, 2.7)
+        .. controls (3.8, 2.7) and (4.2, 0.5) .. (5.0, 0.5)
+        .. controls (5.8, 0.5) and (6.2, 2.7) .. (7.0, 2.7)
+        .. controls (7.5, 2.7) and (7.7, 1.3) .. (8.2, 1.3)
+        .. controls (8.7, 1.3) and (8.9, 2.0) .. (9.4, 3.2);
+    \node[above right, blue!85!black, font=\bfseries] at (9.4, 3.2) {$f(x)$};
+
+    % Separatori di bacino (creste/massimi locali) - Posizionati SOPRA il piano cartesiano
+    \node (crest1) [draw=purple!70!black, fill=purple!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt] at (3.0, 4.65) {
+        \textbf{Massimo locale}\\(Cresta di separazione)
+    };
+    \node (crest2) [draw=purple!70!black, fill=purple!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt] at (7.0, 4.65) {
+        \textbf{Massimo locale}\\(Cresta di separazione)
+    };
+    \draw[dashed, purple!80!black, thick] (3.0, 0) -- (crest1.south);
+    \draw[dashed, purple!80!black, thick] (7.0, 0) -- (crest2.south);
+    \filldraw[purple!80!black] (3.0, 2.7) circle (2.2pt);
+    \filldraw[purple!80!black] (7.0, 2.7) circle (2.2pt);
+
+    % Quota Bacino di Attrazione in alto
+    \draw[<->, very thick, purple!85!black] (3.0, 3.35) -- (7.0, 3.35);
+    \node[above=2pt, font=\scriptsize\bfseries, align=center, purple!85!black] at (5.0, 3.35) {
+        Bacino di Attrazione\\$B(x^*_{\text{glob}})$
+    };
+
+    % Minimo locale 1
+    \filldraw[teal!80!black] (1.8, 1.3) circle (2.4pt);
+    \node (minloc1) [draw=teal!70!black, fill=teal!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (1.8, -0.75) {
+        \textbf{Minimo locale}\\$x = x_{\text{loc}, 1}$
+    };
+    \draw[dashed, teal!70!black, thin] (1.8, 1.3) -- (minloc1.north);
+
+    % Minimo globale
+    \filldraw[red!85!black] (5.0, 0.5) circle (2.6pt);
+    \node (minglob) [draw=red!75!black, fill=red!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (5.0, -0.75) {
+        \textbf{Minimo globale}\\$x = x^*_{\text{glob}}$
+    };
+    \draw[dashed, red!75!black, thick] (5.0, 0.5) -- (minglob.north);
+
+    % Minimo locale 2
+    \filldraw[teal!80!black] (8.2, 1.3) circle (2.4pt);
+    \node (minloc2) [draw=teal!70!black, fill=teal!5, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3.5pt] at (8.2, -0.75) {
+        \textbf{Minimo locale}\\$x = x_{\text{loc}, 2}$
+    };
+    \draw[dashed, teal!70!black, thin] (8.2, 1.3) -- (minloc2.north);
+    
+    % Box didattico posizionato SOTTO il piano cartesiano con ampio margine verticale
+    \node (unimodalbox) [draw=purple!70!black, fill=purple!5, rounded corners=4pt, font=\footnotesize, align=center, inner sep=6pt] at (5.0, -2.25) {
+        \textbf{Propriet\`a della Regione Unimodale nel Bacino $B(x^*_{\text{glob}})$:}\\[4pt]
+        $\begin{aligned}
+            x < x^*_{\text{glob}} &\implies f'(x) < 0 \quad \text{(discesa verso destra)} \\
+            x > x^*_{\text{glob}} &\implies f'(x) > 0 \quad \text{(discesa verso sinistra)}
+        \end{aligned}$
+    };
+
+    % Margine di respiro inferiore
+    \path (0, -3.15);
+\end{tikzpicture}
+\caption{Paesaggio non convesso con molteplici minimi locali: all'interno del bacino di attrazione $B(x^*_{\text{glob}})$ delimitato dalle creste adiacenti la funzione \`e unimodale, garantendo la convergenza deterministica dei metodi locali.}
+\label{fig:attraction-basins}
+\end{figure}
+
+\subsubsection{Il Limite Strutturale dell'Ottimizzazione Locale}
+Tutti i minimi locali si presentano localmente indistinguibili: la funzione scende man mano che ci si avvicina al punto di minimo da ambo i lati. Un algoritmo basato su informazioni locali che entra in un determinato bacino converger\`a inesorabilmente al fondo di quel bacino, senza possedere alcuna capacit\`a analitica di stabilire se quel minimo locale coincida con l'ottimo globale o se esista altrove una valle ancor pi\`u profonda.
+
+\subsubsection{Connessione con il Deep Learning Moderno}
+Il professore evidenzia come questo compromesso sia esattamente il fondamento operativo dell'addestramento dei modelli di intelligenza artificiale moderna (reti neurali profonde e LLM): la funzione di perdita empirica su miliardi di parametri possiede un numero sterminato di minimi locali non equivalenti. Gli algoritmi di ottimizzazione del primo ordine (come SGD e Adam) si accontentano di convergere a un minimo locale, il quale, per evidenze empiriche e propriet\`a di sovra-parametrizzazione, garantisce performance eccellenti sul compito da apprendere.
+
+\FloatBarrier
+\section{Il Modello di Primo Ordine, Derivate e Punti Stazionari}
+\label{sec:univariata-modello-primo-ordine-derivate}
+
+\subsection{Usare la Derivata come Guida di Navigazione}
+All'interno di un bacino unimodale, per raggiungere il minimo locale \`e sufficiente muoversi seguendo la pendenza locale.
+\begin{itemize}
+    \item Per una funzione lineare $f(x) = bx + c$, il coefficiente angolare $b$ determina in modo univoco la direzione: se $b > 0$, la retta scende verso sinistra; se $b < 0$, scende verso destra.
+    \item Per una funzione non lineare differenziabile, il \textbf{modello lineare di primo ordine} attorno a un punto $x$ \`e rappresentato dalla retta tangente:
+    \begin{equation}
+        L_x(z) = f(x) + f'(x)(z - x).
+    \end{equation}
+\end{itemize}
+La derivata prima $f'(x)$ funge da bussola direzionale:
+\begin{itemize}
+    \item $f'(x) < 0 \implies$ la funzione \`e localmente decrescente: il minimo locale si trova a destra ($z > x$);
+    \item $f'(x) > 0 \implies$ la funzione \`e localmente crescente: il minimo locale si trova a sinistra ($z < x$);
+    \item $f'(x) = 0 \implies$ la retta tangente \`e orizzontale: punto stazionario candidato.
+\end{itemize}
+
+\subsection{Differenziabilit\`a, Continuit\`a e Calcolo delle Derivate}
+Ricordiamo la definizione formale di derivata:
+\begin{equation}
+    f'(x) = \lim_{t \to 0} \frac{f(x+t) - f(x)}{t}.
+\end{equation}
+Come noto dall'analisi matematica elementare, la differenziabilit\`a implica la continuit\`a ordinaria:
+\begin{equation}
+    \lim_{t \to 0} \big( f(x+t) - f(x) \big) = \lim_{t \to 0} \left( t \cdot \frac{f(x+t) - f(x)}{t} \right) = 0 \cdot f'(x) = 0.
+\end{equation}
+
+\subsubsection{Disponibilit\`a Pratica delle Derivate nel Software}
+Per funzioni costituite da combinazioni di operatori elementari (algebrici, trigonometrici, esponenziali), la derivata prima \`e ottenibile in forma analitica esatta oppure calcolata in modo ultra-efficiente mediante strumenti software di \textbf{differenziazione automatica} (\textit{AutoDiff} in PyTorch, JAX o comandi simbolici quali \texttt{diff} in MATLAB/Octave).
+
+\subsection{Condizioni di Ottimalit\`a del Primo e del Secondo Ordine}
+
+\begin{theorem}[Condizione Necessaria del Primo Ordine]
+Sia $f: X \to \R$ derivabile in un intorno del punto interno $x_* \in \operatorname{int}(X)$. Se $x_*$ \`e un minimo locale per $f$, allora necessariamente:
+\begin{equation}
+    f'(x_*) = 0.
+\end{equation}
+\end{theorem}
+
+L'annullamento della derivata prima individua un \textbf{punto stazionario}, ma costituisce una condizione puramente necessaria e non sufficiente: $f'(x_*) = 0$ pu\`o caratterizzare un minimo locale, un massimo locale o un punto di flesso a tangente orizzontale (punto di sella).
+
+\subsubsection{Discriminazione Mediante la Derivata Seconda $f''(x_*)$}
+Se la funzione \`e due volte differenziabile ($f \in C^2$), la concavit\`a locale discrimina la natura del punto stazionario:
+\begin{itemize}
+    \item \textbf{Minimo locale stretto:} $f'(x_*) = 0$ e $f''(x_*) > 0$. La derivata prima sta crescendo (passa da valori negativi a sinistra a valori positivi a destra: concavit\`a verso l'alto).
+    \item \textbf{Massimo locale stretto:} $f'(x_*) = 0$ e $f''(x_*) < 0$. La derivata prima sta decrescendo (passa da valori positivi a negativi: concavit\`a verso il basso).
+    \item \textbf{Test inconclusivo / Sella:} $f'(x_*) = 0$ e $f''(x_*) = 0$ (es. $f(x) = x^3$ ha un flesso in $x=0$; $f(x) = x^4$ ha un minimo).
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.05, >=Stealth]
+    % =========================================================================
+    % RIGA 1: MINIMO LOCALE STRETTO
+    % =========================================================================
+    \begin{scope}[yshift=0cm]
+        % Box intestazione (y=3.4 per ampio stacco dall'asse y)
+        \node[draw=blue!70!black, fill=blue!5, rounded corners=4pt, font=\small, align=center, inner sep=4pt] at (3.0, 3.4) {
+            \textbf{Minimo Locale Stretto: Condizioni di Ottimalit\`a}\\
+            $f'(x_*) = 0 \quad \text{e} \quad f''(x_*) > 0$
+        };
+
+        % Assi coordinati (asse y alto fino a 2.2 con etichetta a sinistra)
+        \draw[->, thick, gray!75!black] (-0.2, 0) -- (6.5, 0) node[below] {$x$};
+        \draw[->, thick, gray!75!black] (0, -0.2) -- (0, 2.2);
+        \node[left=2pt, font=\footnotesize, gray!80!black] at (0, 2.2) {$f(x)$};
+
+        % Parabola convessa (concavità verso l'alto)
+        \draw[very thick, blue!85!black, smooth, domain=1.2:4.8] plot (\x, {0.35*(\x-3.0)*(\x-3.0) + 0.6});
+
+        % Punto di minimo x*
+        \filldraw[red!85!black] (3.0, 0.6) circle (2.5pt);
+        \draw[dashed, red!70!black, thick] (3.0, 0.6) -- (3.0, 0);
+        \node[below=2pt, font=\small\bfseries, red!85!black] at (3.0, 0) {$x_*$};
+        \node[above=3pt, font=\scriptsize\bfseries, red!85!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (3.0, 0.6) {$(x_*, f(x_*))$};
+
+        % Tangente orizzontale a f(x*)
+        \draw[dashed, red!85!black, very thick] (1.4, 0.6) -- (4.6, 0.6);
+        \node[right=3pt, font=\scriptsize\bfseries, red!85!black] at (4.6, 0.6) {Tangente: $f'(x_*) = 0$};
+
+        % Pendenza a sinistra: f'(x) < 0
+        \draw[->, line width=1.3pt, orange!90!black] (1.5, 1.6) -- (2.2, 0.95);
+        \node[above left=1pt, font=\scriptsize\bfseries, orange!90!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (1.7, 1.5) {Decrescente\\$f'(x) < 0$};
+
+        % Pendenza a destra: f'(x) > 0
+        \draw[->, line width=1.3pt, teal!85!black] (3.8, 0.95) -- (4.5, 1.6);
+        \node[above right=1pt, font=\scriptsize\bfseries, teal!85!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (4.3, 1.5) {Crescente\\$f'(x) > 0$};
+
+        % Sintesi concavità
+        \node[font=\footnotesize, align=center, text=gray!90!black, text width=12.2cm] at (3.0, -0.85) {
+            \textbf{Concavit\`a verso l'alto ($f''(x_*) > 0$):} derivata prima strettamente crescente (da negativa a positiva).
+        };
+    \end{scope}
+
+    % =========================================================================
+    % RIGA 2: MASSIMO LOCALE STRETTO
+    % =========================================================================
+    \begin{scope}[yshift=-5.6cm]
+        % Box intestazione
+        \node[draw=teal!70!black, fill=teal!5, rounded corners=4pt, font=\small, align=center, inner sep=4pt] at (3.0, 3.4) {
+            \textbf{Massimo Locale Stretto: Condizioni di Ottimalit\`a}\\
+            $f'(x_*) = 0 \quad \text{e} \quad f''(x_*) < 0$
+        };
+
+        % Assi coordinati
+        \draw[->, thick, gray!75!black] (-0.2, 0) -- (6.5, 0) node[below] {$x$};
+        \draw[->, thick, gray!75!black] (0, -0.2) -- (0, 2.2);
+        \node[left=2pt, font=\footnotesize, gray!80!black] at (0, 2.2) {$f(x)$};
+
+        % Parabola concava (concavità verso il basso)
+        \draw[very thick, teal!85!black, smooth, domain=1.2:4.8] plot (\x, {-0.35*(\x-3.0)*(\x-3.0) + 2.1});
+
+        % Punto di massimo x*
+        \filldraw[red!85!black] (3.0, 2.1) circle (2.5pt);
+        \draw[dashed, red!70!black, thick] (3.0, 2.1) -- (3.0, 0);
+        \node[below=2pt, font=\small\bfseries, red!85!black] at (3.0, 0) {$x_*$};
+        \node[above=3pt, font=\scriptsize\bfseries, red!85!black, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (3.0, 2.1) {$(x_*, f(x_*))$};
+
+        % Tangente orizzontale a f(x*)
+        \draw[dashed, red!85!black, very thick] (1.4, 2.1) -- (4.6, 2.1);
+        \node[right=3pt, font=\scriptsize\bfseries, red!85!black] at (4.6, 2.1) {Tangente: $f'(x_*) = 0$};
+
+        % Pendenza a sinistra: f'(x) > 0
+        \draw[->, line width=1.3pt, teal!85!black] (1.5, 0.95) -- (2.2, 1.6);
+        \node[below left=1pt, font=\scriptsize\bfseries, teal!85!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (1.7, 1.1) {Crescente\\$f'(x) > 0$};
+
+        % Pendenza a destra: f'(x) < 0
+        \draw[->, line width=1.3pt, orange!90!black] (3.8, 1.6) -- (4.5, 0.95);
+        \node[below right=1pt, font=\scriptsize\bfseries, orange!90!black, align=center, fill=white, fill opacity=0.9, text opacity=1, inner sep=1.5pt, rounded corners=2pt] at (4.3, 1.1) {Decrescente\\$f'(x) < 0$};
+
+        % Sintesi concavità
+        \node[font=\footnotesize, align=center, text=gray!90!black, text width=12.2cm] at (3.0, -0.85) {
+            \textbf{Concavit\`a verso il basso ($f''(x_*) < 0$):} derivata prima strettamente decrescente (da positiva a negativa).
+        };
+    \end{scope}
+\end{tikzpicture}
+\caption{Confronto geometrico tra minimo e massimo locale sulla base del segno della derivata seconda $f''(x_*)$: la concavit\`a locale determina la transizione di segno della derivata prima nell'intorno del punto stazionario.}
+\label{fig:first-second-order-conditions}
+\end{figure}
+
+A livello computazionale, per individuare un minimo locale \`e sufficiente identificare un intervallo in cui la derivata prima transiti da valori negativi a valori positivi, riducendo l'ottimizzazione alla ricerca dello zero di $f'(x)$.
+
+\FloatBarrier
+\section{L'Algoritmo di Ricerca Dicotomica (Dichotomic Search)}
+\label{sec:univariata-ricerca-dicotomica}
+
+\subsection{Fondamento Teorico: Teorema dei Valori Intermedi}
+L'algoritmo di \textbf{Ricerca Dicotomica} (\textit{Dichotomic Search}, o metodo di bisezione applicato alla derivata) poggia su un solido teorema dell'analisi classica:
+
+\begin{theorem}[Teorema di Bolzano / Valori Intermedi applicato alla Derivata]
+Sia $f: [x_-, x_+] \to \R$ una funzione derivabile con derivata prima $f'$ continua ($f \in C^1$). Se agli estremi dell'intervallo sussiste la condizione di segno discorde:
+\begin{equation}
+    f'(x_-) < 0 \quad \text{e} \quad f'(x_+) > 0,
+    \label{eq:condizione-bracketing-derivata}
+\end{equation}
+allora esiste almeno un punto interno $x_* \in (x_-, x_+)$ in cui:
+\begin{equation}
+    f'(x_*) = 0.
+\end{equation}
+Inoltre, poich\'e la funzione entra nell'intervallo decrescendo a sinistra ed esce crescendo a destra, l'intervallo $[x_-, x_+]$ racchiude necessariamente almeno un \textbf{minimo locale} di $f$.
+\end{theorem}
+
+\subsection{Funzionamento e Pseudocodice dell'Algoritmo}
+L'algoritmo opera mantenendo a ogni iterazione l'invariante di segno agli estremi dell'intervallo corrente $[x_-, x_+]$:
+\begin{equation}
+    \text{Invariante: } f'(x_-) \le -\varepsilon \quad \text{e} \quad f'(x_+) \ge \varepsilon.
+\end{equation}
+A ogni passo, l'algoritmo valuta la derivata nel punto medio $x = \frac{x_- + x_+}{2}$ e dimezza deterministicamente l'intervallo:
+\begin{itemize}
+    \item Se $|f'(x)| \le \varepsilon$, il punto medio $x$ \`e un punto stazionario $\varepsilon$-approssimato e la procedura termina;
+    \item Se $f'(x) < -\varepsilon$, il minimo locale giace strettamente a destra: si scarta la met\`a sinistra ponendo $x_- \gets x$;
+    \item Se $f'(x) > \varepsilon$, il minimo locale giace strettamente a sinistra: si scarta la met\`a destra ponendo $x_+ \gets x$.
+\end{itemize}
+
+\begin{algorithm}[H]
+\caption{Ricerca Dicotomica per Ottimizzazione Univariata (\texttt{DichotomicSearch})}
+\label{alg:ricerca-dicotomica}
+\KwInput{Funzione obiettivo $f$, oracolo di derivata $f'$, estremi iniziali $[x_-, x_+]$ con $f'(x_-) < 0$ e $f'(x_+) > 0$, tolleranza gradiente $\varepsilon > 0$, ampiezza minima $\delta > 0$}
+\KwOutput{Punto di minimo locale approssimato $x^*$}
+
+\While{$(x_+ - x_- > \delta)$}{
+    $x \gets \frac{x_- + x_+}{2}$\;
+    $g \gets f'(x)$ \tcp*{Valutazione oracolare della derivata}
+    
+    \If{$|g| \le \varepsilon$}{
+        \Return{$x$} \tcp*{Trovato punto stazionario con $|f'(x)| \le \varepsilon$}
+    }
+    
+    \eIf{$g < 0$}{
+        $x_- \gets x$ \tcp*{La funzione scende a destra: scarta $[x_-, x]$}
+    }{
+        $x_+ \gets x$ \tcp*{La funzione sale a destra: scarta $[x, x_+]$}
+    }
+}
+\Return{$\frac{x_- + x_+}{2}$}\;
+\end{algorithm}
+
+\subsection{Analisi della Convergenza Lineare e Complessit\`a Logaritmica}
+
+\subsubsection{Riduzione Esatta dell'Intervallo}
+Denotando con $D_0 = x_+ - x_-$ l'ampiezza iniziale dell'intervallo, a ogni iterazione $k$ l'ampiezza dell'intervallo di incertezza si dimezza esattamente:
+\begin{equation}
+    D_k = \frac{D_0}{2^k} = D_0 \cdot (0.5)^k.
+\end{equation}
+La sequenza delle ampiezze $\{D_k\}$ decade con un tasso di convergenza geometrico costante $r = 0.5$. Questo comportamento individua una \textbf{convergenza lineare} nello spazio di ricerca.
+
+\subsubsection{Numero di Iterazioni in Funzione di $\delta$}
+Affinch\'e l'intervallo si riduca al di sotto della soglia $\delta$:
+\begin{equation}
+    \frac{D_0}{2^k} \le \delta \iff 2^k \ge \frac{D_0}{\delta} \iff k \ge \log_2\left(\frac{D_0}{\delta}\right) = \frac{\log_{10}(D_0/\delta)}{\log_{10}(2)}.
+\end{equation}
+Poich\'e $\frac{1}{\log_{10}(2)} \approx 3.3219$:
+\begin{equation}
+    k \approx 3.32 \cdot \log_{10}\left(\frac{D_0}{\delta}\right).
+    \label{eq:iterazioni-dicotomica-delta}
+\end{equation}
+Il significato computazionale della formula~\eqref{eq:iterazioni-dicotomica-delta} \`e limpido: \textbf{per guadagnare una cifra decimale esatta di risoluzione spaziale, la ricerca dicotomica richiede circa $3.32$ iterazioni}.
+
+\subsubsection{Legame con l'Accuratezza del Gradiente $\varepsilon$ e $L$-Smoothness}
+Supponiamo ora che la derivata prima $f'$ sia a sua volta Lipschitz-continua con costante $L_{f'}$ (ipotesi nota nella letteratura come \textbf{$L$-smoothness} di $f$):
+\begin{equation}
+    |f'(x) - f'(z)| \le L_{f'} |x - z|, \quad \forall x, z \in [x_-, x_+].
+\end{equation}
+Sia $x_*$ lo zero esatto di $f'$ ($f'(x_*) = 0$) contenuto nell'intervallo corrente di ampiezza $D_k \le \delta$. Poich\'e il punto medio $x$ dista dalla radice al pi\`u $\delta/2$:
+\begin{equation}
+    |f'(x)| = |f'(x) - f'(x_*)| \le L_{f'} |x - x_*| \le L_{f'} \frac{\delta}{2}.
+\end{equation}
+Per garantire che $|f'(x)| \le \varepsilon$, \`e dunque sufficiente che l'ampiezza dell'intervallo soddisfi:
+\begin{equation}
+    L_{f'} \frac{\delta}{2} \le \varepsilon \iff \delta = \frac{2\varepsilon}{L_{f'}}.
+\end{equation}
+Sostituendo tale valore di $\delta$ nella relazione di complessit\`a:
+\begin{equation}
+    k \ge \log_2\left( \frac{L_{f'} D_0}{2\varepsilon} \right) \approx 3.32 \cdot \log_{10}\left( \frac{L_{f'} D_0}{2\varepsilon} \right) \in \BigO{\log\left(\frac{L_{f'} D_0}{\varepsilon}\right)}.
+    \label{eq:complessita-dicotomica-gradiente}
+\end{equation}
+
+\subsection{Confronto Epocale: Ricerca Globale vs.\ Ricerca Locale}
+Mettendo a confronto diretto le formule di complessit\`a ricavate per i due approcci:
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{l Y Y}
+\toprule
+\textbf{Propriet\`a Computazionale} & \textbf{Ottimizzazione Globale (Griglia)} & \textbf{Ottimizzazione Locale (Dicotomica)} \\
+\midrule
+\textbf{Ipotesi di regolarit\`a} & $f$ \`e $L$-Lipschitziana su compatto & $f'$ \`e continua con cambio segno ($f \in C^1$) \\
+\textbf{Garanzia teorica} & $\varepsilon$-minimo globale $f(\bar{x}) - f^* \le \varepsilon$ & Minimo locale con $|f'(x)| \le \varepsilon$ \\
+\textbf{Complessit\`a asintotica} & $\BigO{\dfrac{L D}{\varepsilon}}$ (Sublineare) & $\BigO{\log\left(\dfrac{L_{f'} D}{\varepsilon}\right)}$ (Logaritmica / Lineare) \\
+\midrule
+\textbf{Valutazioni per $\varepsilon = 10^{-3}$} & $\approx 10^3$ campionamenti & $\approx 3.32 \times 3 \approx \mathbf{10\text{ iterazioni}}$ \\
+\textbf{Valutazioni per $\varepsilon = 10^{-5}$} & $\approx 10^5$ campionamenti & $\approx 3.32 \times 5 \approx \mathbf{17\text{ iterazioni}}$ \\
+\textbf{Valutazioni per $\varepsilon = 10^{-7}$} & $\approx 10^7$ (\textbf{10 Milioni!}) & $\approx 3.32 \times 7 \approx \mathbf{24\text{--}26\text{ iterazioni}}$ \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto di complessit\`a ed efficienza tra campionamento globale e ricerca dicotomica locale.}
+\label{tab:confronto-globale-dicotomico}
+\end{table}
+
+\begin{noteblock}{Dimostrazione Sperimentale al Calcolatore}
+Eseguendo lo script live di ricerca dicotomica (\texttt{dichotomic\_search}):
+\begin{itemize}
+    \item in appena \textbf{26 iterazioni}, l'algoritmo abbatte la norma della derivata al di sotto di $10^{-6}$ e localizza il punto di minimo con oltre 15 cifre decimali di precisione numerica;
+    \item rispetto ai decine di milioni di campionamenti imposti dalla ricerca globale, si registra un'accelerazione computazionale nell'ordine di \textbf{$10^5\text{--}10^6$ volte}.
+\end{itemize}
+\`E l'effetto dirompente del passaggio da una complessit\`a algebrica inversa $\BigO{1/\varepsilon}$ a una complessit\`a logaritmica $\BigO{\log(1/\varepsilon)}$.
+\end{noteblock}
+
+\subsection{Inizializzazione dell'Intervallo: La Procedura di Bracketing}
+La ricerca dicotomica richiede come pre-condizione fondamentale la disponibilit\`a di un intervallo iniziale $[x_-, x_+]$ che soddisfi la condizione di segno discorde $f'(x_-) < 0$ e $f'(x_+) > 0$. 
+
+Se tale intervallo non \`e noto a priori, si ricorre a una procedura di \textbf{Bracketing} (espansione geometrica guidata):
+
+\begin{algorithm}[H]
+\caption{Procedura di Bracketing con Espansione Geometrica}
+\label{alg:bracketing-espansione}
+\KwInput{Punto di partenza $x_0$, oracolo di derivata $f'$, passo base $\Delta x > 0$}
+\KwOutput{Estremo destro $x_+$ tale che $f'(x_+) > 0$}
+
+$x_+ \gets x_0$\;
+$\text{step} \gets \Delta x$\;
+\While{$f'(x_+) \le 0$}{
+    $x_+ \gets x_+ + \text{step}$\;
+    $\text{step} \gets 2 \cdot \text{step}$ \tcp*{Raddoppio del passo (crescita geometrica)}
+}
+\Return{$x_+$}\;
+\end{algorithm}
+(Una procedura perfettamente simmetrica opera verso sinistra procedendo a passi negativi per determinare $x_-$ tale che $f'(x_-) < 0$).
+
+\subsubsection{Casi Particolari e Patologie di Bracketing}
+\begin{enumerate}
+    \item \textbf{Funzioni coercive:} Se $f$ \`e una funzione coerciva ($\lim_{|x| \to \infty} f(x) = +\infty$), la derivata prima deve per forza assumere valori positivi per $x \to +\infty$ e negativi per $x \to -\infty$. La procedura di espansione garantisce l'arresto in un numero finito e modesto di raddoppi.
+    \item \textbf{Funzioni illimitate inferiormente:} Se $f^* = -\infty$, la procedura diverger\`a a $\pm\infty$ senza mai arrestarsi; nei software di produzione \`e dunque obbligatorio impostare una soglia massima sul numero di raddoppi.
+    \item \textbf{Controesempio patologico periodico:}
+    Si consideri la funzione trigonometrica periodica:
+    \begin{equation}
+        f(x) = \sin\left(\pi x + \frac{3\pi}{4}\right) \implies f'(x) = \pi \cos\left(\pi x + \frac{3\pi}{4}\right).
+    \end{equation}
+    Inizializzando la procedura in $x_0 = 0$ con passo base $\Delta x = 1$ e raddoppiando a ogni iterazione, si generano punti di campionamento a distanze geometriche (o considerando le potenze pure $x_k = 2^k$ per $k \ge 1$):
+    \begin{equation}
+        x_k = 2^k, \quad k \in \N.
+    \end{equation}
+    Poich\'e per ogni $k \ge 1$ il valore $2^k$ \`e un numero intero pari, ponendo $2^k = 2m$ con $m \in \N$:
+    \begin{equation}
+        f'(2^k) = \pi \cos\left(2m \pi + \frac{3\pi}{4}\right) = \pi \cos\left(\frac{3\pi}{4}\right) = -\pi \frac{\sqrt{2}}{2} \approx -2.2214.
+    \end{equation}
+    La derivata valutata nei punti di campionamento risulta \textbf{costantemente negativa e invariata} a ogni passo ($\approx -2.22$). L'algoritmo non intercetta mai il cambio di segno e continua a raddoppiare all'infinito, nonostante la funzione sia limitata in $[-1, 1]$ e ricca di infiniti minimi locali.
+\end{enumerate}
+
+\FloatBarrier
+\section{Sintesi e Prospettive: Possiamo Fare Meglio?}
+\label{sec:univariata-chiusura-prospettive}
+
+Il percorso teorico e algoritmico tracciato in questa lezione stabilisce i seguenti capisaldi:
+\begin{enumerate}
+    \item L'ottimizzazione globale pura su funzioni generiche \`e impossibile; con sole ipotesi di Lipschitzianit\`a su compatto, essa richiede una complessit\`a minimax sublineare intrattabile $\BigO{LD/\varepsilon}$.
+    \item La transizione pragmatica all'ottimizzazione locale sfrutta la struttura unimodale dei bacini di attrazione e converte il problema nell'annullamento della derivata prima ($f'(x_*) = 0$).
+    \item L'algoritmo di \textbf{Ricerca Dicotomica} dimezza l'intervallo di incertezza a ogni iterazione, garantendo la convergenza in sole $\BigO{\log(1/\varepsilon)}$ iterazioni (26 iterazioni per raggiungere una precisione di $10^{-7}$).
+\end{enumerate}
+
+La lezione si chiude con il quesito aperto formulato dal docente:
+\begin{quote}
+\textit{``Possiamo fare ancora meglio di 26 iterazioni? Possiamo localizzare il minimo con la stessa precisione in 12 o 18 iterazioni?''}
+\end{quote}
+La risposta \`e affermativa: sfruttando informazioni di ordine superiore (come la curvatura $f''$) o approssimazioni interpolanti polinomiali locali (interpolazione quadratica della secante, interpolazione cubica e il metodo di Newton univariato), sar\`a possibile accelerare ulteriormente il tasso di convergenza passando dalla convergenza lineare alla convergenza superlineare e quadratica.
