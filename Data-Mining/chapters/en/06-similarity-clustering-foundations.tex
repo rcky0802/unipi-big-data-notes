@@ -1,0 +1,759 @@
+\chapter{Proximity Measures, Information Theory, and Cluster Analysis}
+\label{chap:dm-similarity-clustering-foundations}
+
+This chapter establishes the computational and mathematical foundations underpinning unsupervised learning and instance-based reasoning in Data Mining:
+\begin{enumerate}[noitemsep]
+    \item Analytical formulation of \textbf{proximity, distance, and similarity} across continuous, discrete, and heterogeneous attributes;
+    \item Formal tools from \textbf{Shannon's Information Theory} (entropy and mutual information) for non-linear dependency and uncertainty quantification;
+    \item Core principles, taxonomies, and geometric formulations of \textbf{Cluster Analysis}.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 6.1: FOUNDATIONS OF PROXIMITY, SIMILARITY, AND DISSIMILARITY
+% ====================================================================
+\section{Foundations of Similarity, Dissimilarity, and Proximity}
+\label{sec:dm-foundations-proximity}
+
+Across Data Mining, Machine Learning, and Information Retrieval, pairwise comparisons form the algorithmic backbone of numerous paradigms: from nearest neighbor classification ($k$-NN) to cluster discovery, density estimation, and outlier detection.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    conceptBox/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!8, thick, font=\footnotesize, align=center, text width=5.6cm, inner sep=6pt},
+    rootBox/.style={rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rootBox] (root) at (0, 2.5) {
+        DATA OBJECT SPACE\\[2pt]
+        \footnotesize \normalfont Binary relationships between instances $\mathbf{x}, \mathbf{y} \in \mathcal{D}$
+    };
+
+    \node[conceptBox, anchor=north] (sim) at (-3.4, 0.9) {
+        \textbf{Similarity Measure $s(\mathbf{x}, \mathbf{y})$}\\[3pt]
+        $\bullet$ Increases with proximity\\
+        $\bullet$ Maximum value when $\mathbf{x} = \mathbf{y}$\\
+        $\bullet$ Canonical scale: $[0, 1]$
+    };
+
+    \node[conceptBox, anchor=north] (dissim) at (3.4, 0.9) {
+        \textbf{Dissimilarity Measure $d(\mathbf{x}, \mathbf{y})$}\\[3pt]
+        $\bullet$ Decreases with proximity\\
+        $\bullet$ Theoretical null minimum: $d(\mathbf{x}, \mathbf{y}) = 0$\\
+        $\bullet$ Upper bound either finite or $+\infty$
+    };
+
+    \coordinate (split) at (0, 1.55);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (sim.north);
+    \draw[arrowStyle] (split) -| (dissim.north);
+\end{tikzpicture}
+\caption{Conceptual hierarchy of proximity measures across the data domain.}
+\label{fig:dm-proximity-taxonomy}
+\end{figure}
+
+\begin{definition}[Similarity Measure]
+A \textbf{similarity measure} is a real-valued function $s: \mathcal{D} \times \mathcal{D} \to \mathbb{R}$ quantifying the degree of affinity between two objects $\mathbf{x}$ and $\mathbf{y}$. This value increases monotonically as the objects grow closer: it reaches its upper bound when the two objects are identical and decreases as they diverge. In most settings, it is normalized to $[0, 1]$, where $1$ denotes total identity and $0$ complete disjunction.
+\end{definition}
+
+\begin{definition}[Dissimilarity Measure]
+A \textbf{dissimilarity measure} is a real-valued function $d: \mathcal{D} \times \mathcal{D} \to \mathbb{R}$ quantifying the discrepancy between two objects $\mathbf{x}$ and $\mathbf{y}$. It assumes lower values when objects are affine or identical, increasing monotonically as their difference widens. The lower bound is conventionally $d(\mathbf{x}, \mathbf{y}) = 0$ when $\mathbf{x} = \mathbf{y}$, whereas the upper bound may be bounded ($1$) or unbounded ($+\infty$).
+\end{definition}
+
+The umbrella term \textbf{proximity} is used across the literature to refer interchangeably to either a similarity or a dissimilarity measure.
+
+% ====================================================================
+% SECTION 6.2: SINGLE-ATTRIBUTE PROXIMITY MEASURES
+% ====================================================================
+\section{Single-Attribute Proximity Measures}
+\label{sec:dm-single-attribute-proximity}
+
+Given two objects $\mathbf{x}$ and $\mathbf{y}$, let $p$ be the scalar value of $\mathbf{x}$ along an attribute and $q$ the value of $\mathbf{y}$ along the same attribute. The derivation of elementary dissimilarity $d(p, q)$ and dual similarity $s(p, q)$ depends on the attribute's measurement scale.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Attribute Scale} & \textbf{Dissimilarity $d(p, q)$} & \textbf{Dual Similarity $s(p, q)$} \\
+\midrule
+\textbf{Nominal} & $d = 0$ if $p = q$; \quad $d = 1$ if $p \neq q$ & $s = 1$ if $p = q$; \quad $s = 0$ if $p \neq q$ \\
+\addlinespace
+\textbf{Ordinal} & $d = \dfrac{|p - q|}{n - 1}$ & $s = 1 - d = 1 - \dfrac{|p - q|}{n - 1}$ \\
+& {\scriptsize (with states mapped to $\{0, \dots, n-1\}$)} & \\
+\addlinespace
+\textbf{Interval or Ratio} & $d = |p - q|$ & $s = -d$, \quad $s = \dfrac{1}{1 + d}$, \\
+& & or $s = 1 - \dfrac{d - d_{\min}}{d_{\max} - d_{\min}}$ \\
+\bottomrule
+\end{tabularx}
+\caption{Formulation rules for elementary proximity across single attribute types.}
+\label{tab:dm-single-attribute-proximity}
+\end{table}
+
+\subsection{Nominal Attributes}
+Because qualitative nominal categories (e.g., color, department name) exhibit neither natural ordering nor metric properties, equality and inequality evaluations are the sole permissible operators:
+\begin{equation}
+    d(p, q) = \begin{cases} 0 & \text{if } p = q \\ 1 & \text{if } p \neq q \end{cases}, \qquad
+    s(p, q) = \begin{cases} 1 & \text{if } p = q \\ 0 & \text{if } p \neq q \end{cases}
+\end{equation}
+
+\subsection{Ordinal Attributes}
+Ordinal attributes possess an intrinsic rank composed of $n$ distinct states. To obtain consistent distance values, discrete categories are mapped to positional integers $\{0, 1, \dots, n-1\}$.
+
+The absolute difference $|p - q|$ ranges from $0$ to $n-1$. Dividing by the maximum observable spread guarantees normalization to $[0, 1]$:
+\begin{equation}
+    d(p, q) = \frac{|p - q|}{n - 1}, \qquad s(p, q) = 1 - d(p, q) = 1 - \frac{|p - q|}{n - 1}
+\end{equation}
+
+\begin{example}[Similarity Between Ordinal Ratings]
+Consider an academic performance ranking over $n = 5$ states:
+\begin{equation}
+    \{\text{fail} = 0,\, \text{pass} = 1,\, \text{good} = 2,\, \text{very good} = 3,\, \text{excellent} = 4\}
+\end{equation}
+For two candidates with ratings $p = 1$ (\textit{pass}) and $q = 4$ (\textit{excellent}):
+\begin{equation}
+    d(1, 4) = \frac{|1 - 4|}{5 - 1} = \frac{3}{4} = 0.75 \implies s(1, 4) = 1 - 0.75 = 0.25
+\end{equation}
+\end{example}
+
+\subsection{Interval and Ratio Attributes}
+For continuous or discrete numeric variables, the elementary distance is the absolute difference $d(p, q) = |p - q|$. Converting to bounded similarity $[0, 1]$ follows three main formulations:
+\begin{enumerate}
+    \item \textbf{Opposite Translation} (unbounded above): $s(p, q) = -|p - q|$;
+    \item \textbf{Asymptotic Inversion}: $s(p, q) = \dfrac{1}{1 + |p - q|}$, yielding $s \to 1$ as $d \to 0$ and $s \to 0$ as $d \to \infty$;
+    \item \textbf{Linear Min-Max Rescaling}: $s(p, q) = 1 - \dfrac{d(p, q) - d_{\min}}{d_{\max} - d_{\min}}$, where $d_{\min} = 0$ and $d_{\max}$ represents the maximum observed attribute range.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 6.3: VECTOR DISTANCES AND MINKOWSKI METRICS
+% ====================================================================
+\section{Vector Distances and Minkowski Metrics}
+\label{sec:dm-vector-minkowski-distances}
+
+When objects are described by multidimensional continuous vectors $\mathbf{x}, \mathbf{y} \in \mathbb{R}^n$, overall dissimilarity aggregates dimensional discrepancies across all $n$ orthogonal coordinates.
+
+\begin{definition}[Minkowski Distance ($L_r$ Norm)]
+Given two vectors $\mathbf{x} = (x_1, \dots, x_n)$ and $\mathbf{y} = (y_1, \dots, y_n)$ in $\mathbb{R}^n$, the \textbf{Minkowski distance} with parameter $r \ge 1$ is defined as:
+\begin{equation}
+    d(\mathbf{x}, \mathbf{y}) = \|\mathbf{x} - \mathbf{y}\|_r = \left( \sum_{k=1}^n |x_k - y_k|^r \right)^{1/r}
+    \label{eq:dm-minkowski}
+\end{equation}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    minkCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=center, text width=3.8cm, minimum height=2.9cm, inner sep=5pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    % Root
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+        MINKOWSKI METRIC FAMILY\\[2pt]
+        \footnotesize \normalfont Parametric vector formulation across $\mathbb{R}^n$
+    };
+
+    % 3 Cards
+    \node[minkCard, anchor=north] (l1) at (-4.2, 1.1) {
+        \textbf{Parameter $r = 1$}\\[2pt]
+        \textbf{$L_1$ Norm (Manhattan)}\\[3pt]
+        $d = \sum_{k=1}^n |x_k - y_k|$\\[4pt]
+        \scriptsize Grid-aligned distance (City Block);\\
+        \scriptsize strictly matches Hamming on bits.
+    };
+
+    \node[minkCard, anchor=north] (l2) at (0, 1.1) {
+        \textbf{Parameter $r = 2$}\\[2pt]
+        \textbf{$L_2$ Norm (Euclidean)}\\[3pt]
+        $d = \sqrt{\sum_{k=1}^n (x_k - y_k)^2}$\\[4pt]
+        \scriptsize Ordinary geometric Euclidean length;\\
+        \scriptsize sensitive to variable scaling.
+    };
+
+    \node[minkCard, anchor=north] (linf) at (4.2, 1.1) {
+        \textbf{Parameter $r \to \infty$}\\[2pt]
+        \textbf{$L_\infty$ Norm (Chebyshev)}\\[3pt]
+        $d = \max_{1 \le k \le n} |x_k - y_k|$\\[4pt]
+        \scriptsize Supremum/maximum norm;\\
+        \scriptsize governed by the single widest spread.
+    };
+
+    \coordinate (split) at (0, 1.65);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (l1.north);
+    \draw[arrowStyle] (split) -- (l2.north);
+    \draw[arrowStyle] (split) -| (linf.north);
+\end{tikzpicture}
+\caption{Structure of the Minkowski metric family across variations of parameter $r$.}
+\label{fig:dm-minkowski-family}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Manhattan Distance ($r = 1$, $L_1$ Norm, City Block)}:
+    \begin{equation}
+        d_{L_1}(\mathbf{x}, \mathbf{y}) = \sum_{k=1}^n |x_k - y_k|
+    \end{equation}
+    Measures rectilinear paths along orthogonal coordinate axes. On binary indicator vectors, it is strictly equivalent to the \textbf{Hamming distance}.
+    \item \textbf{Euclidean Distance ($r = 2$, $L_2$ Norm)}:
+    \begin{equation}
+        d_{L_2}(\mathbf{x}, \mathbf{y}) = \sqrt{\sum_{k=1}^n (x_k - y_k)^2}
+    \end{equation}
+    Corresponds to direct geometric straight-line length. Standardizing attributes via $z$-scores is mandatory when features possess disparate measurement units to avoid dominance by large variance dimensions.
+    \item \textbf{Supremum Distance ($r \to \infty$, $L_\infty$ Norm, Chebyshev Distance)}:
+    \begin{equation}
+        d_{L_\infty}(\mathbf{x}, \mathbf{y}) = \lim_{r \to \infty} \left( \sum_{k=1}^n |x_k - y_k|^r \right)^{1/r} = \max_{1 \le k \le n} |x_k - y_k|
+    \end{equation}
+    Isolates the single largest coordinate deviation between the pair of points.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 6.4: WORKED DISTANCE MATRIX EXAMPLE
+% ====================================================================
+\section{Worked Example of Distance Matrix Computation}
+\label{sec:dm-distance-matrix-example}
+
+Consider the set of $4$ two-dimensional points evaluated in lecture:
+\begin{equation}
+    \mathbf{p}_1 = (0, 2), \quad \mathbf{p}_2 = (2, 0), \quad \mathbf{p}_3 = (3, 1), \quad \mathbf{p}_4 = (5, 1)
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=1.1]
+    \draw[->, thick, draw=navy!70!black] (-0.5, 0) -- (6.0, 0) node[right, font=\footnotesize] {$x$};
+    \draw[->, thick, draw=navy!70!black] (0, -0.5) -- (0, 3.2) node[above, font=\footnotesize] {$y$};
+    \draw[step=1.0cm, gray!30, very thin] (-0.5, -0.5) grid (5.8, 3.0);
+
+    \foreach \x in {0, 1, 2, 3, 4, 5}
+        \draw (\x, 0.05) -- (\x, -0.05) node[below, font=\scriptsize] {\x};
+    \foreach \y in {0, 1, 2, 3}
+        \draw (0.05, \y) -- (-0.05, \y) node[left, font=\scriptsize] {\y};
+
+    \node[circle, fill=crimson!85!black, inner sep=2.5pt, label={above right:\footnotesize $\mathbf{p}_1(0, 2)$}] at (0, 2) {};
+    \node[circle, fill=crimson!85!black, inner sep=2.5pt, label={below right:\footnotesize $\mathbf{p}_2(2, 0)$}] at (2, 0) {};
+    \node[circle, fill=crimson!85!black, inner sep=2.5pt, label={above:\footnotesize $\mathbf{p}_3(3, 1)$}] at (3, 1) {};
+    \node[circle, fill=crimson!85!black, inner sep=2.5pt, label={above right:\footnotesize $\mathbf{p}_4(5, 1)$}] at (5, 1) {};
+
+    \draw[densely dashed, navy!60!black] (0, 2) -- (2, 0);
+    \draw[densely dashed, navy!60!black] (2, 0) -- (3, 1);
+    \draw[densely dashed, navy!60!black] (3, 1) -- (5, 1);
+\end{tikzpicture}
+\caption{Geometric placement of four sample data points on the Cartesian plane.}
+\label{fig:dm-points-plane}
+\end{figure}
+
+Evaluating analytical distances across distinct pairs yields:
+\begin{itemize}[noitemsep]
+    \item $(\mathbf{p}_1, \mathbf{p}_2)$: $\Delta x = 2$, $\Delta y = 2 \implies L_1 = 4$, $L_2 = \sqrt{8} \approx 2.828$, $L_\infty = 2$;
+    \item $(\mathbf{p}_1, \mathbf{p}_3)$: $\Delta x = 3$, $\Delta y = 1 \implies L_1 = 4$, $L_2 = \sqrt{10} \approx 3.162$, $L_\infty = 3$;
+    \item $(\mathbf{p}_1, \mathbf{p}_4)$: $\Delta x = 5$, $\Delta y = 1 \implies L_1 = 6$, $L_2 = \sqrt{26} \approx 5.099$, $L_\infty = 5$;
+    \item $(\mathbf{p}_2, \mathbf{p}_3)$: $\Delta x = 1$, $\Delta y = 1 \implies L_1 = 2$, $L_2 = \sqrt{2} \approx 1.414$, $L_\infty = 1$;
+    \item $(\mathbf{p}_2, \mathbf{p}_4)$: $\Delta x = 3$, $\Delta y = 1 \implies L_1 = 4$, $L_2 = \sqrt{10} \approx 3.162$, $L_\infty = 3$;
+    \item $(\mathbf{p}_3, \mathbf{p}_4)$: $\Delta x = 2$, $\Delta y = 0 \implies L_1 = 2$, $L_2 = \sqrt{4} = 2.000$, $L_\infty = 2$.
+\end{itemize}
+
+Since distance metrics enforce reflexivity ($d(\mathbf{p}_i, \mathbf{p}_i) = 0$) and symmetry ($d(\mathbf{p}_i, \mathbf{p}_j) = d(\mathbf{p}_j, \mathbf{p}_i)$), the complete distance matrices are symmetric with zero main diagonals:
+\begin{align}
+\mathbf{D}_{L_1} &= \begin{bmatrix}
+0 & 4 & 4 & 6 \\
+4 & 0 & 2 & 4 \\
+4 & 2 & 0 & 2 \\
+6 & 4 & 2 & 0
+\end{bmatrix}, \quad
+\mathbf{D}_{L_\infty} = \begin{bmatrix}
+0 & 2 & 3 & 5 \\
+2 & 0 & 1 & 3 \\
+3 & 1 & 0 & 2 \\
+5 & 3 & 2 & 0
+\end{bmatrix}, \\[6pt]
+\mathbf{D}_{L_2} &= \begin{bmatrix}
+0 & 2.828 & 3.162 & 5.099 \\
+2.828 & 0 & 1.414 & 3.162 \\
+3.162 & 1.414 & 0 & 2.000 \\
+5.099 & 3.162 & 2.000 & 0
+\end{bmatrix}
+\end{align}
+
+% ====================================================================
+% SECTION 6.5: METRIC AXIOMS AND MATHEMATICAL PROPERTIES
+% ====================================================================
+\section{Metric Axioms and Mathematical Properties}
+\label{sec:dm-metric-axioms}
+
+\begin{definition}[Metric Distance Axioms]
+A dissimilarity function $d: \mathcal{D} \times \mathcal{D} \to \mathbb{R}$ qualifies as a formal \textbf{metric} if and only if it satisfies three fundamental axioms for all triplets $\mathbf{x}, \mathbf{y}, \mathbf{z} \in \mathcal{D}$:
+\begin{enumerate}
+    \item \textbf{Positive Definiteness}:
+    \begin{equation}
+        d(\mathbf{x}, \mathbf{y}) \ge 0 \quad \forall \mathbf{x}, \mathbf{y}; \qquad d(\mathbf{x}, \mathbf{y}) = 0 \iff \mathbf{x} = \mathbf{y}
+    \end{equation}
+    \item \textbf{Symmetry}:
+    \begin{equation}
+        d(\mathbf{x}, \mathbf{y}) = d(\mathbf{y}, \mathbf{x}) \quad \forall \mathbf{x}, \mathbf{y}
+    \end{equation}
+    \item \textbf{Triangle Inequality}:
+    \begin{equation}
+        d(\mathbf{x}, \mathbf{z}) \le d(\mathbf{x}, \mathbf{y}) + d(\mathbf{y}, \mathbf{z}) \quad \forall \mathbf{x}, \mathbf{y}, \mathbf{z}
+    \end{equation}
+\end{enumerate}
+\end{definition}
+
+All Minkowski distance metrics ($r \ge 1$) strictly satisfy these three conditions (with the triangle inequality arising from Minkowski's inequality for sums and integrals).
+
+Similarly, canonical similarity measures $s: \mathcal{D} \times \mathcal{D} \to \mathbb{R}$ satisfy:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Maximum Identity}: $s(\mathbf{x}, \mathbf{y}) = 1$ (or maximum theoretical upper bound) if and only if $\mathbf{x} = \mathbf{y}$;
+    \item \textbf{Symmetry}: $s(\mathbf{x}, \mathbf{y}) = s(\mathbf{y}, \mathbf{x})$ for all pairs $\mathbf{x}, \mathbf{y}$.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 6.6: BINARY PROXIMITY: SMC VS JACCARD INDEX
+% ====================================================================
+\section{Binary Proximity Measures: SMC vs Jaccard Index}
+\label{sec:dm-binary-proximity-jaccard}
+
+In feature spaces spanned by asymmetric binary attributes (e.g., transaction baskets or vocabulary occurrence in text retrieval), evaluating concordance requires distinguishing between attribute presence ($1$) and absence ($0$).
+
+For two binary vectors $\mathbf{p}$ and $\mathbf{q}$, pairwise state occurrences populate the $2 \times 2$ contingency table:
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{cc|cc}
+\toprule
+& & \multicolumn{2}{c}{\textbf{Object $\mathbf{q}$}} \\
+& & $1$ & $0$ \\
+\midrule
+\multirow{2}{*}{\textbf{Object $\mathbf{p}$}} & $1$ & $M_{11}$ (joint presence) & $M_{10}$ (present only in $\mathbf{p}$) \\
+& $0$ & $M_{01}$ (present only in $\mathbf{q}$) & $M_{00}$ (joint absence) \\
+\bottomrule
+\end{tabular}
+\caption{Contingency table for binary attribute vectors.}
+\label{tab:dm-contingency-binary}
+\end{table}
+
+The total number of binary attributes equals:
+\begin{equation}
+    n = M_{11} + M_{10} + M_{01} + M_{00}
+\end{equation}
+
+\subsection{Coefficient Formulations}
+\begin{enumerate}
+    \item \textbf{Simple Matching Coefficient (SMC)}:
+    \begin{equation}
+        \text{SMC} = \frac{M_{11} + M_{00}}{M_{01} + M_{10} + M_{11} + M_{00}}
+    \end{equation}
+    Weights positive agreements ($M_{11}$) and negative agreements ($M_{00}$) equally. It is appropriate for symmetric binary features (such as biological sex or balanced binary survey indicators).
+    \item \textbf{Jaccard Index ($J$)}:
+    \begin{equation}
+        J = \frac{M_{11}}{M_{01} + M_{10} + M_{11}}
+    \end{equation}
+    Treats the binary feature as asymmetric: deliberately ignores joint absences ($M_{00}$).
+\end{enumerate}
+
+\begin{noteblock}{Why Jaccard is Essential for Sparse Data}
+In high-dimensional and sparse domains (such as market basket analysis or text mining), any two records jointly lack thousands of items or terms. Using the SMC coefficient would cause $M_{00}$ to dominate the fraction numerically, creating artificially inflated similarity ($\text{SMC} \to 1$) simply because both transactions did not purchase the vast majority of catalog products. Jaccard avoids this distortion by restricting evaluation strictly to active items.
+\end{noteblock}
+
+\begin{example}[SMC vs Jaccard Comparison on Sparse Vectors]
+Given two binary vectors with $n = 10$ features:
+\begin{align}
+    \mathbf{p} &= [1, 0, 0, 0, 0, 0, 0, 0, 0, 0] \\
+    \mathbf{q} &= [0, 0, 0, 0, 0, 0, 1, 0, 0, 1]
+\end{align}
+Inspecting indices yields:
+\begin{equation}
+    M_{11} = 0, \quad M_{10} = 1, \quad M_{01} = 2, \quad M_{00} = 7
+\end{equation}
+The coefficients evaluate to:
+\begin{equation}
+    \text{SMC} = \frac{0 + 7}{2 + 1 + 0 + 7} = \frac{7}{10} = 0.70, \qquad
+    J = \frac{0}{2 + 1 + 0} = \frac{0}{3} = 0.00
+\end{equation}
+SMC indicates $70\%$ affinity based entirely on shared non-occurrences, while Jaccard indicates $0\%$ similarity since the two items share no active components.
+\end{example}
+
+% ====================================================================
+% SECTION 6.7: COSINE SIMILARITY FOR TEXT AND DOCUMENT DATA
+% ====================================================================
+\section{Cosine Similarity for Document Data}
+\label{sec:dm-cosine-similarity}
+
+In the Vector Space Model of Information Retrieval, text documents are represented as high-dimensional term frequency or TF-IDF vectors.
+
+In this context, documents of differing lengths covering identical subject matter appear distant under the Euclidean metric due to differing vector magnitudes. \textbf{Cosine Similarity} captures directional alignment regardless of vector norm:
+\begin{equation}
+    \cos(\mathbf{d}_1, \mathbf{d}_2) = \frac{\mathbf{d}_1 \cdot \mathbf{d}_2}{\|\mathbf{d}_1\|_2 \|\mathbf{d}_2\|_2} = \frac{\sum_{k=1}^n d_{1,k} d_{2,k}}{\sqrt{\sum_{k=1}^n d_{1,k}^2} \sqrt{\sum_{k=1}^n d_{2,k}^2}}
+    \label{eq:dm-cosine}
+\end{equation}
+
+\begin{example}[Worked Example on Document Term Vectors]
+Given two term count vectors:
+\begin{align}
+    \mathbf{d}_1 &= [3, 2, 0, 5, 0, 0, 0, 2, 0, 0] \\
+    \mathbf{d}_2 &= [1, 0, 0, 0, 0, 0, 0, 1, 0, 2]
+\end{align}
+\begin{enumerate}
+    \item \textbf{Dot Product}:
+    \begin{equation}
+        \mathbf{d}_1 \cdot \mathbf{d}_2 = (3 \times 1) + (2 \times 0) + (5 \times 0) + (2 \times 1) + (0 \times 2) = 3 + 2 = 5
+    \end{equation}
+    \item \textbf{Euclidean Norms}:
+    \begin{align}
+        \|\mathbf{d}_1\|_2 &= \sqrt{3^2 + 2^2 + 5^2 + 2^2} = \sqrt{9 + 4 + 25 + 4} = \sqrt{42} \approx 6.4807 \\
+        \|\mathbf{d}_2\|_2 &= \sqrt{1^2 + 1^2 + 2^2} = \sqrt{1 + 1 + 4} = \sqrt{6} \approx 2.4495
+    \end{align}
+    \item \textbf{Cosine Similarity}:
+    \begin{equation}
+        \cos(\mathbf{d}_1, \mathbf{d}_2) = \frac{5}{\sqrt{42} \times \sqrt{6}} = \frac{5}{\sqrt{252}} = \frac{5}{15.8745} \approx 0.3150
+    \end{equation}
+\end{enumerate}
+The documents share roughly $31.5\%$ angular thematic alignment.
+\end{example}
+
+% ====================================================================
+% SECTION 6.8: WEIGHTING, MISSING VALUES, AND OBJECT CORRELATION
+% ====================================================================
+\section{Weighting, Missing Values, and Correlation Across Objects}
+\label{sec:dm-weighting-correlation}
+
+\subsection{Weighted Similarity with Missing Data Handling}
+When attributes carry uneven importance or contain null values, non-negative weights $\{\omega_k\}_{k=1}^n$ and a binary indicator variable $\delta_k \in \{0, 1\}$ are incorporated ($\delta_k = 1$ if and only if feature $k$ is present in both $\mathbf{x}$ and $\mathbf{y}$):
+\begin{equation}
+    \text{similarity}(\mathbf{x}, \mathbf{y}) = \frac{\sum_{k=1}^n \omega_k \delta_k s_k(\mathbf{x}, \mathbf{y})}{\sum_{k=1}^n \omega_k \delta_k}
+\end{equation}
+Analogously, the \textbf{weighted Minkowski distance} is formulated as:
+\begin{equation}
+    d(\mathbf{x}, \mathbf{y}) = \left( \sum_{k=1}^n \omega_k |x_k - y_k|^r \right)^{1/r}
+\end{equation}
+
+\subsection{Correlation Between Objects}
+Pearson's correlation coefficient can be calculated across rows to measure affinity between object profiles $\mathbf{p}$ and $\mathbf{q}$:
+\begin{equation}
+    \text{corr}(\mathbf{p}, \mathbf{q}) = \frac{\sum_{k=1}^n (p_k - \bar{p})(q_k - \bar{q})}{\sqrt{\sum_{k=1}^n (p_k - \bar{p})^2} \sqrt{\sum_{k=1}^n (q_k - \bar{q})^2}} = \mathbf{p}^* \cdot \mathbf{q}^*
+\end{equation}
+where $\mathbf{p}^*$ and $\mathbf{q}^*$ denote standardized profiles with zero mean and unit variance.
+
+% ====================================================================
+% SECTION 6.9: INFORMATION THEORY: ENTROPY AND MUTUAL INFORMATION
+% ====================================================================
+\section{Information Theory: Entropy and Mutual Information}
+\label{sec:dm-information-theory}
+
+Information Theory, pioneered by Claude Shannon (1948), supplies the mathematical foundation for evaluating disorder, uncertainty, and non-linear dependencies among discrete or binned variables.
+
+\subsection{Self-Information and Shannon Entropy}
+The information content associated with an event $x_i$ occurring with probability $p_i = P(X = x_i)$ represents surprise:
+\begin{equation}
+    I(x_i) = \log_2\left(\frac{1}{p_i}\right) = -\log_2(p_i)
+\end{equation}
+\textbf{Shannon Entropy} $H(X)$ represents the expected value of self-information:
+\begin{equation}
+    H(X) = \mathbb{E}[I(X)] = -\sum_{i=1}^n p_i \log_2(p_i)
+\end{equation}
+with the continuity convention $\lim_{p \to 0^+} p \log_2(p) = 0$.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=1.1]
+    \draw[->, thick, draw=navy!80!black] (-0.2, 0) -- (4.8, 0) node[right, font=\footnotesize] {$p$};
+    \draw[->, thick, draw=navy!80!black] (0, -0.2) -- (0, 3.2) node[above, font=\footnotesize] {$H(p)$ [bits]};
+    
+    \draw[dashed, gray!50] (2.0, 0) -- (2.0, 2.5);
+    \draw[dashed, gray!50] (0, 2.5) -- (2.0, 2.5);
+
+    \draw[very thick, crimson!85!black, domain=0.001:0.999, samples=100] 
+        plot (\x*4.0, {-( \x*ln(\x) + (1-\x)*ln(1-\x) ) / ln(2) * 2.5});
+
+    \node[below, font=\scriptsize] at (0, 0) {$0.0$};
+    \node[below, font=\scriptsize] at (2.0, 0) {$0.5$};
+    \node[below, font=\scriptsize] at (4.0, 0) {$1.0$};
+    
+    \node[left, font=\scriptsize] at (0, 2.5) {$1.0$};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (2.0, 2.5) {};
+    \node[above, font=\scriptsize\bfseries, text=navy!85!black] at (2.0, 2.6) {Maximum Uncertainty ($H=1$)};
+\end{tikzpicture}
+\caption{Shannon entropy curve for a Bernoulli random variable as a function of parameter $p$.}
+\label{fig:dm-bernoulli-entropy}
+\end{figure}
+
+Entropy is strictly bounded: $0 \le H(X) \le \log_2(n)$. It vanishes if and only if the event is deterministic ($p_k = 1$), reaching its maximum $\log_2(n)$ under a uniform distribution ($p_i = 1/n$).
+
+\subsection{Mutual Information}
+\textbf{Mutual Information} $I(X; Y)$ quantifies shared information between variables (the reduction in uncertainty regarding $X$ resulting from knowledge of $Y$):
+\begin{equation}
+    I(X; Y) = H(X) + H(Y) - H(X, Y)
+\end{equation}
+where $H(X, Y)$ is the joint entropy over joint probabilities $p_{ij} = P(X = x_i, Y = y_j)$:
+\begin{equation}
+    H(X, Y) = -\sum_{i=1}^{n_X} \sum_{j=1}^{n_Y} p_{ij} \log_2(p_{ij})
+\end{equation}
+
+Fundamental properties:
+\begin{enumerate}[noitemsep]
+    \item $I(X; Y) \ge 0$ and $I(X; Y) = I(Y; X)$ (non-negativity and symmetry);
+    \item $I(X; Y) = 0 \iff P(X, Y) = P(X)P(Y)$ (vanishes under statistical independence);
+    \item $I(X; Y) \le \min\big(H(X), H(Y)\big) \le \log_2(\min(n_X, n_Y))$.
+\end{enumerate}
+
+\subsection{Worked Calculation Example of Mutual Information}
+Consider the sample of $m = 100$ students evaluated in lecture, comparing **Academic Status** ($X \in \{\text{Undergrad}, \text{Grad}\}$) with **Grade** earned ($Y \in \{A, B, C\}$).
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lYYYY}
+\toprule
+\textbf{Status ($X$)} & \textbf{Grade A} & \textbf{Grade B} & \textbf{Grade C} & \textbf{Total ($X$)} \\
+\midrule
+\textbf{Undergrad} & 5 ($0.05$) & 30 ($0.30$) & 10 ($0.10$) & 45 ($0.45$) \\
+\textbf{Grad} & 30 ($0.30$) & 20 ($0.20$) & 5 ($0.05$) & 55 ($0.55$) \\
+\midrule
+\textbf{Total ($Y$)} & 35 ($0.35$) & 50 ($0.50$) & 15 ($0.15$) & 100 ($1.00$) \\
+\bottomrule
+\end{tabularx}
+\caption{Joint and marginal frequency distributions for academic status and course grades.}
+\label{tab:dm-student-contingency}
+\end{table}
+
+\begin{enumerate}
+    \item \textbf{Marginal Entropy of $X$}:
+    \begin{equation}
+        H(X) = - 0.45 \log_2(0.45) - 0.55 \log_2(0.55) \approx 0.9928 \text{ bits}
+    \end{equation}
+    \item \textbf{Marginal Entropy of $Y$}:
+    \begin{align}
+        H(Y) &= - 0.35 \log_2(0.35) - 0.50 \log_2(0.50) - 0.15 \log_2(0.15) \nonumber \\
+        &\approx 0.5301 + 0.5000 + 0.4105 = 1.4406 \text{ bits}
+    \end{align}
+    \item \textbf{Joint Entropy $H(X, Y)$}:
+    \begin{align}
+        H(X, Y) &= - \sum_{i=1}^2 \sum_{j=1}^3 p_{ij} \log_2(p_{ij}) \nonumber \\
+        &\approx 2(0.2161) + 2(0.5211) + 0.3322 + 0.4644 = 2.2710 \text{ bits}
+    \end{align}
+    \item \textbf{Mutual Information}:
+    \begin{align}
+        I(X; Y) &= H(X) + H(Y) - H(X, Y) \nonumber \\
+        &= 0.9928 + 1.4406 - 2.2710 = 0.1624 \text{ bits}
+    \end{align}
+\end{enumerate}
+Knowledge of the student's academic status reduces the uncertainty regarding their grade distribution by $0.1624$ bits (accounting for $11.27\%$ of the baseline grade entropy).
+
+% ====================================================================
+% SECTION 6.10: INTRODUCTION TO CLUSTER ANALYSIS
+% ====================================================================
+\section{Foundations and Objectives of Cluster Analysis}
+\label{sec:dm-cluster-analysis-principles}
+
+\textbf{Cluster Analysis} (unsupervised classification) partitions an unlabelled dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\}$ into homogeneous groups (\textbf{clusters}) according to two dual guiding principles:
+\begin{enumerate}
+    \item \textbf{Maximizing Intra-Cluster Cohesion}: Objects assigned to the same cluster must share high reciprocal affinity and proximity;
+    \item \textbf{Maximizing Inter-Cluster Separation}: Objects located across different clusters must exhibit maximum metric distance.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Cluster 1
+    \draw[thick, draw=navy!85!black, fill=navy!6, rounded corners=12pt] (-4.5, -1.8) rectangle (-1.2, 1.8);
+    \node[font=\footnotesize\bfseries, text=navy!85!black] at (-2.85, 1.4) {Cluster $C_1$};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (-3.5, 0.5) {};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (-2.5, 0.8) {};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (-3.8, -0.4) {};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (-2.2, -0.2) {};
+    \node[circle, fill=navy!80!black, inner sep=2pt] at (-2.9, -1.0) {};
+    
+    % Intra-cluster arrow
+    \draw[<->, thick, draw=navy!80!black] (-3.5, 0.5) -- (-2.5, 0.8) node[midway, above, font=\tiny] {Cohesion};
+
+    % Cluster 2
+    \draw[thick, draw=crimson!85!black, fill=crimson!6, rounded corners=12pt] (1.2, -1.8) rectangle (4.5, 1.8);
+    \node[font=\footnotesize\bfseries, text=crimson!85!black] at (2.85, 1.4) {Cluster $C_2$};
+    \node[rectangle, fill=crimson!80!black, inner sep=2.5pt] at (2.2, 0.6) {};
+    \node[rectangle, fill=crimson!80!black, inner sep=2.5pt] at (3.5, 0.9) {};
+    \node[rectangle, fill=crimson!80!black, inner sep=2.5pt] at (2.5, -0.5) {};
+    \node[rectangle, fill=crimson!80!black, inner sep=2.5pt] at (3.8, -0.2) {};
+    \node[rectangle, fill=crimson!80!black, inner sep=2.5pt] at (3.1, -1.1) {};
+
+    % Inter-cluster arrow
+    \draw[<->, very thick, draw=purple!85!black] (-1.2, 0) -- (1.2, 0) 
+        node[midway, above, font=\scriptsize\bfseries] {Inter-Cluster Separation}
+        node[midway, below, font=\scriptsize] {(Maximised)};
+\end{tikzpicture}
+\caption{Geometric trade-off between internal cohesion and external separation in cluster analysis.}
+\label{fig:dm-cluster-tradeoff}
+\end{figure}
+
+Unlike supervised learning, no target labels $y$ are provided; structural boundaries are derived organically from sample geometry.
+
+\subsection{Applications: Understanding vs Summarization}
+Practical motivations for clustering fall into two complementary domains:
+\begin{enumerate}
+    \item \textbf{Data Understanding}: Uncovering latent taxonomic patterns:
+    \begin{itemize}[noitemsep]
+        \item \textit{Information Retrieval}: Hierarchical structuring of unstructured document libraries;
+        \item \textit{Bioinformatics}: Grouping genes exhibiting synchronous functional co-expression profiles;
+        \item \textit{Financial Markets}: Identifying co-moving equities (e.g., tech, energy, or banking clusters).
+    \end{itemize}
+    \item \textbf{Data Summarization}: Quantitative data compression where voluminous observations are condensed into representative prototypes (centroids or medoids), conserving aggregate statistical characteristics.
+\end{enumerate}
+
+\subsection{What Cluster Analysis is NOT}
+To maintain clear boundaries, clustering must be distinguished from related data tasks:
+\begin{itemize}
+    \item \textbf{Manual Partitioning}: Arbitrary external assignment (e.g., grouping by name initial $A-L$ vs $M-Z$) reflects no natural data structure;
+    \item \textbf{Database Querying}: SQL filter clauses (e.g., \texttt{WHERE Age > 30}) partition data by user-defined constraints rather than intrinsic topology;
+    \item \textbf{Supervised Classification}: Optimizes explicit prediction against known target labels $y \in \mathcal{Y}$;
+    \item \textbf{Pattern Mining}: Association rules discover local item implications across transactions, whereas clustering determines global structure across full feature vectors.
+\end{itemize}
+
+% ====================================================================
+% SECTION 6.11: CLUSTERING TAXONOMIES
+% ====================================================================
+\section{Clustering Taxonomies and Grouping Structures}
+\label{sec:dm-clustering-taxonomies}
+
+\subsection{Partitional vs Hierarchical Clustering}
+\begin{enumerate}
+    \item \textbf{Partitional Clustering}: Divides space into $k$ disjoint subsets $\mathcal{C} = \{C_1, \dots, C_k\}$ that fully cover the dataset:
+    \begin{equation}
+        \bigcup_{i=1}^k C_i = \mathcal{D}, \qquad C_i \cap C_j = \emptyset \quad \forall i \neq j
+    \end{equation}
+    Each object belongs to exactly one cluster, requiring $k$ to be specified upfront (e.g., $K$-Means).
+    \item \textbf{Hierarchical Clustering}: Produces a nested family of partitions organized as a metric tree called a **dendrogram**, eliminating the need to set $k$ in advance.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    boxPart/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=center, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+        CLUSTERING TAXONOMY\\[2pt]
+        \footnotesize \normalfont Structural division of the observation space
+    };
+
+    \node[boxPart, anchor=north] (partCol) at (-3.6, 1.1) {
+        \textbf{Partitional Clustering}\\[3pt]
+        $\bullet$ Flat rigid split into $k$ subsets\\
+        $\bullet$ Mutually disjoint clusters\\
+        $\bullet$ Parameter $k$ fixed in advance\\
+        $\bullet$ Global SSE minimization (e.g., $K$-Means)
+    };
+
+    \node[boxPart, anchor=north] (hierCol) at (3.6, 1.1) {
+        \textbf{Hierarchical Clustering}\\[3pt]
+        $\bullet$ Nested tree structure (dendrogram)\\
+        $\bullet$ No rigid prior requirement on $k$\\
+        $\bullet$ Agglomerative (bottom-up) or divisive\\
+        $\bullet$ Local linkage choices (Single, Complete, Ward)
+    };
+
+    \coordinate (split) at (0, 1.65);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (partCol.north);
+    \draw[arrowStyle] (split) -| (hierCol.north);
+\end{tikzpicture}
+\caption{Structural comparison between partitional and hierarchical clustering.}
+\label{fig:dm-partitional-vs-hierarchical}
+\end{figure}
+
+\subsection{Additional Structural Dimensions}
+\begin{itemize}
+    \item \textbf{Exclusive vs Non-Exclusive (Overlapping)}: In non-exclusive clustering, points may belong to multiple groups simultaneously (ideal for border observations or multi-topic texts).
+    \item \textbf{Fuzzy (Soft) vs Non-Fuzzy (Hard)}: In fuzzy clustering, each instance $\mathbf{x}_i$ is assigned a continuous membership degree $w_{ik} \in [0, 1]$ satisfying $\sum_{k=1}^K w_{ik} = 1$.
+    \item \textbf{Partial vs Complete}: Partial methods identify dense cohesive clusters while filtering out background noise and anomalies.
+    \item \textbf{Homogeneous vs Heterogeneous}: Homogeneous algorithms presume similar geometric shapes and densities, whereas heterogeneous models accommodate arbitrary geometries and varying densities.
+\end{itemize}
+
+% ====================================================================
+% SECTION 6.12: CLUSTER TYPES AND MATHEMATICAL FORMULATION
+% ====================================================================
+\section{Cluster Types and Mathematical Formulations}
+\label{sec:dm-cluster-types-definitions}
+
+The definition of a ``cluster'' differs significantly depending on the governing geometric concept:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    typeCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+        CANONICAL CLUSTER TYPES\\[2pt]
+        \footnotesize \normalfont Geometric and mathematical aggregation criteria
+    };
+
+    \node[typeCard, anchor=north] (leftCol) at (-3.6, 1.1) {
+        \textbf{Center-Based (Centroid / Medoid)}\\[2pt]
+        $\mathbf{x} \in C_i \iff d(\mathbf{x}, \mathbf{c}_i) < d(\mathbf{x}, \mathbf{c}_j) \quad \forall j \neq i$\\[4pt]
+        \textbf{Density-Based (Dense Regions)}\\[2pt]
+        High-density regions separated by voids; robust against outlier noise.
+    };
+
+    \node[typeCard, anchor=north] (rightCol) at (3.6, 1.1) {
+        \textbf{Contiguity-Based (Transitive Graph)}\\[2pt]
+        Arbitrary shapes; prone to chaining.\\[4pt]
+        \textbf{Objective Function (Optimization)}\\[2pt]
+        SSE Minimization ($K$-Means):\\
+        $\text{SSE} = \sum_{i=1}^k \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{c}_i\|_2^2$
+    };
+
+    \coordinate (split) at (0, 1.65);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (leftCol.north);
+    \draw[arrowStyle] (split) -| (rightCol.north);
+\end{tikzpicture}
+\caption{Overview of mathematical cluster formulations.}
+\label{fig:dm-cluster-types-summary}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Well-Separated Clusters}:
+    Every point in a cluster is strictly closer to all cluster members than to any outside observation:
+    \begin{equation}
+        \forall \mathbf{x}, \mathbf{y} \in C_i, \; \forall \mathbf{z} \notin C_i \implies d(\mathbf{x}, \mathbf{y}) < d(\mathbf{x}, \mathbf{z})
+    \end{equation}
+    \item \textbf{Center-Based Clusters}:
+    An object belongs to the cluster with the nearest prototype center:
+    \begin{equation}
+        \mathbf{x} \in C_i \iff d(\mathbf{x}, \mathbf{c}_i) < d(\mathbf{x}, \mathbf{c}_j) \quad \forall j \neq i
+    \end{equation}
+    The center can be the **centroid** (continuous arithmetic mean $\mathbf{c}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x}$) or the **medoid** (most central real instance $\mathbf{m}_i = \arg\min_{\mathbf{y} \in C_i} \sum_{\mathbf{x} \in C_i} d(\mathbf{x}, \mathbf{y})$).
+    \item \textbf{Contiguity-Based (Graph-Based) Clusters}:
+    A point belongs to a cluster if it is closer to at least one cluster member than to any outside observation:
+    \begin{equation}
+        \forall \mathbf{x} \in C_i, \; \exists \mathbf{y} \in C_i \setminus \{\mathbf{x}\} \quad \text{s.t.} \quad d(\mathbf{x}, \mathbf{y}) < \min_{\mathbf{z} \notin C_i} d(\mathbf{x}, \mathbf{z})
+    \end{equation}
+    Accommodates arbitrary non-convex geometries, but suffers from the **chaining effect**, where isolated noise observations bridge and improperly merge distinct groups.
+    \item \textbf{Density-Based Clusters}:
+    Dense regions bounded and separated by regions of low point density (e.g., DBSCAN). Resilient to noise and unconstrained by spherical geometry.
+    \item \textbf{Objective-Function-Defined Clusters}:
+    Framed as optimization problems. Exhaustive global discovery across $N$ points and $k$ clusters scales with the Stirling numbers of the second kind:
+    \begin{equation}
+        S(N, k) = \frac{1}{k!} \sum_{j=0}^k (-1)^{k-j} \binom{k}{j} j^N \approx \frac{k^N}{k!}
+    \end{equation}
+    As the problem is inherently \textbf{NP-Hard}, iterative descent heuristics such as $K$-Means minimize the Sum of Squared Errors (SSE):
+    \begin{equation}
+        \text{SSE} = \sum_{i=1}^k \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{c}_i\|_2^2
+    \end{equation}
+\end{enumerate}
+
+% ====================================================================
+% SECTION 6.13: INPUT DATA CHARACTERISTICS AND ALGORITHM FAMILIES
+% ====================================================================
+\section{Input Data Characteristics and Algorithm Families}
+\label{sec:dm-data-characteristics-algorithms}
+
+Clustering effectiveness depends on input space characteristics:
+\begin{itemize}
+    \item \textbf{Curse of Dimensionality}: In high-dimensional spaces $\mathbb{R}^n$, pairwise distances concentrate and equalize, diminishing the contrast between near and far neighbors;
+    \item \textbf{Sparsity and Heterogeneity}: Sparse vectors require asymmetric metrics (Jaccard, Cosine); mixed data types require hybrid metrics (Gower);
+    \item \textbf{Noise and Outliers}: Distort prototype centroids in center-based methods and trigger spurious bridging in contiguity-based methods.
+\end{itemize}
+
+The three principal algorithm families are structured as follows:
+\begin{enumerate}
+    \item \textbf{$K$-Means and Variants}: Partitional, exclusive, complete. Iteratively minimizes SSE across compact spherical clusters of comparable density;
+    \item \textbf{Agglomerative Hierarchical Clustering}: Hierarchical, nested. Iteratively merges closest cluster pairs according to linkage criteria (Single, Complete, Average, Ward), producing an interpretable dendrogram;
+    \item \textbf{Density-Based Clustering (DBSCAN)}: Local density-based, partial, non-parametric with respect to $k$. Naturally isolates noise points and detects clusters of arbitrary shape.
+\end{enumerate}
