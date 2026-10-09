@@ -1,0 +1,878 @@
+\chapter{Cluster Analysis: Algoritmi K-Means e Clustering Gerarchico}
+\label{chap:dm-kmeans-hierarchical}
+
+In questo capitolo vengono presentati i fondamenti teorici, le formulazioni algebriche e le dinamiche operative dei due paradigmi cardine dell'apprendimento non supervisionato basato su partizionamento e gerarchizzazione:
+\begin{enumerate}[noitemsep]
+    \item L'\textbf{algoritmo K-Means}: formulazione analitica, dinamica di Lloyd, minimizzazione dell'errore quadratico ($\mathrm{SSE}$), dimostrazione formale di convergenza tramite discesa di coordinate, euristiche di inizializzazione (K-Means++, Bisecting K-Means) e limiti strutturali;
+    \item Il \textbf{Clustering Gerarchico}: approcci agglomerativi e divisivi, interpretazione dei dendrogrammi, criteri di collegamento (\textit{linkage}: MIN, MAX, Group Average, Metodo di Ward con derivazione analitica), ricorrenza universale di Lance-Williams ed equivalenza con il Minimum Spanning Tree ($\mathrm{MST}$).
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 7.1: INTRODUZIONE ALLA CLUSTER ANALYSIS PARTIZIONALE E GERARCHICA
+% ====================================================================
+\section{Introduzione alla Cluster Analysis Partizionale e Gerarchica}
+\label{sec:dm-clustering-intro-taxonomy}
+
+La \textbf{Cluster Analysis} (o raggruppamento non supervisionato) costituisce una delle discipline fondanti dell'apprendimento automatico non supervisionato (\textit{unsupervised machine learning}). A differenza dell'apprendimento supervisionato, in cui ogni istanza $\mathbf{x}_i$ è corredata da un'etichetta di classe nota a priori $y_i \in \mathcal{Y}$ (\textit{ground truth}), nel clustering l'obiettivo primario consiste nello scoprire strutture latenti, regolarità geometriche o aggregazioni naturali all'interno di un insieme di dati multidimensionali non etichettati.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    conceptBox/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!8, thick, font=\footnotesize, text width=6.1cm, inner sep=7pt},
+    rootBox/.style={rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small, align=center, text width=11.5cm, inner sep=7pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rootBox] (root) at (0, 3.2) {
+        \textbf{\large PARADIGMI DI CLUSTER ANALYSIS}\\[3pt]
+        \footnotesize \normalfont Metodologie di partizionamento non supervisionato dello spazio $\mathcal{D} \subset \mathbb{R}^d$
+    };
+
+    \node[conceptBox, anchor=north] (part) at (-3.4, 1.1) {
+        \centering\textbf{Clustering Partizionale (K-Means)}\\[6pt]
+        \raggedright
+        $\bullet$ Partizione piatta in $K$ cluster disgiunti\\[3pt]
+        $\bullet$ Minimizzazione inerzia globale ($\mathrm{SSE}$)\\[3pt]
+        $\bullet$ Prototipi a centroide e celle di Voronoi\\[3pt]
+        $\bullet$ Scalabilit\`a lineare: $\mathcal{O}(n \cdot K \cdot I \cdot d)$
+    };
+
+    \node[conceptBox, anchor=north] (hier) at (3.4, 1.1) {
+        \centering\textbf{Clustering Gerarchico}\\[6pt]
+        \raggedright
+        $\bullet$ Tassonomia nidificata (Dendrogramma)\\[3pt]
+        $\bullet$ Decisioni miopi (\textit{greedy}) irreversibili\\[3pt]
+        $\bullet$ Metriche di linkage su distanze a coppie\\[3pt]
+        $\bullet$ Complessit\`a sovra-quadratica: $\mathcal{O}(n^2 \log n)$
+    };
+
+    \coordinate (split) at (0, 1.9);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (part.north);
+    \draw[arrowStyle] (split) -| (hier.north);
+\end{tikzpicture}
+\caption{Tassonomia dei due principali paradigmi di clustering trattati nel capitolo.}
+\label{fig:dm-clustering-taxonomy-overview}
+\end{figure}
+
+Dato un insieme di $n$ osservazioni $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$ con $\mathbf{x}_i \in \mathbb{R}^d$, il problema generale del clustering richiede di ripartire $\mathcal{D}$ in sottoinsiemi $C = \{C_1, \dots, C_K\}$ massimizzando congiuntamente due proprietà complementari:
+\begin{enumerate}
+    \item \textbf{Massima omogeneità interna (\textit{high intra-cluster cohesion})}: le osservazioni assegnate al medesimo raggruppamento devono risultare il più vicine e simili possibile secondo una metrica stabilita.
+    \item \textbf{Massima eterogeneità esterna (\textit{high inter-cluster separation})}: elementi appartenenti a gruppi distinti devono esibire una marcata distanza o dissimilarità reciproca.
+\end{enumerate}
+
+I due paradigmi affrontano tale sfida con filosofie strutturali differenti: il paradigma partizionale fissa a priori il numero di raggruppamenti $K$ e persegue una tassellazione poligonale ottima dello spazio mediante prototipi; il paradigma gerarchico genera una sequenza continua di partizioni nidificate, delegando la determinazione di $K$ a un'analisi a posteriori del dendrogramma.
+
+% ====================================================================
+% SEZIONE 7.2: K-MEANS: ALGORITMO DI LLOYD E GEOMETRIA DI VORONOI
+% ====================================================================
+\section{K-Means: Algoritmo di Lloyd e Geometria di Voronoi}
+\label{sec:dm-kmeans-algorithm-geometry}
+
+L'algoritmo \textbf{K-Means} rappresenta il capostipite dei metodi partizionali basati su centroide o prototipo. Introdotto storicamente da Hugo Steinhaus nel 1956, formalizzato da Stuart Lloyd (1957/1982) nei contesti di quantizzazione dei segnali, e denominato da James MacQueen (1967), il metodo realizza un partizionamento rigido (\textit{hard clustering}) in cui ogni punto è assegnato univocamente a un solo cluster.
+
+\begin{definition}[Partizione Hard e Centroide]
+Data una collezione di $n$ punti $\mathcal{D} \subset \mathbb{R}^d$ e un intero positivo fissato $K \in \mathbb{N}^+$, una partizione rigida è una famiglia di insiemi $\{C_1, \dots, C_K\}$ tale che:
+\begin{equation}
+    \bigcup_{i=1}^K C_i = \mathcal{D}, \qquad C_i \cap C_j = \emptyset \quad (\forall i \ne j), \qquad C_i \ne \emptyset \quad (\forall i \in \{1, \dots, K\})
+\end{equation}
+A ciascun cluster $C_i$ è associato un vettore prototipo denominato \textbf{centroide} $\mathbf{m}_i \in \mathbb{R}^d$, che per la distanza euclidea coincide con il baricentro aritmetico dei punti assegnati:
+\begin{equation}
+    \mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x}
+    \label{eq:dm-centroid-definition}
+\end{equation}
+dove $|C_i|$ denota la cardinalità del cluster $C_i$.
+\end{definition}
+
+\subsection{Pseudocodice dell'Algoritmo di Lloyd}
+
+L'algoritmo di base opera alternando ricorsivamente due fasi deterministiche fino a convergenza, come illustrato nell'Algoritmo~\ref{alg:dm-kmeans-lloyd}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, numero di cluster $K$, tolleranza $\epsilon \ge 0$.}
+\KwOutput{Partizione finale $\{C_1, \dots, C_K\}$ e centroidi $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$.}
+Inizializza $K$ centroidi iniziali $\{\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}\}$ mediante estrazione casuale da $\mathcal{D}$\;
+$t \leftarrow 0$\;
+\Repeat{i centroidi non variano significativamente: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \epsilon$}{
+    $t \leftarrow t + 1$\;
+    \BlankLine
+    \tcp{Fase 1: Assegnazione alle celle di Voronoi}
+    Inizializza $C_i^{(t)} \leftarrow \emptyset$ per ogni $i \in \{1, \dots, K\}$\;
+    \ForEach{$\mathbf{x} \in \mathcal{D}$}{
+        Determina l'indice del centroide più vicino: $k^* = \arg\min_{j \in \{1, \dots, K\}} \|\mathbf{x} - \mathbf{m}_j^{(t-1)}\|^2$\;
+        Assegna $\mathbf{x}$ al cluster corrispondente: $C_{k^*}^{(t)} \leftarrow C_{k^*}^{(t)} \cup \{\mathbf{x}\}$\;
+    }
+    \BlankLine
+    \tcp{Fase 2: Ricalcolo dei centroidi (baricentri)}
+    \ForEach{$i \in \{1, \dots, K\}$}{
+        \If{$|C_i^{(t)}| > 0$}{
+            $\mathbf{m}_i^{(t)} \leftarrow \dfrac{1}{|C_i^{(t)}|} \sum_{\mathbf{x} \in C_i^{(t)}} \mathbf{x}$\;
+        }
+        \Else{
+            Gestisci cluster vuoto riallocando un centroide orfano\;
+        }
+    }
+}
+\caption{Algoritmo standard di K-Means (Lloyd).}
+\label{alg:dm-kmeans-lloyd}
+\end{algorithm}
+
+\subsection{Interpretazione Geometrica: Diagramma di Voronoi}
+
+La fase di assegnazione partiziona lo spazio euclideo continuo $\mathbb{R}^d$ in $K$ regioni convesse delimitate da iperpiani bisettori, note come \textbf{tassellazione di Voronoi} generata dai prototipi $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$:
+\begin{equation}
+    V(C_i) = \left\{ \mathbf{x} \in \mathbb{R}^d : \|\mathbf{x} - \mathbf{m}_i\|_2 \le \|\mathbf{x} - \mathbf{m}_j\|_2 \quad \forall j \ne i \right\}
+\end{equation}
+Ciascun iperpiano di separazione tra il cluster $C_i$ e il cluster $C_j$ è ortogonale al segmento congiungente $\mathbf{m}_i$ e $\mathbf{m}_j$ e passa per il loro punto medio. Ne consegue che ogni cluster individuato da K-Means è un poliedro convesso: punti appartenenti a regioni non convesse o concave non possono essere raggruppati correttamente senza frammentare la tassellazione.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    stepBox/.style={rectangle, rounded corners=4pt, draw=navy!80!black, fill=navy!8, thick, font=\footnotesize, align=center, text width=6.2cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[stepBox] (init) at (0, 3.6) {
+        \textbf{Inizializzazione}\\
+        Selezione di $K$ centroidi iniziali $\mathbf{m}_1, \dots, \mathbf{m}_K \in \mathbb{R}^d$
+    };
+
+    \node[stepBox] (assign) at (0, 1.8) {
+        \textbf{Fase 1: Assegnazione (Voronoi)}\\
+        $C_i = \{\mathbf{x} \in \mathcal{D} : \|\mathbf{x} - \mathbf{m}_i\|_2 \le \|\mathbf{x} - \mathbf{m}_j\|_2 \; \forall j \ne i\}$
+    };
+
+    \node[stepBox] (update) at (0, 0.0) {
+        \textbf{Fase 2: Aggiornamento Prototipi}\\
+        $\mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x} \quad (\forall i = 1, \dots, K)$
+    };
+
+    \node[draw=purple!85!black, fill=purple!12, rounded corners=4pt, font=\footnotesize\bfseries, align=center, text width=5.0cm] (stop) at (0, -1.8) {
+        Convergenza raggiunta?\\
+        I centroidi non variano più
+    };
+
+    \draw[arrowStyle] (init) -- (assign);
+    \draw[arrowStyle] (assign) -- (update);
+    \draw[arrowStyle] (update) -- (stop);
+    
+    \draw[arrowStyle] (stop.east) -- ++(1.8, 0) |- node[near start, right, font=\scriptsize\bfseries] {No (nuova iterazione)} (assign.east);
+\end{tikzpicture}
+\caption{Ciclo iterativo di aggiornamento a due fasi dell'algoritmo K-Means.}
+\label{fig:dm-kmeans-flowchart}
+\end{figure}
+
+\subsection{Dinamica Temporale delle Iterazioni}
+
+Studiando l'evoluzione dei centroidi lungo l'asse delle iterazioni $t = 1, 2, \dots$:
+\begin{itemize}[noitemsep]
+    \item \textbf{Iterazioni 1--3}: Si osserva la migrazione macroscopica più rilevante. I centroidi iniziali si allontanano rapidamente dalle configurazioni spurie e migrano verso i baricentri delle macro-regioni a maggiore densità.
+    \item \textbf{Iterazioni 4--6 e successive}: Si entra nella fase di raffinamento fine. Pochi punti di confine vengono riassegnati lungo le superfici di Voronoi finché la variazione dei centroidi si annulla o scende sotto la soglia numerica prefissata $\epsilon$.
+\end{itemize}
+
+\subsection{Generalizzazione ad Altre Metriche di Prossimità}
+
+Sebbene K-Means sia formalizzato per la distanza euclidea, la struttura a due fasi può essere generalizzata ad altre misure di prossimità, a patto di ridefinire coerentemente la nozione di prototipo:
+\begin{itemize}
+    \item \textbf{Distanza Euclidea ($L_2$)}: Prototipo = \textbf{Media} (baricentro). Minimizza l'errore quadratico ($\mathrm{SSE}$).
+    \item \textbf{Distanza di Manhattan ($L_1$)}: Prototipo = \textbf{Mediana} per componente (algoritmo \textbf{K-Medians}). Minimizza la somma degli errori assoluti ($\mathrm{SAE} = \sum_{i} \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{m}_i\|_1$).
+    \item \textbf{Similarità Coseno}: Prototipo = \textbf{Media normalizzata} a norma unitaria ($\mathbf{m}_i / \|\mathbf{m}_i\|_2$). Massimizza la similarità coseno cumulativa (impiegato nel text mining).
+    \item \textbf{Correlazione di Pearson}: Prototipo = \textbf{Vettore standardizzato} (media zero, varianza unitaria).
+\end{itemize}
+
+\subsection{Analisi della Complessità Computazionale}
+
+L'algoritmo di Lloyd vanta un'eccellente scalabilità computazionale:
+\begin{itemize}
+    \item \textbf{Complessità Temporale}: Ad ogni iterazione, la fase di assegnazione confronta ciascuno degli $n$ punti con tutti i $K$ centroidi in dimensione $d$, richiedendo $\mathcal{O}(n \cdot K \cdot d)$ operazioni. Il ricalcolo dei baricentri richiede la somma dei vettori, con costo $\mathcal{O}(n \cdot d)$. Indicando con $I$ il numero totale di iterazioni fino a convergenza, la complessità asintotica totale è:
+    \begin{equation}
+        \mathcal{T}_{\text{K-Means}} = \mathcal{O}(n \cdot K \cdot I \cdot d)
+    \end{equation}
+    Poiché sperimentalmente $K \ll n$, $d \ll n$ e $I \ll n$ (spesso $I \le 50$), il tempo cresce linearmente con la dimensione del dataset $n$.
+    \item \textbf{Complessità Spaziale}: È sufficiente memorizzare la matrice dei dati $n \times d$ e i $K$ vettori centroide di dimensione $d$, oltre al vettore degli indici di appartenenza $n \times 1$:
+    \begin{equation}
+        \mathcal{S}_{\text{K-Means}} = \mathcal{O}((n + K) \cdot d)
+    \end{equation}
+    rendendo l'algoritmo applicabile a contesti di Big Data in cui l'intero dataset risiede in memoria principale.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 7.3: FUNZIONE OBIETTIVO SSE E DIMOSTRAZIONE DI CONVERGENZA
+% ====================================================================
+\section{Funzione Obiettivo SSE e Dimostrazione di Convergenza}
+\label{sec:dm-kmeans-sse-convergence}
+
+L'efficacia e la stabilità analitica del K-Means derivano dall'esistenza di una funzione obiettivo scalare rigorosamente minimizzata dall'alternanza delle due fasi di Lloyd.
+
+\begin{definition}[Sum of Squared Errors (SSE)]
+Data una partizione $\{C_1, \dots, C_K\}$ e i rispettivi centroidi $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$, la \textbf{somma degli errori quadratici} ($\mathrm{SSE}$, o inerzia interna del clustering) è definita come:
+\begin{equation}
+    \mathrm{SSE} = \sum_{i=1}^K \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{m}_i\|_2^2 = \sum_{i=1}^K \sum_{\mathbf{x} \in C_i} \sum_{j=1}^d (x_j - m_{ij})^2
+    \label{eq:dm-sse-definition}
+\end{equation}
+\end{definition}
+
+\subsection{Dimostrazione: Il Baricentro Minimizza Rigorosamente l'SSE}
+
+\begin{theorem}[Ottimalità del Baricentro]
+Dato un cluster $C_k$ contenente $|C_k|$ punti in $\mathbb{R}^d$, il prototipo $\mathbf{m}_k \in \mathbb{R}^d$ che minimizza la somma delle distanze euclidee al quadrato dei punti di $C_k$ è univocamente il baricentro aritmetico dei punti stessi.
+\end{theorem}
+
+\begin{proof}
+L'errore quadratico associato al singolo cluster $C_k$ può essere scomposto come somma indipendente sulle $d$ dimensioni ortogonali:
+\begin{equation}
+    \mathrm{SSE}_k = \sum_{\mathbf{x} \in C_k} \sum_{j=1}^d (x_j - m_{kj})^2 = \sum_{j=1}^d \left( \sum_{\mathbf{x} \in C_k} (x_j - m_{kj})^2 \right)
+\end{equation}
+Per trovare il punto di minimo rispetto a ciascuna componente scalare $m_{kj}$ del centroide $\mathbf{m}_k$, calcoliamo la derivata parziale prima e la poniamo uguale a zero:
+\begin{align}
+    \frac{\partial \, \mathrm{SSE}_k}{\partial m_{kj}} &= \frac{\partial}{\partial m_{kj}} \sum_{\mathbf{x} \in C_k} (x_j - m_{kj})^2 \notag \\
+    &= \sum_{\mathbf{x} \in C_k} 2 (x_j - m_{kj}) \cdot (-1) \notag \\
+    &= -2 \sum_{\mathbf{x} \in C_k} x_j + 2 \sum_{\mathbf{x} \in C_k} m_{kj} = 0
+\end{align}
+Poiché $m_{kj}$ è una costante scalare rispetto all'indice di sommatoria $\mathbf{x} \in C_k$, la seconda sommatoria restituisce $|C_k| \cdot m_{kj}$:
+\begin{equation}
+    2 |C_k| \, m_{kj} = 2 \sum_{\mathbf{x} \in C_k} x_j \implies m_{kj} = \frac{1}{|C_k|} \sum_{\mathbf{x} \in C_k} x_j
+\end{equation}
+Verifichiamo la condizione di minimo calcolando la derivata seconda:
+\begin{equation}
+    \frac{\partial^2 \, \mathrm{SSE}_k}{\partial m_{kj}^2} = 2 |C_k| > 0
+\end{equation}
+La matrice Hessiana associata è una matrice diagonale scalare definita positiva:
+\begin{equation}
+    \nabla^2 \, \mathrm{SSE}_k = 2 |C_k| \, \mathbf{I}_d \succ 0
+\end{equation}
+Pertanto, il baricentro $\mathbf{m}_k = \frac{1}{|C_k|} \sum_{\mathbf{x} \in C_k} \mathbf{x}$ è l'unico minimizzatore globale stretto di $\mathrm{SSE}_k$.
+\end{proof}
+
+\subsection{Formulazione come Discesa di Coordinate e Convergenza}
+
+L'algoritmo di Lloyd può essere formalizzato matematicamente come un'ottimizzazione per \textbf{discesa di coordinate} (\textit{Coordinate Descent}) su una funzione bivariata.
+
+Definiamo la matrice di appartenenza binaria $\mathbf{W} \in \{0, 1\}^{n \times K}$, dove $w_{ik} = 1$ se l'istanza $\mathbf{x}_i$ appartiene al cluster $k$ e $w_{ik} = 0$ altrimenti, con il vincolo $\sum_{k=1}^K w_{ik} = 1$ per ogni $i \in \{1, \dots, n\}$. Sia inoltre $\mathbf{S} = (\mathbf{m}_1, \dots, \mathbf{m}_K) \in \mathbb{R}^{d \times K}$ l'insieme dei centroidi. La funzione obiettivo globale è:
+\begin{equation}
+    G(\mathbf{W}, \mathbf{S}) = \sum_{i=1}^n \sum_{k=1}^K w_{ik} \|\mathbf{x}_i - \mathbf{m}_k\|_2^2
+    \label{eq:dm-kmeans-coordinate-descent-obj}
+\end{equation}
+
+\begin{theorem}[Convergenza Monotona a un Minimo Locale]
+L'algoritmo K-Means riduce monotonicamente la funzione obiettivo $G(\mathbf{W}, \mathbf{S})$ ad ogni semi-passo e converge in un numero finito di iterazioni a un minimo locale o punto stazionario.
+\end{theorem}
+
+\begin{proof}
+L'esecuzione si articola in due passi di minimizzazione alternata:
+\begin{enumerate}
+    \item \textbf{Passo 1 (Assegnazione)}: Fissata la matrice dei centroidi $\mathbf{S}^{(t-1)}$, si minimizza $G(\mathbf{W}, \mathbf{S}^{(t-1)})$ rispetto a $\mathbf{W}$. Poiché ogni termine per l'osservazione $\mathbf{x}_i$ è indipendente, la funzione è minimizzata ponendo:
+    \begin{equation}
+        w_{ik}^{(t)} = \begin{cases}
+            1 & \text{se } k = \arg\min_{j} \|\mathbf{x}_i - \mathbf{m}_j^{(t-1)}\|_2^2 \\
+            0 & \text{altrimenti}
+        \end{cases}
+    \end{equation}
+    Ne consegue che:
+    \begin{equation}
+        G(\mathbf{W}^{(t)}, \mathbf{S}^{(t-1)}) \le G(\mathbf{W}^{(t-1)}, \mathbf{S}^{(t-1)})
+    \end{equation}
+    \item \textbf{Passo 2 (Aggiornamento)}: Fissata la nuova matrice di appartenenza $\mathbf{W}^{(t)}$, si minimizza $G(\mathbf{W}^{(t)}, \mathbf{S})$ rispetto a $\mathbf{S}$. Dal teorema precedente sull'ottimalità del baricentro, la scelta ottima per ogni $\mathbf{m}_k$ è:
+    \begin{equation}
+        \mathbf{m}_k^{(t)} = \frac{\sum_{i=1}^n w_{ik}^{(t)} \mathbf{x}_i}{\sum_{i=1}^n w_{ik}^{(t)}} = \frac{1}{|C_k^{(t)}|} \sum_{\mathbf{x} \in C_k^{(t)}} \mathbf{x}
+    \end{equation}
+    Ne consegue che:
+    \begin{equation}
+        G(\mathbf{W}^{(t)}, \mathbf{S}^{(t)}) \le G(\mathbf{W}^{(t)}, \mathbf{S}^{(t-1)})
+    \end{equation}
+\end{enumerate}
+Combinando le due disuguaglianze, la successione dei valori assunti dalla funzione obiettivo è monotona non crescente:
+\begin{equation}
+    G(\mathbf{W}^{(t)}, \mathbf{S}^{(t)}) \le G(\mathbf{W}^{(t-1)}, \mathbf{S}^{(t-1)})
+\end{equation}
+Poiché $G(\mathbf{W}, \mathbf{S}) \ge 0$ è limitata inferiormente da zero, e il numero di possibili matrici di assegnazione discrete $\mathbf{W}$ è finito (pari al numero di partizioni di $n$ elementi in $K$ gruppi non vuoti, quantificato dai numeri di Stirling di seconda specie $S(n, K)$), l'algoritmo non può entrare in cicli infiniti e deve necessariamente convergere in un numero finito di passi a una configurazione stazionaria (minimo locale).
+\end{proof}
+
+% ====================================================================
+% SEZIONE 7.4: SCELTA DI K, MINIMI LOCALI E INIZIALIZZAZIONE
+% ====================================================================
+\section{Scelta del Parametro K, Minimi Locali e Inizializzazione}
+\label{sec:dm-kmeans-k-choice-local-minima}
+
+Nonostante la convergenza garantita, la superficie di errore dell'ottimizzazione K-Means è altamente non convessa e costellata da innumerevoli minimi locali sub-ottimali. Infatti, la determinazione della partizione che minimizza globalmente l'SSE è un problema \textbf{NP-hard} anche per soli $K = 2$ cluster in dimensione arbitraria, o per dimensione $d = 2$ con $K$ arbitrario.
+
+\subsection{Determinazione del Numero di Cluster: Il Metodo a Gomito}
+
+Poiché all'aumentare di $K$ la funzione $\mathrm{SSE}(K)$ decresce monotonicamente (fino ad annullarsi banalmente per $K = n$), non è possibile minimizzare l'SSE direttamente rispetto a $K$. 
+
+Si ricorre all'\textbf{Elbow Method} (Metodo a Gomito):
+\begin{enumerate}
+    \item Si esegue K-Means per una sequenza crescente di valori candidati $K \in \{1, 2, \dots, K_{\max}\}$;
+    \item Si traccia la curva di $\mathrm{SSE}$ in funzione di $K$;
+    \item Si individua il punto di flesso ("gomito") in cui il decremento marginale di errore subisce un drastico rallentamento.
+\end{enumerate}
+Matematicamente, il gomito corrisponde al valore di $K$ che massimizza la derivata seconda discreta dell'SSE:
+\begin{equation}
+    \Delta^2 \, \mathrm{SSE}(K) = \mathrm{SSE}(K+1) - 2 \, \mathrm{SSE}(K) + \mathrm{SSE}(K-1)
+\end{equation}
+Oltre tale soglia, l'introduzione di ulteriori cluster frammenta aggregazioni naturali senza apportare reale guadagno informativo.
+
+\subsection{Sensibilità ai Centroidi Iniziali e Dimostrazione Combinatoria}
+
+La qualità della partizione finale di K-Means dipende criticamente dal posizionamento dei centroidi iniziali $\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}$. Se due centroidi cadono all'interno dello stesso addensamento naturale, uno dei cluster vicini rimarrà orfano, intrappolando l'algoritmo in un minimo locale sub-ottimale.
+
+\begin{theorem}[Probabilità Combinatoria di Inizializzazione Perfetta]
+Si consideri un dataset ideale composto da $K$ cluster naturali ben separati, ciascuno avente la medesima cardinalità $N/K$. Scegliendo $K$ centroidi iniziali mediante campionamento casuale uniforme indipendente con reinserimento, la probabilità $P(K)$ che ciascun centroide iniziale appartenga a un cluster distinto è:
+\begin{equation}
+    P(K) = \frac{K!}{K^K}
+    \label{eq:dm-init-prob-formula}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Calcoliamo la probabilità come prodotto delle probabilità condizionate passo per passo:
+\begin{enumerate}
+    \item Il primo centroide può cadere in uno qualsiasi dei $K$ cluster: $P_1 = \frac{K}{K} = 1$.
+    \item Affinché il secondo centroide cada in un cluster distinto dal primo, deve essere estratto da uno dei restanti $K-1$ cluster non ancora occupati. Poiché tutti i cluster hanno cardinalità uguale, la frazione di punti ammissibili è $P_2 = \frac{K-1}{K}$.
+    \item Il terzo centroide deve cadere in uno dei restanti $K-2$ cluster: $P_3 = \frac{K-2}{K}$.
+    \item Iterando fino al $K$-esimo centroide, la frazione residua è $P_K = \frac{1}{K}$.
+\end{enumerate}
+Moltiplicando le probabilità degli eventi indipendenti:
+\begin{equation}
+    P(K) = \prod_{j=1}^K \frac{K - j + 1}{K} = \frac{K \cdot (K-1) \cdot (K-2) \cdots 1}{K^K} = \frac{K!}{K^K}
+\end{equation}
+\end{proof}
+
+Valutando la formula~\eqref{eq:dm-init-prob-formula} per diversi valori di $K$:
+\begin{itemize}[noitemsep]
+    \item $K = 2 \implies P(2) = \frac{2}{4} = 0.50$ (50\%);
+    \item $K = 3 \implies P(3) = \frac{6}{27} \approx 0.222$ (22.2\%);
+    \item $K = 5 \implies P(5) = \frac{120}{3125} \approx 0.0384$ (3.84\%);
+    \item $K = 10 \implies P(10) = \frac{3\,628\,800}{10^{10}} \approx 0.00036$ (appena lo \textbf{0.036\%}).
+\end{itemize}
+
+Applicando l'approssimazione asintotica di Stirling $K! \approx \sqrt{2\pi K} \left(\frac{K}{e}\right)^K$, otteniamo:
+\begin{equation}
+    P(K) \approx \frac{\sqrt{2\pi K} \left(\frac{K}{e}\right)^K}{K^K} = \sqrt{2\pi K} \cdot e^{-K}
+\end{equation}
+La probabilità di successo dell'inizializzazione casuale pura decade in modo \textbf{esponenzialmente veloce} verso zero al crescere di $K$. Con $K \ge 10$, l'inizializzazione uniforme non garantisce quasi mai la corretta convergenza.
+
+% ====================================================================
+% SEZIONE 7.5: EURISTICHE DI INIZIALIZZAZIONE E VARIANTI DI K-MEANS
+% ====================================================================
+\section{Euristiche di Inizializzazione e Varianti di K-Means}
+\label{sec:dm-kmeans-heuristics-variants}
+
+Per superare la fragilità dell'inizializzazione casuale, la letteratura ha sviluppato potenti strategie correttive ed euristiche algoritmiche avanzate.
+
+\subsection{Tecniche Euristiche di Inizializzazione}
+
+\begin{enumerate}
+    \item \textbf{Restart Casuali Multipli (\textit{Random Restarts})}: Si esegue l'algoritmo $R$ volte (es. $R = 50$) con semi casuali differenti, selezionando la soluzione che restituisce il valore minimo di $\mathrm{SSE}$. Efficace per valori modesti di $K$, ma computazionalmente oneroso e inefficace per $K$ elevato.
+    \item \textbf{Campionamento con Pre-clustering Gerarchico}: Si estrae un campione casuale ridotto del dataset ($\approx 1\% - 5\%$) e si applica un algoritmo gerarchico agglomerativo con Metodo di Ward per determinare $K$ raggruppamenti stabili, i cui baricentri vengono usati come semi per K-Means.
+    \item \textbf{K-Means++ ($D^2$-Weighting)}: Introdotto da Arthur e Vassilvitskii (2007), sceglie il primo centroide a caso, e ciascun centroide successivo con probabilità proporzionale al quadrato della distanza minima dai centroidi già allocati:
+    \begin{equation}
+        p(\mathbf{x}) = \frac{D(\mathbf{x})^2}{\sum_{\mathbf{y} \in \mathcal{D}} D(\mathbf{y})^2}, \qquad D(\mathbf{x}) = \min_{j \in \{1, \dots, m\}} \|\mathbf{x} - \mathbf{m}_j\|_2
+    \end{equation}
+    \textit{Garanzia teorica}: K-Means++ garantisce che il valore atteso dell'SSE finale sia entro un fattore logaritmico rispetto all'ottimo globale:
+    \begin{equation}
+        \mathbb{E}[\mathrm{SSE}] \le 8(\ln K + 2) \cdot \mathrm{SSE}_{\text{opt}} = \mathcal{O}(\log K) \cdot \mathrm{SSE}_{\text{opt}}
+    \end{equation}
+    \item \textbf{Bisecting K-Means}: Algoritmo partizionale ibrido che opera ricorsivamente con bisezioni binarie ($K=2$):
+    \begin{itemize}[noitemsep]
+        \item Inizia considerando l'intero dataset come un unico macro-cluster;
+        \item A ogni iterazione, seleziona il cluster con il più alto $\mathrm{SSE}$ interno (o con cardinalità massima);
+        \item Applica il K-Means standard con $K=2$ su tale cluster per scinderlo in due sotto-gruppi;
+        \item Ripete il processo finché non si ottengono esattamente $K$ cluster.
+    \end{itemize}
+    Bisecting K-Means è nettamente meno sensibile all'inizializzazione rispetto a Lloyd e produce naturalmente una gerarchia parziale dei cluster.
+\end{enumerate}
+
+\subsection{Aggiornamento Incrementale (Online K-Means)}
+
+Nella variante di MacQueen (1967), i centroidi vengono aggiornati \textit{immediatamente} dopo la riassegnazione di ogni singolo punto, invece di attendere la fine dell'epoca (\textit{batch}):
+\begin{property}[Formule di Aggiornamento Incrementale di MacQueen]
+Se il punto $\mathbf{x}$ viene rimosso dal cluster $C_j$ e assegnato al cluster $C_i$:
+\begin{align}
+    \mathbf{m}_j &\leftarrow \mathbf{m}_j - \frac{\mathbf{x} - \mathbf{m}_j}{|C_j| - 1} \label{eq:dm-macqueen-remove} \\
+    \mathbf{m}_i &\leftarrow \mathbf{m}_i + \frac{\mathbf{x} - \mathbf{m}_i}{|C_i| + 1} \label{eq:dm-macqueen-add}
+\end{align}
+\end{property}
+L'approccio incrementale garantisce che l'SSE decresca strettamente ad ogni singolo spostamento, azzera la possibilità che si generino cluster vuoti, ma introduce una dipendenza dall'ordine di presentazione dei punti.
+
+\subsection{Gestione dei Cluster Vuoti (\textit{Empty Clusters})}
+
+Nell'algoritmo batch di Lloyd, può accadere che durante la fase di assegnazione nessun punto dati sia più vicino al centroide $\mathbf{m}_k$ rispetto agli altri $K-1$ centroidi, portando a $|C_k| = 0$ (centroide orfano).
+Strategie di ripristino per mantenere inalterato $K$:
+\begin{enumerate}
+    \item \textbf{Selezione a Massimo Errore Residuo}: Identificare il punto $\mathbf{x}^* \in \mathcal{D}$ che massimizza la distanza quadratica dal proprio centroide assegnato $\|\mathbf{x}^* - \mathbf{m}_{c(\mathbf{x}^*)}\|^2$ e promuoverlo a nuovo centroide isolato del cluster vuoto. Questa strategia produce la massima riduzione marginale istantanea dell'SSE.
+    \item \textbf{Scissione del Cluster a Massimo SSE}: Identificare il cluster che esibisce il più elevato $\mathrm{SSE}$ cumulativo ed estrarre il suo punto più periferico per popolare il cluster orfano.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 7.6: LIMITAZIONI STRUTTURALI DI K-MEANS E TECNICHE DI ADATTAMENTO
+% ====================================================================
+\section{Limitazioni Strutturali di K-Means e Tecniche di Adattamento}
+\label{sec:dm-kmeans-limitations-isodata}
+
+K-Means presuppone implicitamente che i cluster siano sferici, compatti, ben separati e dotati di volumi e densità omogenee. In presenza di configurazioni geometriche complesse, l'algoritmo fallisce sistematicamente.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    failCard/.style={rectangle, rounded corners=5pt, draw=crimson!85!black, fill=crimson!6, thick, font=\footnotesize, align=left, text width=6.0cm, inner sep=6pt}
+]
+    \node[failCard] (c1) at (-3.4, 2.0) {
+        \textbf{1. Dimensioni Eterogenee}\\
+        I centroidi dividono equamente lo spazio; il cluster più piccolo attrae e ingloba punti periferici del cluster più grande.
+    };
+
+    \node[failCard] (c2) at (3.4, 2.0) {
+        \textbf{2. Densità Eterogenee}\\
+        I cluster sparsi a bassa densità vengono spezzati, mentre cluster compatti ad alta densità vicini vengono fusi.
+    };
+
+    \node[failCard] (c3) at (-3.4, -0.4) {
+        \textbf{3. Forme Non Globulari}\\
+        Geometrie concave o intrecciate (\textit{two moons}, anelli) vengono tagliate linearmente dagli iperpiani di Voronoi.
+    };
+
+    \node[failCard] (c4) at (3.4, -0.4) {
+        \textbf{4. Sensibilità agli Outlier}\\
+        La metrica quadratica $\|\mathbf{x} - \mathbf{m}\|^2$ devia gravemente i centroidi verso le anomalie isolate.
+    };
+\end{tikzpicture}
+\caption{Quattro scenari critici di fallimento strutturale dell'algoritmo standard K-Means.}
+\label{fig:dm-kmeans-structural-limitations}
+\end{figure}
+
+\subsection{Analisi delle Tre Limitazioni Geometriche}
+
+\begin{enumerate}
+    \item \textbf{Dimensioni Differenti}: Poiché l'SSE penalizza gli scarti quadratici senza considerare il volume intrinseco, il centroide assegnato al cluster compatto attrae punti del cluster disperso per minimizzare l'errore globale, determinando confini incoerenti.
+    \item \textbf{Densità Differenti}: Iperpiani posizionati equidistantemente tra centroidi non tengono conto del gradiente di densità. Un cluster a bassissima densità richiederà più centroidi per essere coperto, causando l'unione impropria di cluster ad alta densità vicini.
+    \item \textbf{Forme Non Globulari (es. \textit{Two Moons})}: Le celle di Voronoi sono poliedri convessi. Se i dati seguono varietà curvilinee non convesse (due semicerchi intrecciati), un iperpiano lineare secante taglia inevitabilmente a metà entrambi i corpi continui, fallendo completamente la separazione.
+\end{enumerate}
+
+\begin{noteblock}{Strategia di Risoluzione: Over-Clustering}
+Per modellare varietà curvilinee o densità eterogenee, si esegue K-Means con un numero elevato di micro-cluster ($K' \gg K$). Tanti piccoli centroidi formano un'approssimazione poligonale a pezzi (\textit{piecewise linear approximation}) che segue il profilo della curva continua. Successivamente, algoritmi basati su grafi o collegamenti ricompongono i micro-cluster nelle forme non lineari desiderate.
+\end{noteblock}
+
+\subsection{Pre-processing e Post-processing: Il Paradigma ISODATA}
+
+Per mitigare questi limiti nell'analisi partizionale, si adottano routine di pre- e post-elaborazione formalizzate storicamente nell'algoritmo \textbf{ISODATA} (\textit{Iterative Self-Organizing Data Analysis Technique}):
+\begin{itemize}
+    \item \textbf{Pre-processing}:
+    \begin{itemize}[noitemsep]
+        \item Normalizzazione o standardizzazione delle feature (z-score) per impedire che dimensioni con scale numeriche elevate dominino il calcolo della distanza euclidea;
+        \item Identificazione e rimozione preliminare degli outlier prima dell'inizializzazione dei centroidi.
+    \end{itemize}
+    \item \textbf{Post-processing (Dinamica ISODATA)}:
+    \begin{itemize}[noitemsep]
+        \item \textbf{Split (Scissione)}: Se la deviazione standard o l'SSE di un cluster supera una soglia massima $\theta_{\text{split}}$, e la cardinalità è sufficiente ($|C_i| \ge 2\theta_{\min}$), il cluster viene diviso in due lungo la coordinata di massima varianza.
+        \item \textbf{Merge (Fusione)}: Se la distanza euclidea tra due centroidi $\|\mathbf{m}_i - \mathbf{m}_j\|_2$ è inferiore a una soglia minima $\theta_{\text{merge}}$, i due cluster vengono fusi in un unico raggruppamento baricentrico.
+        \item \textbf{Eliminazione}: Se $|C_i| < \theta_{\min}$, il cluster viene soppresso e i suoi punti redistribuiti.
+    \end{itemize}
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 7.7: FONDAMENTI DEL CLUSTERING GERARCHICO
+% ====================================================================
+\section{Fondamenti del Clustering Gerarchico}
+\label{sec:dm-hierarchical-foundations-dendrogram}
+
+Il \textbf{Clustering Gerarchico} supera la rigidità della partizione piatta generando una tassonomia continua di partizioni nidificate (\textit{nested clusters}).
+
+\begin{definition}[Dendrogramma]
+Il \textbf{dendrogramma} è una rappresentazione grafica ad albero binario radicato in cui:
+\begin{itemize}[noitemsep]
+    \item Le \textbf{foglie} al livello $h = 0$ rappresentano i singoli punti dati isolati (cluster singleton);
+    \item I \textbf{nodi interni} rappresentano le unioni successive di coppie di cluster;
+    \item L'\textbf{altezza} $h$ a cui due rami si collegano corrisponde formalmente alla distanza o dissimilarità inter-cluster al momento della loro fusione.
+\end{itemize}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize},
+    pointNode/.style={circle, fill=navy!85!black, inner sep=1.5pt},
+    cutLine/.style={dashed, thick, draw=crimson!85!black}
+]
+    % Assi del Dendrogramma
+    \draw[-Stealth, thick] (0,0) -- (0, 3.8) node[left] {Altezza $h$};
+    \draw[thick] (0,0) -- (7.5, 0);
+
+    % Foglie
+    \node[below] at (0.8, 0) {$p_3$};
+    \node[below] at (1.8, 0) {$p_6$};
+    \node[below] at (2.8, 0) {$p_4$};
+    \node[below] at (4.2, 0) {$p_2$};
+    \node[below] at (5.2, 0) {$p_5$};
+    \node[below] at (6.6, 0) {$p_1$};
+
+    % 1. Fusione {p3, p6} a h = 0.8
+    \draw[thick] (0.8, 0) -- (0.8, 0.8) -- (1.8, 0.8) -- (1.8, 0);
+    \coordinate (c36) at (1.3, 0.8);
+
+    % 2. Fusione {p2, p5} a h = 1.1
+    \draw[thick] (4.2, 0) -- (4.2, 1.1) -- (5.2, 1.1) -- (5.2, 0);
+    \coordinate (c25) at (4.7, 1.1);
+
+    % 3. Fusione {{p3, p6}, p4} a h = 1.5
+    \draw[thick] (c36) -- (1.3, 1.5) -- (2.8, 1.5) -- (2.8, 0);
+    \coordinate (c364) at (2.05, 1.5);
+
+    % 4. Fusione {{p3, p6, p4}, {p2, p5}} a h = 2.2
+    \draw[thick] (c364) -- (2.05, 2.2) -- (4.7, 2.2) -- (c25);
+    \coordinate (c_left) at (3.375, 2.2);
+
+    % 5. Fusione finale con p1 a h = 3.2
+    \draw[thick] (c_left) -- (3.375, 3.2) -- (6.6, 3.2) -- (6.6, 0);
+
+    % Taglio orizzontale a quota h* = 1.8
+    \draw[cutLine] (-0.2, 1.8) -- (7.5, 1.8);
+    \node[left, crimson!85!black, font=\scriptsize] at (-0.05, 1.8) {$h^* = 1.8$};
+    \node[right, crimson!85!black, font=\scriptsize\bfseries] at (7.5, 1.8) {Taglio $h^* \implies K = 3$};
+\end{tikzpicture}
+\caption{Struttura di un dendrogramma: le altezze delle giunzioni indicano la distanza di unione. Un taglio orizzontale induce una partizione piatta con $K = 3$ cluster.}
+\label{fig:dm-dendrogram-schema}
+\end{figure}
+
+\subsection{Vantaggi Distintivi del Paradigma Gerarchico}
+
+\begin{itemize}
+    \item \textbf{Nessun vincolo a priori su $K$}: Non è richiesto specificare anticipatamente il numero di cluster. L'analista ottiene una visualizzazione completa dell'architettura dei dati ed estrae $K$ a posteriori tracciando un taglio orizzontale alla quota desiderata $h^*$.
+    \item \textbf{Modellazione di gerarchie biologiche e tassonomiche}: Strutture evolutive, tassonomie filogenetiche e relazioni semantiche possiedono una natura intrinsecamente gerarchica perfettamente rispecchiata dal dendrogramma.
+    \item \textbf{Determinismo}: A differenza del K-Means, gli algoritmi gerarchici standard sono completamente deterministici (non dipendono da semi di inizializzazione casuali).
+\end{itemize}
+
+\subsection{Tassonomia degli Algoritmi Gerarchici}
+
+\begin{itemize}
+    \item \textbf{Agglomerativi (\textit{Bottom-up})}: Iniziano considerando ogni punto come un cluster singleton ($n$ cluster iniziali) e, a ciascun passo, fondono iterativamente la coppia di cluster più vicina fino a formare un unico grande raggruppamento radice in $n - 1$ passi.
+    \item \textbf{Divisivi (\textit{Top-down})}: Iniziano considerando l'intero dataset come un unico mega-cluster e, ad ogni iterazione, partizionano ricorsivamente i gruppi in sotto-gruppi fino a ricondursi a $n$ singleton.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 7.8: ALGORITMO AGGLOMERATIVO E CRITERI DI COLLEGAMENTO (LINKAGE)
+% ====================================================================
+\section{Algoritmo Agglomerativo e Criteri di Collegamento (Linkage)}
+\label{sec:dm-agglomerative-linkage-criteria}
+
+L'approccio agglomerativo standard richiede la definizione di una matrice di prossimità inter-cluster $\mathbf{D} \in \mathbb{R}^{N \times N}$ e segue il ciclo descritto nell'Algoritmo~\ref{alg:dm-hierarchical-agglomerative}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$, metrica di distanza tra punti $d(\cdot, \cdot)$.}
+\KwOutput{Dendrogramma completo delle fusioni gerarchiche.}
+Inizializza $n$ cluster singleton: $C_i = \{\mathbf{x}_i\}$ per ogni $i \in \{1, \dots, n\}$\;
+Costruisci la matrice di prossimità iniziale $\mathbf{D}^{(0)} \in \mathbb{R}^{n \times n}$ con $D_{ij} = d(\mathbf{x}_i, \mathbf{x}_j)$\;
+\For{$t = 1$ \KwTo $n - 1$}{
+    Trova la coppia di cluster $(A, B)$ a minima distanza nella matrice: $(A, B) = \arg\min_{i \ne j} D_{ij}^{(t-1)}$\;
+    Fondi i cluster $A$ e $B$ creando il nuovo cluster $A \cup B$ a quota $h_t = D_{AB}^{(t-1)}$\;
+    Elimina le righe e colonne corrispondenti ad $A$ e $B$ dalla matrice di prossimità\;
+    Calcola la distanza tra il nuovo cluster $A \cup B$ e ogni altro cluster residuo $Q$ secondo il criterio di collegamento prescelto\;
+    Aggiorna la matrice di prossimità $\mathbf{D}^{(t)}$ inserendo la nuova riga/colonna associata ad $A \cup B$\;
+}
+\caption{Algoritmo gerarchico agglomerativo standard.}
+\label{alg:dm-hierarchical-agglomerative}
+\end{algorithm}
+
+\subsection{I Quattro Criteri di Collegamento (\textit{Linkage})}
+
+La definizione della distanza $D(A, B)$ tra due insiemi di punti $A$ e $B$ determina interamente la forma e le proprietà della gerarchia risultante.
+
+\subsubsection{1. MIN (Single Link)}
+La distanza tra due cluster coincide con la minima distanza tra qualsiasi coppia di punti:
+\begin{equation}
+    D_{\text{MIN}}(A, B) = \min_{\mathbf{x} \in A, \, \mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-single-link}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \textbf{Punti di forza}: Capace di catturare forme arbitrarie non convesse, filiformi o ad anello (è isomorfo alla costruzione del Minimum Spanning Tree).
+    \item \textbf{Debolezze (\textit{Chaining Effect})}: Estremamente sensibile al rumore e agli outlier. Anche un singolo punto spurio situato tra due cluster compatti distinti funge da "ponte", inducendo la fusione prematura dei due macro-gruppi in un'unica lunga catena.
+\end{itemize}
+
+\subsubsection{2. MAX (Complete Link)}
+La distanza tra due cluster coincide con la massima distanza tra le loro coppie di punti:
+\begin{equation}
+    D_{\text{MAX}}(A, B) = \max_{\mathbf{x} \in A, \, \mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-complete-link}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \textbf{Punti di forza}: Robusto rispetto al rumore e immune al chaining effect; tende a produrre cluster iper-compatti e globulari limitando formalmente il diametro massimo del cluster combinato: $\text{diam}(A \cup B) \le h$.
+    \item \textbf{Debolezze}: Tende a frammentare ingiustificatamente grandi cluster allungati e soffre la presenza di outlier periferici estremi.
+\end{itemize}
+
+\subsubsection{3. Group Average (Average Link / UPGMA)}
+La distanza tra due cluster è la media aritmetica di tutte le distanze a coppie:
+\begin{equation}
+    D_{\text{AVG}}(A, B) = \frac{1}{|A| \cdot |B|} \sum_{\mathbf{x} \in A} \sum_{\mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-average-link}
+\end{equation}
+Costituisce un compromesso matematicamente bilanciato tra la permissività di MIN e la severità di MAX. È relativamente robusto al rumore poiché l'effetto di singoli outlier viene mediato sull'intera cardinalità del gruppo.
+
+\subsubsection{4. Metodo di Ward (Minimizzazione della Varianza)}
+Introdotto da Joe H. Ward Jr. (1963), la prossimità tra due cluster è misurata tramite l'\textbf{incremento dell'errore quadratico totale} ($\Delta \mathrm{SSE}$) che deriverebbe dalla loro eventuale fusione:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \mathrm{SSE}_{A \cup B} - (\mathrm{SSE}_A + \mathrm{SSE}_B)
+    \label{eq:dm-ward-delta-def}
+\end{equation}
+
+\begin{theorem}[Formulazione Chiusa del Metodo di Ward]
+L'incremento dell'errore quadratico $\Delta \mathrm{SSE}_{AB}$ dovuto alla fusione dei cluster $A$ e $B$ equivale alla distanza euclidea al quadrato tra i loro rispettivi centroidi, scalata dal prodotto armonico delle loro masse:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \frac{|A| \cdot |B|}{|A| + |B|} \|\mathbf{m}_A - \mathbf{m}_B\|_2^2
+    \label{eq:dm-ward-formula-closed}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Siano $A$ e $B$ due cluster disgiunti con cardinalità $|A|, |B|$ e centroidi $\mathbf{m}_A, \mathbf{m}_B$. Il centroide del cluster fuso $A \cup B$ è la media pesata dei baricentri:
+\begin{equation}
+    \mathbf{m}_{A \cup B} = \frac{|A| \mathbf{m}_A + |B| \mathbf{m}_B}{|A| + |B|}
+\end{equation}
+Calcoliamo lo scarto vettoriale tra il baricentro combinato e il baricentro originale $\mathbf{m}_A$:
+\begin{equation}
+    \mathbf{m}_{A \cup B} - \mathbf{m}_A = \frac{|A|\mathbf{m}_A + |B|\mathbf{m}_B - (|A|+|B|)\mathbf{m}_A}{|A| + |B|} = \frac{|B|(\mathbf{m}_B - \mathbf{m}_A)}{|A| + |B|}
+\end{equation}
+Simmetricamente per il cluster $B$:
+\begin{equation}
+    \mathbf{m}_{A \cup B} - \mathbf{m}_B = \frac{|A|(\mathbf{m}_A - \mathbf{m}_B)}{|A| + |B|}
+\end{equation}
+L'errore quadratico totale del cluster unificato è:
+\begin{equation}
+    \mathrm{SSE}_{A \cup B} = \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 + \sum_{\mathbf{y} \in B} \|\mathbf{y} - \mathbf{m}_{A \cup B}\|^2
+\end{equation}
+Sviluppiamo il primo termine inserendo e sottraendo il baricentro originale $\mathbf{m}_A$:
+\begin{align}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 &= \sum_{\mathbf{x} \in A} \|(\mathbf{x} - \mathbf{m}_A) - (\mathbf{m}_{A \cup B} - \mathbf{m}_A)\|^2 \notag \\
+    &= \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_A\|^2 + \sum_{\mathbf{x} \in A} \|\mathbf{m}_{A \cup B} - \mathbf{m}_A\|^2 \notag \\
+    &\quad - 2 \left( \sum_{\mathbf{x} \in A} (\mathbf{x} - \mathbf{m}_A) \right) \cdot (\mathbf{m}_{A \cup B} - \mathbf{m}_A)
+\end{align}
+Poiché per definizione di centroide $\sum_{\mathbf{x} \in A} (\mathbf{x} - \mathbf{m}_A) = \mathbf{0}$, il doppio prodotto svanisce identicamente:
+\begin{equation}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 = \mathrm{SSE}_A + |A| \cdot \|\mathbf{m}_{A \cup B} - \mathbf{m}_A\|^2
+\end{equation}
+Sostituendo l'espressione precedentemente ricavata per $(\mathbf{m}_{A \cup B} - \mathbf{m}_A)$:
+\begin{align}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 &= \mathrm{SSE}_A + |A| \left\| \frac{|B|(\mathbf{m}_B - \mathbf{m}_A)}{|A| + |B|} \right\|^2 \notag \\
+    &= \mathrm{SSE}_A + \frac{|A| \cdot |B|^2}{(|A| + |B|)^2} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{align}
+Ripetendo lo stesso sviluppo per il secondo termine relativo a $B$:
+\begin{equation}
+    \sum_{\mathbf{y} \in B} \|\mathbf{y} - \mathbf{m}_{A \cup B}\|^2 = \mathrm{SSE}_B + \frac{|A|^2 \cdot |B|}{(|A| + |B|)^2} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{equation}
+Sommando i due termini per ottenere $\mathrm{SSE}_{A \cup B}$:
+\begin{align}
+    \mathrm{SSE}_{A \cup B} &= \mathrm{SSE}_A + \mathrm{SSE}_B + \left[ \frac{|A| \cdot |B|^2 + |A|^2 \cdot |B|}{(|A| + |B|)^2} \right] \|\mathbf{m}_A - \mathbf{m}_B\|^2 \notag \\
+    &= \mathrm{SSE}_A + \mathrm{SSE}_B + \left[ \frac{|A| \cdot |B| (|B| + |A|)}{(|A| + |B|)^2} \right] \|\mathbf{m}_A - \mathbf{m}_B\|^2 \notag \\
+    &= \mathrm{SSE}_A + \mathrm{SSE}_B + \frac{|A| \cdot |B|}{(|A| + |B|)} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{align}
+Sottraendo $(\mathrm{SSE}_A + \mathrm{SSE}_B)$, si ottiene la tesi:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \mathrm{SSE}_{A \cup B} - (\mathrm{SSE}_A + \mathrm{SSE}_B) = \frac{|A| \cdot |B|}{|A| + |B|} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{equation}
+\end{proof}
+
+Il Metodo di Ward è l'analogo gerarchico esatto del criterio di costo del K-Means: genera cluster regolari, sferici e ben bilanciati, risultando straordinariamente robusto rispetto al rumore.
+
+\subsection{Esempio Pratico Guidato su 6 Punti: MIN vs MAX}
+
+Consideriamo un dataset di 6 punti bidimensionali $\{p_1, \dots, p_6\}$ con matrice di distanza iniziale:
+\begin{equation}
+\mathbf{D} = 
+\begin{pmatrix}
+ & p_1 & p_2 & p_3 & p_4 & p_5 & p_6 \\
+p_1 & 0.00 & 0.24 & 0.22 & 0.37 & 0.34 & 0.23 \\
+p_2 & 0.24 & 0.00 & 0.15 & 0.20 & 0.14 & 0.25 \\
+p_3 & 0.22 & 0.15 & 0.00 & 0.15 & 0.28 & 0.11 \\
+p_4 & 0.37 & 0.20 & 0.15 & 0.00 & 0.29 & 0.22 \\
+p_5 & 0.34 & 0.14 & 0.28 & 0.29 & 0.00 & 0.39 \\
+p_6 & 0.23 & 0.25 & 0.11 & 0.22 & 0.39 & 0.00
+\end{pmatrix}
+\end{equation}
+
+\subsubsection{Risoluzione con MIN (Single Link)}
+\begin{enumerate}
+    \item Minimo assoluto globale: $d(p_3, p_6) = 0.11 \implies$ Unione di $\{p_3, p_6\}$ a quota $h = 0.11$.
+    \item Minimo successivo: $d(p_2, p_5) = 0.14 \implies$ Unione di $\{p_2, p_5\}$ a quota $h = 0.14$.
+    \item Distanza tra $\{p_3, p_6\}$ e $p_4$: $\min(d(p_3, p_4), d(p_6, p_4)) = 0.15 \implies$ Fusione di $\{p_3, p_6\}$ con $p_4$ a quota $h = 0.15$.
+    \item Distanza tra $\{p_3, p_6, p_4\}$ e $\{p_2, p_5\}$:
+    \begin{align}
+        \min_{\mathbf{x} \in \{3,6,4\}, \, \mathbf{y} \in \{2,5\}} d(\mathbf{x}, \mathbf{y}) &= \min(0.15, 0.25, 0.20, 0.28, 0.39, 0.29) \notag \\
+        &= d(p_3, p_2) = 0.15
+    \end{align}
+    I due blocchi si fondono istantaneamente a quota $h = 0.15$ sfruttando il ponte ravvicinato $p_3$--$p_2$.
+    \item Distanza da $p_1$: $\min(d(p_1, p_j)) = d(p_1, p_3) = 0.22 \implies$ Fusione finale a quota $h = 0.22$.
+\end{enumerate}
+
+\subsubsection{Risoluzione con MAX (Complete Link)}
+\begin{enumerate}
+    \item Primi due passi identici: fusione $\{p_3, p_6\}$ a $h = 0.11$, e $\{p_2, p_5\}$ a $h = 0.14$.
+    \item Distanza MAX tra $\{p_3, p_6\}$ e $p_4$: $\max(d(p_3, p_4), d(p_6, p_4)) = 0.22$.
+    \item Distanza MAX tra $\{p_3, p_6\}$ e $\{p_2, p_5\}$:
+    \begin{align}
+        \max_{\mathbf{x} \in \{3,6\}, \, \mathbf{y} \in \{2,5\}} d(\mathbf{x}, \mathbf{y}) &= \max(0.15, 0.25, 0.28, 0.39) \notag \\
+        &= d(p_6, p_5) = 0.39
+    \end{align}
+    Poiché $0.22 < 0.39$, l'unione preferita a questo passo è $\{p_3, p_6\}$ con $p_4$ a quota $h = 0.22$.
+    \item La distanza tra $\{p_3, p_6, p_4\}$ e $\{p_2, p_5\}$ rimane elevata ($0.39$). Invece, la distanza da $p_1$ a $\{p_2, p_5\}$ è $\max(0.24, 0.34) = 0.34$. Pertanto, MAX ritarda la fusione tra i due gruppi principali ed evita fusioni precoci indotte da collegamenti isolati.
+\end{enumerate}
+
+\subsection{Formula di Ricorrenza di Lance-Williams}
+
+La formula di ricorrenza proposta da Lance e Williams (1967) fornisce un quadro analitico unificato per aggiornare la matrice di prossimità ad ogni fusione senza dover riesaminare i singoli punti dati originari.
+
+\begin{theorem}[Formula di Lance-Williams]
+Dati due cluster $A$ e $B$ fusi nel nuovo cluster $A \cup B$, la distanza tra $A \cup B$ e un terzo cluster $Q$ è determinata da:
+\begin{equation}
+    D(A \cup B, \, Q) = \alpha_A \, D(A, Q) + \alpha_B \, D(B, Q) + \beta \, D(A, B) + \gamma \, |D(A, Q) - D(B, Q)|
+    \label{eq:dm-lance-williams-general}
+\end{equation}
+dove i parametri $(\alpha_A, \alpha_B, \beta, \gamma)$ dipendono univocamente dal criterio prescelto.
+\end{theorem}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Criterio di Linkage} & $\mathbf{\alpha_A}$ & $\mathbf{\alpha_B}$ & $\mathbf{\beta}$ & $\mathbf{\gamma}$ \\
+\midrule
+\textbf{MIN (Single Link)} & $1/2$ & $1/2$ & $0$ & $-1/2$ \\
+\textbf{MAX (Complete Link)} & $1/2$ & $1/2$ & $0$ & $+1/2$ \\
+\textbf{Group Average} & $\frac{|A|}{|A| + |B|}$ & $\frac{|B|}{|A| + |B|}$ & $0$ & $0$ \\[3pt]
+\textbf{Centroid Linkage} & $\frac{|A|}{|A| + |B|}$ & $\frac{|B|}{|A| + |B|}$ & $-\frac{|A||B|}{(|A| + |B|)^2}$ & $0$ \\[3pt]
+\textbf{Metodo di Ward} & $\frac{|A| + |Q|}{|A| + |B| + |Q|}$ & $\frac{|B| + |Q|}{|A| + |B| + |Q|}$ & $-\frac{|Q|}{|A| + |B| + |Q|}$ & $0$ \\
+\bottomrule
+\end{tabular}
+\caption{Parametri della formula di ricorrenza di Lance-Williams per i principali metodi gerarchici.}
+\label{tab:dm-lance-williams-parameters}
+\end{table}
+
+\begin{proof}[Dimostrazione di Consistenza per Group Average]
+Verifichiamo che la sostituzione dei parametri nella formula di Lance-Williams riproduca esattamente la definizione originaria della media:
+\begin{align}
+    \sum_{\mathbf{x} \in A \cup B} \sum_{\mathbf{z} \in Q} d(\mathbf{x}, \mathbf{z}) &= \sum_{\mathbf{x} \in A} \sum_{\mathbf{z} \in Q} d(\mathbf{x}, \mathbf{z}) + \sum_{\mathbf{y} \in B} \sum_{\mathbf{z} \in Q} d(\mathbf{y}, \mathbf{z}) \notag \\
+    &= |A| \cdot |Q| \cdot D_{\text{AVG}}(A, Q) + |B| \cdot |Q| \cdot D_{\text{AVG}}(B, Q)
+\end{align}
+Dividendo per $|A \cup B| \cdot |Q| = (|A| + |B|) \cdot |Q|$ e semplificando $|Q| > 0$:
+\begin{equation}
+    D_{\text{AVG}}(A \cup B, \, Q) = \frac{|A|}{|A| + |B|} D_{\text{AVG}}(A, Q) + \frac{|B|}{|A| + |B|} D_{\text{AVG}}(B, Q)
+\end{equation}
+che coincide esattamente con la riga di Group Average in Tabella~\ref{tab:dm-lance-williams-parameters}.
+\end{proof}
+
+\subsection{Tabella Sinottica Comparativa dei Criteri di Collegamento}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{p{2.3cm} p{2.2cm} Y Y Y}
+\toprule
+\textbf{Criterio} & \textbf{Obiettivo} & \textbf{Geometria} & \textbf{Outlier} & \textbf{Proprietà} \\
+\midrule
+\textbf{MIN (Single)} & $\min_{\mathbf{x}, \mathbf{y}} d(\mathbf{x}, \mathbf{y})$ & Arbitraria, concatenata & Altissima (\textit{chaining}) & Isomorfo all'$\mathrm{MST}$ \\
+\textbf{MAX (Complete)} & $\max_{\mathbf{x}, \mathbf{y}} d(\mathbf{x}, \mathbf{y})$ & Sferica, compatta & Bassa al centro & Diametro $\le h$ \\
+\textbf{Group Average} & Media $\frac{\sum \sum d}{|A||B|}$ & Globulare tollerante & Moderata & Bilanciato \\
+\textbf{Metodo di Ward} & $\Delta\mathrm{SSE}_{AB}$ & Sferica bilanciata & Molto bassa & Analogo K-Means \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto analitico tra i quattro criteri di collegamento nel clustering gerarchico.}
+\label{tab:dm-linkage-criteria-synoptic}
+\end{table}
+
+% ====================================================================
+% SEZIONE 7.9: CLUSTERING GERARCHICO DIVISIVO BASATO SU MST
+% ====================================================================
+\section{Clustering Gerarchico Divisivo basato su Minimum Spanning Tree (MST)}
+\label{sec:dm-divisive-mst-clustering}
+
+Mentre gli algoritmi divisivi generici risultano computazionalmente proibitivi (considerare tutte le possibili bisezioni di un insieme di $n$ punti comporta $2^{n-1} - 1$ configurazioni), l'approccio basato su teoria dei grafi fornisce una soluzione elegante ed efficiente tramite il \textbf{Minimum Spanning Tree} ($\mathrm{MST}$).
+
+\begin{definition}[Minimum Spanning Tree dei Dati]
+Dato il grafo completo $G = (V, E)$ in cui i vertici $V$ rappresentano gli $n$ punti dati e ogni arco $(u, v) \in E$ ha peso $w(u, v) = d(\mathbf{x}_u, \mathbf{x}_v)$, un $\mathrm{MST}$ è un albero ricoprente privo di cicli di peso complessivo minimo:
+\begin{equation}
+    w(\mathrm{MST}) = \sum_{e \in \mathrm{MST}} w(e) \to \min
+\end{equation}
+\end{definition}
+
+\subsection{Algoritmo Divisivo basato su Taglio di Archi}
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$, numero di cluster desiderato $K$.}
+\KwOutput{Partizione $\{C_1, \dots, C_K\}$.}
+Costruisci il grafo completo pesato sui dati $G = (V, E)$\;
+Estrai il Minimum Spanning Tree $\mathcal{T}_{\mathrm{MST}}$ mediante l'algoritmo di Prim o Kruskal\;
+Ordina gli $n - 1$ archi dell'albero per peso decrescente: $w(e_1) \ge w(e_2) \ge \dots \ge w(e_{n-1})$\;
+\For{$k = 1$ \KwTo $K - 1$}{
+    Rimuovi dall'albero l'arco di peso massimo residuo $e_k$\;
+    L'albero si scinde in due componenti connesse disgiunte\;
+}
+Identifica le $K$ componenti connesse risultanti come i $K$ cluster della partizione\;
+\caption{Clustering divisivo basato su Minimum Spanning Tree.}
+\label{alg:dm-divisive-mst}
+\end{algorithm}
+
+\begin{property}[Equivalenza Teorica con il Single Link]
+La partizione ottenuta rimuovendo i $K - 1$ archi a peso massimo dal Minimum Spanning Tree è \textbf{identica} alla partizione ottenuta arrestando l'algoritmo agglomerativo con Single Link a $K$ cluster. Ne consegue che la costruzione dell'$\mathrm{MST}$ (realizzabile in $\mathcal{O}(n^2)$ con Prim) fornisce una via computazionalmente diretta per ricavare la gerarchia del Single Link.
+\end{property}
+
+% ====================================================================
+% SEZIONE 7.10: COMPLESSITÀ, LIMITI E CONFRONTO SINOTTICO
+% ====================================================================
+\section{Complessità, Limiti e Confronto Sinottico}
+\label{sec:dm-hierarchical-complexity-comparison}
+
+\subsection{Analisi della Complessità Asintotica del Clustering Gerarchico}
+
+\begin{itemize}
+    \item \textbf{Complessità Spaziale}: L'algoritmo deve memorizzare l'intera matrice di prossimità triangolare $n \times n$:
+    \begin{equation}
+        \mathcal{S}_{\text{Gerarchico}} = \mathcal{O}(n^2)
+    \end{equation}
+    Ciò costituisce un limite severo nei contesti di Big Data. Ad esempio, per $n = 100\,000$ punti a precisione standard (8 byte per float), la matrice richiede circa $40\,\text{GB}$ di memoria RAM, rendendo il metodo inapplicabile senza partizionamenti preliminari.
+    \item \textbf{Complessità Temporale Naive}: Il ciclo compie $n - 1$ iterazioni. A ogni iterazione, la ricerca lineare del minimo nella matrice di dimensione residua richiede $\mathcal{O}(n^2)$ confronti, portando a:
+    \begin{equation}
+        \mathcal{T}_{\text{Naive}} = \sum_{t=1}^{n-1} \mathcal{O}((n - t)^2) = \mathcal{O}(n^3)
+    \end{equation}
+    \item \textbf{Ottimizzazione tramite Code con Priorità (Heap)}: Mantenendo le distanze per ciascun cluster in una coda con priorità (\textit{min-heap}), l'estrazione del minimo e l'aggiornamento richiedono $\mathcal{O}(n \log n)$ per iterazione, riducendo la complessità totale a:
+    \begin{equation}
+        \mathcal{T}_{\text{Heap}} = \mathcal{O}(n^2 \log n)
+    \end{equation}
+    (Per criteri specifici come Single Link e Complete Link, algoritmi ottimizzati come SLINK e CLINK operano in $\mathcal{O}(n^2)$ tempo e $\mathcal{O}(n)$ spazio ausiliario).
+\end{itemize}
+
+\subsection{Limiti Strutturali del Clustering Gerarchico}
+
+\begin{enumerate}
+    \item \textbf{Irreversibilità delle Decisioni (\textit{Greedy Nature})}: Le decisioni di fusione o scissione sono permanenti e prive di backtracking. Se due punti vengono uniti al passo $t$ per via del rumore locale o di un criterio inadeguato, non potranno mai essere separati nei passi successivi.
+    \item \textbf{Mancanza di una Funzione Obiettivo Globale}: A eccezione del Metodo di Ward (che minimizza l'incremento locale di varianza), i criteri di linkage non ottimizzano una funzione di costo globale scalare sull'intero dataset.
+\end{enumerate}
+
+\subsection{Schema Comparativo Finale: K-Means vs Clustering Gerarchico}
+
+A completamento della trattazione dei due paradigmi, la Tabella~\ref{tab:dm-kmeans-vs-hierarchical} sintetizza le divergenze architetturali, algebriche e operative essenziali che guidano la scelta del modello in contesti ingegneristici e scientifici reali.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l Y Y}
+\toprule
+\textbf{Caratteristica Operativa} & \textbf{K-Means Clustering} & \textbf{Clustering Gerarchico} \\
+\midrule
+\textbf{Tipo di Struttura} & Partizionale piatta (\textit{hard clustering}) & Tassonomica ad albero nidificato (Dendrogramma) \\
+\textbf{Parametro $K$} & Obbligatorio a priori & Derivabile a posteriori tracciando un taglio \\
+\textbf{Funzione Obiettivo} & Minimizzazione di $\mathrm{SSE}$ globale & Scelte miopi locali (\textit{greedy}) senza costo globale \\
+\textbf{Complessità Temporale} & $\mathcal{O}(n \cdot K \cdot I \cdot d)$ (Lineare con $n$) & $\mathcal{O}(n^2 \log n)$ fino a $\mathcal{O}(n^3)$ (Sovra-quadratica) \\
+\textbf{Complessità Spaziale} & $\mathcal{O}((n + K) \cdot d)$ (Lineare con $n$) & $\mathcal{O}(n^2)$ (Quadratica, memoria critica) \\
+\textbf{Scalabilità sui Dati} & Estremamente elevata (milioni di record) & Molto bassa ($n \le 20\,000$ in RAM standard) \\
+\textbf{Sensibilità Inizializzazione} & Elevatissima (intrappolamento in minimi locali) & Deterministico (nessun seme o partizione iniziale) \\
+\textbf{Flessibilità di Forma} & Solo sferica/globulare (iperpiani Voronoi) & Arbitraria con Single Link; sferica con Ward \\
+\textbf{Reversibilità Decisioni} & Sì (i punti migrano ad ogni iterazione) & No (fusioni e tagli permanenti senza riassegnazione) \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto sinottico globale tra K-Means e Clustering Gerarchico.}
+\label{tab:dm-kmeans-vs-hierarchical}
+\end{table}

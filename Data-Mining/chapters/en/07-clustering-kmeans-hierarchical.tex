@@ -1,0 +1,878 @@
+\chapter{Cluster Analysis: K-Means and Hierarchical Clustering Algorithms}
+\label{chap:dm-kmeans-hierarchical}
+
+In this chapter, we present the theoretical foundations, algebraic formulations, and operational dynamics of the two fundamental paradigms of unsupervised learning based on partitioning and hierarchy building:
+\begin{enumerate}[noitemsep]
+    \item The \textbf{K-Means Algorithm}: analytical formulation, Lloyd's dynamics, minimization of the sum of squared errors ($\mathrm{SSE}$), formal proof of convergence via Coordinate Descent, initialization heuristics (K-Means++, Bisecting K-Means), and structural limitations;
+    \item \textbf{Hierarchical Clustering}: agglomerative and divisive approaches, dendrogram interpretation, inter-cluster linkage criteria (MIN, MAX, Group Average, Ward's method with analytical derivation), universal Lance-Williams recurrence relation, and graph-theoretic equivalence with the Minimum Spanning Tree ($\mathrm{MST}$).
+\end{enumerate}
+
+% ====================================================================
+% SECTION 7.1: INTRODUCTION TO PARTITIONAL AND HIERARCHICAL CLUSTER ANALYSIS
+% ====================================================================
+\section{Introduction to Partitional and Hierarchical Cluster Analysis}
+\label{sec:dm-clustering-intro-taxonomy}
+
+\textbf{Cluster Analysis} (or unsupervised grouping) constitutes one of the foundational pillars of unsupervised machine learning. Unlike supervised learning, where each instance $\mathbf{x}_i$ is accompanied by a ground-truth class label $y_i \in \mathcal{Y}$ known a priori, the primary objective of clustering is to discover latent structures, geometric patterns, or natural groupings within an unlabelled multidimensional dataset.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    conceptBox/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!8, thick, font=\footnotesize, text width=6.1cm, inner sep=7pt},
+    rootBox/.style={rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small, align=center, text width=11.5cm, inner sep=7pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rootBox] (root) at (0, 3.2) {
+        \textbf{\large PARADIGMS OF CLUSTER ANALYSIS}\\[3pt]
+        \footnotesize \normalfont Unsupervised partitioning methodologies in multidimensional space $\mathcal{D} \subset \mathbb{R}^d$
+    };
+
+    \node[conceptBox, anchor=north] (part) at (-3.4, 1.1) {
+        \centering\textbf{Partitional Clustering (K-Means)}\\[6pt]
+        \raggedright
+        $\bullet$ Flat partition into $K$ disjoint clusters\\[3pt]
+        $\bullet$ Global objective minimization ($\mathrm{SSE}$)\\[3pt]
+        $\bullet$ Centroid prototypes and Voronoi cells\\[3pt]
+        $\bullet$ Linear time complexity: $\mathcal{O}(n \cdot K \cdot I \cdot d)$
+    };
+
+    \node[conceptBox, anchor=north] (hier) at (3.4, 1.1) {
+        \centering\textbf{Hierarchical Clustering}\\[6pt]
+        \raggedright
+        $\bullet$ Nested taxonomic tree (Dendrogram)\\[3pt]
+        $\bullet$ Greedy local decisions without backtracking\\[3pt]
+        $\bullet$ Linkage metrics on pairwise distance matrix\\[3pt]
+        $\bullet$ Super-quadratic complexity: $\mathcal{O}(n^2 \log n)$
+    };
+
+    \coordinate (split) at (0, 1.9);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (part.north);
+    \draw[arrowStyle] (split) -| (hier.north);
+\end{tikzpicture}
+\caption{Taxonomy of the two core clustering paradigms covered in this chapter.}
+\label{fig:dm-clustering-taxonomy-overview}
+\end{figure}
+
+Given a dataset of $n$ observations $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$ with $\mathbf{x}_i \in \mathbb{R}^d$, the general clustering task requires partitioning $\mathcal{D}$ into disjoint subsets $C = \{C_1, \dots, C_K\}$ while simultaneously maximizing two complementary properties:
+\begin{enumerate}
+    \item \textbf{High intra-cluster cohesion}: observations assigned to the same group must be as close and similar to one another as possible under the chosen metric.
+    \item \textbf{High inter-cluster separation}: items belonging to distinct groups must exhibit marked distance or dissimilarity from one another.
+\end{enumerate}
+
+The two paradigms tackle this objective with fundamentally distinct philosophies: partitional clustering fixes the number of groups $K$ a priori and pursues an optimal polygonal tessellation of space via prototypes; hierarchical clustering generates a nested sequence of partitions, deferring the choice of $K$ to post-hoc dendrogram inspection.
+
+% ====================================================================
+% SECTION 7.2: K-MEANS: LLOYD'S ALGORITHM AND VORONOI GEOMETRY
+% ====================================================================
+\section{K-Means: Lloyd's Algorithm and Voronoi Geometry}
+\label{sec:dm-kmeans-algorithm-geometry}
+
+The \textbf{K-Means} algorithm represents the archetype of prototype-based partitional methods. Historically introduced by Hugo Steinhaus in 1956, formalized by Stuart Lloyd (1957/1982) in signal quantization, and named by James MacQueen (1967), the method produces a hard clustering where every data point is uniquely assigned to exactly one cluster.
+
+\begin{definition}[Hard Partition and Centroid]
+Given a dataset of $n$ points $\mathcal{D} \subset \mathbb{R}^d$ and a fixed positive integer $K \in \mathbb{N}^+$, a hard partition is a family of subsets $\{C_1, \dots, C_K\}$ such that:
+\begin{equation}
+    \bigcup_{i=1}^K C_i = \mathcal{D}, \qquad C_i \cap C_j = \emptyset \quad (\forall i \ne j), \qquad C_i \ne \emptyset \quad (\forall i \in \{1, \dots, K\})
+\end{equation}
+Each cluster $C_i$ is associated with a prototype vector termed the \textbf{centroid} $\mathbf{m}_i \in \mathbb{R}^d$, which for Euclidean distance corresponds to the arithmetic sample mean of the assigned points:
+\begin{equation}
+    \mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x}
+    \label{eq:dm-centroid-definition-en}
+\end{equation}
+where $|C_i|$ denotes the cardinality of cluster $C_i$.
+\end{definition}
+
+\subsection{Pseudocode of Lloyd's Algorithm}
+
+The standard algorithm alternates recursively between two deterministic phases until convergence, as formulated in Algorithm~\ref{alg:dm-kmeans-lloyd-en}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, number of clusters $K$, tolerance threshold $\epsilon \ge 0$.}
+\KwOutput{Final partition $\{C_1, \dots, C_K\}$ and centroids $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$.}
+Initialize $K$ centroids $\{\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}\}$ via random uniform selection from $\mathcal{D}$\;
+$t \leftarrow 0$\;
+\Repeat{centroids do not change significantly: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \epsilon$}{
+    $t \leftarrow t + 1$\;
+    \BlankLine
+    \tcp{Phase 1: Assignment to Voronoi cells}
+    Initialize $C_i^{(t)} \leftarrow \emptyset$ for each $i \in \{1, \dots, K\}$\;
+    \ForEach{$\mathbf{x} \in \mathcal{D}$}{
+        Determine index of closest centroid: $k^* = \arg\min_{j \in \{1, \dots, K\}} \|\mathbf{x} - \mathbf{m}_j^{(t-1)}\|^2$\;
+        Assign $\mathbf{x}$ to corresponding cluster: $C_{k^*}^{(t)} \leftarrow C_{k^*}^{(t)} \cup \{\mathbf{x}\}$\;
+    }
+    \BlankLine
+    \tcp{Phase 2: Prototype recomputation (sample means)}
+    \ForEach{$i \in \{1, \dots, K\}$}{
+        \If{$|C_i^{(t)}| > 0$}{
+            $\mathbf{m}_i^{(t)} \leftarrow \dfrac{1}{|C_i^{(t)}|} \sum_{\mathbf{x} \in C_i^{(t)}} \mathbf{x}$\;
+        }
+        \Else{
+            Handle empty cluster by reallocating an orphan centroid\;
+        }
+    }
+}
+\caption{Standard K-Means algorithm (Lloyd).}
+\label{alg:dm-kmeans-lloyd-en}
+\end{algorithm}
+
+\subsection{Geometric Interpretation: Voronoi Diagram}
+
+The assignment step partitions continuous Euclidean space $\mathbb{R}^d$ into $K$ convex polyhedral regions bounded by hyperplanes, known as the \textbf{Voronoi tessellation} generated by the prototypes $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$:
+\begin{equation}
+    V(C_i) = \left\{ \mathbf{x} \in \mathbb{R}^d : \|\mathbf{x} - \mathbf{m}_i\|_2 \le \|\mathbf{x} - \mathbf{m}_j\|_2 \quad \forall j \ne i \right\}
+\end{equation}
+Each separating hyperplane between cluster $C_i$ and cluster $C_j$ is orthogonal to the line segment connecting $\mathbf{m}_i$ and $\mathbf{m}_j$ and passes through their midpoint. Consequently, every cluster identified by K-Means is a convex polyhedron; data lying on non-convex or manifold geometries cannot be captured without fracturing.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    stepBox/.style={rectangle, rounded corners=4pt, draw=navy!80!black, fill=navy!8, thick, font=\footnotesize, align=center, text width=6.2cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[stepBox] (init) at (0, 3.6) {
+        \textbf{Initialization}\\
+        Select $K$ initial centroids $\mathbf{m}_1, \dots, \mathbf{m}_K \in \mathbb{R}^d$
+    };
+
+    \node[stepBox] (assign) at (0, 1.8) {
+        \textbf{Phase 1: Assignment (Voronoi Cells)}\\
+        $C_i = \{\mathbf{x} \in \mathcal{D} : \|\mathbf{x} - \mathbf{m}_i\|_2 \le \|\mathbf{x} - \mathbf{m}_j\|_2 \; \forall j \ne i\}$
+    };
+
+    \node[stepBox] (update) at (0, 0.0) {
+        \textbf{Phase 2: Prototype Recomputation}\\
+        $\mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x} \quad (\forall i = 1, \dots, K)$
+    };
+
+    \node[draw=purple!85!black, fill=purple!12, rounded corners=4pt, font=\footnotesize\bfseries, align=center, text width=5.0cm] (stop) at (0, -1.8) {
+        Convergence reached?\\
+        Centroids do not change
+    };
+
+    \draw[arrowStyle] (init) -- (assign);
+    \draw[arrowStyle] (assign) -- (update);
+    \draw[arrowStyle] (update) -- (stop);
+    
+    \draw[arrowStyle] (stop.east) -- ++(1.8, 0) |- node[near start, right, font=\scriptsize\bfseries] {No (next iteration)} (assign.east);
+\end{tikzpicture}
+\caption{Two-phase iterative update cycle of the K-Means algorithm.}
+\label{fig:dm-kmeans-flowchart-en}
+\end{figure}
+
+\subsection{Temporal Dynamics Across Iterations}
+
+Analyzing centroid trajectories across iterations $t = 1, 2, \dots$:
+\begin{itemize}[noitemsep]
+    \item \textbf{Iterations 1--3}: Large macroscopic migration occurs. Initial centroids rapidly escape spurious positions and move toward the centers of high-density regions.
+    \item \textbf{Iterations 4--6 and onward}: Fine-tuning phase. Only a few boundary points swap across Voronoi boundaries until centroid shifts fall below the tolerance $\epsilon$.
+\end{itemize}
+
+\subsection{Generalization to Other Proximity Measures}
+
+While K-Means is traditionally formulated for Euclidean distance, the two-phase framework generalizes to other metrics provided the prototype is appropriately chosen:
+\begin{itemize}
+    \item \textbf{Euclidean Distance ($L_2$)}: Prototype = \textbf{Mean} (centroid). Minimizes the sum of squared errors ($\mathrm{SSE}$).
+    \item \textbf{Manhattan Distance ($L_1$)}: Prototype = Component-wise \textbf{Median} (\textbf{K-Medians} algorithm). Minimizes the sum of absolute errors ($\mathrm{SAE} = \sum_{i} \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{m}_i\|_1$).
+    \item \textbf{Cosine Similarity}: Prototype = \textbf{Normalized Mean} to unit norm ($\mathbf{m}_i / \|\mathbf{m}_i\|_2$). Maximizes cumulative cosine similarity (widely used in text mining).
+    \item \textbf{Pearson Correlation}: Prototype = \textbf{Standardized Vector} (zero mean, unit variance).
+\end{itemize}
+
+\subsection{Computational Complexity Analysis}
+
+Lloyd's algorithm exhibits exceptional computational efficiency:
+\begin{itemize}
+    \item \textbf{Time Complexity}: In each iteration, assigning $n$ points to $K$ centroids in $d$ dimensions requires $\mathcal{O}(n \cdot K \cdot d)$ operations. Recomputing centroids takes $\mathcal{O}(n \cdot d)$. Denoting by $I$ the number of iterations to convergence, total time complexity is:
+    \begin{equation}
+        \mathcal{T}_{\text{K-Means}} = \mathcal{O}(n \cdot K \cdot I \cdot d)
+    \end{equation}
+    Since empirically $K \ll n$, $d \ll n$, and $I \ll n$ (often $I \le 50$), time scales linearly with dataset size $n$.
+    \item \textbf{Space Complexity}: Storing the data matrix $n \times d$, $K$ centroid vectors of dimension $d$, and the cluster assignment vector $n \times 1$ requires:
+    \begin{equation}
+        \mathcal{S}_{\text{K-Means}} = \mathcal{O}((n + K) \cdot d)
+    \end{equation}
+    making the algorithm readily scalable to massive datasets residing in main memory.
+\end{itemize}
+
+% ====================================================================
+% SECTION 7.3: SSE OBJECTIVE FUNCTION AND PROOF OF CONVERGENCE
+% ====================================================================
+\section{SSE Objective Function and Proof of Convergence}
+\label{sec:dm-kmeans-sse-convergence}
+
+The analytical stability of K-Means stems from the presence of a well-defined scalar objective function that is strictly minimized by the alternating steps of Lloyd's method.
+
+\begin{definition}[Sum of Squared Errors]
+For a partition $\{C_1, \dots, C_K\}$ with prototypes $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$, the \textbf{sum of squared errors} ($\mathrm{SSE}$, or within-cluster inertia) is defined as:
+\begin{equation}
+    \mathrm{SSE} = \sum_{i=1}^K \sum_{\mathbf{x} \in C_i} \|\mathbf{x} - \mathbf{m}_i\|_2^2 = \sum_{i=1}^K \sum_{\mathbf{x} \in C_i} \sum_{j=1}^d (x_j - m_{ij})^2
+    \label{eq:dm-sse-definition-en}
+\end{equation}
+\end{definition}
+
+\subsection{Proof: The Sample Mean Strictly Minimizes SSE}
+
+\begin{theorem}[Optimality of the Centroid Mean]
+Given a cluster $C_k$ containing $|C_k|$ points in $\mathbb{R}^d$, the prototype $\mathbf{m}_k \in \mathbb{R}^d$ that minimizes the sum of squared Euclidean distances to all points in $C_k$ is uniquely the arithmetic sample mean of those points.
+\end{theorem}
+
+\begin{proof}
+The squared error for a single cluster $C_k$ decomposes independently across the $d$ orthogonal dimensions:
+\begin{equation}
+    \mathrm{SSE}_k = \sum_{\mathbf{x} \in C_k} \sum_{j=1}^d (x_j - m_{kj})^2 = \sum_{j=1}^d \left( \sum_{\mathbf{x} \in C_k} (x_j - m_{kj})^2 \right)
+\end{equation}
+To find the minimum with respect to each scalar coordinate $m_{kj}$ of centroid $\mathbf{m}_k$, we compute the first partial derivative and set it to zero:
+\begin{align}
+    \frac{\partial \, \mathrm{SSE}_k}{\partial m_{kj}} &= \frac{\partial}{\partial m_{kj}} \sum_{\mathbf{x} \in C_k} (x_j - m_{kj})^2 \notag \\
+    &= \sum_{\mathbf{x} \in C_k} 2 (x_j - m_{kj}) \cdot (-1) \notag \\
+    &= -2 \sum_{\mathbf{x} \in C_k} x_j + 2 \sum_{\mathbf{x} \in C_k} m_{kj} = 0
+\end{align}
+Since $m_{kj}$ is constant with respect to the summation over $\mathbf{x} \in C_k$, the second sum evaluates to $|C_k| \cdot m_{kj}$:
+\begin{equation}
+    2 |C_k| \, m_{kj} = 2 \sum_{\mathbf{x} \in C_k} x_j \implies m_{kj} = \frac{1}{|C_k|} \sum_{\mathbf{x} \in C_k} x_j
+\end{equation}
+Verifying the second derivative:
+\begin{equation}
+    \frac{\partial^2 \, \mathrm{SSE}_k}{\partial m_{kj}^2} = 2 |C_k| > 0
+\end{equation}
+The corresponding Hessian matrix is a strictly positive-definite scalar diagonal matrix:
+\begin{equation}
+    \nabla^2 \, \mathrm{SSE}_k = 2 |C_k| \, \mathbf{I}_d \succ 0
+\end{equation}
+Therefore, the sample mean $\mathbf{m}_k = \frac{1}{|C_k|} \sum_{\mathbf{x} \in C_k} \mathbf{x}$ is the unique strict global minimizer of $\mathrm{SSE}_k$.
+\end{proof}
+
+\subsection{Coordinate Descent Formulation and Convergence Proof}
+
+Lloyd's algorithm can be rigorously formulated as \textbf{Coordinate Descent} on a bivariate objective function.
+
+Let $\mathbf{W} \in \{0, 1\}^{n \times K}$ be the binary assignment matrix with $w_{ik} = 1$ if instance $\mathbf{x}_i \in C_k$ and $w_{ik} = 0$ otherwise, subject to $\sum_{k=1}^K w_{ik} = 1$ for all $i$. Let $\mathbf{S} = (\mathbf{m}_1, \dots, \mathbf{m}_K) \in \mathbb{R}^{d \times K}$ represent the matrix of centroids. The global objective function is:
+\begin{equation}
+    G(\mathbf{W}, \mathbf{S}) = \sum_{i=1}^n \sum_{k=1}^K w_{ik} \|\mathbf{x}_i - \mathbf{m}_k\|_2^2
+    \label{eq:dm-kmeans-coordinate-descent-obj-en}
+\end{equation}
+
+\begin{theorem}[Monotone Convergence to a Local Minimum]
+The K-Means algorithm monotonically decreases the objective function $G(\mathbf{W}, \mathbf{S})$ at every half-step and converges in a finite number of iterations to a local minimum or stationary point.
+\end{theorem}
+
+\begin{proof}
+Execution alternates between two optimization steps:
+\begin{enumerate}
+    \item \textbf{Step 1 (Assignment)}: Holding centroids $\mathbf{S}^{(t-1)}$ fixed, minimize $G(\mathbf{W}, \mathbf{S}^{(t-1)})$ over $\mathbf{W}$. Because each observation's contribution is decoupled, the objective is minimized by setting:
+    \begin{equation}
+        w_{ik}^{(t)} = \begin{cases}
+            1 & \text{if } k = \arg\min_{j} \|\mathbf{x}_i - \mathbf{m}_j^{(t-1)}\|_2^2 \\
+            0 & \text{otherwise}
+        \end{cases}
+    \end{equation}
+    Consequently:
+    \begin{equation}
+        G(\mathbf{W}^{(t)}, \mathbf{S}^{(t-1)}) \le G(\mathbf{W}^{(t-1)}, \mathbf{S}^{(t-1)})
+    \end{equation}
+    \item \textbf{Step 2 (Centroid Update)}: Holding assignments $\mathbf{W}^{(t)}$ fixed, minimize $G(\mathbf{W}^{(t)}, \mathbf{S})$ over $\mathbf{S}$. By the centroid optimality theorem, the optimal choice for each centroid $\mathbf{m}_k$ is:
+    \begin{equation}
+        \mathbf{m}_k^{(t)} = \frac{\sum_{i=1}^n w_{ik}^{(t)} \mathbf{x}_i}{\sum_{i=1}^n w_{ik}^{(t)}} = \frac{1}{|C_k^{(t)}|} \sum_{\mathbf{x} \in C_k^{(t)}} \mathbf{x}
+    \end{equation}
+    Consequently:
+    \begin{equation}
+        G(\mathbf{W}^{(t)}, \mathbf{S}^{(t)}) \le G(\mathbf{W}^{(t)}, \mathbf{S}^{(t-1)})
+    \end{equation}
+\end{enumerate}
+Combining both inequalities gives a monotonically non-increasing sequence:
+\begin{equation}
+    G(\mathbf{W}^{(t)}, \mathbf{S}^{(t)}) \le G(\mathbf{W}^{(t-1)}, \mathbf{S}^{(t-1)})
+\end{equation}
+Since $G(\mathbf{W}, \mathbf{S}) \ge 0$ is bounded below by zero, and the set of possible discrete partition matrices $\mathbf{W}$ is finite (given by the Stirling numbers of the second kind $S(n, K)$), the algorithm cannot cycle indefinitely and must reach convergence to a stationary point (local minimum) in a finite number of steps.
+\end{proof}
+
+% ====================================================================
+% SECTION 7.4: CHOICE OF K, LOCAL MINIMA, AND INITIALIZATION
+% ====================================================================
+\section{Choice of Parameter K, Local Minima, and Initialization}
+\label{sec:dm-kmeans-k-choice-local-minima}
+
+Despite guaranteed convergence, the optimization landscape of K-Means is non-convex and laden with sub-optimal local minima. In fact, finding the globally optimal clustering that minimizes SSE is known to be \textbf{NP-hard} even for $K = 2$ in general dimensions, or for $d = 2$ with general $K$.
+
+\subsection{Determining the Number of Clusters: The Elbow Method}
+
+Because $\mathrm{SSE}(K)$ monotonically decreases as $K$ increases (trivially reaching zero at $K = n$), one cannot minimize SSE directly with respect to $K$.
+
+The standard empirical approach is the \textbf{Elbow Method}:
+\begin{enumerate}
+    \item Run K-Means across a range of candidate values $K \in \{1, 2, \dots, K_{\max}\}$;
+    \item Plot the resulting $\mathrm{SSE}$ against $K$;
+    \item Identify the inflection point ("elbow") where the marginal reduction in error sharply diminishes.
+\end{enumerate}
+Analytically, the elbow corresponds to the value of $K$ that maximizes the discrete second derivative of SSE:
+\begin{equation}
+    \Delta^2 \, \mathrm{SSE}(K) = \mathrm{SSE}(K+1) - 2 \, \mathrm{SSE}(K) + \mathrm{SSE}(K-1)
+\end{equation}
+Beyond this point, introducing further clusters splits natural groups without providing substantial explanatory gain.
+
+\subsection{Sensitivity to Initial Centroids and Combinatorial Proof}
+
+The final clustering quality produced by K-Means depends critically on the initial centroid placement $\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}$. If two centroids land in the same true cluster, an adjacent natural group is left without a dedicated prototype, trapping the algorithm in an inferior local minimum.
+
+\begin{theorem}[Combinatorial Probability of Pure Random Initialization]
+Consider an ideal dataset containing $K$ well-separated natural clusters of equal size $N/K$. Under uniform random sampling with replacement, the probability $P(K)$ that each selected initial centroid falls into a distinct natural cluster is:
+\begin{equation}
+    P(K) = \frac{K!}{K^K}
+    \label{eq:dm-init-prob-formula-en}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+We evaluate the probability as a product of conditional probabilities step by step:
+\begin{enumerate}
+    \item The first centroid can land in any of the $K$ clusters: $P_1 = \frac{K}{K} = 1$.
+    \item For the second centroid to land in a different cluster, it must be drawn from one of the remaining $K-1$ unoccupied clusters. Since all clusters have equal size, $P_2 = \frac{K-1}{K}$.
+    \item The third centroid must fall into one of the remaining $K-2$ unoccupied clusters: $P_3 = \frac{K-2}{K}$.
+    \item Continuing up to the $K$-th centroid yields $P_K = \frac{1}{K}$.
+\end{enumerate}
+Multiplying these independent probabilities:
+\begin{equation}
+    P(K) = \prod_{j=1}^K \frac{K - j + 1}{K} = \frac{K \cdot (K-1) \cdot (K-2) \cdots 1}{K^K} = \frac{K!}{K^K}
+\end{equation}
+\end{proof}
+
+Evaluating equation~\eqref{eq:dm-init-prob-formula-en} for increasing values of $K$:
+\begin{itemize}[noitemsep]
+    \item $K = 2 \implies P(2) = \frac{2}{4} = 0.50$ (50\%);
+    \item $K = 3 \implies P(3) = \frac{6}{27} \approx 0.222$ (22.2\%);
+    \item $K = 5 \implies P(5) = \frac{120}{3125} \approx 0.0384$ (3.84\%);
+    \item $K = 10 \implies P(10) = \frac{3\,628\,800}{10^{10}} \approx 0.00036$ (a mere \textbf{0.036\%}).
+\end{itemize}
+
+Applying Stirling's approximation $K! \approx \sqrt{2\pi K} \left(\frac{K}{e}\right)^K$:
+\begin{equation}
+    P(K) \approx \frac{\sqrt{2\pi K} \left(\frac{K}{e}\right)^K}{K^K} = \sqrt{2\pi K} \cdot e^{-K}
+\end{equation}
+The probability of successful random initialization decays \textbf{exponentially} toward zero as $K$ grows. For $K \ge 10$, naive random initialization almost never lands one centroid per true cluster.
+
+% ====================================================================
+% SECTION 7.5: INITIALIZATION HEURISTICS AND VARIANTS OF K-MEANS
+% ====================================================================
+\section{Initialization Heuristics and Variants of K-Means}
+\label{sec:dm-kmeans-heuristics-variants}
+
+To counteract the fragility of naive initialization, robust initialization heuristics and structural variants have been developed.
+
+\subsection{Heuristic Initialization Strategies}
+
+\begin{enumerate}
+    \item \textbf{Random Restarts}: Run the algorithm $R$ times (e.g., $R = 50$) with different random seeds, retaining the partition yielding minimum $\mathrm{SSE}$. Effective for small $K$, but computationally prohibitive and insufficient for large $K$.
+    \item \textbf{Sampling with Hierarchical Pre-Clustering}: Extract a small random sample ($\approx 1\% - 5\%$) of the data and apply agglomerative hierarchical clustering with Ward's method to identify $K$ stable groups, using their centroids as seeds for full-scale K-Means.
+    \item \textbf{K-Means++ ($D^2$-Weighting)}: Introduced by Arthur and Vassilvitskii (2007), chooses the first centroid uniformly at random, and each subsequent centroid with probability proportional to the squared distance to the nearest existing centroid:
+    \begin{equation}
+        p(\mathbf{x}) = \frac{D(\mathbf{x})^2}{\sum_{\mathbf{y} \in \mathcal{D}} D(\mathbf{y})^2}, \qquad D(\mathbf{x}) = \min_{j \in \{1, \dots, m\}} \|\mathbf{x} - \mathbf{m}_j\|_2
+    \end{equation}
+    \textit{Theoretical guarantee}: K-Means++ guarantees that the expected final SSE is within a logarithmic factor of the global optimum:
+    \begin{equation}
+        \mathbb{E}[\mathrm{SSE}] \le 8(\ln K + 2) \cdot \mathrm{SSE}_{\text{opt}} = \mathcal{O}(\log K) \cdot \mathrm{SSE}_{\text{opt}}
+    \end{equation}
+    \item \textbf{Bisecting K-Means}: A hybrid divisive approach relying on recursive binary bisections ($K=2$):
+    \begin{itemize}[noitemsep]
+        \item Start with the entire dataset treated as a single macro-cluster;
+        \item At each step, select the cluster with the highest within-cluster $\mathrm{SSE}$ (or largest cardinality);
+        \item Apply standard K-Means with $K=2$ to split this cluster into two sub-clusters;
+        \item Repeat until exactly $K$ clusters are formed.
+    \end{itemize}
+    Bisecting K-Means is substantially less sensitive to initialization than Lloyd's method and inherently produces a hierarchical tree of clusters.
+\end{enumerate}
+
+\subsection{Incremental Centroid Update (Online K-Means)}
+
+In MacQueen's online formulation (1967), centroids are updated \textit{immediately} after every individual point reassignment, rather than at the end of each epoch:
+\begin{property}[MacQueen's Incremental Update Formulas]
+When point $\mathbf{x}$ is removed from cluster $C_j$ and added to cluster $C_i$:
+\begin{align}
+    \mathbf{m}_j &\leftarrow \mathbf{m}_j - \frac{\mathbf{x} - \mathbf{m}_j}{|C_j| - 1} \label{eq:dm-macqueen-remove-en} \\
+    \mathbf{m}_i &\leftarrow \mathbf{m}_i + \frac{\mathbf{x} - \mathbf{m}_i}{|C_i| + 1} \label{eq:dm-macqueen-add-en}
+\end{align}
+\end{property}
+This incremental update guarantees that SSE decreases with every individual movement, eliminates empty cluster occurrences, but introduces sensitivity to data presentation order.
+
+\subsection{Handling Empty Clusters}
+
+In batch Lloyd's algorithm, an assignment phase may leave a centroid with no nearest points ($|C_k| = 0$, an orphan centroid).
+Standard remediation strategies:
+\begin{enumerate}
+    \item \textbf{Maximum Residual Selection}: Identify point $\mathbf{x}^* \in \mathcal{D}$ with maximum squared error from its assigned centroid $\|\mathbf{x}^* - \mathbf{m}_{c(\mathbf{x}^*)}\|^2$, and assign it as the new isolated centroid of the empty cluster. This yields the maximum immediate marginal reduction in SSE.
+    \item \textbf{Splitting the Cluster with Maximum SSE}: Find the cluster contributing the highest cumulative SSE and split it by moving its most distant point into the empty cluster.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 7.6: STRUCTURAL LIMITATIONS OF K-MEANS AND ADAPTATION
+% ====================================================================
+\section{Structural Limitations of K-Means and Adaptation Techniques}
+\label{sec:dm-kmeans-limitations-isodata}
+
+K-Means implicitly assumes spherical, compact, well-separated clusters of similar volumes and densities. In the presence of complex geometries, the algorithm systematically degrades.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    failCard/.style={rectangle, rounded corners=5pt, draw=crimson!85!black, fill=crimson!6, thick, font=\footnotesize, align=left, text width=6.0cm, inner sep=6pt}
+]
+    \node[failCard] (c1) at (-3.4, 2.0) {
+        \textbf{1. Differing Sizes}\\
+        Centroids divide space evenly; smaller cluster centroid absorbs peripheral points from the larger cluster.
+    };
+
+    \node[failCard] (c2) at (3.4, 2.0) {
+        \textbf{2. Differing Densities}\\
+        Sparse clusters are fragmented, while compact high-density clusters are improperly merged together.
+    };
+
+    \node[failCard] (c3) at (-3.4, -0.4) {
+        \textbf{3. Non-Globular Geometries}\\
+        Concave or intertwined shapes (\textit{two moons}, concentric rings) are sliced by linear Voronoi boundaries.
+    };
+
+    \node[failCard] (c4) at (3.4, -0.4) {
+        \textbf{4. Outlier Sensitivity}\\
+        Squared error penalties $\|\mathbf{x} - \mathbf{m}\|^2$ heavily distort centroid locations toward extreme outliers.
+    };
+\end{tikzpicture}
+\caption{Four primary structural failure modes of the standard K-Means algorithm.}
+\label{fig:dm-kmeans-structural-limitations-en}
+\end{figure}
+
+\subsection{Analysis of Three Geometric Failure Modes}
+
+\begin{enumerate}
+    \item \textbf{Differing Sizes}: Because SSE penalizes squared deviations without factoring in intrinsic volume, the centroid of a compact cluster absorbs points from a dispersed cluster to lower overall SSE, distorting cluster boundaries.
+    \item \textbf{Differing Densities}: Equidistant hyperplanes between centroids do not account for density gradients. A sparse cluster requires multiple centroids to cover, forcing adjacent dense clusters to merge into a single group.
+    \item \textbf{Non-Globular Shapes (e.g., Two Moons)}: Voronoi cells are convex polyhedra. For intertwined non-convex manifolds (two interlocking crescents), linear hyperplanes cut across both curves, failing entirely to separate them.
+\end{enumerate}
+
+\begin{noteblock}{Remediation Strategy: Over-Clustering}
+To model complex manifolds or uneven densities, one runs K-Means with an over-specified number of micro-clusters ($K' \gg K$). A chain of small centroids provides a piecewise linear approximation along the manifold curve. Subsequent graph-based or linkage routines merge these micro-clusters into the desired non-linear clusters.
+\end{noteblock}
+
+\subsection{Pre-processing and Post-processing: The ISODATA Paradigm}
+
+To mitigate these limitations in practice, pre- and post-processing routines formalized in the classic \textbf{ISODATA} algorithm (\textit{Iterative Self-Organizing Data Analysis Technique}) are commonly used:
+\begin{itemize}
+    \item \textbf{Pre-processing}:
+    \begin{itemize}[noitemsep]
+        \item Feature normalization or standardization (z-score) to prevent large-scale attributes from dominating Euclidean distance calculations;
+        \item Outlier detection and filtering prior to centroid initialization.
+    \end{itemize}
+    \item \textbf{Post-processing (ISODATA Dynamics)}:
+    \begin{itemize}[noitemsep]
+        \item \textbf{Split}: If a cluster's standard deviation or SSE exceeds a maximum threshold $\theta_{\text{split}}$ and its size is sufficient ($|C_i| \ge 2\theta_{\min}$), split it along its coordinate of maximum variance.
+        \item \textbf{Merge}: If the Euclidean distance between two centroids $\|\mathbf{m}_i - \mathbf{m}_j\|_2$ falls below $\theta_{\text{merge}}$, merge them into a single centroid.
+        \item \textbf{Prune}: If $|C_i| < \theta_{\min}$, eliminate the cluster and reassign its members.
+    \end{itemize}
+\end{itemize}
+
+% ====================================================================
+% SECTION 7.7: FOUNDATIONS OF HIERARCHICAL CLUSTERING
+% ====================================================================
+\section{Foundations of Hierarchical Clustering}
+\label{sec:dm-hierarchical-foundations-dendrogram}
+
+\textbf{Hierarchical Clustering} overcomes the limitation of flat partitions by generating a continuous nested sequence of clusters.
+
+\begin{definition}[Dendrogram]
+A \textbf{dendrogram} is a rooted binary tree visualization where:
+\begin{itemize}[noitemsep]
+    \item The \textbf{leaves} at level $h = 0$ represent individual data points (singleton clusters);
+    \item The \textbf{internal nodes} represent successive pairwise cluster merges;
+    \item The \textbf{height} $h$ of each junction equals the distance or dissimilarity at which the two clusters were merged.
+\end{itemize}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize},
+    pointNode/.style={circle, fill=navy!85!black, inner sep=1.5pt},
+    cutLine/.style={dashed, thick, draw=crimson!85!black}
+]
+    % Dendrogram Axes
+    \draw[-Stealth, thick] (0,0) -- (0, 3.8) node[left] {Height $h$};
+    \draw[thick] (0,0) -- (7.5, 0);
+
+    % Leaves
+    \node[below] at (0.8, 0) {$p_3$};
+    \node[below] at (1.8, 0) {$p_6$};
+    \node[below] at (2.8, 0) {$p_4$};
+    \node[below] at (4.2, 0) {$p_2$};
+    \node[below] at (5.2, 0) {$p_5$};
+    \node[below] at (6.6, 0) {$p_1$};
+
+    % 1. Merge {p3, p6} at h = 0.8
+    \draw[thick] (0.8, 0) -- (0.8, 0.8) -- (1.8, 0.8) -- (1.8, 0);
+    \coordinate (c36) at (1.3, 0.8);
+
+    % 2. Merge {p2, p5} at h = 1.1
+    \draw[thick] (4.2, 0) -- (4.2, 1.1) -- (5.2, 1.1) -- (5.2, 0);
+    \coordinate (c25) at (4.7, 1.1);
+
+    % 3. Merge {{p3, p6}, p4} at h = 1.5
+    \draw[thick] (c36) -- (1.3, 1.5) -- (2.8, 1.5) -- (2.8, 0);
+    \coordinate (c364) at (2.05, 1.5);
+
+    % 4. Merge {{p3, p6, p4}, {p2, p5}} at h = 2.2
+    \draw[thick] (c364) -- (2.05, 2.2) -- (4.7, 2.2) -- (c25);
+    \coordinate (c_left) at (3.375, 2.2);
+
+    % 5. Final merge with p1 at h = 3.2
+    \draw[thick] (c_left) -- (3.375, 3.2) -- (6.6, 3.2) -- (6.6, 0);
+
+    % Horizontal cut at h* = 1.8
+    \draw[cutLine] (-0.2, 1.8) -- (7.5, 1.8);
+    \node[left, crimson!85!black, font=\scriptsize] at (-0.05, 1.8) {$h^* = 1.8$};
+    \node[right, crimson!85!black, font=\scriptsize\bfseries] at (7.5, 1.8) {Cut $h^* \implies K = 3$};
+\end{tikzpicture}
+\caption{Dendrogram structure: junction heights represent merge distances. A horizontal cut yields a flat partition with $K = 3$ clusters.}
+\label{fig:dm-dendrogram-schema-en}
+\end{figure}
+
+\subsection{Distinct Strengths of Hierarchical Clustering}
+
+\begin{itemize}
+    \item \textbf{No a priori constraint on $K$}: The user does not need to specify cluster count beforehand. A full visual taxonomy is revealed, and $K$ is chosen post-hoc by drawing a horizontal cut at height $h^*$.
+    \item \textbf{Modeling natural hierarchies}: Biological phylogenies, taxonomies, and linguistic trees possess natural hierarchical structures faithfully captured by dendrograms.
+    \item \textbf{Determinism}: Standard hierarchical algorithms are fully deterministic, with no sensitivity to random seeds.
+\end{itemize}
+
+\subsection{Taxonomy of Hierarchical Algorithms}
+
+\begin{itemize}
+    \item \textbf{Agglomerative (\textit{Bottom-up})}: Begin with $n$ singleton clusters and iteratively merge the closest pair of clusters in $n - 1$ steps until a single root cluster remains.
+    \item \textbf{Divisive (\textit{Top-down})}: Begin with the entire dataset in a single cluster and recursively split clusters into sub-clusters until $n$ singletons are reached.
+\end{itemize}
+
+% ====================================================================
+% SECTION 7.8: AGGLOMERATIVE ALGORITHM AND LINKAGE CRITERIA
+% ====================================================================
+\section{Agglomerative Algorithm and Linkage Criteria}
+\label{sec:dm-agglomerative-linkage-criteria}
+
+The standard agglomerative procedure requires maintaining an inter-cluster proximity matrix $\mathbf{D} \in \mathbb{R}^{N \times N}$, following Algorithm~\ref{alg:dm-hierarchical-agglomerative-en}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$, distance metric $d(\cdot, \cdot)$.}
+\KwOutput{Complete hierarchical dendrogram of merges.}
+Initialize $n$ singleton clusters: $C_i = \{\mathbf{x}_i\}$ for each $i \in \{1, \dots, n\}$\;
+Compute initial proximity matrix $\mathbf{D}^{(0)} \in \mathbb{R}^{n \times n}$ where $D_{ij} = d(\mathbf{x}_i, \mathbf{x}_j)$\;
+\For{$t = 1$ \KwTo $n - 1$}{
+    Find the closest pair of clusters: $(A, B) = \arg\min_{i \ne j} D_{ij}^{(t-1)}$\;
+    Merge clusters $A$ and $B$ into $A \cup B$ at height $h_t = D_{AB}^{(t-1)}$\;
+    Remove rows and columns corresponding to $A$ and $B$ from the matrix\;
+    Compute distance between new cluster $A \cup B$ and every remaining cluster $Q$ according to chosen linkage criterion\;
+    Update proximity matrix $\mathbf{D}^{(t)}$ with the new row and column for $A \cup B$\;
+}
+\caption{Standard agglomerative hierarchical clustering algorithm.}
+\label{alg:dm-hierarchical-agglomerative-en}
+\end{algorithm}
+
+\subsection{The Four Principal Linkage Criteria}
+
+The definition of inter-cluster distance $D(A, B)$ governs the geometry and properties of the resulting hierarchy.
+
+\subsubsection{1. MIN (Single Link)}
+Distance between two clusters equals the minimum distance between any pair of constituent points:
+\begin{equation}
+    D_{\text{MIN}}(A, B) = \min_{\mathbf{x} \in A, \, \mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-single-link-en}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \textbf{Strengths}: Capable of detecting arbitrary non-convex, elongated, or concentric shapes (isomorphic to Kruskal's Minimum Spanning Tree construction).
+    \item \textbf{Weaknesses (\textit{Chaining Effect})}: Highly susceptible to noise. A single bridge of noise points between two well-separated clusters causes them to prematurely merge into a long chain.
+\end{itemize}
+
+\subsubsection{2. MAX (Complete Link)}
+Distance equals the maximum distance between any pair of constituent points:
+\begin{equation}
+    D_{\text{MAX}}(A, B) = \max_{\mathbf{x} \in A, \, \mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-complete-link-en}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \textbf{Strengths}: Immune to chaining; enforces compact, spherical clusters by strictly bounding the cluster diameter: $\text{diam}(A \cup B) \le h$.
+    \item \textbf{Weaknesses}: Tends to fragment elongated clusters and is sensitive to peripheral outliers.
+\end{itemize}
+
+\subsubsection{3. Group Average (Average Link / UPGMA)}
+Distance is defined as the average distance between all pairs of cross-cluster points:
+\begin{equation}
+    D_{\text{AVG}}(A, B) = \frac{1}{|A| \cdot |B|} \sum_{\mathbf{x} \in A} \sum_{\mathbf{y} \in B} d(\mathbf{x}, \mathbf{y})
+    \label{eq:dm-average-link-en}
+\end{equation}
+A robust compromise between MIN and MAX. Less sensitive to noise than Single Link because individual outliers are averaged across all pairwise distances.
+
+\subsubsection{4. Ward's Method (Variance Minimization)}
+Introduced by Joe H. Ward Jr. (1963), proximity between two clusters is measured by the \textbf{increase in total squared error} ($\Delta \mathrm{SSE}$) resulting from their merge:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \mathrm{SSE}_{A \cup B} - (\mathrm{SSE}_A + \mathrm{SSE}_B)
+    \label{eq:dm-ward-delta-def-en}
+\end{equation}
+
+\begin{theorem}[Closed-Form Expression for Ward's Method]
+The increase in sum of squared errors $\Delta \mathrm{SSE}_{AB}$ caused by merging clusters $A$ and $B$ equals the squared Euclidean distance between their centroids, scaled by the harmonic product of their cardinalities:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \frac{|A| \cdot |B|}{|A| + |B|} \|\mathbf{m}_A - \mathbf{m}_B\|_2^2
+    \label{eq:dm-ward-formula-closed-en}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Let $A$ and $B$ be disjoint clusters with cardinalities $|A|, |B|$ and centroids $\mathbf{m}_A, \mathbf{m}_B$. The centroid of the merged cluster $A \cup B$ is:
+\begin{equation}
+    \mathbf{m}_{A \cup B} = \frac{|A| \mathbf{m}_A + |B| \mathbf{m}_B}{|A| + |B|}
+\end{equation}
+The displacement vector between the merged centroid and $\mathbf{m}_A$ is:
+\begin{equation}
+    \mathbf{m}_{A \cup B} - \mathbf{m}_A = \frac{|B|(\mathbf{m}_B - \mathbf{m}_A)}{|A| + |B|}
+\end{equation}
+Symmetrically for cluster $B$:
+\begin{equation}
+    \mathbf{m}_{A \cup B} - \mathbf{m}_B = \frac{|A|(\mathbf{m}_A - \mathbf{m}_B)}{|A| + |B|}
+\end{equation}
+The total squared error of the union is:
+\begin{equation}
+    \mathrm{SSE}_{A \cup B} = \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 + \sum_{\mathbf{y} \in B} \|\mathbf{y} - \mathbf{m}_{A \cup B}\|^2
+\end{equation}
+Expanding the first summation by inserting and subtracting $\mathbf{m}_A$:
+\begin{align}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 &= \sum_{\mathbf{x} \in A} \|(\mathbf{x} - \mathbf{m}_A) - (\mathbf{m}_{A \cup B} - \mathbf{m}_A)\|^2 \notag \\
+    &= \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_A\|^2 + \sum_{\mathbf{x} \in A} \|\mathbf{m}_{A \cup B} - \mathbf{m}_A\|^2 \notag \\
+    &\quad - 2 \left( \sum_{\mathbf{x} \in A} (\mathbf{x} - \mathbf{m}_A) \right) \cdot (\mathbf{m}_{A \cup B} - \mathbf{m}_A)
+\end{align}
+Since $\sum_{\mathbf{x} \in A} (\mathbf{x} - \mathbf{m}_A) = \mathbf{0}$ by definition of the centroid, the cross-term vanishes:
+\begin{equation}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 = \mathrm{SSE}_A + |A| \cdot \|\mathbf{m}_{A \cup B} - \mathbf{m}_A\|^2
+\end{equation}
+Substituting the displacement expression:
+\begin{align}
+    \sum_{\mathbf{x} \in A} \|\mathbf{x} - \mathbf{m}_{A \cup B}\|^2 &= \mathrm{SSE}_A + |A| \left\| \frac{|B|(\mathbf{m}_B - \mathbf{m}_A)}{|A| + |B|} \right\|^2 \notag \\
+    &= \mathrm{SSE}_A + \frac{|A| \cdot |B|^2}{(|A| + |B|)^2} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{align}
+Repeating for cluster $B$:
+\begin{equation}
+    \sum_{\mathbf{y} \in B} \|\mathbf{y} - \mathbf{m}_{A \cup B}\|^2 = \mathrm{SSE}_B + \frac{|A|^2 \cdot |B|}{(|A| + |B|)^2} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{equation}
+Summing both contributions yields $\mathrm{SSE}_{A \cup B}$:
+\begin{align}
+    \mathrm{SSE}_{A \cup B} &= \mathrm{SSE}_A + \mathrm{SSE}_B + \left[ \frac{|A| \cdot |B|^2 + |A|^2 \cdot |B|}{(|A| + |B|)^2} \right] \|\mathbf{m}_A - \mathbf{m}_B\|^2 \notag \\
+    &= \mathrm{SSE}_A + \mathrm{SSE}_B + \left[ \frac{|A| \cdot |B| (|B| + |A|)}{(|A| + |B|)^2} \right] \|\mathbf{m}_A - \mathbf{m}_B\|^2 \notag \\
+    &= \mathrm{SSE}_A + \mathrm{SSE}_B + \frac{|A| \cdot |B|}{|A| + |B|} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{align}
+Subtracting $(\mathrm{SSE}_A + \mathrm{SSE}_B)$ proves the claim:
+\begin{equation}
+    \Delta \mathrm{SSE}_{AB} = \mathrm{SSE}_{A \cup B} - (\mathrm{SSE}_A + \mathrm{SSE}_B) = \frac{|A| \cdot |B|}{|A| + |B|} \|\mathbf{m}_A - \mathbf{m}_B\|^2
+\end{equation}
+\end{proof}
+
+Ward's method serves as the exact hierarchical analogue of the K-Means objective function: it produces compact, spherical, balanced clusters and exhibits strong noise tolerance.
+
+\subsection{Worked Numerical Example on 6 Points: MIN vs MAX}
+
+Consider a dataset of 6 points $\{p_1, \dots, p_6\}$ with initial distance matrix:
+\begin{equation}
+\mathbf{D} = 
+\begin{pmatrix}
+ & p_1 & p_2 & p_3 & p_4 & p_5 & p_6 \\
+p_1 & 0.00 & 0.24 & 0.22 & 0.37 & 0.34 & 0.23 \\
+p_2 & 0.24 & 0.00 & 0.15 & 0.20 & 0.14 & 0.25 \\
+p_3 & 0.22 & 0.15 & 0.00 & 0.15 & 0.28 & 0.11 \\
+p_4 & 0.37 & 0.20 & 0.15 & 0.00 & 0.29 & 0.22 \\
+p_5 & 0.34 & 0.14 & 0.28 & 0.29 & 0.00 & 0.39 \\
+p_6 & 0.23 & 0.25 & 0.11 & 0.22 & 0.39 & 0.00
+\end{pmatrix}
+\end{equation}
+
+\subsubsection{Resolution with MIN (Single Link)}
+\begin{enumerate}
+    \item Global minimum: $d(p_3, p_6) = 0.11 \implies$ Merge $\{p_3, p_6\}$ at $h = 0.11$.
+    \item Next minimum: $d(p_2, p_5) = 0.14 \implies$ Merge $\{p_2, p_5\}$ at $h = 0.14$.
+    \item Distance from $\{p_3, p_6\}$ to $p_4$: $\min(d(p_3, p_4), d(p_6, p_4)) = 0.15 \implies$ Merge into $\{p_3, p_6, p_4\}$ at $h = 0.15$.
+    \item Distance between $\{p_3, p_6, p_4\}$ and $\{p_2, p_5\}$:
+    \begin{align}
+        \min_{\mathbf{x} \in \{3,6,4\}, \, \mathbf{y} \in \{2,5\}} d(\mathbf{x}, \mathbf{y}) &= \min(0.15, 0.25, 0.20, 0.28, 0.39, 0.29) \notag \\
+        &= d(p_3, p_2) = 0.15
+    \end{align}
+    The two blocks merge immediately at height $h = 0.15$ via link $p_3$--$p_2$.
+    \item Distance to $p_1$: $\min(d(p_1, p_j)) = d(p_1, p_3) = 0.22 \implies$ Final merge at $h = 0.22$.
+\end{enumerate}
+
+\subsubsection{Resolution with MAX (Complete Link)}
+\begin{enumerate}
+    \item First two steps match MIN: merge $\{p_3, p_6\}$ at $h = 0.11$, and $\{p_2, p_5\}$ at $h = 0.14$.
+    \item MAX distance from $\{p_3, p_6\}$ to $p_4$: $\max(d(p_3, p_4), d(p_6, p_4)) = 0.22$.
+    \item MAX distance between $\{p_3, p_6\}$ and $\{p_2, p_5\}$:
+    \begin{align}
+        \max_{\mathbf{x} \in \{3,6\}, \, \mathbf{y} \in \{2,5\}} d(\mathbf{x}, \mathbf{y}) &= \max(0.15, 0.25, 0.28, 0.39) \notag \\
+        &= d(p_6, p_5) = 0.39
+    \end{align}
+    Since $0.22 < 0.39$, the preferred merge is $\{p_3, p_6\}$ with $p_4$ at $h = 0.22$.
+    \item Distance between $\{p_3, p_6, p_4\}$ and $\{p_2, p_5\}$ remains high ($0.39$). In contrast, distance from $p_1$ to $\{p_2, p_5\}$ is $\max(0.24, 0.34) = 0.34$. Thus, MAX postpones merging the two large groups, avoiding premature linkage chains.
+\end{enumerate}
+
+\subsection{Lance-Williams Recurrence Formula}
+
+The recurrence formula by Lance and Williams (1967) enables updating proximity matrices algebraically without recomputing individual point distances.
+
+\begin{theorem}[Lance-Williams Formula]
+When clusters $A$ and $B$ merge into $A \cup B$, the distance to any remaining cluster $Q$ satisfies:
+\begin{equation}
+    D(A \cup B, \, Q) = \alpha_A \, D(A, Q) + \alpha_B \, D(B, Q) + \beta \, D(A, B) + \gamma \, |D(A, Q) - D(B, Q)|
+    \label{eq:dm-lance-williams-general-en}
+\end{equation}
+where parameters $(\alpha_A, \alpha_B, \beta, \gamma)$ define the specific linkage metric.
+\end{theorem}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Linkage Criterion} & $\mathbf{\alpha_A}$ & $\mathbf{\alpha_B}$ & $\mathbf{\beta}$ & $\mathbf{\gamma}$ \\
+\midrule
+\textbf{MIN (Single Link)} & $1/2$ & $1/2$ & $0$ & $-1/2$ \\
+\textbf{MAX (Complete Link)} & $1/2$ & $1/2$ & $0$ & $+1/2$ \\
+\textbf{Group Average} & $\frac{|A|}{|A| + |B|}$ & $\frac{|B|}{|A| + |B|}$ & $0$ & $0$ \\[3pt]
+\textbf{Centroid Linkage} & $\frac{|A|}{|A| + |B|}$ & $\frac{|B|}{|A| + |B|}$ & $-\frac{|A||B|}{(|A| + |B|)^2}$ & $0$ \\[3pt]
+\textbf{Ward's Method} & $\frac{|A| + |Q|}{|A| + |B| + |Q|}$ & $\frac{|B| + |Q|}{|A| + |B| + |Q|}$ & $-\frac{|Q|}{|A| + |B| + |Q|}$ & $0$ \\
+\bottomrule
+\end{tabular}
+\caption{Lance-Williams recurrence coefficients for major hierarchical methods.}
+\label{tab:dm-lance-williams-parameters-en}
+\end{table}
+
+\begin{proof}[Consistency Proof for Group Average]
+Substituting the Lance-Williams coefficients for Group Average:
+\begin{align}
+    \sum_{\mathbf{x} \in A \cup B} \sum_{\mathbf{z} \in Q} d(\mathbf{x}, \mathbf{z}) &= \sum_{\mathbf{x} \in A} \sum_{\mathbf{z} \in Q} d(\mathbf{x}, \mathbf{z}) + \sum_{\mathbf{y} \in B} \sum_{\mathbf{z} \in Q} d(\mathbf{y}, \mathbf{z}) \notag \\
+    &= |A| \cdot |Q| \cdot D_{\text{AVG}}(A, Q) + |B| \cdot |Q| \cdot D_{\text{AVG}}(B, Q)
+\end{align}
+Dividing by $|A \cup B| \cdot |Q| = (|A| + |B|) \cdot |Q|$ and simplifying $|Q| > 0$:
+\begin{equation}
+    D_{\text{AVG}}(A \cup B, \, Q) = \frac{|A|}{|A| + |B|} D_{\text{AVG}}(A, Q) + \frac{|B|}{|A| + |B|} D_{\text{AVG}}(B, Q)
+\end{equation}
+matching the coefficients in Table~\ref{tab:dm-lance-williams-parameters-en}.
+\end{proof}
+
+\subsection{Synoptic Comparison of Linkage Criteria}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{p{2.3cm} p{2.2cm} Y Y Y}
+\toprule
+\textbf{Criterion} & \textbf{Objective} & \textbf{Geometry} & \textbf{Outliers} & \textbf{Properties} \\
+\midrule
+\textbf{MIN (Single)} & $\min_{\mathbf{x}, \mathbf{y}} d(\mathbf{x}, \mathbf{y})$ & Arbitrary, chaining & Very high (\textit{chaining}) & Isomorphic to $\mathrm{MST}$ \\
+\textbf{MAX (Complete)} & $\max_{\mathbf{x}, \mathbf{y}} d(\mathbf{x}, \mathbf{y})$ & Spherical, compact & Low at core & Diameter $\le h$ \\
+\textbf{Group Average} & Pairwise $\frac{\sum \sum d}{|A||B|}$ & Globular tolerant & Moderate & Balanced \\
+\textbf{Ward's Method} & $\Delta\mathrm{SSE}_{AB}$ & Spherical balanced & Very low & K-Means analogue \\
+\bottomrule
+\end{tabularx}
+\caption{Analytical comparison across the four principal linkage criteria in hierarchical clustering.}
+\label{tab:dm-linkage-criteria-synoptic-en}
+\end{table}
+
+% ====================================================================
+% SECTION 7.9: MST-BASED DIVISIVE HIERARCHICAL CLUSTERING
+% ====================================================================
+\section{MST-Based Divisive Hierarchical Clustering}
+\label{sec:dm-divisive-mst-clustering}
+
+While naive divisive clustering is computationally intractable (evaluating all $2^{n-1} - 1$ possible binary splits), graph theory offers an elegant and polynomial formulation using the \textbf{Minimum Spanning Tree} ($\mathrm{MST}$).
+
+\begin{definition}[Minimum Spanning Tree of Data Points]
+Given complete graph $G = (V, E)$ where vertices $V$ represent the $n$ data points and edge weights are $w(u, v) = d(\mathbf{x}_u, \mathbf{x}_v)$, an $\mathrm{MST}$ is a cycle-free subgraph connecting all vertices with minimum total weight:
+\begin{equation}
+    w(\mathrm{MST}) = \sum_{e \in \mathrm{MST}} w(e) \to \min
+\end{equation}
+\end{definition}
+
+\subsection{Divisive Algorithm via Edge Deletion}
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$, desired number of clusters $K$.}
+\KwOutput{Partition $\{C_1, \dots, C_K\}$.}
+Construct complete weighted graph $G = (V, E)$ from pairwise distances\;
+Extract Minimum Spanning Tree $\mathcal{T}_{\mathrm{MST}}$ using Prim's or Kruskal's algorithm\;
+Sort the $n - 1$ tree edges in non-increasing order: $w(e_1) \ge w(e_2) \ge \dots \ge w(e_{n-1})$\;
+\For{$k = 1$ \KwTo $K - 1$}{
+    Delete longest remaining edge $e_k$ from the spanning tree\;
+    The tree splits into two disjoint connected components\;
+}
+Return the resulting $K$ connected components as the final clusters\;
+\caption{Divisive clustering based on Minimum Spanning Tree.}
+\label{alg:dm-divisive-mst-en}
+\end{algorithm}
+
+\begin{property}[Equivalence with Single Link Agglomerative Clustering]
+The partition produced by removing the $K - 1$ heaviest edges from an $\mathrm{MST}$ is \textbf{strictly identical} to the partition obtained by running Single Link agglomerative clustering down to $K$ clusters. Consequently, Prim's algorithm ($\mathcal{O}(n^2)$) provides an efficient direct path to construct the Single Link hierarchy.
+\end{property}
+
+% ====================================================================
+% SECTION 7.10: COMPLEXITY, STRUCTURAL LIMITS, AND SYNOPTIC COMPARISON
+% ====================================================================
+\section{Complexity, Structural Limits, and Synoptic Comparison}
+\label{sec:dm-hierarchical-complexity-comparison}
+
+\subsection{Asymptotic Complexity Analysis}
+
+\begin{itemize}
+    \item \textbf{Space Complexity}: Hierarchical clustering requires storing the full $n \times n$ proximity matrix:
+    \begin{equation}
+        \mathcal{S}_{\text{Hierarchical}} = \mathcal{O}(n^2)
+    \end{equation}
+    This presents a formidable bottleneck in Big Data scenarios. For $n = 100\,000$ points with double precision (8 bytes), the matrix requires approximately $40\,\text{GB}$ of RAM.
+    \item \textbf{Naive Time Complexity}: With $n - 1$ merge iterations and linear search across an $\mathcal{O}(n^2)$ matrix at each step:
+    \begin{equation}
+        \mathcal{T}_{\text{Naive}} = \sum_{t=1}^{n-1} \mathcal{O}((n - t)^2) = \mathcal{O}(n^3)
+    \end{equation}
+    \item \textbf{Priority Queue (Heap) Optimization}: Maintaining distances in min-heaps reduces merge search and updates to $\mathcal{O}(n \log n)$ per step, lowering overall complexity to:
+    \begin{equation}
+        \mathcal{T}_{\text{Heap}} = \mathcal{O}(n^2 \log n)
+    \end{equation}
+    (For specific criteria such as Single Link and Complete Link, specialized algorithms like SLINK and CLINK achieve $\mathcal{O}(n^2)$ time with $\mathcal{O}(n)$ auxiliary space).
+\end{itemize}
+
+\subsection{Structural Limitations of Hierarchical Clustering}
+
+\begin{enumerate}
+    \item \textbf{Irreversibility of Greedy Decisions}: Merges and splits are permanent without backtracking. If two points merge prematurely due to local noise, they remain tied at all subsequent levels.
+    \item \textbf{Absence of a Global Objective Function}: Except for Ward's method (which minimizes local variance growth), linkage metrics do not optimize a global mathematical cost function across the entire dataset.
+\end{enumerate}
+
+\subsection{Final Synoptic Schema: K-Means vs Hierarchical Clustering}
+
+Table~\ref{tab:dm-kmeans-vs-hierarchical-en} contrasts the architectural, algebraic, and operational properties of the two paradigms.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l Y Y}
+\toprule
+\textbf{Operational Feature} & \textbf{K-Means Clustering} & \textbf{Hierarchical Clustering} \\
+\midrule
+\textbf{Structure Type} & Flat partition (\textit{hard clustering}) & Nested taxonomic tree (Dendrogram) \\
+\textbf{Parameter $K$} & Mandatory a priori & Derivable post-hoc by drawing a cut line \\
+\textbf{Objective Function} & Global $\mathrm{SSE}$ minimization & Greedy local decisions without global cost \\
+\textbf{Time Complexity} & $\mathcal{O}(n \cdot K \cdot I \cdot d)$ (Linear in $n$) & $\mathcal{O}(n^2 \log n)$ to $\mathcal{O}(n^3)$ (Super-quadratic) \\
+\textbf{Space Complexity} & $\mathcal{O}((n + K) \cdot d)$ (Linear in $n$) & $\mathcal{O}(n^2)$ (Quadratic memory bottleneck) \\
+\textbf{Data Scalability} & Very high (millions of records) & Low ($n \le 20\,000$ in standard RAM) \\
+\textbf{Initialization Sensitivity} & Severe (susceptible to local minima) & Fully deterministic (no random seed) \\
+\textbf{Shape Flexibility} & Spherical/globular only (Voronoi hyperplanes) & Arbitrary with Single Link; spherical with Ward \\
+\textbf{Decision Reversibility} & Yes (points reassign at each iteration) & No (permanent merges/splits without backtracking) \\
+\bottomrule
+\end{tabularx}
+\caption{Global synoptic comparison between K-Means and Hierarchical Clustering.}
+\label{tab:dm-kmeans-vs-hierarchical-en}
+\end{table}
