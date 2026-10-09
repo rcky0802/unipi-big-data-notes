@@ -1,0 +1,384 @@
+\chapter{Python Lab: Data Understanding and Data Preparation}
+\label{chap:dm-python-lab-du-dp}
+
+This chapter presents the computational realization of the theoretical principles of Data Understanding (DU) and Data Preparation (DP), drawing upon the practical laboratory exercises implemented with Python's core data science ecosystem (\texttt{numpy}, \texttt{pandas}, \texttt{scipy}, \texttt{matplotlib}, \texttt{seaborn}, and \texttt{scikit-learn}).
+
+The laboratory uses the \textbf{Tips} dataset (augmented with the secondary \textbf{Tips\_Age} table), describing restaurant customer transactions and tipping behaviors, to demonstrate the complete data engineering workflow: from ingestion, relational joining, and deduplication to missing value diagnosis, conditional imputation, feature engineering, normalization, and dimensionality reduction via PCA and $t$-SNE.
+
+\begin{noteblock}{Interactive Environment and Laboratory Reproducibility}
+    All examples, data preparation pipelines, and visualizations presented in this chapter are fully reproducible and interactively executable via Jupyter notebooks located in the \texttt{Data-Mining/notebooks/} directory.
+    
+    \textbf{Quick start with Docker}:
+    \begin{itemize}[noitemsep]
+        \item Terminal execution (project root): \texttt{docker compose up jupyter}
+        \item Windows shortcut: double-click \texttt{scripts/start-jupyter.cmd}
+        \item Web interface: \href{http://localhost:8888/lab}{\texttt{http://localhost:8888/lab}} (no token or password required).
+    \end{itemize}
+    To execute headless Python scripts directly from the command line:
+    \begin{itemize}[noitemsep]
+        \item \texttt{docker compose run --rm app python3 Data-Mining/notebooks/generate\_dispensa\_figures.py}
+    \end{itemize}
+\end{noteblock}
+
+% ====================================================================
+% SECTION 5.1: ENVIRONMENT, INGESTION, AND DATA INTEGRATION
+% ====================================================================
+\section{Environment, Ingestion, and Data Integration}
+\label{sec:dm-lab-ingestion-integration}
+
+\begin{remark}[Interactive Notebook Reference]
+    Code examples in Sections \ref{sec:dm-lab-ingestion-integration}, \ref{sec:dm-lab-missing-values}, and \ref{sec:dm-lab-multivariate-exploration} correspond to the interactive Jupyter \href{http://localhost:8888/lab/tree/notebooks/1_basics_and_understanding.ipynb}{\textbf{Notebook 1 (Data Understanding)}} (file \texttt{1\_basics\_and\_} \texttt{understanding.ipynb}).
+\end{remark}
+
+The scientific software stack employed throughout the laboratory exercises comprises:
+
+\begin{lstlisting}[language=Python, style=code]
+import numpy as np
+import pandas as pd
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer, KNNImputer
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, KBinsDiscretizer, OneHotEncoder, TargetEncoder
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+\end{lstlisting}
+
+\subsection{Loading and Structural Audit}
+
+The primary dataset is ingested from a tab-separated values (\texttt{tsv}) file, setting the index to the first column:
+
+\begin{lstlisting}[language=Python, style=code]
+tips = pd.read_csv('tips.csv', sep='\t', index_col=0)
+print(tips.head())
+tips.info()
+\end{lstlisting}
+
+The raw data initially contains $244$ observations and $7$ features: \texttt{total\_bill} (total bill amount), \texttt{tip} (tip amount), \texttt{sex} (server/payer gender), \texttt{smoker} (smoking party indicator), \texttt{day} (day of week), \texttt{time} (meal timing: Lunch or Dinner), \texttt{size} (party size).
+
+\subsection{Data Integration and Relational Joining}
+
+In this lab, customer age data is stored in a separate table (\texttt{tips\_age.csv}). The two sources are integrated using a left-join keyed on the shared primary identifier \texttt{ID}:
+
+\begin{lstlisting}[language=Python, style=code]
+tips_age = pd.read_csv('tips_age.csv', sep='\t', index_col=0)
+df = tips.join(tips_age, on='ID')
+# Drop redundant columns originating from the secondary source
+df = df.drop(columns=['gender'], errors='ignore')
+\end{lstlisting}
+
+\subsection{Duplicate Row Detection and Filtering}
+
+Identifying duplicate rows requires inspecting exact equality across all attribute dimensions:
+
+\begin{lstlisting}[language=Python, style=code]
+# Display all duplicate rows (keeping all duplicate instances)
+duplicated_rows = df[df.duplicated(keep=False)]
+print(f"Duplicate rows detected: {len(duplicated_rows)}")
+
+# Drop duplicate rows while retaining the first occurrence
+df = df.drop_duplicates()
+\end{lstlisting}
+
+\subsection{Cleaning Invalid Values and Type Casting}
+
+Real-world datasets frequently contain formatting anomalies or sentinel strings mistakenly entered into numeric fields (such as the dummy string \texttt{'aaaaa'} in the \texttt{total\_bill} column). This forces Pandas to treat the column as a generic \texttt{object} type. Cleaning requires string replacement followed by explicit numerical casting:
+
+\begin{lstlisting}[language=Python, style=code]
+# Replace invalid string with NaN
+df["total_bill"] = df["total_bill"].replace("aaaaa", np.nan)
+
+# Cast column to numeric float
+df["total_bill"] = pd.to_numeric(df["total_bill"])
+\end{lstlisting}
+
+% ====================================================================
+% SECTION 5.2: MISSING VALUE DIAGNOSIS AND IMPUTATION
+% ====================================================================
+\section{Missing Value Diagnosis and Imputation}
+\label{sec:dm-lab-missing-values}
+
+\subsection{Missing Value Audit}
+
+Missing values (\texttt{NaN}) are systematically audited by chaining \texttt{isnull()} and \texttt{sum()}:
+
+\begin{lstlisting}[language=Python, style=code]
+# Summary of null counts per column
+null_counts = df.isnull().sum()
+print(null_counts[null_counts > 0])
+
+# Filter records containing at least one missing attribute
+incomplete_records = df[df.isnull().any(axis=1)]
+\end{lstlisting}
+
+\subsection{Deletion vs. Statistical Imputation}
+
+\begin{itemize}
+    \item \textbf{Listwise Deletion}: Discarding all rows containing one or more null values:
+\begin{lstlisting}[language=Python, style=code]
+df_cleaned = df.dropna()
+\end{lstlisting}
+    \item \textbf{Conditional Median Imputation}: When the \texttt{age} feature exhibits missing values or dummy zeros ($0$), global median imputation can mask real demographic disparities between meal times (\textit{Lunch} vs. \textit{Dinner}). Group-stratified imputation preserves local distributions:
+\begin{lstlisting}[language=Python, style=code]
+df['age'] = df['age'].replace(0, np.nan)
+# Impute using group-conditional median based on meal time
+df['age'] = df['age'].fillna(df.groupby('time')['age'].transform('median'))
+\end{lstlisting}
+\end{itemize}
+
+\subsection{Advanced Imputation with Scikit-Learn}
+
+The \texttt{sklearn.impute} module provides transformer objects suitable for production pipelines:
+
+\begin{lstlisting}[language=Python, style=code]
+# 1. SimpleImputer for numerical attributes (mean or median)
+imp_mean = SimpleImputer(strategy='mean')
+df['tip'] = imp_mean.fit_transform(df[['tip']])
+
+# 2. SimpleImputer for categorical attributes (most frequent / mode)
+imp_mode = SimpleImputer(strategy='most_frequent')
+df['smoker'] = imp_mode.fit_transform(df[['smoker']]).ravel()
+
+# 3. KNNImputer (multivariate k-nearest neighbors imputation)
+knn_imp = KNNImputer(n_neighbors=2, weights='distance')
+num_cols = ['total_bill', 'tip', 'size', 'age']
+df[num_cols] = knn_imp.fit_transform(df[num_cols])
+\end{lstlisting}
+
+% ====================================================================
+% SECTION 5.3: MULTIVARIATE EXPLORATION AND CORRELATION
+% ====================================================================
+\section{Multivariate Exploration and Correlation Analysis}
+\label{sec:dm-lab-multivariate-exploration}
+
+\subsection{Contingency Tables and Conditional Distributions}
+
+Evaluating dependencies across categorical features relies on row-normalized cross-tabulations:
+
+\begin{lstlisting}[language=Python, style=code]
+# Joint frequency table between smoker status and gender
+smoker_xt = pd.crosstab(df['smoker'], df['sex'])
+
+# Row-wise normalization (proportional fractions)
+smoker_pct = smoker_xt.div(smoker_xt.sum(1).astype(float), axis=0)
+smoker_pct.plot(kind='bar', stacked=False, title='Gender per Smoker Category')
+plt.ylabel('Relative Frequency')
+plt.show()
+\end{lstlisting}
+
+\subsection{Correlation Matrices and Heatmap Rendering}
+
+Pandas computes Pearson, Spearman, and Kendall correlation matrices across numeric attributes:
+
+\begin{lstlisting}[language=Python, style=code]
+# Pearson linear correlation matrix
+corr_pearson = df.corr(numeric_only=True, method='pearson')
+
+# Spearman rank correlation matrix (robust monotonic measure)
+corr_spearman = df.corr(numeric_only=True, method='spearman')
+
+# Annotated heatmap rendering via Seaborn
+plt.figure(figsize=(8, 6))
+sns.heatmap(corr_pearson, annot=True, cmap='coolwarm', fmt='.2f', vmin=-1, vmax=1)
+plt.title('Pearson Correlation Heatmap (Tips Dataset)')
+plt.show()
+\end{lstlisting}
+
+\subsection{Scatter Matrix and Pairplots}
+
+Pairwise bivariate inspections are efficiently visualized using \texttt{scatter\_matrix} or Seaborn \texttt{pairplot}:
+
+\begin{lstlisting}[language=Python, style=code]
+# Pandas Scatter Matrix with KDE diagonal
+pd.plotting.scatter_matrix(df[['total_bill', 'tip', 'size', 'age']], figsize=(9, 9), diagonal='kde')
+plt.show()
+
+# Seaborn Pairplot with class-based color coding
+sns.pairplot(df, vars=['total_bill', 'tip', 'size'], hue='time', palette='Dark2')
+plt.show()
+\end{lstlisting}
+
+\subsection{Feature Engineering: Domain Ratio Construction}
+
+Domain expertise guides the derivation of novel features with enhanced explanatory power:
+
+\begin{lstlisting}[language=Python, style=code]
+# 1. Effective tip ratio relative to total bill
+df['tip_ratio'] = df['tip'] / df['total_bill']
+
+# 2. Bill per person (BPP)
+df['bpp'] = df['total_bill'] / df['size']
+
+# Stratified Boxplot inspection across gender
+df.boxplot(column=['bpp'], by='sex')
+plt.title('Bill per Person Stratified by Gender')
+plt.suptitle('')
+plt.show()
+\end{lstlisting}
+
+% ====================================================================
+% SECTION 5.4: FEATURE TRANSFORMATION AND ENCODING
+% ====================================================================
+\section{Feature Transformation, Discretization, and Encoding}
+\label{sec:dm-lab-transformation-encoding}
+
+\begin{remark}[Interactive Notebook Reference]
+    Code examples in Sections \ref{sec:dm-lab-transformation-encoding} and \ref{sec:dm-lab-dimensionality-reduction} correspond to the interactive Jupyter \href{http://localhost:8888/lab/tree/notebooks/2_feature_engineering_and_data_representation.ipynb}{\textbf{Notebook 2 (Feature Engineering)}}:
+    \begin{center}
+        \small \href{http://localhost:8888/lab/tree/notebooks/2_feature_engineering_and_data_representation.ipynb}{\texttt{2\_feature\_engineering\_and\_data\_representation.ipynb}}
+    \end{center}
+\end{remark}
+
+\subsection{Discretization with KBinsDiscretizer}
+
+Scikit-Learn's \texttt{KBinsDiscretizer} converts continuous attributes into discrete ordinal bins using three distinct binning strategies:
+
+\begin{lstlisting}[language=Python, style=code]
+# Discretization into 4 bins across different strategies
+disc_uniform = KBinsDiscretizer(n_bins=4, encode='ordinal', strategy='uniform')    # Equal-Width
+disc_quantile = KBinsDiscretizer(n_bins=4, encode='ordinal', strategy='quantile')  # Equal-Frequency
+disc_kmeans = KBinsDiscretizer(n_bins=4, encode='ordinal', strategy='kmeans')      # Cluster-based
+
+df['total_bill_bins'] = disc_uniform.fit_transform(df[['total_bill']])
+print(df['total_bill_bins'].value_counts())
+\end{lstlisting}
+
+\subsection{Feature Scaling: StandardScaler vs. MinMaxScaler}
+
+\begin{itemize}
+    \item \textbf{StandardScaler}: Standardizes features to zero mean and unit variance ($\mu = 0, \sigma = 1$).
+    \item \textbf{MinMaxScaler}: Bounds values strictly into $[0, 1]$.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, style=code]
+num_cols = ['total_bill', 'tip', 'age']
+
+# Z-Score Standardization
+scaler_std = StandardScaler()
+df_standardized = df.copy()
+df_standardized[num_cols] = scaler_std.fit_transform(df[num_cols])
+
+# Min-Max Normalization
+scaler_minmax = MinMaxScaler()
+df_normalized = df.copy()
+df_normalized[num_cols] = scaler_minmax.fit_transform(df[num_cols])
+
+# Inverting transformation back to original scale
+df_recovered = scaler_minmax.inverse_transform(df_normalized[num_cols])
+\end{lstlisting}
+
+\subsection{Categorical Encoding: One-Hot vs. Target Encoding}
+
+\begin{lstlisting}[language=Python, style=code]
+# 1. One-Hot Encoding (prevents imposing synthetic order)
+ohe = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+encoded_days = ohe.fit_transform(df[['day']])
+encoded_df = pd.DataFrame(encoded_days, columns=ohe.get_feature_names_out(['day']))
+
+# 2. Target Encoding (substitutes categories with target expectation)
+target_enc = TargetEncoder(smooth='auto')
+# Encode 'day' using mean 'tip'
+df['day_target_encoded'] = target_enc.fit_transform(df[['day']], df['tip'])
+\end{lstlisting}
+
+% ====================================================================
+% SECTION 5.5: DIMENSIONALITY REDUCTION: PCA AND T-SNE
+% ====================================================================
+\section{Dimensionality Reduction: PCA and $t$-SNE}
+\label{sec:dm-lab-dimensionality-reduction}
+
+\subsection{Principal Component Analysis (PCA)}
+
+Features must be centered and scaled before fitting PCA so that high-variance variables do not arbitrarily dominate the spectral decomposition:
+
+\begin{lstlisting}[language=Python, style=code]
+# Select quantitative predictors
+X = df[['total_bill', 'tip', 'size', 'age', 'tip_ratio', 'bpp']].dropna()
+X_scaled = StandardScaler().fit_transform(X)
+
+# Fit PCA
+pca = PCA()
+X_pca = pca.fit_transform(X_scaled)
+
+# Eigenvalues (absolute variance explained per component)
+eigenvalues = pca.explained_variance_
+# Relative variance ratio
+explained_var_ratio = pca.explained_variance_ratio_
+# Cumulative explained variance
+cumulative_var = np.cumsum(explained_var_ratio)
+\end{lstlisting}
+
+\subsubsection{Scree Plot Visualization}
+The Scree Plot helps detect the characteristic "elbow" where incremental principal components contribute negligible variance:
+
+\begin{lstlisting}[language=Python, style=code]
+plt.figure(figsize=(8, 4))
+plt.plot(range(1, len(eigenvalues) + 1), eigenvalues, 'o-', color='navy', label='Individual Eigenvalues')
+plt.title('PCA Scree Plot (Eigenvalues)')
+plt.xlabel('Principal Component Index')
+plt.ylabel('Eigenvalue (Explained Variance)')
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.legend()
+plt.show()
+\end{lstlisting}
+
+\subsection{Non-linear Projection via $t$-SNE}
+
+\textbf{$t$-Distributed Stochastic Neighbor Embedding ($t$-SNE)} is an unsupervised non-linear algorithm designed to preserve local neighborhood affinities in high-dimensional datasets:
+
+\begin{lstlisting}[language=Python, style=code]
+tsne = TSNE(
+    n_components=2,
+    perplexity=30,      # Balance between local and global structure (typical range: 5-50)
+    learning_rate=200,  # Gradient descent step size
+    max_iter=1000,      # Maximum KL-divergence optimization iterations
+    random_state=42
+)
+X_tsne = tsne.fit_transform(X_scaled)
+\end{lstlisting}
+
+\subsection{Methodological Comparison: PCA vs. $t$-SNE}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{lXX}
+        \toprule
+        \textbf{Criterion} & \textbf{PCA (Principal Component Analysis)} & \textbf{$t$-SNE ($t$-Distributed SNE)} \\
+        \midrule
+        \textbf{Nature} & Linear, global, deterministic. & Non-linear, local, stochastic/probabilistic. \\
+        \addlinespace
+        \textbf{Objective} & Maximizes projected global variance via eigenvalue decomposition. & Minimizes Kullback-Leibler divergence between neighborhood probability distributions. \\
+        \addlinespace
+        \textbf{Interpretability} & Component axes are linear feature combinations with explicit loadings. & Axes possess no absolute physical meaning; only relative neighbor proximity matters. \\
+        \addlinespace
+        \textbf{Long-Range Distances} & Preserves large-scale Euclidean spatial configurations. & Distorts global inter-cluster distances (cluster radii do not represent true cluster volume). \\
+        \addlinespace
+        \textbf{Standard Use} & Dimensionality reduction for supervised learning, compression, decorrelation. & Exploratory manifold visualization and qualitative cluster identification (2D/3D). \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Comparative synthesis of PCA and $t$-SNE characteristics.}
+    \label{tab:dm-pca-vs-tsne}
+\end{table}
+
+\begin{lstlisting}[language=Python, style=code]
+# Side-by-side comparative scatter plots
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# PCA projection
+ax1.scatter(X_pca[:, 0], X_pca[:, 1], c='navy', alpha=0.7, edgecolors='k')
+ax1.set_title('Linear PCA Projection (PC1 vs PC2)')
+ax1.set_xlabel('First Principal Component')
+ax1.set_ylabel('Second Principal Component')
+ax1.grid(True, linestyle='--', alpha=0.5)
+
+# t-SNE projection
+ax2.scatter(X_tsne[:, 0], X_tsne[:, 1], c='crimson', alpha=0.7, edgecolors='k')
+ax2.set_title('Non-linear t-SNE Projection')
+ax2.set_xlabel('t-SNE Dimension 1')
+ax2.set_ylabel('t-SNE Dimension 2')
+ax2.grid(True, linestyle='--', alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+\end{lstlisting}

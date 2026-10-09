@@ -1,0 +1,411 @@
+\chapter{Data Understanding II -- Analisi Multivariata, Correlazione e Rilevamento Outliers}
+\label{chap:dm-data-understanding-multivariate-outliers}
+
+L'analisi multivariata studia le relazioni simultanee tra due o più attributi del dataset, superando i limiti delle descrizioni univariata isolate. In questo capitolo si approfondiscono le tecniche di visualizzazione per dati a più dimensioni, gli indici formali di associazione e correlazione lineare e non lineare, i criteri metodologici per la diagnosi degli outlier e una checklist operativa conclusiva per completare la fase di Data Understanding.
+
+Il caso di studio impiegato come riferimento applicativo è il benchmark \textbf{Iris} (introdotto dal botanico Edgar Anderson e reso celebre da Ronald Fisher nel 1936), composto da $150$ osservazioni distribuite in modo bilanciato su $3$ classi da $50$ campioni ciascuna (\textit{Iris setosa}, \textit{Iris versicolor}, \textit{Iris virginica}) e descritto da $4$ feature continue espresse in centimetri:
+\begin{itemize}[noitemsep]
+    \item Lunghezza del sepalo (\textit{Sepal Length})
+    \item Larghezza del sepalo (\textit{Sepal Width})
+    \item Lunghezza del petalo (\textit{Petal Length})
+    \item Larghezza del petalo (\textit{Petal Width})
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 3.1: TECNICHE DI VISUALIZZAZIONE MULTIDIMENSIONALE
+% ====================================================================
+\section{Tecniche di Visualizzazione Multidimensionale}
+\label{sec:dm-multivariate-visualization}
+
+Quando l'analisi si estende a configurazioni bivariate e multivariate, la rappresentazione grafica deve consentire la percezione immediata della separabilità geometrica tra classi, dell'addensamento in cluster naturali e della presenza di anomalie strutturali.
+
+\subsection{Scatter Plot e Scatter Matrix}
+
+Lo \textbf{Scatter Plot (Grafico a Dispersione)} traccia ogni coppia di attributi continui $(X, Y)$ proiettando le osservazioni come punti con coordinate cartesiane $(x_i, y_i) \in \mathbb{R}^2$.
+\begin{itemize}
+    \item \textbf{Caratteristiche}: Permette di evidenziare visivamente cluster, tendenze di correlazione diretta o inversa e la presenza di outlier bivariati che risultano invisibili dall'analisi dei singoli istogrammi.
+    \item \textbf{Codifica cromatico-categoriale}: Assegnando a ciascun punto un colore o un simbolo corrispondente alla classe di appartenenza, l'analista può valutare la separabilità geometrica indotta dalla coppia di feature.
+    \item \textbf{Evidenza sul dataset Iris}: Incrociando \textit{Petal Length} e \textit{Petal Width}, le classi mostrano un elevato grado di separabilità: la classe \textit{Setosa} forma un cluster compatto e isolato, mentre \textit{Versicolor} e \textit{Virginica} presentano solo una ridotta sovrapposizione marginale (Figura~\ref{fig:dm-iris-scatter}). Al contrario, il piano formato da \textit{Sepal Length} e \textit{Sepal Width} mostra una forte sovrapposizione tra \textit{Versicolor} e \textit{Virginica}.
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_scatterplot_real.pdf}
+    \caption{Scatter plot bivariati sul dataset Iris: confronto tra la separabilità generata da sepalo e petalo.}
+    \label{fig:dm-iris-scatter}
+\end{figure}
+
+Quando il numero di attributi numerici $p$ è moderato ($3 \le p \le 10$), si ricorre alla \textbf{Scatter Matrix (Scatter Plot Matrix - SPLOM)}: una griglia simmetrica di dimensione $p \times p$ contenente tutti i $\frac{p(p-1)}{2}$ grafici a dispersione a coppie distinte.
+Sulla diagonale principale vengono tipicamente inseriti gli istogrammi univariati o le stime di densità (KDE) della singola variabile, consentendo una diagnosi simultanea di forma e correlazione (Figura~\ref{fig:dm-iris-splom}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_splom_real.pdf}
+    \caption{Scatter Plot Matrix (SPLOM) completa per le quattro feature del dataset Iris.}
+    \label{fig:dm-iris-splom}
+\end{figure}
+
+Lo \textbf{Scatter Plot Tridimensionale (3D)} estende la proiezione a tre coordinate cartesiane simultanee $(X_1, X_2, X_3)$. Consente di identificare outlier tridimensionali non rilevabili nelle proiezioni bidimensionali marginali, sebbene la fruizione su supporto bidimensionale risenta delle occlusioni e dell'angolazione di visuale.
+
+\subsection{Visualizzazione di Spazi ad Alta Dimensionalità}
+
+Negli spazi a dimensione elevata ($p > 3$), la geometria euclidea cartesiana classica non consente proiezioni dirette esaustive. Si adottano schemi grafici alternativi basati su geometrie coordinate non ortogonali.
+
+\subsubsection{Coordinate Parallele (Parallel Coordinates)}
+Nelle coordinate parallele gli assi non sono mutuamente perpendicolari, ma disposti come $p$ rette verticali equi-spaziate e parallele, ciascuna tarata sull'intervallo di valori dell'attributo corrispondente.
+
+\begin{itemize}
+    \item \textbf{Mappatura geometrica}: Un'osservazione $p$-dimensionale $\mathbf{x}_i = (x_{i1}, x_{i2}, \dots, x_{ip}) \in \mathbb{R}^p$ viene rappresentata non come un punto, ma come una \textbf{polilinea (linea spezzata)} che attraversa tutti gli assi, intersecando l'asse $j$-esimo esattamente alla quota $x_{ij}$.
+    \item \textbf{Proprietà diagnostiche}: I record appartenenti alla stessa classe formano fasci compatti con andamento coerente. Una polilinea isolata con traiettoria discordante segnala un potenziale outlier multivariato.
+    \item \textbf{Rilevanza dell'ordinamento degli assi}: La percezione dei legami statistici dipende dall'ordinamento orizzontale degli assi. Collocando attributi fortemente correlati su assi contigui, fasci di segmenti paralleli indicano correlazione positiva, mentre fasci che si incrociano a X indicano correlazione negativa (Figura~\ref{fig:dm-iris-parallel}).
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_parallel_coordinates.pdf}
+    \caption{Coordinate parallele per il dataset Iris con curve differenziate per classe.}
+    \label{fig:dm-iris-parallel}
+\end{figure}
+
+\subsubsection{Radar Plot (Grafico Radar o Diagramma a Stella)}
+Il \textbf{Radar Plot} condivide il principio delle coordinate parallele, con la variante che gli assi dimensionali non sono disposti linearmente, ma \textbf{irradiano a raggiera da un polo centrale comune}, distanziati da angoli equi-spaziati:
+\begin{equation}
+    \theta_j = \frac{2\pi (j-1)}{p}, \quad j = 1, \dots, p
+\end{equation}
+
+Per ciascun record, il valore assunto dalla variabile definisce la distanza del vertice dal centro lungo il corrispondente raggio; congiungendo i vertici si genera un poligono chiuso.
+Quando il radar plot viene replicato in piccoli riquadri separati per ciascuna osservazione, prende il nome di \textbf{Star Plot}, agevolando il confronto visivo di profili complessi (Figura~\ref{fig:dm-iris-radar}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{iris_radar_plot.pdf}
+    \caption{Profili medi delle classi del dataset Iris visualizzati tramite Radar Plot.}
+    \label{fig:dm-iris-radar}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 3.2: COVARIANZA E CORRELAZIONE
+% ====================================================================
+\section{Analisi di Dipendenza Bivariata: Covarianza e Correlazione}
+\label{sec:dm-covariance-correlation}
+
+L'analisi quantitativa della dipendenza studia l'intensità e la direzione con cui due variabili casuali variano congiuntamente.
+
+\subsection{Da Varianza a Covarianza}
+
+Mentre la varianza misura la dispersione di una singola variabile rispetto al proprio baricentro, la \textbf{Covarianza Campionaria} quantifica la tendenza di due variabili numeriche $X$ e $Y$ a manifestare scarti concordi o discordi rispetto alle rispettive medie:
+\begin{equation}
+    \text{Cov}(X, Y) = s_{xy} = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})
+\end{equation}
+
+Nel caso speciale $X = Y$, la covarianza coincide con la varianza campionaria:
+\begin{equation}
+    \text{Cov}(X, X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2 = s_x^2
+\end{equation}
+
+\subsubsection{Matrice di Covarianza}
+Per un insieme di $p$ attributi continui, la struttura complessiva di variabilità congiunta è sintetizzata dalla \textbf{Matrice di Covarianza} $V \in \mathbb{R}^{p \times p}$:
+\begin{equation}
+    V = \begin{bmatrix}
+        \text{Cov}(X_1, X_1) & \text{Cov}(X_1, X_2) & \cdots & \text{Cov}(X_1, X_p) \\
+        \text{Cov}(X_2, X_1) & \text{Cov}(X_2, X_2) & \cdots & \text{Cov}(X_2, X_p) \\
+        \vdots & \vdots & \ddots & \vdots \\
+        \text{Cov}(X_p, X_1) & \text{Cov}(X_p, X_2) & \cdots & \text{Cov}(X_p, X_p)
+    \end{bmatrix}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item Gli elementi diagonali $V_{jj} = \text{Var}(X_j) = s_j^2$ rappresentano le varianze marginali.
+    \item Gli elementi extra-diagonali $V_{jk} = \text{Cov}(X_j, X_k)$ rappresentano le covarianze a coppie.
+    \item Poiché $\text{Cov}(X_j, X_k) = \text{Cov}(X_k, X_j)$, la matrice $V$ è \textbf{simmetrica} ($V = V^T$) e semi-definita positiva ($V \succeq 0$).
+\end{itemize}
+
+\subsubsection{Interpretazione Geometrica dei Prodotti degli Scarti}
+Il segno della covarianza dipende dalla posizione delle osservazioni rispetto al baricentro $(\bar{x}, \bar{y})$ nel piano cartesiano, che divide lo spazio in quattro quadranti:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.95]
+        \draw[thick, -Stealth, color=gray!80!black] (-3.8, 0) -- (4.2, 0) node[right, font=\small] {$X$};
+        \draw[thick, -Stealth, color=gray!80!black] (0, -3.2) -- (0, 3.5) node[above, font=\small] {$Y$};
+        
+        \draw[dashed, thick, color=navy!70] (0.5, -3.0) -- (0.5, 3.2);
+        \draw[dashed, thick, color=navy!70] (-3.5, 0.4) -- (3.8, 0.4);
+        
+        \node[below right, font=\footnotesize\bfseries, color=navy] at (0.5, 0) {$\bar{x}$};
+        \node[above left, font=\footnotesize\bfseries, color=navy] at (0, 0.4) {$\bar{y}$};
+        
+        % Quadrante I
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (2.5, 2.6) {
+            \textbf{Quadrante I}\\
+            $(x_i > \bar{x}) \land (y_i > \bar{y})$\\
+            Scarto: $(+) \cdot (+) = \mathbf{(+)}$
+        };
+        \fill[crimson] (1.2, 0.9) circle (2.2pt);
+        \fill[crimson] (1.7, 1.3) circle (2.2pt);
+        \fill[crimson] (2.2, 1.7) circle (2.2pt);
+        
+        % Quadrante II
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (-2.0, 2.6) {
+            \textbf{Quadrante II}\\
+            $(x_i < \bar{x}) \land (y_i > \bar{y})$\\
+            Scarto: $(-) \cdot (+) = \mathbf{(-)}$
+        };
+        \fill[darkgreen] (-1.2, 1.2) circle (2.2pt);
+        
+        % Quadrante III
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (-2.0, -2.4) {
+            \textbf{Quadrante III}\\
+            $(x_i < \bar{x}) \land (y_i < \bar{y})$\\
+            Scarto: $(-) \cdot (-) = \mathbf{(+)}$
+        };
+        \fill[crimson] (-0.8, -0.4) circle (2.2pt);
+        \fill[crimson] (-1.4, -0.9) circle (2.2pt);
+        \fill[crimson] (-2.1, -1.3) circle (2.2pt);
+        
+        % Quadrante IV
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (2.5, -2.4) {
+            \textbf{Quadrante IV}\\
+            $(x_i > \bar{x}) \land (y_i < \bar{y})$\\
+            Scarto: $(+) \cdot (-) = \mathbf{(-)}$
+        };
+        \fill[darkgreen] (1.6, -0.9) circle (2.2pt);
+    \end{tikzpicture}
+    \caption{Scomposizione geometrica degli scarti in quattro quadranti centrati sul baricentro $(\bar{x}, \bar{y})$.}
+    \label{fig:dm-covariance-quadrants}
+\end{figure}
+
+\begin{itemize}
+    \item Punti nei quadranti I e III apportano contributi positivi: le deviazioni sono concordi $\implies \text{Cov}(X, Y) > 0$.
+    \item Punti nei quadranti II e IV apportano contributi negativi: le deviazioni sono discordi $\implies \text{Cov}(X, Y) < 0$.
+    \item Se le osservazioni si disperdono uniformemente nei quattro quadranti, i termini positivi e negativi si bilanciano, portando a $\text{Cov}(X, Y) \approx 0$.
+\end{itemize}
+
+\subsubsection{Limite Strutturale: Dipendenza dall'Unità di Misura}
+La covarianza non è invariante per trasformazioni di scala. Se la variabile $X$ esprime un reddito in euro e viene convertita in migliaia di euro ($X' = X / 1000$), la covarianza si riduce di un fattore $1000$, nonostante la correlazione statistica rimanga immutata. Essa non consente quindi di confrontare coppie di attributi aventi ordini di grandezza o unità differenti.
+
+\subsection{Coefficiente di Correlazione Lineare di Pearson}
+
+Il \textbf{Coefficiente di Correlazione Lineare di Pearson ($r_{xy}$)} normalizza la covarianza dividendola per il prodotto delle deviazioni standard campionarie:
+\begin{equation}
+    r_{xy} = \frac{\text{Cov}(X, Y)}{s_x s_y} = \frac{\sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^n (x_i - \bar{x})^2} \sqrt{\sum_{i=1}^n (y_i - \bar{y})^2}}
+\end{equation}
+
+\subsubsection{Proprietà Matematiche del Coefficiente $r_{xy}$}
+\begin{enumerate}
+    \item \textbf{Limitazione dell'intervallo}: Per la disuguaglianza di Cauchy-Schwarz nello spazio dei vettori centrati, il coefficiente è rigorosamente limitato nell'intervallo:
+    \begin{equation}
+        -1 \le r_{xy} \le +1
+    \end{equation}
+    \item \textbf{Invarianza di scala}: È un indice adimensionale, invariante rispetto a qualunque trasformazione lineare affine positiva ($X' = aX + b, Y' = cY + d$ con $a, c > 0$).
+    \item \textbf{Correlazione lineare perfetta}:
+    \begin{itemize}
+        \item $r_{xy} = +1$: indica una perfetta relazione lineare positiva crescente; tutti i punti giacciono su una retta a pendenza positiva ($y = ax + b$, con $a > 0$).
+        \item $r_{xy} = -1$: indica una perfetta relazione lineare negativa decrescente ($a < 0$).
+    \end{itemize}
+    \item \textbf{Assenza di relazione lineare}: Un valore $r_{xy} \approx 0$ denota \textbf{assenza di associazione lineare}, ma non implica l'indipendenza stocastica. Relazioni funzionali non lineari deterministiche (es. $Y = X^2$ con $X$ distribuita simmetricamente attorno all'origine) generano $r_{xy} = 0$, pur in presenza di una totale dipendenza.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.88]
+        % Panel 1: r = +1.0
+        \begin{scope}[shift={(0,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, color=crimson] (0.3,0.3) -- (2.2,2.0);
+            \fill (0.5,0.48) circle (1.5pt);
+            \fill (1.0,0.92) circle (1.5pt);
+            \fill (1.5,1.38) circle (1.5pt);
+            \fill (2.0,1.82) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = +1.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Lineare Positiva\\Perfetta};
+        \end{scope}
+
+        % Panel 2: r = -0.8
+        \begin{scope}[shift={(3.8,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, dashed, color=navy] (0.3,2.0) -- (2.2,0.4);
+            \fill (0.4,1.8) circle (1.5pt);
+            \fill (0.7,1.7) circle (1.5pt);
+            \fill (1.0,1.2) circle (1.5pt);
+            \fill (1.3,1.4) circle (1.5pt);
+            \fill (1.6,0.9) circle (1.5pt);
+            \fill (1.9,0.5) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = -0.80$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Forte Associazione\\Lineare Negativa};
+        \end{scope}
+
+        % Panel 3: r = 0.0
+        \begin{scope}[shift={(7.6,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \fill (0.5,0.5) circle (1.5pt); \fill (0.7,1.8) circle (1.5pt);
+            \fill (1.2,1.1) circle (1.5pt); \fill (1.4,0.4) circle (1.5pt);
+            \fill (1.8,1.7) circle (1.5pt); \fill (2.0,0.8) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r \approx 0.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Nessun Legame\\Lineare};
+        \end{scope}
+
+        % Panel 4: r = 0.0 Non-lineare
+        \begin{scope}[shift={(11.4,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, color=darkgreen, domain=0.3:2.2, samples=30] plot (\x, {2.0 - 1.8*(\x-1.25)*(\x-1.25)});
+            \fill (0.4,0.7) circle (1.5pt); \fill (0.8,1.6) circle (1.5pt);
+            \fill (1.25,2.0) circle (1.5pt); \fill (1.7,1.6) circle (1.5pt);
+            \fill (2.1,0.7) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = 0.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Dipendenza\\Quadratica Curva};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Configurazioni tipiche di dispersione bivariata e corrispondenti coefficienti $r$ di Pearson.}
+    \label{fig:dm-pearson-scenarios}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_correlation_heatmaps.pdf}
+    \caption{Heatmap di correlazione per il dataset Iris complessivo e disaggregato per singola specie.}
+    \label{fig:dm-iris-heatmaps}
+\end{figure}
+
+\subsection{Fallacia Causale e Variabili Concomitanti}
+
+Un principio fondante dell'analisi dati stabilisce che \textbf{la correlazione statistica non implica causalità} (\textit{correlation does not imply causation}). Un valore elevato di $|r_{xy}|$ può originare da tre dinamiche:
+\begin{enumerate}
+    \item $X$ è causa diretta di $Y$.
+    \item $Y$ è causa diretta di $X$.
+    \item $X$ e $Y$ sono entrambe causate da una terza variabile non osservata o latente, definita \textbf{variabile di confondimento (confounding factor)}.
+\end{enumerate}
+
+\begin{noteblock}{Esempio Classico: Vendita di Gelati e Annegamenti}
+Durante i mesi estivi si registra una forte correlazione lineare positiva ($r > 0.85$) tra le vendite di gelati ($X$) e il numero di decessi per annegamento ($Y$). Dedurre che l'assunzione di gelati aumenti il rischio di annegamento costituisce una fallacia causale: entrambe le grandezze sono influenzate da un fattore di confondimento esogeno, la temperatura ambientale (\textit{hot weather}), che incentiva simultaneamente il consumo di gelati e l'afflusso di bagnanti in mare e nei fiumi.
+\end{noteblock}
+
+\subsection{Coefficiente di Correlazione per Ranghi di Spearman}
+
+Quando i dati violano l'ipotesi di normalità bivariata o presentano relazioni non lineari ma strettamente monotone, si impiega il \textbf{Coefficiente di Correlazione per Ranghi di Spearman ($\rho$)}.
+
+La procedura converte ciascun valore continuo $x_i$ e $y_i$ nella rispettiva posizione d'ordine o rango ordinale $r(x_i), r(y_i) \in \{1, \dots, n\}$. In assenza di valori paritari (\textit{ties}), la formulazione algebrica esplicita risulta:
+\begin{equation}
+    \rho = 1 - \frac{6 \sum_{i=1}^n \big(r(x_i) - r(y_i)\big)^2}{n(n^2 - 1)}
+\end{equation}
+
+\begin{itemize}[noitemsep]
+    \item $\rho = +1$: indica una perfetta relazione monotona crescente (al crescere di $X$, $Y$ cresce strettamente, anche secondo andamenti esponenziali o sigmoidei).
+    \item $\rho = -1$: indica una perfetta relazione monotona decrescente.
+    \item \textbf{Robustezza}: Essendo basato sui ranghi ordinali anziché sui valori metrici effettivi, Spearman è molto meno sensibile a valori anomali isolati situati nelle code.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 3.3: OUTLIER DETECTION
+% ====================================================================
+\section{Tassonomia e Rilevamento degli Outlier}
+\label{sec:dm-outlier-detection-taxonomy}
+
+Un \textbf{outlier} (valore anomalo) è definito come un'istanza che devia marcatamente dalla distribuzione della maggior parte delle osservazioni, suggerendo che sia stata generata da un meccanismo generatore differente o affetta da distorsioni di misura.
+
+\subsection{Ruolo degli Outlier: Rumore vs Target di Analisi}
+\begin{itemize}
+    \item \textbf{Outlier come Rumore (Noise)}: L'anomalia è conseguenza di un errore materiale di digitazione, di un malfunzionamento momentaneo della sensoristica o di un'alterazione spuria. In questa veste, l'outlier degrada gli stimatori e deve essere isolato, corretto o rimosso in fase di pre-processing.
+    \item \textbf{Outlier come Obiettivo Primario (Analysis Goal)}: L'indagine analitica è finalizzata precisamente all'identificazione di eventi eccezionali, che veicolano il massimo valore informativo.
+    \begin{itemize}[noitemsep]
+        \item Rilevamento di intrusioni informatiche (\textit{Intrusion Detection}).
+        \item Identificazione di frodi finanziarie o transazioni bancarie illecite.
+        \item Manutenzione predittiva su macchinari industriali tramite rilievo di micro-vibrazioni anomale.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Metodologie di Identificazione degli Outlier}
+
+La tassonomia degli approcci di identificazione distingue tra indagini su singola feature e indagini congiunte multidimensionali:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        outlierCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.2cm, inner sep=6pt] (root) at (0, 2.7) {
+            TASSONOMIA DEL RILEVAMENTO OUTLIER\\[2pt]
+            \footnotesize \normalfont Criteri per feature singole e spazi multidimensionali
+        };
+
+        % Ramo Sinistro: Univariati
+        \node[outlierCard, anchor=north] (uniCol) at (-3.6, 1.1) {
+            \textbf{Metodi Univariati}\\[4pt]
+            $\bullet$ \textbf{IQR (Tukey)}: Boxplot $[L, U]$\\[3pt]
+            $\bullet$ \textbf{Z-Score}: Soglia $|z| > 3.29$\\[3pt]
+            $\bullet$ \textbf{Frequenza}: Valori rari ($< 0.1\%$)
+        };
+
+        % Ramo Destro: Multidimensionali
+        \node[outlierCard, anchor=north] (multiCol) at (3.6, 1.1) {
+            \textbf{Metodi Multidimensionali}\\[4pt]
+            $\bullet$ \textbf{Scatter / SPLOM}: Punti dispersi\\[3pt]
+            $\bullet$ \textbf{PCA}: Varianza residua anomala\\[3pt]
+            $\bullet$ \textbf{Clustering / LOF}: Bassa densit\`a
+        };
+
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (uniCol.north);
+        \draw[arrowStyle] (split) -| (multiCol.north);
+    \end{tikzpicture}
+    \caption{Tassonomia delle metodologie di rilevamento delle anomalie.}
+    \label{fig:dm-outlier-taxonomy}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Attributi Categorici}: Un'osservazione anomala presenta una categoria associata a una frequenza empirica prossima allo zero ($< 0.1\%$).
+    \item \textbf{Attributi Numerici Univariati}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Regola di Tukey}: Valori esterni all'intervallo $[Q_1 - 1.5\,\text{IQR},\, Q_3 + 1.5\,\text{IQR}]$.
+        \item \textit{Criterio Z-Score}: Valori con scostamento standardizzato $|z| > 3.29$ (code estreme della normale).
+    \end{itemize}
+    \item \textbf{Spazi Multidimensionali}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Scatter Plot bivariati}: Identificazione ottica di punti lontani dal corpo centrale della nube.
+        \item \textit{Proiezioni PCA}: Punti che presentano valori anomali lungo le componenti principali secondarie.
+        \item \textit{Clustering e Local Outlier Factor (LOF)}: Riconoscimento di punti isolati a bassa densità locale rispetto al vicinato di $k$ elementi.
+    \end{itemize}
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 3.4: GESTIONE DEI VALORI MANCANTI
+% ====================================================================
+\section{Gestione dei Valori Mancanti}
+\label{sec:dm-missing-values-intro}
+
+Un record manifesta \textbf{valori mancanti (Missing Values)} quando per una o più feature non è presente alcuna informazione registrata (formalmente denotata con simboli nulli come \texttt{NaN}, \texttt{NULL}, \texttt{?} o mediante valori convenzionali impliciti come \texttt{999} o \texttt{0}).
+
+\subsection{Cause di Insorgenza}
+\begin{enumerate}
+    \item \textbf{Omissione volontaria per riservatezza}: L'intervistato si rifiuta di comunicare attributi sensibili (es. reddito personale, orientamento politico o religioso, abitudini sanitarie).
+    \item \textbf{Inapplicabilità logica del campo}: La variabile non è definita per una specifica sottopopolazione (es. il numero di gravidanze per individui di sesso maschile, o l'anzianità lavorativa per minori in età scolare).
+    \item \textbf{Avarie strumentali o caduta di connettività}: Malfunzionamento di sensori di telemetria che generano valori nulli o trasmettono serie fittizie costanti (es. sensore anemometrico bloccato che registra sistematicamente velocità del vento pari a $0\,\text{m/s}$).
+\end{enumerate}
+
+\subsection{Checklist Operativa per il Data Understanding}
+
+A completamento della fase di esplorazione preliminare, l'analista deve verificare sistematicamente la seguente checklist:
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{lX}
+        \toprule
+        \textbf{Ambito di Controllo} & \textbf{Verifica Diagnostica da Eseguire} \\
+        \midrule
+        \textbf{Coerenza Sintattica} & Verificare i tipi di dato, la codifica di formati numerici/stringa e i vincoli di dominio. \\
+        \textbf{Valori Anomali (Outlier)} & Ispezionare la presenza di valori estremi mediante Boxplot univariati e Scatter Plot bivariati. \\
+        \textbf{Valori Mancanti (Missing)} & Rilevare incidenza percentuale dei campi nulli e identificare valori sentinella impliciti (\texttt{0}, \texttt{-1}, \texttt{999}). \\
+        \textbf{Associazioni e Ridondanze} & Calcolare le correlazioni di Pearson e Spearman per isolare coppie di attributi collineari o ridondanti. \\
+        \textbf{Assunzioni Distributive} & Verificare simmetria, normalità e omoschedasticità prima di impostare la fase di preparazione e pulizia. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Checklist diagnostica operativa per la chiusura della fase di Data Understanding.}
+    \label{tab:dm-du-checklist}
+\end{table}

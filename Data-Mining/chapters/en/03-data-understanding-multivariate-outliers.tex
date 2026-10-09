@@ -1,0 +1,411 @@
+\chapter{Data Understanding II -- Multivariate Analysis, Correlation, and Outlier Detection}
+\label{chap:dm-data-understanding-multivariate-outliers}
+
+Multivariate analysis studies simultaneous relationships among two or more attributes within a dataset, overcoming the limitations of isolated univariate descriptions. In this chapter, we explore multidimensional visualization techniques, formal indices for linear and non-linear association and correlation, methodological criteria for outlier diagnosis, and an operational diagnostic checklist to conclude the Data Understanding phase.
+
+The case study used as our benchmark is the famous \textbf{Iris} dataset (introduced by botanist Edgar Anderson and popularized by Ronald Fisher in 1936), composed of $150$ observations evenly distributed across $3$ balanced classes of $50$ samples each (\textit{Iris setosa}, \textit{Iris versicolor}, \textit{Iris virginica}) and described by $4$ continuous features measured in centimeters:
+\begin{itemize}[noitemsep]
+    \item Sepal length (\textit{Sepal Length})
+    \item Sepal width (\textit{Sepal Width})
+    \item Petal length (\textit{Petal Length})
+    \item Petal width (\textit{Petal Width})
+\end{itemize}
+
+% ====================================================================
+% SECTION 3.1: MULTIVARIATE VISUALIZATION TECHNIQUES
+% ====================================================================
+\section{Multidimensional Visualization Techniques}
+\label{sec:dm-multivariate-visualization}
+
+When exploratory analysis extends to bivariate and multivariate configurations, graphical representations must provide immediate visual insight into geometric class separability, natural cluster formations, and structural anomalies.
+
+\subsection{Scatter Plot and Scatter Matrix}
+
+The \textbf{Scatter Plot} pairs two continuous attributes $(X, Y)$, projecting observations as points with Cartesian coordinates $(x_i, y_i) \in \mathbb{R}^2$.
+\begin{itemize}
+    \item \textbf{Key Capabilities}: Visually highlights clusters, direct or inverse correlation trends, and bivariate outliers that remain undetectable in univariate histograms.
+    \item \textbf{Color Encoding}: By assigning distinct colors or markers according to class labels, practitioners can assess the geometric separability induced by the feature pair.
+    \item \textbf{Evidence from Iris}: Crossing \textit{Petal Length} and \textit{Petal Width} reveals sharp class separation: \textit{Setosa} forms an isolated compact cluster, whereas \textit{Versicolor} and \textit{Virginica} exhibit only modest boundary overlap (Figure~\ref{fig:dm-iris-scatter}). In contrast, the plane formed by \textit{Sepal Length} and \textit{Sepal Width} shows substantial inter-class confusion between \textit{Versicolor} and \textit{Virginica}.
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_scatterplot_real.pdf}
+    \caption{Bivariate scatter plots on the Iris dataset: comparing sepal and petal class separability.}
+    \label{fig:dm-iris-scatter}
+\end{figure}
+
+When the number of numeric features $p$ is moderate ($3 \le p \le 10$), a \textbf{Scatter Matrix (Scatter Plot Matrix - SPLOM)} is employed: a symmetric $p \times p$ grid containing all $\frac{p(p-1)}{2}$ distinct pairwise scatter plots.
+Univariate histograms or kernel density estimates (KDE) are typically placed along the main diagonal, enabling simultaneous inspection of univariate distributions and pairwise correlations (Figure~\ref{fig:dm-iris-splom}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_splom_real.pdf}
+    \caption{Complete Scatter Plot Matrix (SPLOM) across the four attributes of the Iris dataset.}
+    \label{fig:dm-iris-splom}
+\end{figure}
+
+The \textbf{Three-Dimensional (3D) Scatter Plot} extends Cartesian projection to three coordinates simultaneously $(X_1, X_2, X_3)$. It allows identifying 3D outliers that appear completely normal in 2D projections, though planar displays suffer from visual occlusion and viewpoint dependence.
+
+\subsection{Visualizing High-Dimensional Spaces}
+
+In spaces where dimension count exceeds $p > 3$, standard orthogonal Cartesian projections fail to provide comprehensive views. Alternative coordinate geometries are required.
+
+\subsubsection{Parallel Coordinates}
+In parallel coordinates, coordinate axes are not mutually orthogonal; instead, they are drawn as $p$ equidistant, parallel vertical lines, each calibrated to the value range of its corresponding feature.
+
+\begin{itemize}
+    \item \textbf{Geometric Mapping}: A $p$-dimensional observation $\mathbf{x}_i = (x_{i1}, x_{i2}, \dots, x_{ip}) \in \mathbb{R}^p$ is represented not as a point, but as a continuous \textbf{polyline} crossing all parallel axes, intersecting the $j$-th vertical axis at height $x_{ij}$.
+    \item \textbf{Diagnostic Traits}: Records sharing identical class labels tend to form compact bundles of polylines displaying coherent trajectories. An isolated polyline with an anomalous trajectory immediately flags a potential multivariate outlier.
+    \item \textbf{Axis Ordering}: Visual legibility depends strongly on horizontal axis ordering. Placing strongly correlated attributes on adjacent axes reveals parallel bundles (positive correlation) or pencil-shaped X-crossings (negative correlation) (Figure~\ref{fig:dm-iris-parallel}).
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_parallel_coordinates.pdf}
+    \caption{Parallel coordinates for the Iris dataset with class-stratified trajectories.}
+    \label{fig:dm-iris-parallel}
+\end{figure}
+
+\subsubsection{Radar Plot (Spider or Star Chart)}
+The \textbf{Radar Plot} shares the structural principle of parallel coordinates, but dimensional axes are arranged \textbf{radially emanating from a shared central pole}, separated by equi-spaced angles:
+\begin{equation}
+    \theta_j = \frac{2\pi (j-1)}{p}, \quad j = 1, \dots, p
+\end{equation}
+
+For each data record, feature values determine the vertex distance along the corresponding radial spoke; connecting consecutive vertices produces a closed polygon.
+When radar plots are displayed as small individual multiples for each observation across a grid, they are called \textbf{Star Plots}, facilitating rapid geometric comparisons across multivariate instances (Figure~\ref{fig:dm-iris-radar}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{iris_radar_plot.pdf}
+    \caption{Class-average profiles for the Iris dataset rendered via Radar Plot.}
+    \label{fig:dm-iris-radar}
+\end{figure}
+
+% ====================================================================
+% SECTION 3.2: COVARIANCE AND CORRELATION
+% ====================================================================
+\section{Bivariate Dependence Analysis: Covariance and Correlation}
+\label{sec:dm-covariance-correlation}
+
+Quantitative dependence analysis investigates the strength and direction with which two random variables co-vary.
+
+\subsection{From Variance to Covariance}
+
+While variance measures the dispersion of a single variable around its own expectation, \textbf{Sample Covariance} measures the joint tendency of two numerical variables $X$ and $Y$ to deviate synchronously from their sample means:
+\begin{equation}
+    \text{Cov}(X, Y) = s_{xy} = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})
+\end{equation}
+
+In the special case where $X = Y$, covariance equals sample variance:
+\begin{equation}
+    \text{Cov}(X, X) = \frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^2 = s_x^2
+\end{equation}
+
+\subsubsection{Covariance Matrix}
+For a set of $p$ continuous attributes, joint variability is completely captured by the \textbf{Covariance Matrix} $V \in \mathbb{R}^{p \times p}$:
+\begin{equation}
+    V = \begin{bmatrix}
+        \text{Cov}(X_1, X_1) & \text{Cov}(X_1, X_2) & \cdots & \text{Cov}(X_1, X_p) \\
+        \text{Cov}(X_2, X_1) & \text{Cov}(X_2, X_2) & \cdots & \text{Cov}(X_2, X_p) \\
+        \vdots & \vdots & \ddots & \vdots \\
+        \text{Cov}(X_p, X_1) & \text{Cov}(X_p, X_2) & \cdots & \text{Cov}(X_p, X_p)
+    \end{bmatrix}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item Diagonal entries $V_{jj} = \text{Var}(X_j) = s_j^2$ represent marginal sample variances.
+    \item Off-diagonal entries $V_{jk} = \text{Cov}(X_j, X_k)$ represent pairwise covariances.
+    \item Since $\text{Cov}(X_j, X_k) = \text{Cov}(X_k, X_j)$, matrix $V$ is \textbf{symmetric} ($V = V^T$) and positive semi-definite ($V \succeq 0$).
+\end{itemize}
+
+\subsubsection{Geometric Interpretation of Deviation Products}
+The sign of sample covariance is governed by the quadrants formed around the bivariate mean $(\bar{x}, \bar{y})$ in Cartesian space:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.95]
+        \draw[thick, -Stealth, color=gray!80!black] (-3.8, 0) -- (4.2, 0) node[right, font=\small] {$X$};
+        \draw[thick, -Stealth, color=gray!80!black] (0, -3.2) -- (0, 3.5) node[above, font=\small] {$Y$};
+        
+        \draw[dashed, thick, color=navy!70] (0.5, -3.0) -- (0.5, 3.2);
+        \draw[dashed, thick, color=navy!70] (-3.5, 0.4) -- (3.8, 0.4);
+        
+        \node[below right, font=\footnotesize\bfseries, color=navy] at (0.5, 0) {$\bar{x}$};
+        \node[above left, font=\footnotesize\bfseries, color=navy] at (0, 0.4) {$\bar{y}$};
+        
+        % Quadrant I
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (2.5, 2.6) {
+            \textbf{Quadrant I}\\
+            $(x_i > \bar{x}) \land (y_i > \bar{y})$\\
+            Product: $(+) \cdot (+) = \mathbf{(+)}$
+        };
+        \fill[crimson] (1.2, 0.9) circle (2.2pt);
+        \fill[crimson] (1.7, 1.3) circle (2.2pt);
+        \fill[crimson] (2.2, 1.7) circle (2.2pt);
+        
+        % Quadrant II
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (-2.0, 2.6) {
+            \textbf{Quadrant II}\\
+            $(x_i < \bar{x}) \land (y_i > \bar{y})$\\
+            Product: $(-) \cdot (+) = \mathbf{(-)}$
+        };
+        \fill[darkgreen] (-1.2, 1.2) circle (2.2pt);
+        
+        % Quadrant III
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (-2.0, -2.4) {
+            \textbf{Quadrant III}\\
+            $(x_i < \bar{x}) \land (y_i < \bar{y})$\\
+            Product: $(-) \cdot (-) = \mathbf{(+)}$
+        };
+        \fill[crimson] (-0.8, -0.4) circle (2.2pt);
+        \fill[crimson] (-1.4, -0.9) circle (2.2pt);
+        \fill[crimson] (-2.1, -1.3) circle (2.2pt);
+        
+        % Quadrant IV
+        \node[draw=navy!30, fill=navy!4, rounded corners=3pt, align=center, font=\scriptsize, inner sep=4pt] at (2.5, -2.4) {
+            \textbf{Quadrant IV}\\
+            $(x_i > \bar{x}) \land (y_i < \bar{y})$\\
+            Product: $(+) \cdot (-) = \mathbf{(-)}$
+        };
+        \fill[darkgreen] (1.6, -0.9) circle (2.2pt);
+    \end{tikzpicture}
+    \caption{Geometric decomposition of bivariate deviation products across four mean-centered quadrants.}
+    \label{fig:dm-covariance-quadrants}
+\end{figure}
+
+\begin{itemize}
+    \item Points in Quadrants I and III contribute positive products (concordant deviations) $\implies \text{Cov}(X, Y) > 0$.
+    \item Points in Quadrants II and IV contribute negative products (discordant deviations) $\implies \text{Cov}(X, Y) < 0$.
+    \item Uniformly dispersed observations cancel out across quadrants, yielding $\text{Cov}(X, Y) \approx 0$.
+\end{itemize}
+
+\subsubsection{Structural Limitation: Scale Dependence}
+Covariance lacks scale invariance: its magnitude scales linearly with measurement units. Converting income $X$ from euros to thousands of euros ($X' = X / 1000$) shrinks covariance by a factor of $1000$, although the underlying statistical link remains identical. Hence, covariance cannot directly compare pairs with distinct units or scales.
+
+\subsection{Pearson Linear Correlation Coefficient}
+
+The \textbf{Pearson Linear Correlation Coefficient ($r_{xy}$)} standardizes covariance by dividing by the product of both sample standard deviations:
+\begin{equation}
+    r_{xy} = \frac{\text{Cov}(X, Y)}{s_x s_y} = \frac{\sum_{i=1}^n (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum_{i=1}^n (x_i - \bar{x})^2} \sqrt{\sum_{i=1}^n (y_i - \bar{y})^2}}
+\end{equation}
+
+\subsubsection{Mathematical Properties of $r_{xy}$}
+\begin{enumerate}
+    \item \textbf{Bounded Range}: By the Cauchy-Schwarz inequality on centered vectors, the coefficient is strictly bounded within:
+    \begin{equation}
+        -1 \le r_{xy} \le +1
+    \end{equation}
+    \item \textbf{Scale Invariance}: It is a dimensionless index invariant under positive affine transformations ($X' = aX + b, Y' = cY + d$ with $a, c > 0$).
+    \item \textbf{Perfect Linear Relationship}:
+    \begin{itemize}
+        \item $r_{xy} = +1$: perfect positive linear correlation; all points lie exactly on a line with positive slope ($y = ax + b$, $a > 0$).
+        \item $r_{xy} = -1$: perfect negative linear correlation ($a < 0$).
+    \end{itemize}
+    \item \textbf{Absence of Linear Relationship}: A value of $r_{xy} \approx 0$ signifies \textbf{absence of linear association}, but does not imply statistical independence. Non-linear deterministic functions (e.g., $Y = X^2$ with $X$ symmetrically distributed around zero) yield $r_{xy} = 0$, despite full underlying determinism.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.88]
+        % Panel 1: r = +1.0
+        \begin{scope}[shift={(0,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, color=crimson] (0.3,0.3) -- (2.2,2.0);
+            \fill (0.5,0.48) circle (1.5pt);
+            \fill (1.0,0.92) circle (1.5pt);
+            \fill (1.5,1.38) circle (1.5pt);
+            \fill (2.0,1.82) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = +1.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Perfect Positive\\Linear};
+        \end{scope}
+
+        % Panel 2: r = -0.8
+        \begin{scope}[shift={(3.8,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, dashed, color=navy] (0.3,2.0) -- (2.2,0.4);
+            \fill (0.4,1.8) circle (1.5pt);
+            \fill (0.7,1.7) circle (1.5pt);
+            \fill (1.0,1.2) circle (1.5pt);
+            \fill (1.3,1.4) circle (1.5pt);
+            \fill (1.6,0.9) circle (1.5pt);
+            \fill (1.9,0.5) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = -0.80$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Strong Negative\\Linear Association};
+        \end{scope}
+
+        % Panel 3: r = 0.0
+        \begin{scope}[shift={(7.6,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \fill (0.5,0.5) circle (1.5pt); \fill (0.7,1.8) circle (1.5pt);
+            \fill (1.2,1.1) circle (1.5pt); \fill (1.4,0.4) circle (1.5pt);
+            \fill (1.8,1.7) circle (1.5pt); \fill (2.0,0.8) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r \approx 0.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {No Linear\\Pattern};
+        \end{scope}
+
+        % Panel 4: r = 0.0 Non-linear
+        \begin{scope}[shift={(11.4,0)}]
+            \draw[->] (0,0) -- (2.5,0) node[below] {$X$};
+            \draw[->] (0,0) -- (0,2.3) node[left] {$Y$};
+            \draw[thick, color=darkgreen, domain=0.3:2.2, samples=30] plot (\x, {2.0 - 1.8*(\x-1.25)*(\x-1.25)});
+            \fill (0.4,0.7) circle (1.5pt); \fill (0.8,1.6) circle (1.5pt);
+            \fill (1.25,2.0) circle (1.5pt); \fill (1.7,1.6) circle (1.5pt);
+            \fill (2.1,0.7) circle (1.5pt);
+            \node[below, font=\scriptsize] at (1.25,-0.2) {$r = 0.0$};
+            \node[below, font=\tiny, align=center] at (1.25,-0.6) {Deterministic\\Quadratic Curve};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Archetypal scatter patterns and their corresponding Pearson correlation values.}
+    \label{fig:dm-pearson-scenarios}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{iris_correlation_heatmaps.pdf}
+    \caption{Correlation heatmaps for the overall Iris dataset and stratified by species.}
+    \label{fig:dm-iris-heatmaps}
+\end{figure}
+
+\subsection{Causal Fallacy and Confounding Variables}
+
+A cornerstone of data science states that \textbf{correlation does not imply causation}. A high observed $|r_{xy}|$ may arise from three distinct phenomena:
+\begin{enumerate}
+    \item $X$ is a direct causal driver of $Y$.
+    \item $Y$ is a direct causal driver of $X$.
+    \item $X$ and $Y$ are simultaneously driven by an unobserved or latent third factor, termed a \textbf{confounding variable}.
+\end{enumerate}
+
+\begin{noteblock}{Classic Example: Ice Cream Sales and Drowning Incidents}
+During summer months, a high positive correlation ($r > 0.85$) is documented between ice cream sales ($X$) and drowning casualties ($Y$). Inferring that ice cream consumption increases drowning risk represents a classic causal fallacy: both variables are driven by an underlying exogenous confounder—high atmospheric temperature (\textit{hot weather})—which spurs both outdoor swimming and cold dessert purchases.
+\end{noteblock}
+
+\subsection{Spearman Rank Correlation Coefficient}
+
+When variables violate bivariate normality assumptions or exhibit non-linear yet strictly monotonic relationships, the \textbf{Spearman Rank Correlation Coefficient ($\rho$)} is preferred.
+
+The method replaces continuous values $x_i$ and $y_i$ with their corresponding ordinal ranks $r(x_i), r(y_i) \in \{1, \dots, n\}$. In the absence of ties, the explicit formulation simplifies to:
+\begin{equation}
+    \rho = 1 - \frac{6 \sum_{i=1}^n \big(r(x_i) - r(y_i)\big)^2}{n(n^2 - 1)}
+\end{equation}
+
+\begin{itemize}[noitemsep]
+    \item $\rho = +1$: indicates a perfect monotonic increasing relationship (as $X$ increases, $Y$ strictly increases, even along exponential or logarithmic curves).
+    \item $\rho = -1$: indicates a perfect monotonic decreasing relationship.
+    \item \textbf{Robustness}: Relying on ranks rather than raw metric differences renders Spearman significantly more resistant to extreme outliers in distribution tails.
+\end{itemize}
+
+% ====================================================================
+% SECTION 3.3: OUTLIER DETECTION TAXONOMY
+% ====================================================================
+\section{Outlier Taxonomy and Detection Methodologies}
+\label{sec:dm-outlier-detection-taxonomy}
+
+An \textbf{outlier} is defined as an observation that deviates so substantially from the remaining data as to arouse suspicion that it was generated by a different mechanism or contaminated by measurement error.
+
+\subsection{The Dual Nature of Outliers: Noise vs. Primary Target}
+\begin{itemize}
+    \item \textbf{Outliers as Noise}: The anomaly stems from data entry typos, temporary sensor glitches, or spurious noise. In this role, outliers distort parameter estimation and should be identified, corrected, or removed during data preprocessing.
+    \item \textbf{Outliers as the Primary Target (Analysis Goal)}: The explicit mission of the analysis is to uncover rare, high-impact events carrying crucial domain insights:
+    \begin{itemize}[noitemsep]
+        \item Intrusion detection in computer network security.
+        \item Financial fraud detection and anti-money laundering monitoring.
+        \item Predictive maintenance through anomalous vibration patterns in industrial turbines.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Outlier Identification Methodologies}
+
+Outlier identification methodologies can be systematically categorized into univariate and multidimensional approaches:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        outlierCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.2cm, inner sep=6pt] (root) at (0, 2.7) {
+            OUTLIER DETECTION TAXONOMY\\[2pt]
+            \footnotesize \normalfont Criteria for single features and multidimensional spaces
+        };
+
+        % Left branch: Univariate
+        \node[outlierCard, anchor=north] (uniCol) at (-3.6, 1.1) {
+            \textbf{Univariate Methods}\\[4pt]
+            $\bullet$ \textbf{Tukey IQR}: Boxplot fences $[L, U]$\\[3pt]
+            $\bullet$ \textbf{Z-Score}: Extreme tails $|z| > 3.29$\\[3pt]
+            $\bullet$ \textbf{Frequency}: Rare values ($< 0.1\%$)
+        };
+
+        % Right branch: Multidimensional
+        \node[outlierCard, anchor=north] (multiCol) at (3.6, 1.1) {
+            \textbf{Multidimensional Methods}\\[4pt]
+            $\bullet$ \textbf{Scatter / SPLOM}: Pairwise outliers\\[3pt]
+            $\bullet$ \textbf{PCA}: Residual variance anomalies\\[3pt]
+            $\bullet$ \textbf{Clustering / LOF}: Low density
+        };
+
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (uniCol.north);
+        \draw[arrowStyle] (split) -| (multiCol.north);
+    \end{tikzpicture}
+    \caption{Taxonomy of outlier detection methodologies.}
+    \label{fig:dm-outlier-taxonomy}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Categorical Attributes}: An anomalous observation belongs to a rare category occurring with near-zero empirical frequency ($< 0.1\%$).
+    \item \textbf{Univariate Numeric Attributes}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Tukey IQR Rule}: Values outside the interval $[Q_1 - 1.5\,\text{IQR},\, Q_3 + 1.5\,\text{IQR}]$.
+        \item \textit{Z-Score Rule}: Standardized values with $|z| > 3.29$ (representing the outermost $0.1\%$ tails of a Gaussian distribution).
+    \end{itemize}
+    \item \textbf{Multidimensional Spaces}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Bivariate Scatter Plots}: Visual identification of points detached from dense clusters.
+        \item \textit{PCA Projections}: Observations projecting as outliers along secondary principal components.
+        \item \textit{Clustering and Local Outlier Factor (LOF)}: Isolating samples residing in low-density neighborhoods relative to their $k$-nearest neighbors.
+    \end{itemize}
+\end{itemize}
+
+% ====================================================================
+% SECTION 3.4: MISSING VALUES
+% ====================================================================
+\section{Introduction to Missing Values}
+\label{sec:dm-missing-values-intro}
+
+A data instance contains \textbf{Missing Values} when no observation is recorded for one or more features (explicitly encoded via symbols like \texttt{NaN}, \texttt{NULL}, \texttt{?} or implicitly hidden under sentinel conventions such as \texttt{999} or \texttt{0}).
+
+\subsection{Root Causes of Missingness}
+\begin{enumerate}
+    \item \textbf{Voluntary Non-Response}: Respondents decline to disclose sensitive personal data (e.g., annual income, political affiliations, medical history).
+    \item \textbf{Conceptual Inapplicability}: The attribute is logically inapplicable for certain subpopulations (e.g., pregnancy counts for male subjects, or employment tenure for school-age minors).
+    \item \textbf{Hardware Failures or Dropped Connections}: Telemetry sensors freezing or disconnecting, producing null readings or reporting continuous dummy constants (e.g., a frozen wind sensor persistently reporting $0\,\text{m/s}$).
+\end{enumerate}
+
+\subsection{Operational Data Understanding Checklist}
+
+Before proceeding to data cleaning and preparation, practitioners must systematically verify the following diagnostic checklist:
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{lX}
+        \toprule
+        \textbf{Diagnostic Check} & \textbf{Operational Verification Procedure} \\
+        \midrule
+        \textbf{Syntactic Integrity} & Validate data types, string/number formats, and domain constraints. \\
+        \textbf{Outlier Inspection} & Inspect extreme values using univariate Boxplots and bivariate Scatter Plots. \\
+        \textbf{Missing Value Audit} & Quantify null percentages and detect implicit sentinel values (\texttt{0}, \texttt{-1}, \texttt{999}). \\
+        \textbf{Association \& Redundancy} & Compute Pearson and Spearman matrices to identify collinear or redundant features. \\
+        \textbf{Distributional Assumptions} & Check symmetry, normality, and variance stability prior to feature transformations. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Operational diagnostic checklist for completing the Data Understanding phase.}
+    \label{tab:dm-du-checklist}
+\end{table}

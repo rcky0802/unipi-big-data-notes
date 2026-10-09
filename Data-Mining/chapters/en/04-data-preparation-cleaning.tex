@@ -1,0 +1,666 @@
+\chapter{Data Preparation \& Cleaning -- Reduction, Discretization, and Transformation}
+\label{chap:dm-data-preparation-cleaning}
+
+While Data Understanding focuses on diagnosing anomalies and comprehending latent structures within a dataset, \textbf{Data Preparation} represents the operational, interventional component of the KDD lifecycle. During this phase, raw records are cleansed, compressed, scaled, and re-encoded to satisfy the algebraic and computational requirements of machine learning and data mining algorithms.
+
+% ====================================================================
+% SECTION 4.1: DATA UNDERSTANDING VS DATA PREPARATION
+% ====================================================================
+\section{Distinction Between Data Understanding and Data Preparation}
+\label{sec:dm-du-vs-dp}
+
+The transition from diagnostic exploration to operational data engineering is captured by the clear mapping between diagnostic findings and corresponding corrective actions:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        box/.style={draw=navy, rounded corners, fill=navy!8, font=\small, text width=5.2cm, inner sep=6pt},
+        arrow/.style={-Stealth, thick, color=navy}
+    ]
+        \node[box] (du) {
+            \centering \textbf{DATA UNDERSTANDING}\\
+            \textit{(Diagnostic Phase)}\\[4pt]
+            \raggedright
+            $\bullet$ Detects missing values\\
+            $\bullet$ Identifies univariate/multivariate outliers\\
+            $\bullet$ Measures high correlation and collinearity\\
+            $\bullet$ Diagnoses distribution skewness\\
+            $\bullet$ Audits heterogeneous measurement scales
+        };
+        
+        \node[box, right=2.0cm of du] (dp) {
+            \centering \textbf{DATA PREPARATION}\\
+            \textit{(Interventional Phase)}\\[4pt]
+            \raggedright
+            $\bullet$ Imputes or removes missing records\\
+            $\bullet$ Winsorizes or truncates outliers\\
+            $\bullet$ Prunes redundant features\\
+            $\bullet$ Applies logarithmic/Box-Cox transforms\\
+            $\bullet$ Normalizes scales (Min-Max, Z-Score)
+        };
+        
+        \draw[arrow] (du.east) -- (dp.west) node[midway, above, font=\footnotesize, color=navy] {Informs};
+    \end{tikzpicture}
+    \caption{Sequential transition from Data Understanding (diagnosis) to Data Preparation (intervention).}
+    \label{fig:dm-du-vs-dp}
+\end{figure}
+
+% ====================================================================
+% SECTION 4.2: AGGREGATION AND SAMPLING
+% ====================================================================
+\section{Aggregation and Sampling}
+\label{sec:dm-aggregation-sampling}
+
+Reducing dataset volume can be achieved either by combining related observations or through statistical sampling of representative subsets.
+
+\subsection{Data Aggregation}
+
+Data aggregation merges two or more records or features into a single synthesized summary.
+\begin{itemize}
+    \item \textbf{Core Objectives}:
+    \begin{enumerate}
+        \item \textit{Dimensional Reduction}: Reduces the total record count or feature cardinality, lowering computational complexity.
+        \item \textit{Scale Transformation}: Adjusts analysis to an appropriate conceptual level of granularity (e.g., aggregating hourly transactional logs into weekly sums, or regionalizing individual point-of-sale terminals).
+        \item \textit{Variance Stabilization}: Aggregated aggregates average out high-frequency noise, yielding lower-variance metrics and more robust statistical trends.
+    \end{enumerate}
+    \item \textbf{Case Study: Australian Precipitation (1982--1993)}: In historical Australian rainfall data, the standard deviation of monthly average rainfall exhibits high dispersion with long tails reaching up to $15\,\text{cm}$. Conversely, when aggregating into annual averages, the standard deviation tightly clusters around low values with substantially reduced spread (Figure~\ref{fig:dm-precip-aggregation}). To model seasonal agricultural patterns, the disaggregated monthly scale is essential, whereas comparing macroscopic regional climates benefits from the stable annual scale.
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{precipitation_aggregation.pdf}
+    \caption{Dispersion comparison between monthly precipitation and aggregated annual precipitation in Australia.}
+    \label{fig:dm-precip-aggregation}
+\end{figure}
+
+\subsection{Sampling Methodologies}
+
+Sampling selects a representative subset of size $n$ from a large population of size $N$ ($n \ll N$).
+A sample is deemed \textbf{representative} if it preserves the underlying statistical properties and distributional profile of the parent population.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        sampleCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+            DATA SAMPLING STRATEGIES\\[2pt]
+            \footnotesize \normalfont Framework for extracting representative data subsets
+        };
+
+        % Left branch: SRS
+        \node[sampleCard, anchor=north] (srsCol) at (-3.6, 1.1) {
+            \textbf{Simple Random Sampling (SRS)}\\[4pt]
+            $\bullet$ \textbf{Without Replacement}: Unique draws\\[3pt]
+            $\bullet$ \textbf{With Replacement}: Duplicates allowed\\[3pt]
+            $\bullet$ \textbf{Probability}: Uniform ($P = 1/N$)
+        };
+
+        % Right branch: Stratified
+        \node[sampleCard, anchor=north] (stratCol) at (3.6, 1.1) {
+            \textbf{Stratified Sampling}\\[4pt]
+            $\bullet$ \textbf{Strata}: Disjoint homogeneous groups\\[3pt]
+            $\bullet$ \textbf{Quotas}: Proportional representation\\[3pt]
+            $\bullet$ \textbf{Objective}: Protection of rare classes
+        };
+
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (srsCol.north);
+        \draw[arrowStyle] (split) -| (stratCol.north);
+    \end{tikzpicture}
+    \caption{Taxonomy of data sampling strategies in data mining.}
+    \label{fig:dm-sampling-tree}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Simple Random Sampling}: Every instance in the parent dataset has identical a priori inclusion probability:
+    \begin{equation}
+        P(x_i) = \frac{1}{N}
+    \end{equation}
+    \begin{itemize}[noitemsep]
+        \item \textit{Without Replacement}: Extracted items are removed from the candidate pool and cannot be drawn again.
+        \item \textit{With Replacement}: Extracted items remain in the pool and may appear multiple times in the sample.
+    \end{itemize}
+    \item \textbf{Stratified Sampling}: The dataset is partitioned into mutually disjoint, homogeneous subsets called \textit{strata} (e.g., grouped by target class label or numeric percentiles). Independent random samples are extracted from each stratum proportional to its relative population size, preventing rare classes from being erased.
+\end{enumerate}
+
+Selecting an optimal sample size involves a trade-off between computational processing cost and statistical fidelity, as depicted in Figure~\ref{fig:dm-sampling-tradeoff}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{sampling_tradeoff.pdf}
+    \caption{Trade-off curve between sample size and empirical parameter estimation error.}
+    \label{fig:dm-sampling-tradeoff}
+\end{figure}
+
+% ====================================================================
+% SECTION 4.3: DIMENSIONALITY REDUCTION
+% ====================================================================
+\section{Dimensionality Reduction}
+\label{sec:dm-dimensionality-reduction}
+
+High feature counts introduce significant computational and geometric bottlenecks.
+
+\subsection{The Curse of Dimensionality}
+
+As feature dimensionality $p$ grows, the geometric volume of the embedding space $\mathbb{R}^p$ expands exponentially relative to the available sample count. Key consequences include:
+\begin{enumerate}
+    \item \textbf{Extreme Sparsity}: Data observations become isolated in high-dimensional space; local point density vanishes towards zero, leaving the feature space virtually empty.
+    \item \textbf{Distance Concentration}: As $p \to \infty$, the contrast between the maximum Euclidean distance and minimum Euclidean distance to any query point collapses:
+    \begin{equation}
+        \lim_{p \to \infty} \frac{\text{dist}_{\max} - \text{dist}_{\min}}{\text{dist}_{\min}} \to 0
+    \end{equation}
+    This severely impairs distance-based algorithms ($k$-NN, K-Means clustering, local density estimators).
+    \item \textbf{Covariance Instability}: Reliably estimating a $p \times p$ sample covariance matrix requires sample sizes that scale exponentially with $p$ to avoid rank deficiency and ill-conditioning.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.9]
+        % 1D
+        \begin{scope}[shift={(0,0)}]
+            \draw[thick, <->] (0,0) -- (3,0);
+            \foreach \x in {0.3, 0.7, 1.1, 1.5, 1.8, 2.2, 2.7} {
+                \fill[crimson] (\x, 0) circle (2pt);
+            }
+            \node[below, font=\footnotesize] at (1.5,-0.3) {\textbf{1D}: Dense Space};
+            \node[below, font=\tiny, align=center] at (1.5,-0.7) {7 points on 1 line};
+        \end{scope}
+        
+        % 2D
+        \begin{scope}[shift={(4.5, -0.8)}]
+            \draw[step=0.6, gray!60, very thin] (0,0) grid (2.4, 2.4);
+            \draw[thick] (0,0) rectangle (2.4, 2.4);
+            \fill[crimson] (0.3, 1.5) circle (2pt);
+            \fill[crimson] (1.5, 0.9) circle (2pt);
+            \fill[crimson] (2.1, 2.1) circle (2pt);
+            \node[below, font=\footnotesize] at (1.2,-0.2) {\textbf{2D}: Reduced Density};
+            \node[below, font=\tiny, align=center] at (1.2,-0.6) {16 cells (mostly empty)};
+        \end{scope}
+        
+        % 3D
+        \begin{scope}[shift={(9.0, -0.8)}]
+            \draw[thick] (0,0) rectangle (2,2);
+            \draw[thick] (0.8,0.8) rectangle (2.8,2.8);
+            \draw[thick] (0,0) -- (0.8,0.8);
+            \draw[thick] (2,0) -- (2.8,0.8);
+            \draw[thick] (2,2) -- (2.8,2.8);
+            \draw[thick] (0,2) -- (0.8,2.8);
+            \fill[crimson] (1.2, 1.4) circle (2pt);
+            \node[below, font=\footnotesize] at (1.4,-0.2) {\textbf{3D}: Critical Sparsity};
+            \node[below, font=\tiny, align=center] at (1.4,-0.6) {Vast empty hypervolume};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Visualizing exponential geometric dispersion of data samples with increasing dimensions.}
+    \label{fig:dm-curse-dimensionality}
+\end{figure}
+
+\subsection{Feature Selection}
+
+\textbf{Feature Selection} isolates an optimal subset of original attributes by discarding irrelevant (uninformative) and redundant (duplicated) features:
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{lXX}
+        \toprule
+        \textbf{Paradigm} & \textbf{Selection Mechanism} & \textbf{Trade-offs} \\
+        \midrule
+        \textbf{Filter} & Ranks features a priori using univariate statistical metrics (ANOVA, Pearson $r$, $\chi^2$), independent of learning models. & Blazing fast; ignores multivariate feature interactions. \\
+        \addlinespace
+        \textbf{Wrapper} & Uses the target machine learning model as an evaluation oracle across candidate subsets (Forward Selection, Backward Elimination). & High predictive accuracy; computationally heavy ($2^p$ potential subset evaluations). \\
+        \addlinespace
+        \textbf{Embedded} & Selection occurs natively during algorithm optimization (e.g., decision tree branch splits, Lasso $L_1$ penalty regularization). & Excellent balance of computational efficiency and predictive accuracy. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Comparative breakdown of Filter, Wrapper, and Embedded feature selection approaches.}
+    \label{tab:dm-feature-selection-methods}
+\end{table}
+
+\subsection{Feature Creation and Projection}
+\begin{itemize}
+    \item \textbf{Feature Construction}: Formulates novel descriptive attributes by combining raw features using domain knowledge (e.g., calculating density as $\text{mass}/\text{volume}$ or productivity as $\text{completed}/\text{scheduled hours}$).
+    \item \textbf{Feature Projection}: Algebraically projects original vectors from $\mathbb{R}^p$ into a compact subspace $\mathbb{R}^k$ ($k \ll p$), preserving maximal variance or class separation (PCA, SVD, Linear Discriminant Analysis - LDA, Autoencoders).
+\end{itemize}
+
+% ====================================================================
+% SECTION 4.4: PRINCIPAL COMPONENT ANALYSIS (PCA)
+% ====================================================================
+\section{Principal Component Analysis (PCA)}
+\label{sec:dm-pca}
+
+\textbf{Principal Component Analysis (PCA)} is a linear, unsupervised technique that maps an original set of correlated features into a new coordinate system of mutually orthogonal (uncorrelated) variables, ordered in descending fashion by explained variance.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.95]
+        \draw[->, thick] (-0.5,0) -- (4.5,0) node[right] {$X_1$};
+        \draw[->, thick] (0,-0.5) -- (0,4.0) node[above] {$X_2$};
+        
+        % Scatter cloud oriented diagonally
+        \begin{scope}[rotate around={32:(2,1.8)}]
+            \draw[color=crimson, very thick, -Stealth] (-1.8, 1.8) -- (2.6, 1.8) node[above right] {$\mathbf{e}_1$ (Principal Component 1)};
+            \draw[color=navy, very thick, -Stealth] (0, 0.8) -- (0, 2.8) node[above left] {$\mathbf{e}_2$ (Principal Component 2)};
+            
+            \foreach \x/\y in {-1.4/0.1, -1.0/-0.2, -0.6/0.2, -0.2/-0.1, 0.2/0.15, 0.6/-0.15, 1.1/0.2, 1.6/-0.1, 2.0/0.05} {
+                \fill (\x+0.4, \y+1.8) circle (1.8pt);
+            }
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Alignment of orthogonal principal component axes along directions of maximal data variance.}
+    \label{fig:dm-pca-axes}
+\end{figure}
+
+\subsection{Step-by-Step PCA Mathematical Derivation}
+
+The formal mathematical workflow of PCA proceeds across five structured steps:
+
+\subsubsection{Step 1: Centering and Standardizing the Data Matrix}
+Given a data matrix $D \in \mathbb{R}^{n \times p}$, compute the sample mean for each feature column:
+\begin{equation}
+    \bar{x}_j = \frac{1}{n}\sum_{i=1}^n D_{ij}
+\end{equation}
+
+Construct the \textbf{centered matrix} $C \in \mathbb{R}^{n \times p}$ by subtracting feature means from each observation:
+\begin{equation}
+    C_{ij} = D_{ij} - \bar{x}_j
+\end{equation}
+
+If attributes exhibit dissimilar scales or measurement units, construct the \textbf{standardized matrix} $Z \in \mathbb{R}^{n \times p}$ by dividing centered residuals by feature standard deviations $s_j$:
+\begin{equation}
+    Z_{ij} = \frac{D_{ij} - \bar{x}_j}{s_j}
+\end{equation}
+
+\subsubsection{Step 2: Sample Covariance Matrix Computation}
+Compute the empirical covariance matrix $V \in \mathbb{R}^{p \times p}$ via matrix multiplication:
+\begin{equation}
+    V = \frac{1}{n-1} C^T C
+\end{equation}
+
+\subsubsection{Step 3: Spectral Decomposition (Eigenvalues and Eigenvectors)}
+Solve the characteristic eigenvalue equation for symmetric matrix $V$:
+\begin{equation}
+    V \mathbf{e}_j = \lambda_j \mathbf{e}_j, \quad j = 1, \dots, p
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item Each normalized unit-length \textbf{eigenvector} $\|\mathbf{e}_j\|_2 = 1$ establishes the spatial direction of the $j$-th principal axis. Because $V$ is symmetric, eigenvectors belonging to distinct eigenvalues are mutually orthogonal ($\mathbf{e}_j^T \mathbf{e}_k = 0$ for $j \neq k$).
+    \item Each corresponding \textbf{eigenvalue} $\lambda_j \ge 0$ quantifies the exact portion of sample variance explained along the axis $\mathbf{e}_j$.
+\end{itemize}
+
+\subsubsection{Step 4: Sorting and Component Retention}
+Sort eigenvalues and associated eigenvectors in descending numerical order:
+\begin{equation}
+    \lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_p \ge 0
+\end{equation}
+
+The proportion of total variance explained by the $j$-th component equals:
+\begin{equation}
+    \text{Explained Variance } (\%) = \frac{\lambda_j}{\sum_{m=1}^p \lambda_m} \times 100
+\end{equation}
+
+Retain the top $k$ components ($k < p$) satisfying an aggregate cumulative variance threshold (e.g., $85\%$ or $95\%$), discarding residual trailing components (Figure~\ref{fig:dm-pca-scree}). Construct the projection matrix $F \in \mathbb{R}^{p \times k}$:
+\begin{equation}
+    F = \begin{bmatrix} \mathbf{e}_1 & \mathbf{e}_2 & \cdots & \mathbf{e}_k \end{bmatrix}
+\end{equation}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{pca_scree_plot.pdf}
+    \caption{Eigenvalue scree plot and cumulative explained variance curve.}
+    \label{fig:dm-pca-scree}
+\end{figure}
+
+\subsubsection{Step 5: Subspace Projection}
+Project the centered dataset onto the reduced $k$-dimensional coordinate system:
+\begin{equation}
+    Z = C F
+\end{equation}
+
+Figure~\ref{fig:dm-pca-2d} illustrates the 2D projection of the Iris dataset onto its first two principal components (PC1 and PC2), which capture over $95\%$ of total dataset variance while achieving distinct species clustering.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{pca_2d_projection.pdf}
+    \caption{Two-dimensional projection of Iris samples onto the top two principal components.}
+    \label{fig:dm-pca-2d}
+\end{figure}
+
+% ====================================================================
+% SECTION 4.5: HANDLING MISSING VALUES
+% ====================================================================
+\section{Handling Missing Values}
+\label{sec:dm-missing-values-handling}
+
+Operational strategies for incomplete records include:
+
+\begin{enumerate}
+    \item \textbf{Listwise Deletion}: Discarding all records containing at least one missing attribute. Safe only when missing frequency is trivial ($< 3-5\%$) and mechanism is strictly \textit{Missing Completely at Random (MCAR)}; otherwise, severe sampling bias ensues.
+    \item \textbf{Central Tendency Imputation}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Mean}: For symmetric numeric variables lacking outliers.
+        \item \textit{Median}: For skewed numeric features with heavy tails or outliers.
+        \item \textit{Mode}: For categorical attributes.
+        \item \textit{Caveat}: Artificially deflates feature variance and weakens inter-attribute correlation structures.
+    \end{itemize}
+    \item \textbf{Conditional Segmented Imputation}: Grouping instances into clusters or classes based on complete features, then imputing missing values using the mean or median calculated within that homogeneous segment.
+    \item \textbf{Model-Based Predictive Imputation}: Fitting a supervised model ($k$-NN, linear regression, Random Forest) where the missing feature acts as the target variable and complete attributes serve as predictors.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 4.6: DISCRETIZATION AND BINARIZATION
+% ====================================================================
+\section{Discretization and Binarization Techniques}
+\label{sec:dm-discretization-binning}
+
+\textbf{Discretization} converts continuous quantitative variables into discrete ordinal attributes by partitioning the continuous support into a finite set of contiguous intervals (termed \textit{bins}).
+
+\subsection{Unsupervised Discretization}
+
+\subsubsection{1. Natural Binning (Equal-Width Binning)}
+Partitions the range $[x_{\min}, x_{\max}]$ into $k$ equal-sized intervals of \textbf{constant width}:
+\begin{equation}
+    \delta = \frac{x_{\max} - x_{\min}}{k}
+\end{equation}
+The $i$-th bin ($i = 0, \dots, k-1$) spans:
+\begin{equation}
+    I_i = \big[x_{\min} + i\delta,\, x_{\min} + (i+1)\delta\big)
+\end{equation}
+
+\begin{noteblock}{Numerical Example: 12 Beer Prices}
+Given $N=12$ beer prices spanning from $x_{\min}=100$ to $x_{\max}=160$, choosing $k=4$ bins yields interval width $\delta = \frac{160-100}{4} = 15$. Intervals and counts:
+\begin{itemize}[noitemsep]
+    \item Bin 1: $[100, 115) \to \{100, 110, 110\}$ (Count: $3$)
+    \item Bin 2: $[115, 130) \to \{120, 120, 125\}$ (Count: $3$)
+    \item Bin 3: $[130, 145) \to \{130, 130, 135, 140\}$ (Count: $4$)
+    \item Bin 4: $[145, 160] \to \{150, 160\}$ (Count: $2$)
+\end{itemize}
+\end{noteblock}
+
+\subsubsection{2. Equal-Frequency Binning (Equal-Depth Binning)}
+Sorts the data ascendingly and allocates an equal number of records into each bin:
+\begin{equation}
+    f = \frac{N}{k}
+\end{equation}
+
+For the same sorted 12 prices $\{100, 110, 110, 120, 120, 125, 130, 130, 135, 140, 150, 160\}$ with $k=4$, target count is $f = 12/4 = 3$:
+\begin{itemize}[noitemsep]
+    \item Bin 1: $\{100, 110, 110\}$
+    \item Bin 2: $\{120, 120, 125\}$
+    \item Bin 3: $\{130, 130, 135\}$
+    \item Bin 4: $\{140, 150, 160\}$
+\end{itemize}
+This balances density and dampens outlier skewness, though identical values straddling bin boundaries may be artificially split into adjacent categories.
+
+\subsubsection{Formulas for Optimal Bin Count and Width}
+Beyond Sturges' formula, the base-10 logarithmic rule provides:
+\begin{equation}
+    C = 1 + \frac{10}{3} \log_{10}(N)
+\end{equation}
+To optimize bin width $h$ accounting jointly for sample spread and size, \textbf{Scott's Rule (1979)} provides:
+\begin{equation}
+    h = \frac{3.5 \times s}{\sqrt[3]{N}}
+\end{equation}
+where $s$ is the sample standard deviation and $N$ is sample size.
+
+\subsection{Supervised Entropy-Based Discretization}
+
+When a target class label $Y \in \{c_1, \dots, c_m\}$ is available, split thresholds are selected to maximize class homogeneity.
+The Shannon entropy of dataset $S$ is:
+\begin{equation}
+    \text{Entropy}(S) = - \sum_{j=1}^m p_j \log_2(p_j)
+\end{equation}
+where $p_j$ is the proportion of samples belonging to class $c_j$. A candidate threshold $T$ partitioning $S$ into $S_1$ and $S_2$ yields weighted entropy:
+\begin{equation}
+    E(S, T) = \frac{|S_1|}{|S|} \text{Entropy}(S_1) + \frac{|S_2|}{|S|} \text{Entropy}(S_2)
+\end{equation}
+The optimal split $T^*$ maximizes information gain $\text{Gain}(S, T) = \text{Entropy}(S) - E(S, T)$.
+
+\subsection{Binarization (Encoding)}
+
+Converts categorical attributes with $m$ distinct levels into binary indicators $\{0, 1\}$:
+
+\begin{itemize}
+    \item \textbf{One-Hot Encoding (Asymmetric Binary Encoding)}: Allocates a dedicated indicator feature for each category level. Avoids imposing artificial order:
+    \begin{table}[htbp]
+        \centering
+        \small
+        \begin{tabular}{lcccccc}
+            \toprule
+            \textbf{Category} & \textbf{Integer Code} & $x_1$ & $x_2$ & $x_3$ & $x_4$ & $x_5$ \\
+            \midrule
+            \textbf{awful} & 0 & 1 & 0 & 0 & 0 & 0 \\
+            \textbf{poor}  & 1 & 0 & 1 & 0 & 0 & 0 \\
+            \textbf{OK}    & 2 & 0 & 0 & 1 & 0 & 0 \\
+            \textbf{good}  & 3 & 0 & 0 & 0 & 1 & 0 \\
+            \textbf{great} & 4 & 0 & 0 & 0 & 0 & 1 \\
+            \bottomrule
+        \end{tabular}
+        \caption{One-Hot encoding for an attribute with 5 distinct qualitative categories.}
+        \label{tab:dm-one-hot}
+    \end{table}
+
+    \item \textbf{Compact Binary Encoding}: Encodes category levels into positional binary integers using $n = \lceil \log_2(m) \rceil$ bits:
+    \begin{table}[htbp]
+        \centering
+        \small
+        \begin{tabular}{lcccc}
+            \toprule
+            \textbf{Category} & \textbf{Integer Code} & $x_1$ & $x_2$ & $x_3$ \\
+            \midrule
+            \textbf{awful} & 0 & 0 & 0 & 0 \\
+            \textbf{poor}  & 1 & 0 & 0 & 1 \\
+            \textbf{OK}    & 2 & 0 & 1 & 0 \\
+            \textbf{good}  & 3 & 0 & 1 & 1 \\
+            \textbf{great} & 4 & 1 & 0 & 0 \\
+            \bottomrule
+        \end{tabular}
+        \caption{Compact binary encoding on 3 bits for 5 categories.}
+        \label{tab:dm-compact-binary}
+    \end{table}
+    \textit{Drawback}: Induces synthetic correlations and ordering artifacts among bits that lack real-world domain validity.
+\end{itemize}
+
+% ====================================================================
+% SECTION 4.7: FUNCTIONAL TRANSFORMATIONS
+% ====================================================================
+\section{Functional Attribute Transformations and Variance Stabilization}
+\label{sec:dm-functional-transformations}
+
+A \textbf{functional transformation} applies a strictly monotonic, continuous function $T$ to every value of feature $X$: $Y = T(X)$.
+\begin{itemize}[noitemsep]
+    \item \textbf{Variance Stabilization}: Enforces constant error variance across attribute ranges (\textit{homoscedasticity}).
+    \item \textbf{Distribution Normalization}: Transforms heavily skewed distributions toward approximate Gaussianity.
+    \item \textbf{Relationship Linearization}: Transforms curvilinear relationships into linear ones suitable for correlation and regression.
+\end{itemize}
+
+\subsection{Power and Logarithmic Transformation Family}
+The general parametric transformation is formulated as:
+\begin{equation}
+    T_p(x) = \begin{cases}
+        a x^p + b & \text{if } p \neq 0 \\
+        c \log(x) + d & \text{if } p = 0
+    \end{cases}
+\end{equation}
+with $x > 0$.
+\begin{itemize}
+    \item \textbf{Linear Transformation ($p = 1$)}: Alters only scale and origin without changing distribution shape (e.g., Fahrenheit to Celsius: $a=5/9, b=-160/9$).
+    \item \textbf{Logarithmic Transformation ($p = 0$)}: $T(x) = c\log(x) + d$. Compresses extreme upper-tail values while stretching small values, effectively correcting severe right skewness.
+\end{itemize}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabular}{llcc}
+        \toprule
+        \textbf{Bar} & \textbf{Beer} & \textbf{Original Gain ($X$)} & \textbf{Transformed Gain $\log_{10}(X)$} \\
+        \midrule
+        A & Bud   & 20    & 1.3010 \\
+        A & Becks & 10000 & 4.0000 \\
+        C & Bud   & 300   & 2.4771 \\
+        D & Bud   & 400   & 2.6021 \\
+        D & Becks & 5     & 0.6990 \\
+        E & Becks & 120   & 2.0792 \\
+        E & Bud   & 120   & 2.0792 \\
+        F & Bud   & 11000 & 4.0414 \\
+        G & Bud   & 1300  & 3.1139 \\
+        H & Bud   & 3200  & 3.5051 \\
+        H & Becks & 1000  & 3.0000 \\
+        I & Bud   & 135   & 2.1303 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Empirical sample of 12 commercial Gain records before and after $\log_{10}$ transformation.}
+    \label{tab:dm-log-transform-sample}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{Xcc}
+        \toprule
+        \textbf{Statistical Metric} & \textbf{Raw Scale ($X$)} & \textbf{Logarithmic Scale ($Y = \log_{10} X$)} \\
+        \midrule
+        \textbf{Mean} & 2481.82 & 2.5956 \\
+        \textbf{Standard Deviation} & 4079.02 & 1.0651 \\
+        \textbf{Minimum} & 5 & 0.6990 \\
+        \textbf{$1^{\text{st}}$ Quartile ($Q_1$)} & 120 & 2.0792 \\
+        \textbf{Median ($Q_2$)} & 400 & 2.6021 \\
+        \textbf{$3^{\text{rd}}$ Quartile ($Q_3$)} & 2250 & 3.3095 \\
+        \textbf{Maximum} & 11000 & 4.0414 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Descriptive metrics before and after logarithmic transformation.}
+    \label{tab:dm-log-transform-stats}
+\end{table}
+
+In the raw scale, standard deviation ($4079.02$) dwarfs the mean ($2481.82$), heavily pulled by outliers at $10000$ and $11000$. Following $\log_{10}$ scaling, mean ($2.5956$) and median ($2.6021$) align closely, restoring symmetry.
+
+\subsection{Other Variance Stabilizing Transformations}
+\begin{itemize}[noitemsep]
+    \item \textbf{Square Root ($p = 1/2$)}: $T(x) = \sqrt{x}$. Stabilizes variance for Poisson count data ($\sigma^2 = \mu$).
+    \item \textbf{Reciprocal ($p = -1$)}: $T(x) = 1/x$. Applied when variance increases superlinearly relative to the mean.
+\end{itemize}
+
+% ====================================================================
+% SECTION 4.8: NORMALIZATION ALGORITHMS
+% ====================================================================
+\section{Normalization Algorithms}
+\label{sec:dm-normalization-algorithms}
+
+Normalization scales diverse numerical features onto a shared, comparable range, preventing features with large magnitudes from dominating distance computations in $k$-NN, K-Means, SVM, or artificial neural networks.
+
+\subsection{Min-Max Normalization}
+Linearly transforms values from original range $[\min_A, \max_A]$ into a defined target interval $[\text{new\_min}_A, \text{new\_max}_A]$ (typically $[0, 1]$):
+\begin{equation}
+    v' = \frac{v - \min_A}{\max_A - \min_A} \big(\text{new\_max}_A - \text{new\_min}_A\big) + \text{new\_min}_A
+\end{equation}
+Preserves exact linear proportions, but remains vulnerable to out-of-bounds future inputs and extreme outliers compressing standard values.
+
+\subsection{Z-Score Standardization}
+Shifts and scales values such that the transformed variable has \textbf{zero mean and unit variance}:
+\begin{equation}
+    v' = \frac{v - \bar{x}_A}{s_A}
+\end{equation}
+where $\bar{x}_A$ is the sample mean and $s_A$ the sample standard deviation. It is the gold standard when data approximates a Gaussian distribution.
+
+\subsection{Decimal Scaling}
+Normalizes values by shifting the decimal point via powers of $10$:
+\begin{equation}
+    v' = \frac{v}{10^j}
+\end{equation}
+where $j$ is the smallest positive integer satisfying:
+\begin{equation}
+    \max(|v'|) < 1 \iff 10^{j-1} \le \max(|v|) < 10^j
+\end{equation}
+
+\begin{noteblock}{Numerical Example: Decimal Scaling}
+Given the vector $V = \{-10,\, 201,\, 301,\, -401,\, 501,\, 601,\, 701\}$:
+\begin{enumerate}
+    \item The absolute maximum is $m = \max(|v|) = 701$.
+    \item The minimal integer $j$ where $10^j > 701$ is $j=3$ ($10^3 = 1000$).
+    \item Dividing each value by $1000$ yields:
+    \begin{equation}
+        V' = \{-0.01,\, 0.201,\, 0.301,\, -0.401,\, 0.501,\, 0.601,\, 0.701\}
+    \end{equation}
+    Every transformed element strictly lies within the open interval $(-1, +1)$.
+\end{enumerate}
+\end{noteblock}
+
+% ====================================================================
+% SECTION 4.9: UNIVARIATE OUTLIER TREATMENT
+% ====================================================================
+\section{Univariate Outlier Treatment}
+\label{sec:dm-univariate-outlier-treatment}
+
+Operational treatment of isolated univariate outliers relies on formal detection and replacement criteria:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        ruleCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=3.2cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+            OUTLIER DETECTION AND REPLACEMENT\\[2pt]
+            \footnotesize \normalfont Univariate criteria for anomaly identification and handling
+        };
+        
+        % Left branch: Tukey
+        \node[ruleCard, anchor=north] (tukeyCol) at (-3.6, 1.1) {
+            \textbf{IQR Criterion (Tukey)}\\[3pt]
+            $L = Q_1 - 1.5\,\text{IQR},\quad U = Q_3 + 1.5\,\text{IQR}$\\[2pt]
+            Outlier if: $x < L \lor x > U$\\[4pt]
+            \textbf{Replacement Strategies}:\\[2pt]
+            1. \textbf{Winsorization}: Assign $L$ or $U$\\
+            2. \textbf{Imputation}: Assign Median
+        };
+        
+        % Right branch: Z-score
+        \node[ruleCard, anchor=north] (zscoreCol) at (3.6, 1.1) {
+            \textbf{Z-Score Criterion}\\[3pt]
+            Standardization: $z = (x - \bar{x}) / s$\\[2pt]
+            Outlier if: $|z| > 3.29$ (tail $0.1\%$)\\[4pt]
+            \textbf{Replacement Strategies}:\\[2pt]
+            1. \textbf{Truncation}: Clamp $z = \pm 3.0$\\
+            2. \textbf{Imputation}: Assign Mean ($z = 0$)
+        };
+        
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (tukeyCol.north);
+        \draw[arrowStyle] (split) -| (zscoreCol.north);
+    \end{tikzpicture}
+    \caption{Decision hierarchy for univariate outlier detection and replacement strategies.}
+    \label{fig:dm-outlier-replacement-rules}
+\end{figure}
+
+\subsection{Interquartile Criterion (Tukey)}
+\begin{enumerate}
+    \item Compute interquartile range $\text{IQR} = Q_3 - Q_1$.
+    \item Define inner fences:
+    \begin{equation}
+        L = Q_1 - 1.5 \times \text{IQR}, \quad U = Q_3 + 1.5 \times \text{IQR}
+    \end{equation}
+    \item Observation $x$ is flagged as an outlier if $x < L \lor x > U$.
+    \item \textbf{Treatment}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Winsorization}: Clamp $x$ to $L$ if $x < L$, or to $U$ if $x > U$. Preserves ordinal rankings while neutralizing distortive tail extremes.
+        \item \textit{Median Imputation}: Replace flagged outliers with the sample median computed from non-outlier records.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Z-Score Criterion}
+Under standard normal assumptions, $95\%$ of samples fall within $|z| \le 1.96$, $99\%$ within $|z| \le 2.58$, and $99.9\%$ within $|z| \le 3.29$.
+Flag as outliers instances exceeding:
+\begin{equation}
+    |z| > 3.29 \iff x < \bar{x} - 3.29\,s \quad \lor \quad x > \bar{x} + 3.29\,s
+\end{equation}
+
+\subsubsection{Replacement Strategies}
+\begin{enumerate}
+    \item \textbf{$3\sigma$ Truncation}: Clamp extreme values to boundary $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$), pulling observations into plausible bounds without erasing their status as extreme observations.
+    \item \textbf{Mean Imputation}: Substitute the outlier with $z = 0$, equivalent to the sample mean $\bar{x}$.
+\end{enumerate}

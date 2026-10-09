@@ -1,0 +1,390 @@
+\chapter{Data Understanding I: Tipologie di Dati, Attributi e Statistica Descrittiva}
+\label{ch:data-understanding-types-statistics}
+
+\section{Conoscere i Dati e Tassonomia dei Dataset}
+
+Il \textbf{Data Understanding} \`e la fase in cui l'analista esamina a fondo i dati a disposizione per determinare la qualit\`a delle misurazioni, comprendere il significato applicativo delle feature e individuare preliminarmente la presenza di rumore, outlier o valori mancanti.
+
+\begin{noteblock}{Obiettivi Fondamentali del Data Understanding}
+\begin{itemize}
+    \item Quali tipologie di attributi compongono il dataset?
+    \item Qual \`e la qualit\`a generale del dato e quali errori sintattici/semantici sono presenti?
+    \item Sono presenti outlier o misurazioni anomale univariata e multivariata?
+    \item Esistono correlazioni e dipendenze tra coppie di attributi?
+    \item Come si distribuiscono i valori mancanti e quale meccanismo li genera?
+    \item \`E necessario trasformare o ingegnerizzare nuove feature prima del mining?
+\end{itemize}
+\end{noteblock}
+
+\subsection{Struttura Fondamentale: Oggetti e Attributi}
+Un dataset \`e una collezione formale di \textbf{oggetti di dati} (noti anche come \textit{record, punti, campioni, entit\`a, istanze o casi}) descritti da un insieme di \textbf{attributi} (noti anche come \textit{variabili, feature, campi, caratteristiche o dimensioni}).
+\begin{itemize}
+    \item Un \textbf{oggetto} rappresenta una singola entit\`a del mondo reale (un cliente, una transazione, una lettura di un sensore).
+    \item Un \textbf{attributo} denota una propriet\`a o caratteristica misurabile di tale oggetto (l'altezza, il prezzo, la temperatura, la categoria).
+\end{itemize}
+
+\subsection{Classificazione delle Strutture Dati}
+I dataset si differenziano per la loro conformazione strutturale:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    catNode/.style={rectangle, rounded corners=6pt, draw=navy!80!black, fill=navy!6, thick, text width=3.5cm, minimum height=3.0cm, align=left, font=\footnotesize, inner sep=6pt},
+    arrowTax/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=6.6cm, inner sep=7pt] (root) at (0, 2.5) {TIPOLOGIE DI DATASET};
+
+    \node[catNode, anchor=north] (rec) at (-4.7, 1.1) {
+        \textbf{Dati Record}\\[3pt]
+        $\bullet$ Matrice $m \times n$\\
+        $\bullet$ Testo (BoW)\\
+        $\bullet$ Transazioni
+    };
+
+    \node[catNode, anchor=north] (graph) at (0, 1.1) {
+        \textbf{Dati a Grafo}\\[3pt]
+        $\bullet$ Web e Hyperlink\\
+        $\bullet$ Reti Molecolari\\
+        $\bullet$ Reti Sociali
+    };
+
+    \node[catNode, anchor=north] (ord) at (4.7, 1.1) {
+        \textbf{Dati Ordinati}\\[3pt]
+        $\bullet$ Serie Temporali\\
+        $\bullet$ Sequenze\\
+        $\bullet$ Dati Genetici\\
+        $\bullet$ Spazio-Temporali
+    };
+
+    \coordinate (split) at (0, 1.6);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowTax] (split) -| (rec.north);
+    \draw[arrowTax] (split) -- (graph.north);
+    \draw[arrowTax] (split) -| (ord.north);
+\end{tikzpicture}
+\caption{Tassonomia strutturale delle macro-tipologie di dataset.}
+\label{fig:dataset-taxonomy}
+\end{figure}
+
+\subsubsection{1. Dati di tipo Record}
+\begin{itemize}
+    \item \textbf{Matrice Dati (\textit{Data Matrix}):} Se tutti gli $m$ oggetti sono descritti dallo stesso insieme fisso di $n$ attributi numerici continui, il dataset si modella come una matrice di dimensione $m \times n$:
+    \begin{equation}
+        D = \begin{bmatrix}
+        x_{11} & x_{12} & \cdots & x_{1n} \\
+        x_{21} & x_{22} & \cdots & x_{2n} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        x_{m1} & x_{m2} & \cdots & x_{mn}
+        \end{bmatrix} \in \mathbb{R}^{m \times n}
+    \end{equation}
+    Ogni riga $i$ corrisponde a un punto immerso nello spazio vettoriale continuo $\mathbb{R}^n$, dove ogni colonna rappresenta un asse coordinato.
+    \item \textbf{Dati di tipo Documento (\textit{Document-Term Matrix}):} Ogni testo viene rappresentato con il modello vettoriale \textit{Bag-of-Words}. Le colonne corrispondono al vocabolario dei termini distinti e i valori registrano la frequenza:
+    \begin{table}[H]
+    \centering
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{l *{10}{c}}
+    \toprule
+    \textbf{Documento} & \textbf{team} & \textbf{coach} & \textbf{play} & \textbf{ball} & \textbf{score} & \textbf{game} & \textbf{win} & \textbf{lost} & \textbf{timeout} & \textbf{season} \\
+    \midrule
+    Doc 1 & 3 & 0 & 5 & 0 & 2 & 6 & 0 & 2 & 0 & 2 \\
+    Doc 2 & 0 & 7 & 0 & 2 & 1 & 0 & 0 & 3 & 0 & 0 \\
+    Doc 3 & 0 & 1 & 0 & 0 & 1 & 2 & 2 & 0 & 3 & 0 \\
+    \bottomrule
+    \end{tabular}%
+    }
+    \caption{Rappresentazione Document-Term Matrix per testi non strutturati.}
+    \label{tab:doc-term-matrix}
+    \end{table}
+    \item \textbf{Dati Transazionali (\textit{Transaction Data}):} Ogni riga \`e identificata da un TID ed \`e formata da un insieme a cardinalit\`a variabile di item discreti (articoli del carrello della spesa).
+\end{itemize}
+
+\subsubsection{2. Dati a Grafo (\textit{Graph Data})}
+Modellano esplicitamente le relazioni tra entit\`a: la topologia del Web (nodi = pagine, archi = collegamenti ipertestuali), molecole chimiche (es. benzene $C_6H_6$ con atomi e legami covalenti) e grafi di citazione bibliografica.
+
+\subsubsection{3. Dati Ordinati (\textit{Ordered Data})}
+Le relazioni di ordinamento determinano il significato del dato:
+\begin{itemize}
+    \item \textbf{Serie Storiche:} Misurazioni indicizzate dal tempo con forte autocorrelazione.
+    \item \textbf{Dati Sequenziali:} Sequenze ordinate di eventi (es. carrelli temporali: $(A, B) \to (D) \to (C, E)$).
+    \item \textbf{Sequenze Genomiche:} Catene di basi nucleotidiche (`A`, `C`, `G`, `T`).
+    \item \textbf{Dati Spazio-Temporali:} Misurazioni indicizzate congiuntamente da coordinate geografiche e tempo (es. mappe globali delle temperature marine e terrestri).
+\end{itemize}
+
+\FloatBarrier
+\section{Tipologie di Attributi e Propriet\`a di Scala}
+
+Le propriet\`a matematiche di un attributo dipendono dalle operazioni formali lecite sui valori del suo dominio:
+\begin{itemize}
+    \item \textbf{Distinzione ($=$ o $\neq$):} Confronto di uguaglianza/disuguaglianza tra valori.
+    \item \textbf{Ordinamento ($<$ o $>$):} Relazione d'ordine naturale totale o parziale.
+    \item \textbf{Differenza ($+$ o $-$):} Intervalli quantificabili con metrica costante.
+    \item \textbf{Rapporto ($*$ o $/$):} Zero assoluto naturale (totale assenza della quantit\`a misurata).
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l c c c c Y}
+\toprule
+\textbf{Scala} & \textbf{Dist.} & \textbf{Ord.} & \textbf{Diff.} & \textbf{Rapp.} & \textbf{Operatori Statistici Ammessi} \\
+\midrule
+\textbf{Nominale}   & \checkmark & --         & --         & --         & Moda, entropia, test $\chi^2$ \\
+\textbf{Ordinale}   & \checkmark & \checkmark & --         & --         & Mediana, quantili, Spearman $\rho$ \\
+\textbf{Intervallo} & \checkmark & \checkmark & \checkmark & --         & Media, dev.std, correlazione Pearson \\
+\textbf{Rapporto}   & \checkmark & \checkmark & \checkmark & \checkmark & Media geometrica, coeff. variazione \\
+\bottomrule
+\end{tabularx}
+\caption{Gerarchia e propriet\`a formali delle scale di misurazione statistica.}
+\label{tab:scale-misura}
+\end{table}
+
+\subsection{Attributi Categorici (Qualitativi)}
+\begin{enumerate}
+    \item \textbf{Nominali:} Permettono solo il test di uguaglianza ($=, \neq$). Esempi: colore degli occhi, CAP, codice fiscale, ID.
+    \item \textbf{Binari:} Casi particolari di attributi nominali con esattamente due stati $\{0, 1\}$.
+    \begin{itemize}
+        \item \textit{Binari Simmetrici:} Entrambi gli esiti hanno pari importanza (es. genere Maschio/Femmina).
+        \item \textit{Binari Asimmetrici:} Uno dei due esiti \`e raro o di interesse primario ($1 = \text{positivo a malattia rara}$, $0 = \text{negativo}$).
+    \end{itemize}
+    \item \textbf{Ordinali:} Possiedono un ordinamento intrinseco ($<, >$), ma l'intervallo tra valori contigui non \`e costante numericamente. Esempi: scala di durezza di Mohs, giudizi $\{\text{scarso}, \text{medio}, \text{buono}\}$, voti in lettere $\{A, B, C, D, F\}$.
+\end{enumerate}
+
+\subsection{Attributi Numerici (Quantitativi)}
+\begin{enumerate}
+    \item \textbf{A Intervallo (\textit{Interval-Scaled}):} La differenza tra due valori \`e costante, ma la scala **non possiede uno zero assoluto**. Esempi: temperatura in gradi Celsius o Fahrenheit ($20^\circ\text{C}$ non \`e ``il doppio'' di $10^\circ\text{C}$, poich\'e in Kelvin $293.15\,\text{K} \neq 2 \cdot 283.15\,\text{K}$); date di calendario.
+    \item \textbf{A Rapporto (\textit{Ratio-Scaled}):} Possiedono uno **zero assoluto naturale** indicante l'assenza della grandezza. Esempi: lunghezza, peso, et\`a, temperatura in Kelvin ($0\,\text{K}$ assenza di energia termica), importi monetari, tempo trascorso. Ha senso affermare che una partita durata 3 ore \`e il 50\% pi\`u lunga di una durata 2 ore ($3/2 = 1.5$).
+\end{enumerate}
+
+\subsection{Variabili Discrete vs Continue}
+\begin{itemize}
+    \item \textbf{Attributo Discreto:} Possiede un insieme finito o numerabile di valori possibili, tipicamente rappresentato da numeri interi (CAP, conteggi di frequenza, parole).
+    \item \textbf{Attributo Continuo:} Possiede un dominio coincidente con i numeri reali $\mathbb{R}$, rappresentato in virgola mobile.
+\end{itemize}
+
+\FloatBarrier
+\section{Problemi di Qualit\`a del Dato}
+
+L'impiego di dati degradati inficia qualunque algoritmo analitico (principio \textit{Garbage In, Garbage Out}). Studi industriali (Redman, 2004) evidenziano che la scarsa qualit\`a incide per il $10\%\div 20\%$ del fatturato aziendale complessivo.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    dimCard/.style={rectangle, rounded corners=6pt, draw=navy!80!black, fill=navy!6, thick, text width=6.0cm, minimum height=2.8cm, align=left, font=\footnotesize, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=8.6cm, inner sep=6pt] (root) at (0, 2.7) {
+        DIMENSIONI DELLA QUALIT\`A DEL DATO\\[2pt]
+        \footnotesize \normalfont Fattori critici per l'affidabilit\`a dell'analisi
+    };
+
+    % Colonna Sinistra
+    \node[dimCard, anchor=north] (leftCol) at (-3.6, 1.1) {
+        \textbf{Accuratezza e Completezza}\\[4pt]
+        $\bullet$ \textbf{Sintattica}: Violazioni di dominio\\[3pt]
+        $\bullet$ \textbf{Semantica}: Dato non veritiero\\[3pt]
+        $\bullet$ \textbf{Completezza}: Valori nulli (\texttt{NaN})
+    };
+
+    % Colonna Destra
+    \node[dimCard, anchor=north] (rightCol) at (3.6, 1.1) {
+        \textbf{Dinamica e Integrit\`a}\\[4pt]
+        $\bullet$ \textbf{Sbilanciamento}: Classi rare\\[3pt]
+        $\bullet$ \textbf{Tempestivit\`a}: Record obsoleti\\[3pt]
+        $\bullet$ \textbf{Unicit\`a}: Record duplicati
+    };
+
+    \coordinate (split) at (0, 1.65);
+    \draw[thick, draw=navy!85!black] (root.south) -- (split);
+    \draw[arrowStyle] (split) -| (leftCol.north);
+    \draw[arrowStyle] (split) -| (rightCol.north);
+\end{tikzpicture}
+\caption{Dimensioni fondamentali della qualit\`a dei dati.}
+\label{fig:qualita-dato}
+\end{figure}
+
+\FloatBarrier
+\section{Ispezione delle Distribuzioni Monovariate}
+
+\subsection{Asimmetria e Multimodalit\`a}
+La forma della densit\`a di frequenza di un attributo continuo rivela le propriet\`a intrinseche del fenomeno indagato:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.85]
+    % 1. Simmetrica
+    \begin{scope}[xshift=-5.5cm]
+        \node[font=\footnotesize\bfseries, text=blue!90!black] at (0, 2.8) {Simmetrica (Gaussiana)};
+        \node[font=\tiny, text=gray!80!black] at (0, 2.4) {Media = Mediana = Moda};
+        \draw[-Stealth, draw=gray!70] (-2.2, 0) -- (2.2, 0);
+        \draw[very thick, draw=blue!80!black] (-2, 0) .. controls (-1, 0.1) and (-0.8, 1.8) .. (0, 2.0)
+                                                    .. controls (0.8, 1.8) and (1, 0.1) .. (2, 0);
+        \draw[dashed, red!80!black] (0, 0) -- (0, 2.0);
+    \end{scope}
+
+    % 2. Asimmetrica Positiva (Right-Skewed)
+    \begin{scope}[xshift=0cm]
+        \node[font=\footnotesize\bfseries, text=orange!90!black] at (0, 2.8) {Asimmetrica Positiva};
+        \node[font=\tiny, text=gray!80!black] at (0, 2.4) {Moda $<$ Mediana $<$ Media};
+        \draw[-Stealth, draw=gray!70] (-2.2, 0) -- (2.2, 0);
+        \draw[very thick, draw=orange!85!black] (-2, 0) .. controls (-1.6, 0.3) and (-1.2, 1.9) .. (-0.8, 2.0)
+                                                        .. controls (-0.4, 2.1) and (0.2, 0.7) .. (1.0, 0.3)
+                                                        .. controls (1.5, 0.1) and (1.9, 0.05) .. (2.2, 0);
+        \draw[dashed, red!80!black] (-0.8, 0) -- (-0.8, 2.0) node[below, font=\tiny] {Moda};
+        \draw[dashed, teal!80!black] (-0.3, 0) -- (-0.3, 1.4) node[below, font=\tiny] {Med.};
+        \draw[dashed, purple!80!black] (0.4, 0) -- (0.4, 0.6) node[below, font=\tiny] {Media};
+    \end{scope}
+
+    % 3. Bimodale
+    \begin{scope}[xshift=5.5cm]
+        \node[font=\footnotesize\bfseries, text=teal!90!black] at (0, 2.8) {Bimodale (Due Picchi)};
+        \node[font=\tiny, text=gray!80!black] at (0, 2.4) {Sottopopolazioni latenti};
+        \draw[-Stealth, draw=gray!70] (-2.2, 0) -- (2.2, 0);
+        \draw[very thick, draw=teal!85!black] (-2, 0) .. controls (-1.5, 0.2) and (-1.3, 1.8) .. (-1.0, 1.8)
+                                                      .. controls (-0.7, 1.8) and (-0.4, 0.6) .. (0, 0.6)
+                                                      .. controls (0.4, 0.6) and (0.7, 1.8) .. (1.0, 1.8)
+                                                      .. controls (1.3, 1.8) and (1.5, 0.2) .. (2, 0);
+    \end{scope}
+\end{tikzpicture}
+\caption{Forme caratteristiche delle distribuzioni univariata: simmetria, asimmetria e multimodalit\`a.}
+\label{fig:forme-distributive}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Distribuzione Simmetrica:} Densit\`a speculare attorno al centro. Coincidono $\text{Media} = \text{Mediana} = \text{Moda}$.
+    \item \textbf{Asimmetrica Positiva (\textit{Right-Skewed}):} Coda allungata verso valori alti (es. reddito pro capite). Pochi valori elevati spostano la media:
+    \begin{equation}
+        \text{Moda} < \text{Mediana} < \text{Media}
+    \end{equation}
+    \item \textbf{Asimmetrica Negativa (\textit{Left-Skewed}):} Coda allungata verso valori bassi:
+    \begin{equation}
+        \text{Media} < \text{Mediana} < \text{Moda}
+    \end{equation}
+    \item \textbf{Bimodale o Multimodale:} Segnala la sovrapposizione di sottopopolazioni disgiunte non ancora separate da variabili latenti (es. peso corporeo aggregato senza distinzione di genere).
+\end{itemize}
+
+\subsection{Strumenti Visuali: Bar Chart vs Istogrammi}
+\begin{itemize}
+    \item \textbf{Grafico a Barre (\textit{Bar Chart}):} Utilizzato per variabili \textbf{categoriche/discrete}. Le barre sono visivamente separate per evidenziare l'assenza di continuit\`a metrica sull'asse orizzontale.
+    \item \textbf{Istogramma (\textit{Histogram}):} Utilizzato per variabili \textbf{continue}. Il dominio viene partizionato in intervalli contigui (\textit{bin}) e l'area di ciascun rettangolo \`e proporzionale al numero di osservazioni.
+\end{itemize}
+
+\paragraph{Scelta del Numero di Bin e Regola di Sturges:}
+Un numero insufficiente di bin appiattisce la distribuzione nascondendo la bimodalit\`a; un numero eccessivo introduce oscillazioni casuali. Per distribuzioni approssimativamente normali si adotta la \textbf{Regola di Sturges}:
+\begin{equation}
+    k = \lceil \log_2(n) + 1 \rceil
+\end{equation}
+dove $n$ \`e la dimensione campionaria e $\lceil \cdot \rceil$ \`e l'arrotondamento all'intero superiore.
+
+\FloatBarrier
+\section{Misure di Tendenza Centrale e Dispersione}
+
+\subsection{Misure di Tendenza Centrale}
+\begin{itemize}
+    \item \textbf{Media Aritmetica Campionaria:}
+    \begin{equation}
+        \bar{x} = \frac{1}{m} \sum_{i=1}^m x_i
+    \end{equation}
+    \`E estremamente sensibile agli outlier: una singola osservazione estrema falsa il valore medio.
+    \item \textbf{Mediana:} Valore che occupa la posizione centrale nel campione ordinato:
+    \begin{equation}
+        \text{mediana} = \begin{cases}
+        x_{\left(\frac{m+1}{2}\right)} & \text{se } m \text{ \`e dispari} \\[6pt]
+        \dfrac{x_{\left(\frac{m}{2}\right)} + x_{\left(\frac{m}{2} + 1\right)}}{2} & \text{se } m \text{ \`e pari}
+        \end{cases}
+    \end{equation}
+    \`E una misura **robusta**, invariante rispetto all'entit\`a numerica dei valori estremi.
+    \item \textbf{Moda:} Il valore a frequenza empirica massima. \`E l'unica misura applicabile anche ad attributi nominali.
+    \item \textbf{Media Troncata (\textit{Trimmed Mean}):} Calcolata escludendo una percentuale $\alpha$ di campioni minimi e massimi per combinare efficienza e robustezza.
+\end{itemize}
+
+\subsection{Misure di Dispersione dei Dati}
+\begin{itemize}
+    \item \textbf{Range (Campo di Variazione):} $\text{Range} = x_{\max} - x_{\min}$.
+    \item \textbf{Varianza Campionaria ($s^2$):}
+    \begin{equation}
+        s^2 = \frac{1}{m-1} \sum_{i=1}^m (x_i - \bar{x})^2
+    \end{equation}
+    con correzione di Bessel a denominatore ($m-1$) per garantire uno stimatore non distorto.
+    \item \textbf{Deviazione Standard Campionaria ($s$):} $s = \sqrt{s^2}$, espressa nella medesima unit\`a di misura della variabile originaria.
+\end{itemize}
+
+\paragraph{Misure di Dispersione Robuste:}
+\begin{itemize}
+    \item \textbf{Deviazione Assoluta Media (\textit{Absolute Average Deviation - AAD}):}
+    \begin{equation}
+        \text{AAD}(x) = \frac{1}{m} \sum_{i=1}^m |x_i - \bar{x}|
+    \end{equation}
+    \item \textbf{Mediana degli Scostamenti Assoluti (\textit{Median Absolute Deviation - MAD}):}
+    \begin{equation}
+        \text{MAD}(x) = \text{mediana}\left(\Big\{|x_i - \text{mediana}(x)|\Big\}_{i=1}^m\right)
+    \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\section{Five-Number Summary, Quartili e Box Plot}
+
+\subsection{Il Five-Number Summary}
+Il \textbf{Five-Number Summary} sintetizza la distribuzione statistica tramite cinque parametri posizionali:
+\begin{equation}
+    \Big\{x_{\min},\, Q_1,\, \text{Mediana } (Q_2),\, Q_3,\, x_{\max}\Big\}
+\end{equation}
+\begin{itemize}
+    \item $Q_1$ (Primo Quartile): 25\% delle osservazioni sono inferiori o uguali a esso.
+    \item $Q_2$ (Mediana): 50\% delle osservazioni.
+    \item $Q_3$ (Terzo Quartile): 75\% delle osservazioni.
+    \item \textbf{Range Interquartilico (IQR):} $\text{IQR} = Q_3 - Q_1$.
+\end{itemize}
+
+\subsection{Anatomia del Box Plot}
+Il **Box Plot** traduce visivamente la sintesi a cinque numeri:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Asse orizzontale
+    \draw[-Stealth, thick, draw=gray!70] (-5.5, 0) -- (6.5, 0) node[right, font=\small] {$x$};
+
+    % Scatola (Box) da Q1 (-1.2) a Q3 (2.2)
+    \fill[navy!12, draw=navy!85!black, thick] (-1.2, 0.7) rectangle (2.2, 2.3);
+    
+    % Linea Mediana (Q2) a 0.3
+    \draw[line width=2pt, draw=navy!95!black] (0.3, 0.7) -- (0.3, 2.3);
+    \draw[dotted, navy!60] (0.3, 0.7) -- (0.3, 0.15);
+
+    % Staffa IQR sopra
+    \draw[decorate, decoration={brace, amplitude=6pt}, thick, draw=navy!85!black] (-1.2, 2.5) -- (2.2, 2.5)
+        node[midway, above=6pt, font=\small\bfseries, text=navy] {$\text{IQR} = Q_3 - Q_1$};
+
+    % Baffo Sinistro
+    \draw[thick, draw=navy!85!black] (-1.2, 1.5) -- (-3.5, 1.5);
+    \draw[thick, draw=navy!85!black] (-3.5, 1.1) -- (-3.5, 1.9);
+
+    % Baffo Destro
+    \draw[thick, draw=navy!85!black] (2.2, 1.5) -- (4.8, 1.5);
+    \draw[thick, draw=navy!85!black] (4.8, 1.1) -- (4.8, 1.9);
+
+    % Tacche asse
+    \draw[gray!80!black, thick] (-3.5, -0.15) -- (-3.5, 0.15) node[below=3pt, font=\scriptsize\bfseries, align=center, text=crimson] {$L$\\[1pt]\tiny $Q_1 - 1.5\,\text{IQR}$};
+    \draw[gray!80!black, thick] (-1.2, -0.15) -- (-1.2, 0.15) node[below=3pt, font=\scriptsize\bfseries] {$Q_1$};
+    \draw[navy!80!black, thick] (0.3, -0.15) -- (0.3, 0.15) node[below=3pt, font=\scriptsize\bfseries, align=center, text=navy] {Mediana\\($Q_2$)};
+    \draw[gray!80!black, thick] (2.2, -0.15) -- (2.2, 0.15) node[below=3pt, font=\scriptsize\bfseries] {$Q_3$};
+    \draw[gray!80!black, thick] (4.8, -0.15) -- (4.8, 0.15) node[below=3pt, font=\scriptsize\bfseries, align=center, text=crimson] {$U$\\[1pt]\tiny $Q_3 + 1.5\,\text{IQR}$};
+
+    % Outlier
+    \fill[crimson] (-4.5, 1.5) circle (3pt) node[above=4pt, font=\scriptsize\bfseries, text=crimson] {Outlier};
+    \fill[crimson] (5.6, 1.5) circle (3pt) node[above=4pt, font=\scriptsize\bfseries, text=crimson] {Outlier};
+    \fill[crimson] (6.1, 1.5) circle (3pt);
+\end{tikzpicture}
+\caption{Anatomia formale del Box Plot con recinzioni di Tukey per l'identificazione degli outlier.}
+\label{fig:anatomia-boxplot}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{iris_conditional_boxplot.pdf}
+\caption{Box Plot condizionale calcolato sui dati reali del dataset Iris: distribuzione empirica della lunghezza del petalo (\textit{Petal Length}) stratificata sulle tre specie, con evidenza della mediana, dei quartili e dei singoli campioni osservati.}
+\label{fig:iris-conditional-boxplot}
+\end{figure}
+
+\paragraph{Limiti del Box Plot rispetto agli Istogrammi:}
+Sebbene il box plot sintetizzi efficacemente posizione e dispersione, **non permette di identificare la multimodalit\`a**. Due distribuzioni, una marcatamente bimodale e una unimodale simmetrica, possono presentare lo stesso Five-Number Summary ($x_{\min}, Q_1, Q_2, Q_3, x_{\max}$) generando lo stesso identico box plot; solo l'istogramma consente di visualizzare la presenza di una concavit\`a o di picchi multipli tra i quartili.

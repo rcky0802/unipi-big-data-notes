@@ -75,7 +75,17 @@ Data-Mining/
 ├── assets/                     # Images and graphical resources
 ├── chapters/                   # Notes chapters (bilingual: it / en)
 │   ├── en/
+│   │   ├── 01-introduction-to-data-mining.tex
+│   │   ├── 02-data-understanding-types-statistics.tex
+│   │   ├── 03-data-understanding-multivariate-outliers.tex
+│   │   ├── 04-data-preparation-cleaning.tex
+│   │   └── 05-python-lab-du-dp.tex
 │   └── it/
+│       ├── 01-introduction-to-data-mining.tex
+│       ├── 02-data-understanding-types-statistics.tex
+│       ├── 03-data-understanding-multivariate-outliers.tex
+│       ├── 04-data-preparation-cleaning.tex
+│       └── 05-python-lab-du-dp.tex
 ├── config/
 │   └── preamble.tex            # Packages and shared configuration
 ├── datasets/                   # Sample datasets

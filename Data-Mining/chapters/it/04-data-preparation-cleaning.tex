@@ -1,0 +1,666 @@
+\chapter{Data Preparation \& Cleaning -- Riduzione, Discretizzazione e Trasformazione}
+\label{chap:dm-data-preparation-cleaning}
+
+Mentre la fase di Data Understanding si concentra sulla diagnosi delle anomalie e sulla comprensione delle strutture latenti del dataset, la \textbf{Data Preparation} costituisce la componente operativa e trasformativa del ciclo KDD. In questa fase i dati grezzi vengono bonificati, compressi, riscalati e ricodificati per soddisfare i requisiti algebrici e computazionali degli algoritmi di data mining.
+
+% ====================================================================
+% SEZIONE 4.1: DIFFERENZE TRA DATA UNDERSTANDING E DATA PREPARATION
+% ====================================================================
+\section{Differenze tra Data Understanding e Data Preparation}
+\label{sec:dm-du-vs-dp}
+
+La transizione tra la fase diagnostica e la fase trasformativa è sintetizzata dal passaggio dalle evidenze empiriche alle azioni di pulizia:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        box/.style={draw=navy, rounded corners, fill=navy!8, font=\small, text width=5.2cm, inner sep=6pt},
+        arrow/.style={-Stealth, thick, color=navy}
+    ]
+        \node[box] (du) {
+            \centering \textbf{DATA UNDERSTANDING}\\
+            \textit{(Fase Diagnostica)}\\[4pt]
+            \raggedright
+            $\bullet$ Rileva valori mancanti\\
+            $\bullet$ Identifica outlier univariati/multivariati\\
+            $\bullet$ Misura correlazioni elevate e collinearità\\
+            $\bullet$ Diagnostica asimmetrie distributive\\
+            $\bullet$ Rileva scale eterogenee
+        };
+        
+        \node[box, right=2.0cm of du] (dp) {
+            \centering \textbf{DATA PREPARATION}\\
+            \textit{(Fase Interventistica)}\\[4pt]
+            \raggedright
+            $\bullet$ Imputa o rimuove i missing\\
+            $\bullet$ Gestisce/Winsorizza gli outlier\\
+            $\bullet$ Rimuove feature ridondanti\\
+            $\bullet$ Applica trasformazioni logaritmiche/Box-Cox\\
+            $\bullet$ Normalizza (Min-Max, Z-Score)
+        };
+        
+        \draw[arrow] (du.east) -- (dp.west) node[midway, above, font=\footnotesize, color=navy] {Informa};
+    \end{tikzpicture}
+    \caption{Relazione sequenziale tra Data Understanding (diagnosi) e Data Preparation (intervento).}
+    \label{fig:dm-du-vs-dp}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 4.2: AGGREGAZIONE E CAMPIONAMENTO
+% ====================================================================
+\section{Aggregazione e Campionamento}
+\label{sec:dm-aggregation-sampling}
+
+La riduzione del volume dei dati si persegue mediante la combinazione di osservazioni o attraverso la selezione statistica di sottoinsiemi rappresentativi.
+
+\subsection{Aggregazione dei Dati}
+
+L'aggregazione sintetizza due o più record o attributi in una singola misura aggregata.
+\begin{itemize}
+    \item \textbf{Obiettivi primari}:
+    \begin{enumerate}
+        \item \textit{Riduzione dimensionale}: Riduce il numero complessivo di record o attributi, alleggerendo il carico computazionale.
+        \item \textit{Riconfigurazione di scala e granularità}: Adatta l'analisi al livello concettuale idoneo (ad esempio, aggregare le transazioni orarie in totali settimanali o i singoli punti vendita a livello regionale).
+        \item \textit{Stabilizzazione della varianza}: Le grandezze aggregate mediano il rumore casuale, producendo indicatori a varianza inferiore e relazioni più stabili.
+    \end{enumerate}
+    \item \textbf{Caso Studio: Precipitazioni in Australia (1982--1993)}: Nelle serie storiche pluviometriche australiane, la deviazione standard delle precipitazioni medie mensili evidenzia un'elevata variabilità con code fino a $15\,\text{cm}$. Al contrario, aggregando i dati su base annua, la deviazione standard si concentra su valori bassi con dispersione contenuta (Figura~\ref{fig:dm-precip-aggregation}). Per l'analisi dei cicli stagionali è necessaria la scala mensile disaggregata, mentre per la comparazione dei regimi climatici regionali la scala annua aggregata risulta più robusta e priva del rumore a breve termine.
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{precipitation_aggregation.pdf}
+    \caption{Confronto di dispersione tra precipitazioni medie mensili e precipitazioni medie annue aggregate in Australia.}
+    \label{fig:dm-precip-aggregation}
+\end{figure}
+
+\subsection{Tecniche di Campionamento (Sampling)}
+
+Il campionamento estrae un sottoinsieme rappresentativo di dimensione $n$ da una popolazione complessiva di cardinalità $N$ ($n \ll N$).
+Un campione è \textbf{rappresentativo} se riflette fedelmente le medesime proprietà distributive e statistiche della popolazione sorgente.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        sampleCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=2.8cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+            STRATEGIE DI CAMPIONAMENTO\\[2pt]
+            \footnotesize \normalfont Tecniche per l'estrazione di sottoinsiemi rappresentativi
+        };
+
+        % Left branch: SRS
+        \node[sampleCard, anchor=north] (srsCol) at (-3.6, 1.1) {
+            \textbf{Casuale Semplice (SRS)}\\[4pt]
+            $\bullet$ \textbf{Senza Replica}: Prelievi univoci\\[3pt]
+            $\bullet$ \textbf{Con Replica}: Duplicati ammessi\\[3pt]
+            $\bullet$ \textbf{Probabilit\`a}: Uniforme ($P = 1/N$)
+        };
+
+        % Right branch: Stratified
+        \node[sampleCard, anchor=north] (stratCol) at (3.6, 1.1) {
+            \textbf{Campionamento Stratificato}\\[4pt]
+            $\bullet$ \textbf{Strati}: Gruppi omogenei disgiunti\\[3pt]
+            $\bullet$ \textbf{Quote}: Estrazione proporzionale\\[3pt]
+            $\bullet$ \textbf{Obiettivo}: Protezione classi rare
+        };
+
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (srsCol.north);
+        \draw[arrowStyle] (split) -| (stratCol.north);
+    \end{tikzpicture}
+    \caption{Albero delle strategie di campionamento nel data mining.}
+    \label{fig:dm-sampling-tree}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Campionamento Casuale Semplice (Simple Random Sampling)}: Ciascuna istanza possiede la medesima probabilità a priori di selezione:
+    \begin{equation}
+        P(x_i) = \frac{1}{N}
+    \end{equation}
+    \begin{itemize}[noitemsep]
+        \item \textit{Senza reinserimento (without replacement)}: L'elemento estratto viene rimosso dal pool e non può essere riselezionato.
+        \item \textit{Con reinserimento (with replacement)}: L'elemento estratto rimane disponibile per successive estrazioni (stesso record estratto $> 1$ volta).
+    \end{itemize}
+    \item \textbf{Campionamento Stratificato (Stratified Sampling)}: La popolazione viene suddivisa in strati omogenei disgiunti (ad esempio per etichetta di classe o per percentili). Da ciascun strato viene estratto un campione proporzionale alla sua cardinalità relativa, garantendo che le classi rare non vengano omesse dal campione estratto.
+\end{enumerate}
+
+La scelta della dimensione campionaria ottimale impone un compromesso tra costo computazionale e accuratezza statistica, come illustrato nella curva di trade-off di Figura~\ref{fig:dm-sampling-tradeoff}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{sampling_tradeoff.pdf}
+    \caption{Trade-off tra dimensione campionaria e accuratezza empirica di stima.}
+    \label{fig:dm-sampling-tradeoff}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 4.3: RIDUZIONE DELLA DIMENSIONALITA'
+% ====================================================================
+\section{Riduzione della Dimensionalità}
+\label{sec:dm-dimensionality-reduction}
+
+La presenza di un numero elevato di feature determina rilevanti criticità computazionali e geometriche.
+
+\subsection{La Maledizione della Dimensionalità (\textit{Curse of Dimensionality})}
+
+All'aumentare della dimensionalità $p$, il volume dello spazio $\mathbb{R}^p$ cresce esponenzialmente rispetto al numero di osservazioni disponibili. Questo fenomeno causa:
+\begin{enumerate}
+    \item \textbf{Sparsità estrema}: Le osservazioni si disperdono nello spazio multidimensionale; la densità locale tende a zero e lo spazio diventa prevalentemente vuoto.
+    \item \textbf{Concentrazione delle distanze}: All'aumentare di $p$, il contrasto relativo tra la distanza minima e la distanza massima rispetto a qualsiasi punto di riferimento tende a vanificarsi:
+    \begin{equation}
+        \lim_{p \to \infty} \frac{\text{dist}_{\max} - \text{dist}_{\min}}{\text{dist}_{\min}} \to 0
+    \end{equation}
+    Ciò compromette le prestazioni degli algoritmi metrica-dipendenti ($k$-NN, clustering K-Means).
+    \item \textbf{Instabilità delle stime}: La stima della matrice di covarianza $p \times p$ richiede una numerosità campionaria che scala esponenzialmente con $p$ per scongiurare singolarità numeriche.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.9]
+        % 1D
+        \begin{scope}[shift={(0,0)}]
+            \draw[thick, <->] (0,0) -- (3,0);
+            \foreach \x in {0.3, 0.7, 1.1, 1.5, 1.8, 2.2, 2.7} {
+                \fill[crimson] (\x, 0) circle (2pt);
+            }
+            \node[below, font=\footnotesize] at (1.5,-0.3) {\textbf{1D}: Spazio Denso};
+            \node[below, font=\tiny, align=center] at (1.5,-0.7) {7 punti in 1 unità};
+        \end{scope}
+        
+        % 2D
+        \begin{scope}[shift={(4.5, -0.8)}]
+            \draw[step=0.6, gray!60, very thin] (0,0) grid (2.4, 2.4);
+            \draw[thick] (0,0) rectangle (2.4, 2.4);
+            \fill[crimson] (0.3, 1.5) circle (2pt);
+            \fill[crimson] (1.5, 0.9) circle (2pt);
+            \fill[crimson] (2.1, 2.1) circle (2pt);
+            \node[below, font=\footnotesize] at (1.2,-0.2) {\textbf{2D}: Densità Ridotta};
+            \node[below, font=\tiny, align=center] at (1.2,-0.6) {16 celle (alcune vuote)};
+        \end{scope}
+        
+        % 3D
+        \begin{scope}[shift={(9.0, -0.8)}]
+            \draw[thick] (0,0) rectangle (2,2);
+            \draw[thick] (0.8,0.8) rectangle (2.8,2.8);
+            \draw[thick] (0,0) -- (0.8,0.8);
+            \draw[thick] (2,0) -- (2.8,0.8);
+            \draw[thick] (2,2) -- (2.8,2.8);
+            \draw[thick] (0,2) -- (0.8,2.8);
+            \fill[crimson] (1.2, 1.4) circle (2pt);
+            \node[below, font=\footnotesize] at (1.4,-0.2) {\textbf{3D}: Sparsità Critica};
+            \node[below, font=\tiny, align=center] at (1.4,-0.6) {Spazio prevalentemente vuoto};
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Illustrazione della dispersione geometrica dei campioni all'aumentare delle dimensioni (Curse of Dimensionality).}
+    \label{fig:dm-curse-dimensionality}
+\end{figure}
+
+\subsection{Selezione delle Feature (Feature Selection)}
+
+La \textbf{Feature Selection} seleziona un sottoinsieme ottimale di feature originali, eliminando gli attributi irrilevanti (non informativi) e ridondanti (duplicati di informazione già presente). I metodi si suddividono in tre categorie:
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{lXX}
+        \toprule
+        \textbf{Paradigma} & \textbf{Meccanismo Operativo} & \textbf{Vantaggi / Limiti} \\
+        \midrule
+        \textbf{Filter} & Valutano la significatività statistica ($t$-test, ANOVA, correlazione di Pearson, $\chi^2$) a priori, indipendentemente dal modello. & Computazionalmente velocissimi; non considerano l'interazione tra feature. \\
+        \addlinespace
+        \textbf{Wrapper} & Utilizzano il modello predittivo come oracolo di valutazione iterativo (Forward Selection, Backward Elimination). & Ottimizzano l'accuratezza finale; computazionalmente gravosi ($2^p$ combinazioni teoriche). \\
+        \addlinespace
+        \textbf{Embedded} & La selezione è integrata nel processo di addestramento dell'algoritmo (es. alberi decisionali, regolarizzazione Lasso $L_1$). & Eccellente compromesso tra accuratezza e tempi computazionali. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Confronto sinottico tra approcci Filter, Wrapper ed Embedded per la Feature Selection.}
+    \label{tab:dm-feature-selection-methods}
+\end{table}
+
+\subsection{Creazione e Proiezione di Feature}
+\begin{itemize}
+    \item \textbf{Costruzione di Feature (\textit{Feature Construction})}: Generazione di nuove variabili combinando attributi esistenti tramite conoscenza del dominio (ad esempio, calcolo della densità come $\text{massa}/\text{volume}$ o dell'efficienza come $\text{ore effettive}/\text{ore previste}$).
+    \item \textbf{Proiezione di Feature (\textit{Feature Projection})}: Mappatura lineare o non lineare dello spazio originario $\mathbb{R}^p$ in un sottospazio ridotto $\mathbb{R}^k$ ($k \ll p$), massimizzando la varianza conservata o la separabilità tra classi (PCA, SVD, Linear Discriminant Analysis - LDA, Autoencoder).
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 4.4: PRINCIPAL COMPONENT ANALYSIS (PCA)
+% ====================================================================
+\section{Analisi delle Componenti Principali (PCA)}
+\label{sec:dm-pca}
+
+L'\textbf{Analisi delle Componenti Principali (PCA)} è una tecnica lineare non supervisionata che trasforma un insieme di $p$ variabili originarie correlate in un nuovo insieme di $p$ variabili ortogonali (scorrelate), ordinate in modo decrescente rispetto alla quota di varianza spiegata.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[scale=0.95]
+        \draw[->, thick] (-0.5,0) -- (4.5,0) node[right] {$X_1$};
+        \draw[->, thick] (0,-0.5) -- (0,4.0) node[above] {$X_2$};
+        
+        % Scatter cloud oriented diagonally
+        \begin{scope}[rotate around={32:(2,1.8)}]
+            \draw[color=crimson, very thick, -Stealth] (-1.8, 1.8) -- (2.6, 1.8) node[above right] {$\mathbf{e}_1$ (Componente Principale 1)};
+            \draw[color=navy, very thick, -Stealth] (0, 0.8) -- (0, 2.8) node[above left] {$\mathbf{e}_2$ (Componente Principale 2)};
+            
+            \foreach \x/\y in {-1.4/0.1, -1.0/-0.2, -0.6/0.2, -0.2/-0.1, 0.2/0.15, 0.6/-0.15, 1.1/0.2, 1.6/-0.1, 2.0/0.05} {
+                \fill (\x+0.4, \y+1.8) circle (1.8pt);
+            }
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Allineamento delle componenti principali ortogonali lungo le direzioni di massima varianza dei dati.}
+    \label{fig:dm-pca-axes}
+\end{figure}
+
+\subsection{Procedura Dettagliata per il Calcolo della PCA}
+
+La procedura analitica per il calcolo della PCA si articola in cinque passi formali:
+
+\subsubsection{Passo 1: Centratura e Standardizzazione della Matrice Dati}
+Data la matrice iniziale $D \in \mathbb{R}^{n \times p}$, si calcola la media campionaria per ciascuna colonna:
+\begin{equation}
+    \bar{x}_j = \frac{1}{n}\sum_{i=1}^n D_{ij}
+\end{equation}
+
+Si genera la \textbf{matrice centrata} $C \in \mathbb{R}^{n \times p}$ sottraendo il vettore delle medie da ciascuna riga:
+\begin{equation}
+    C_{ij} = D_{ij} - \bar{x}_j
+\end{equation}
+
+Qualora le variabili presentino unità o scale eterogenee, si calcola la \textbf{matrice standardizzata} $Z \in \mathbb{R}^{n \times p}$ dividendo ciascuno scarto per la deviazione standard campionaria $s_j$:
+\begin{equation}
+    Z_{ij} = \frac{D_{ij} - \bar{x}_j}{s_j}
+\end{equation}
+
+\subsubsection{Passo 2: Calcolo della Matrice di Covarianza}
+Si determina la matrice di covarianza empirica $V \in \mathbb{R}^{p \times p}$ mediante il prodotto matriciale:
+\begin{equation}
+    V = \frac{1}{n-1} C^T C
+\end{equation}
+
+\subsubsection{Passo 3: Decomposizione Spettrale (Autovalori e Autovettori)}
+Si risolve il problema agli autovalori per la matrice reale simmetrica $V$:
+\begin{equation}
+    V \mathbf{e}_j = \lambda_j \mathbf{e}_j, \quad j = 1, \dots, p
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item Ogni \textbf{autovettore} normalizzato ad ampiezza unitaria $\|\mathbf{e}_j\|_2 = 1$ identifica la direzione del $j$-esimo asse principale. Poiché $V$ è simmetrica, autovettori relativi ad autovalori distinti sono mutuamente ortogonali ($\mathbf{e}_j^T \mathbf{e}_k = 0$ per $j \neq k$).
+    \item Il corrispondente \textbf{autovalore} $\lambda_j \ge 0$ quantifica la varianza spiegata lungo la direzione dell'asse principale $\mathbf{e}_j$.
+\end{itemize}
+
+\subsubsection{Passo 4: Ordinamento e Selezione delle Componenti}
+Si ordinano autovalori e autovettori in senso decrescente rispetto alla magnitudo di $\lambda$:
+\begin{equation}
+    \lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_p \ge 0
+\end{equation}
+
+La percentuale di varianza spiegata dalla singola componente $j$ è calcolata come:
+\begin{equation}
+    \text{Varianza Spiegata } (\%) = \frac{\lambda_j}{\sum_{m=1}^p \lambda_m} \times 100
+\end{equation}
+
+Si selezionano le prime $k$ componenti ($k < p$) che garantiscono una soglia cumulativa desiderata (es. $85\%$ o $95\%$), scartando le restanti componenti a bassa varianza (Figura~\ref{fig:dm-pca-scree}). Si assembla la matrice di trasformazione $F \in \mathbb{R}^{p \times k}$:
+\begin{equation}
+    F = \begin{bmatrix} \mathbf{e}_1 & \mathbf{e}_2 & \cdots & \mathbf{e}_k \end{bmatrix}
+\end{equation}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.82\textwidth]{pca_scree_plot.pdf}
+    \caption{Scree plot degli autovalori e curva di varianza cumulativa spiegata.}
+    \label{fig:dm-pca-scree}
+\end{figure}
+
+\subsubsection{Passo 5: Proiezione nel Nuovo Sottospazio}
+La matrice finale proiettata $Z \in \mathbb{R}^{n \times k}$ nello spazio ridotto $k$-dimensionale si calcola mediante moltiplicazione matriciale:
+\begin{equation}
+    Z = C F
+\end{equation}
+
+In Figura~\ref{fig:dm-pca-2d} è visualizzata la proiezione dei campioni del dataset Iris sul piano bidimensionale definito dalle prime due componenti principali (PC1 e PC2), che catturano oltre il $95\%$ della varianza originaria complessiva.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{pca_2d_projection.pdf}
+    \caption{Proiezione bidimensionale dei campioni Iris lungo le prime due componenti principali.}
+    \label{fig:dm-pca-2d}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 4.5: GESTIONE DEI VALORI MANCANTI
+% ====================================================================
+\section{Gestione dei Valori Mancanti}
+\label{sec:dm-missing-values-handling}
+
+Le strategie operative per il trattamento dei record incompleti comprendono:
+
+\begin{enumerate}
+    \item \textbf{Eliminazione Completa del Record (Listwise Deletion)}: Rimozione integrale di tutte le righe con almeno un campo nullo. Applicabile in sicurezza solo quando l'incidenza dei missing è trascurabile ($< 3-5\%$) e i dati mancano in modo puramente casuale (\textit{Missing Completely at Random - MCAR}); altrimenti introduce gravi distorsioni selettive.
+    \item \textbf{Sostituzione con Indici di Tendenza Centrale}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Media}: Per variabili numeriche simmetriche prive di outlier.
+        \item \textit{Mediana}: Per variabili numeriche asimmetriche o in presenza di code pesanti.
+        \item \textit{Moda}: Per attributi categorici qualitativi.
+        \item \textit{Criticità}: Riduce artificialmente la varianza della feature e attenua l'intensità delle correlazioni con gli altri attributi.
+    \end{itemize}
+    \item \textbf{Imputazione Condizionale tramite Segmentazione}: Ripartizione dei campioni in cluster o classi omogenee sulla base delle feature complete e imputazione del valore mancante impiegando la media o mediana calcolata esclusivamente all'interno del rispettivo cluster.
+    \item \textbf{Imputazione Predittiva Basata su Modelli}: Addestramento di un modello supervisionato (regressione lineare, $k$-NN, Random Forest) dove la variabile da stimare funge da target e gli attributi completi fungono da predittori.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 4.6: DISCRETIZZAZIONE E BINARIZZAZIONE
+% ====================================================================
+\section{Tecniche di Discretizzazione e Binarizzazione}
+\label{sec:dm-discretization-binning}
+
+La \textbf{discretizzazione} trasforma una variabile quantitativa continua in un attributo ordinale discreto, suddividendo il dominio continuo in un insieme finito di intervalli contigui (detti \textit{bin} o \textit{classi}).
+
+\subsection{Discretizzazione Non Supervisionata}
+
+\subsubsection{1. Natural Binning (Equal-Width Binning)}
+Suddivide l'intervallo $[x_{\min}, x_{\max}]$ in $k$ classi aventi la medesima \textbf{ampiezza costante}:
+\begin{equation}
+    \delta = \frac{x_{\max} - x_{\min}}{k}
+\end{equation}
+L'$i$-esimo intervallo ($i = 0, \dots, k-1$) è delimitato da:
+\begin{equation}
+    I_i = \big[x_{\min} + i\delta,\, x_{\min} + (i+1)\delta\big)
+\end{equation}
+
+\begin{noteblock}{Esempio Numerico: Prezzo di 12 Birre}
+Dato l'insieme di $N=12$ prezzi compresi tra $x_{\min}=100$ e $x_{\max}=160$, impostando $k=4$ classi otteniamo ampiezza $\delta = \frac{160-100}{4} = 15$. Gli intervalli risultano:
+\begin{itemize}[noitemsep]
+    \item Classe 1: $[100, 115) \to \{100, 110, 110\}$ (Conteggio: $3$)
+    \item Classe 2: $[115, 130) \to \{120, 120, 125\}$ (Conteggio: $3$)
+    \item Classe 3: $[130, 145) \to \{130, 130, 135, 140\}$ (Conteggio: $4$)
+    \item Classe 4: $[145, 160] \to \{150, 160\}$ (Conteggio: $2$)
+\end{itemize}
+\end{noteblock}
+
+\subsubsection{2. Equal-Frequency Binning (Equal-Depth Binning)}
+Ordina i campioni in senso crescente e assegna a ciascun intervallo lo \textbf{stesso numero di osservazioni}:
+\begin{equation}
+    f = \frac{N}{k}
+\end{equation}
+
+Sugli stessi $12$ prezzi ordinati $\{100, 110, 110, 120, 120, 125, 130, 130, 135, 140, 150, 160\}$ con $k=4$, la frequenza per classe è $f = 12/4 = 3$:
+\begin{itemize}[noitemsep]
+    \item Classe 1: $\{100, 110, 110\}$
+    \item Classe 2: $\{120, 120, 125\}$
+    \item Classe 3: $\{130, 130, 135\}$
+    \item Classe 4: $\{140, 150, 160\}$
+\end{itemize}
+Questo approccio uniforma la densità e mitiga l'impatto degli outlier, sebbene possa collocare valori contigui identici in classi distinte qualora cadano a cavallo della soglia.
+
+\subsubsection{Formule per il Numero e l'Ampiezza Ottimale dei Bin}
+Oltre alla Regola di Sturges, si utilizza la formulazione logaritmica decimale:
+\begin{equation}
+    C = 1 + \frac{10}{3} \log_{10}(N)
+\end{equation}
+Per ottimizzare direttamente l'ampiezza $h$ combinando variabilità e numerosità campionaria, si applica la \textbf{Regola di Scott (1979)}:
+\begin{equation}
+    h = \frac{3.5 \times s}{\sqrt[3]{N}}
+\end{equation}
+dove $s$ è la deviazione standard campionaria e $N$ la numerosità del dataset.
+
+\subsection{Discretizzazione Supervisionata Basata sull'Entropia}
+
+Quando è disponibile una variabile di classe target $Y \in \{c_1, \dots, c_m\}$, le soglie di taglio vengono ottimizzate per massimizzare la purezza informativa.
+L'entropia di un insieme di campioni $S$ è data da:
+\begin{equation}
+    \text{Entropy}(S) = - \sum_{j=1}^m p_j \log_2(p_j)
+\end{equation}
+dove $p_j$ è la proporzione di istanze in $S$ appartenenti alla classe $c_j$. Se un punto di split $T$ partiziona $S$ nei sottoinsiemi $S_1$ ed $S_2$, l'entropia combinata pesata è:
+\begin{equation}
+    E(S, T) = \frac{|S_1|}{|S|} \text{Entropy}(S_1) + \frac{|S_2|}{|S|} \text{Entropy}(S_2)
+\end{equation}
+Il punto di split ottimale $T^*$ massimizza il guadagno informativo $\text{Gain}(S, T) = \text{Entropy}(S) - E(S, T)$.
+
+\subsection{Binarizzazione (Encoding)}
+
+Converte variabili qualitative con $m$ modalità in attributi binari $\{0, 1\}$:
+
+\begin{itemize}
+    \item \textbf{Codifica One-Hot (Asymmetric Binary Encoding)}: Alloca un indicatore binario dedicato per ciascuna modalità. Genera $m$ variabili asimmetriche ed evita di introdurre relazioni d'ordine artificiose:
+    \begin{table}[htbp]
+        \centering
+        \small
+        \begin{tabular}{lcccccc}
+            \toprule
+            \textbf{Valore Categorico} & \textbf{Codice Intero} & $x_1$ & $x_2$ & $x_3$ & $x_4$ & $x_5$ \\
+            \midrule
+            \textbf{awful} & 0 & 1 & 0 & 0 & 0 & 0 \\
+            \textbf{poor}  & 1 & 0 & 1 & 0 & 0 & 0 \\
+            \textbf{OK}    & 2 & 0 & 0 & 1 & 0 & 0 \\
+            \textbf{good}  & 3 & 0 & 0 & 0 & 1 & 0 \\
+            \textbf{great} & 4 & 0 & 0 & 0 & 0 & 1 \\
+            \bottomrule
+        \end{tabular}
+        \caption{Esempio di codifica One-Hot per un attributo a 5 livelli qualitativi.}
+        \label{tab:dm-one-hot}
+    \end{table}
+
+    \item \textbf{Codifica Binaria Compatta}: Mappa ciascuna modalità nella sua rappresentazione binaria posizionale numerica, richiedendo $n = \lceil \log_2(m) \rceil$ bit.
+    \begin{table}[htbp]
+        \centering
+        \small
+        \begin{tabular}{lcccc}
+            \toprule
+            \textbf{Valore Categorico} & \textbf{Codice Intero} & $x_1$ & $x_2$ & $x_3$ \\
+            \midrule
+            \textbf{awful} & 0 & 0 & 0 & 0 \\
+            \textbf{poor}  & 1 & 0 & 0 & 1 \\
+            \textbf{OK}    & 2 & 0 & 1 & 0 \\
+            \textbf{good}  & 3 & 0 & 1 & 1 \\
+            \textbf{great} & 4 & 1 & 0 & 0 \\
+            \bottomrule
+        \end{tabular}
+        \caption{Codifica binaria compatta su 3 bit per 5 livelli categorici.}
+        \label{tab:dm-compact-binary}
+    \end{table}
+    \textit{Criticità}: Induce correlazioni fittizie tra i singoli bit privi di riscontro empirico nel fenomeno reale.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 4.7: TRASFORMAZIONI FUNZIONALI
+% ====================================================================
+\section{Trasformazioni Funzionali di Attributi e Stabilizzazione della Varianza}
+\label{sec:dm-functional-transformations}
+
+Una \textbf{trasformazione funzionale} applica una funzione $T$ continua e strettamente monotona a ciascun valore di un attributo $X$: $Y = T(X)$.
+\begin{itemize}[noitemsep]
+    \item \textbf{Stabilizzazione della varianza}: Rende omogenea la dispersione lungo tutto il dominio (\textit{omoschedasticità}).
+    \item \textbf{Normalizzazione della forma}: Riconduce code pesanti o asimmetrie a distribuzioni approssimativamente normali.
+    \item \textbf{Linearizzazione delle relazioni}: Rende lineari dipendenze polinomiali o esponenziali.
+\end{itemize}
+
+\subsection{Famiglia delle Trasformazioni Esponenziali e Logaritmiche}
+La trasformazione parametrica generale è definita come:
+\begin{equation}
+    T_p(x) = \begin{cases}
+        a x^p + b & \text{se } p \neq 0 \\
+        c \log(x) + d & \text{se } p = 0
+    \end{cases}
+\end{equation}
+con $x > 0$.
+\begin{itemize}
+    \item \textbf{Trasformazione Lineare ($p = 1$)}: Modifica unicamente origine e scala (es. euro in lire con $a=1936.27, b=0$; gradi Fahrenheit in Celsius con $a=5/9, b=-160/9$).
+    \item \textbf{Trasformazione Logaritmica ($p = 0$)}: $T(x) = c\log(x) + d$. Comprime i valori elevati ed espande la scala dei valori piccoli, contrastando l'asimmetria positiva destra.
+\end{itemize}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabular}{llcc}
+        \toprule
+        \textbf{Bar} & \textbf{Birra} & \textbf{Gain Originario ($X$)} & \textbf{Gain Trasformato $\log_{10}(X)$} \\
+        \midrule
+        A & Bud   & 20    & 1.3010 \\
+        A & Becks & 10000 & 4.0000 \\
+        C & Bud   & 300   & 2.4771 \\
+        D & Bud   & 400   & 2.6021 \\
+        D & Becks & 5     & 0.6990 \\
+        E & Becks & 120   & 2.0792 \\
+        E & Bud   & 120   & 2.0792 \\
+        F & Bud   & 11000 & 4.0414 \\
+        G & Bud   & 1300  & 3.1139 \\
+        H & Bud   & 3200  & 3.5051 \\
+        H & Becks & 1000  & 3.0000 \\
+        I & Bud   & 135   & 2.1303 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Campione di 12 osservazioni di profitto (Gain) prima e dopo trasformazione logaritmica.}
+    \label{tab:dm-log-transform-sample}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{Xcc}
+        \toprule
+        \textbf{Parametro Statistico} & \textbf{Scala Originaria ($X$)} & \textbf{Scala Logaritmica ($Y = \log_{10} X$)} \\
+        \midrule
+        \textbf{Media Aritmetica} & 2481.82 & 2.5956 \\
+        \textbf{Deviazione Standard} & 4079.02 & 1.0651 \\
+        \textbf{Minimo} & 5 & 0.6990 \\
+        \textbf{$1^\circ$ Quartile ($Q_1$)} & 120 & 2.0792 \\
+        \textbf{Mediana ($Q_2$)} & 400 & 2.6021 \\
+        \textbf{$3^\circ$ Quartile ($Q_3$)} & 2250 & 3.3095 \\
+        \textbf{Massimo} & 11000 & 4.0414 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Indicatori statistici descrittivi prima e dopo la trasformazione logaritmica.}
+    \label{tab:dm-log-transform-stats}
+\end{table}
+
+Nella scala originaria la deviazione standard ($4079.02$) eccede abbondantemente la media ($2481.82$), trascinata dai picchi a $10000$ e $11000$. Dopo la conversione in $\log_{10}$, media ($2.5956$) e mediana ($2.6021$) coincidono quasi perfettamente, ripristinando la simmetria.
+
+\subsection{Altre Trasformazioni di Stabilizzazione}
+\begin{itemize}[noitemsep]
+    \item \textbf{Radice Quadrata ($p = 1/2$)}: $T(x) = \sqrt{x}$. Stabilizza la varianza nei dati di conteggio poissoniani ($\sigma^2 = \mu$).
+    \item \textbf{Reciproca ($p = -1$)}: $T(x) = 1/x$. Utilizzata quando la varianza cresce in modo quadratico o superlineare rispetto alla media.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 4.8: ALGORITMI DI NORMALIZZAZIONE
+% ====================================================================
+\section{Algoritmi di Normalizzazione}
+\label{sec:dm-normalization-algorithms}
+
+La normalizzazione riconduce attributi misurati su scale numeriche disomogenee all'interno di intervalli standard comparabili, scongiurando il dominio distorto di feature con valori numerici elevati negli algoritmi basati sulle distanze metriche ($k$-NN, K-Means, SVM, reti neurali).
+
+\subsection{Normalizzazione Min-Max}
+Mappa linearmente l'intervallo originario $[\min_A, \max_A]$ nell'intervallo target $[\text{new\_min}_A, \text{new\_max}_A]$ (frequentemente $[0, 1]$):
+\begin{equation}
+    v' = \frac{v - \min_A}{\max_A - \min_A} \big(\text{new\_max}_A - \text{new\_min}_A\big) + \text{new\_min}_A
+\end{equation}
+Preserva esattamente le relazioni lineari originarie, ma risulta sensibile a outlier estremi che possono comprimere i valori ordinari in un sottointervallo minuscolo.
+
+\subsection{Standardizzazione Z-Score}
+Riconduce la variabile ad avere \textbf{media nulla e varianza unitaria}:
+\begin{equation}
+    v' = \frac{v - \bar{x}_A}{s_A}
+\end{equation}
+dove $\bar{x}_A$ è la media campionaria e $s_A$ la deviazione standard campionaria. È l'approccio raccomandato per distribuzioni approssimativamente normali e resiste meglio alla presenza di valori sparsi nelle code.
+
+\subsection{Normalizzazione per Scalamento Decimale (Decimal Scaling)}
+Sposta la virgola decimale dividendo per una potenza di $10$:
+\begin{equation}
+    v' = \frac{v}{10^j}
+\end{equation}
+dove $j$ è il minimo intero positivo tale che:
+\begin{equation}
+    \max(|v'|) < 1 \iff 10^{j-1} \le \max(|v|) < 10^j
+\end{equation}
+
+\begin{noteblock}{Esempio Numerico di Decimal Scaling}
+Dato il vettore $V = \{-10,\, 201,\, 301,\, -401,\, 501,\, 601,\, 701\}$:
+\begin{enumerate}
+    \item Il massimo in valore assoluto è $m = \max(|v|) = 701$.
+    \item Il minimo intero $j$ tale che $10^j > 701$ è $j=3$ ($10^3 = 1000$).
+    \item Dividendo per $1000$ si ottiene:
+    \begin{equation}
+        V' = \{-0.01,\, 0.201,\, 0.301,\, -0.401,\, 0.501,\, 0.601,\, 0.701\}
+    \end{equation}
+    Tutti i valori trasformati appartengono rigidamente all'intervallo aperto $(-1, +1)$.
+\end{enumerate}
+\end{noteblock}
+
+% ====================================================================
+% SEZIONE 4.9: TRATTAMENTO UNIVARIATO DEGLI OUTLIER
+% ====================================================================
+\section{Trattamento Univariato degli Outlier}
+\label{sec:dm-univariate-outlier-treatment}
+
+L'intervento operativo sui valori anomali isolati segue criteri codificati a seconda del modello statistico di riferimento:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        ruleCard/.style={draw=navy!80!black, fill=navy!6, rounded corners=6pt, thick, font=\footnotesize, align=left, text width=6.0cm, minimum height=3.2cm, inner sep=6pt},
+        arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+    ]
+        % Root
+        \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small\bfseries, align=center, text width=10.0cm, inner sep=6pt] (root) at (0, 2.7) {
+            RILEVAMENTO E SOSTITUZIONE OUTLIER\\[2pt]
+            \footnotesize \normalfont Criteri univariati per l'identificazione e il trattamento
+        };
+        
+        % Ramo Sinistro: Tukey
+        \node[ruleCard, anchor=north] (tukeyCol) at (-3.6, 1.1) {
+            \textbf{Criterio IQR (Tukey)}\\[3pt]
+            $L = Q_1 - 1.5\,\text{IQR},\quad U = Q_3 + 1.5\,\text{IQR}$\\[2pt]
+            Outlier se: $x < L \lor x > U$\\[4pt]
+            \textbf{Strategie di Sostituzione}:\\[2pt]
+            1. \textbf{Winsorizzazione}: Assegna $L$ o $U$\\
+            2. \textbf{Imputazione}: Assegna Mediana
+        };
+        
+        % Ramo Destro: Z-score
+        \node[ruleCard, anchor=north] (zscoreCol) at (3.6, 1.1) {
+            \textbf{Criterio Z-Score}\\[3pt]
+            Standardizzazione: $z = (x - \bar{x}) / s$\\[2pt]
+            Outlier se: $|z| > 3.29$ (coda $0.1\%$)\\[4pt]
+            \textbf{Strategie di Sostituzione}:\\[2pt]
+            1. \textbf{Troncamento}: Soglia $z = \pm 3.0$\\
+            2. \textbf{Imputazione}: Assegna Media ($z = 0$)
+        };
+        
+        \coordinate (split) at (0, 1.65);
+        \draw[thick, draw=navy!85!black] (root.south) -- (split);
+        \draw[arrowStyle] (split) -| (tukeyCol.north);
+        \draw[arrowStyle] (split) -| (zscoreCol.north);
+    \end{tikzpicture}
+    \caption{Quadro decisionale per l'identificazione e la sostituzione univariata degli outlier.}
+    \label{fig:dm-outlier-replacement-rules}
+\end{figure}
+
+\subsection{Criterio Basato sul Range Interquartilico (Tukey)}
+\begin{enumerate}
+    \item Si calcola l'ampiezza interquartilica $\text{IQR} = Q_3 - Q_1$.
+    \item Si definiscono le recinzioni (\textit{fences}) di ammissibilità:
+    \begin{equation}
+        L = Q_1 - 1.5 \times \text{IQR}, \quad U = Q_3 + 1.5 \times \text{IQR}
+    \end{equation}
+    \item Un'osservazione $x$ è formalmente anomala se $x < L \lor x > U$.
+    \item \textbf{Risoluzione}:
+    \begin{itemize}[noitemsep]
+        \item \textit{Winsorizzazione (Sostituzione al bordo)}: Si assegna $L$ se $x < L$, e $U$ se $x > U$. Preserva la monotonicità ordinale annullando la magnitudo distorsiva del picco.
+        \item \textit{Imputazione con la Mediana}: Si sostituisce il valore estremo con la mediana calcolata sul sottoinsieme dei dati regolari.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Criterio Basato sullo Z-Score}
+In una distribuzione teorica normale, il $95\%$ dei campioni ricade entro $|z| \le 1.96$, il $99\%$ entro $|z| \le 2.58$, e il $99.9\%$ entro $|z| \le 3.29$.
+Si etichetta come outlier qualunque valore eccedente la soglia:
+\begin{equation}
+    |z| > 3.29 \iff x < \bar{x} - 3.29\,s \quad \lor \quad x > \bar{x} + 3.29\,s
+\end{equation}
+
+\subsubsection{Strategie di Sostituzione}
+\begin{enumerate}
+    \item \textbf{Troncamento a $3\sigma$}: Il valore estremo viene convertito nel valore corrispondente al punto di soglia $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$). Questa scelta riconduce il record entro un intervallo plausibile senza cancellare l'informazione che l'osservazione apparteneva all'estremo della coda.
+    \item \textbf{Imputazione con la Media Campionaria}: Il valore anomalo viene rimpiazzato con il baricentro $z = 0$, corrispondente alla media campionaria originaria $\bar{x}$.
+\end{enumerate}
