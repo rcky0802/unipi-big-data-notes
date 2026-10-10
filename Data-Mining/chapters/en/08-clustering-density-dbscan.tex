@@ -1,0 +1,859 @@
+\chapter{Cluster Analysis: Density-Based Clustering (DBSCAN)}
+\label{chap:dm-density-dbscan}
+
+In this chapter, we investigate the paradigm of \textbf{density-based clustering} and, in particular, the foundational \textbf{DBSCAN} algorithm (\textit{Density-Based Spatial Clustering of Applications with Noise}), originally introduced by Ester, Kriegel, Sander, and Xu~\cite{ester1996} and detailed in~\cite{tan2018}.
+The presentation rigorously covers:
+\begin{enumerate}[noitemsep]
+    \item The \textbf{geometric and computational limitations} of prototype-based (K-Means) and hierarchical models, and the resulting paradigm shift toward spatial connectivity via local density;
+    \item The \textbf{analytical foundations of local density}: neighborhood radius $\varepsilon$ (\textit{Eps}), minimum cardinality threshold $MinPts$, and the disjoint classification of points (\textit{Core}, \textit{Border}, and \textit{Noise});
+    \item The \textbf{algebraic relations of density connectivity}: directly density-reachable, density-reachable via core point chains, and symmetric density-connected;
+    \item The \textbf{operational architecture of the DBSCAN algorithm}: the three procedural phases (initial point classification, core backbone connecting, border point absorption and noise filtering), detailed pseudocode, and computational complexity analysis with spatial index trees (k-d tree, $R^*$-tree);
+    \item The phenomenon of \textbf{non-determinism for shared border points} and independence from an a priori number of clusters $K$;
+    \item Key \textbf{strengths} (arbitrary non-convex shapes, heterogeneous cluster sizes, natural noise rejection) and \textbf{structural limitations} (varying densities within the same dataset, severe performance degradation under the curse of dimensionality);
+    \item The \textbf{heuristic parameter calibration methodology}: construction and geometric interpretation of the \textit{$k$-distance plot} ($k$-NN distance graph) for identifying the critical inflection point (\textit{knee point});
+    \item A \textbf{comprehensive comparative framework}: K-Means, Hierarchical Clustering, and DBSCAN contrasted across topological assumptions, algebraic constraints, and operational properties.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 8.1: INTRODUCTION TO THE DENSITY-BASED PARADIGM
+% ====================================================================
+\section{Introduction to the Density-Based Paradigm}
+\label{sec:dm-dbscan-intro}
+
+In previous chapters, two historical pillars of unsupervised clustering were examined:
+\begin{itemize}
+    \item \textbf{Prototype-based partitional methods} (e.g., K-Means), where each cluster is represented by its centroid $\mathbf{m}_k$ and Euclidean space is partitioned into Voronoi hyper-polyhedral cells. This model implicitly assumes hyper-spherical, convex clusters with comparable variances, failing completely when real-world patterns exhibit elongated, concave, crescent-shaped, spiral, or concentric ring geometries. Furthermore, global minimization of the sum of squared errors ($\mathrm{SSE}$) forces every single instance --- including noise and isolated outliers --- into a cluster, distorting centroid positions.
+    \item \textbf{Hierarchical methods} (agglomerative or divisive), which build a dendrogram based on global pairwise distance matrices. Although single linkage can theoretically follow chains of arbitrary shapes, it suffers from severe chaining effects, where even a single noisy point bridging two distinct clusters collapses the entire hierarchy.
+\end{itemize}
+
+\textbf{Density-based clustering} resolves these limitations at their root by redefining the very notion of a cluster: no longer as proximity to a central prototype, but as a \textbf{contiguous, connected region of high local density}, separated from other clusters by \textbf{regions of low density or empty space} (which house background noise and outliers).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    paradigmBox/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!8, thick, font=\footnotesize, text width=3.8cm, inner sep=5pt, align=left, minimum height=3.2cm},
+    headerBox/.style={rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small, align=center, text width=12.4cm, inner sep=6pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[headerBox] (top) at (0, 3.4) {
+        \textbf{\large CLUSTER DEFINITION PARADIGMS}\\[2pt]
+        \footnotesize Evolution of grouping criteria in metric space $\mathbb{R}^d$
+    };
+
+    \node[paradigmBox, anchor=north] (proto) at (-4.3, 1.8) {
+        \centering\textbf{Prototype-Based}\\[2pt]
+        \centering\scriptsize (K-Means)\\[4pt]
+        \raggedright
+        $\bullet$ Centroid/medoid center\\
+        $\bullet$ Convex partitions (Voronoi)\\
+        $\bullet$ Forced assignment (no noise)\\
+        $\bullet$ Assumes uniform variance
+    };
+
+    \node[paradigmBox, anchor=north] (hier) at (0, 1.8) {
+        \centering\textbf{Hierarchical}\\[2pt]
+        \centering\scriptsize (Agglomerative Linkage)\\[4pt]
+        \raggedright
+        $\bullet$ Nested taxonomic tree\\
+        $\bullet$ Merge distance metric\\
+        $\bullet$ Sensitive to chaining (MIN)\\
+        $\bullet$ Complexity $\mathcal{O}(n^2 \log n)$
+    };
+
+    \node[paradigmBox, anchor=north] (dens) at (4.3, 1.8) {
+        \centering\textbf{Density-Based}\\[2pt]
+        \centering\scriptsize (DBSCAN)\\[4pt]
+        \raggedright
+        $\bullet$ Local dense connectivity\\
+        $\bullet$ Non-convex geometries\\
+        $\bullet$ Inherent noise rejection\\
+        $\bullet$ Cluster count $K$ data-driven
+    };
+
+    \coordinate (split) at (0, 2.6);
+    \draw[thick, draw=navy!85!black] (top.south) -- (split);
+    \draw[thick, draw=navy!85!black] (-4.3, 2.6) -- (4.3, 2.6);
+    \draw[arrowStyle] (-4.3, 2.6) -- (proto.north);
+    \draw[arrowStyle] (0, 2.6) -- (hier.north);
+    \draw[arrowStyle] (4.3, 2.6) -- (dens.north);
+\end{tikzpicture}
+\caption{Conceptual positioning of density-based clustering relative to prototype-based and hierarchical paradigms.}
+\label{fig:dm-clustering-density-paradigm-comparison}
+\end{figure}
+
+From this perspective, DBSCAN introduces a local aggregation mechanism capable of:
+\begin{enumerate}
+    \item Discovering clusters with arbitrary spatial morphologies (concave, ring-shaped, filamentary);
+    \item Naturally isolating and discarding observations that do not belong to any dense aggregation (\textit{noise filtering});
+    \item Requiring no a priori specification of the expected number of clusters $K$, extracting it as an emergent property of the data topology.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 8.2: DENSITY FOUNDATIONS AND POINT TAXONOMY
+% ====================================================================
+\section{Density Foundations and Point Taxonomy}
+\label{sec:dm-dbscan-density-taxonomy}
+
+Let $\mathcal{D} = \{\mathbf{p}_1, \mathbf{p}_2, \dots, \mathbf{p}_n\} \subset \mathbb{R}^d$ be a multidimensional dataset equipped with a distance metric $\mathrm{dist}: \mathcal{D} \times \mathcal{D} \to \mathbb{R}_{\ge 0}$ (typically Euclidean distance $L_2$, though any metric or semimetric is applicable).
+
+DBSCAN parameterizes spatial density via two global hyperparameters:
+\begin{itemize}
+    \item $\varepsilon \in \mathbb{R}^+$ (\textbf{Eps}): the radius threshold defining the extent of the local spherical neighborhood centered on each point;
+    \item $MinPts \in \mathbb{N}^+$: the minimum positive integer number of points that must reside within an $\varepsilon$-neighborhood for that region to be classified as dense.
+\end{itemize}
+
+\subsection{Neighborhood Definition and Local Density}
+
+\begin{definition}[$\varepsilon$-Neighborhood / Eps-Neighborhood]
+Given an observation $\mathbf{p} \in \mathcal{D}$ and a scalar radius $\varepsilon > 0$, the \textbf{$\varepsilon$-neighborhood} of $\mathbf{p}$, denoted by $N_\varepsilon(\mathbf{p})$ or $N_{\mathrm{Eps}}(\mathbf{p})$, is the subset of observations in $\mathcal{D}$ whose distance from $\mathbf{p}$ does not exceed $\varepsilon$:
+\begin{equation}
+    N_\varepsilon(\mathbf{p}) = \left\{ \mathbf{q} \in \mathcal{D} \;\big|\; \mathrm{dist}(\mathbf{p}, \mathbf{q}) \le \varepsilon \right\}
+    \label{eq:dm-eps-neighborhood}
+\end{equation}
+\end{definition}
+
+\begin{remark}[Reflexive Inclusion of the Point Itself]
+Since any metric satisfies identity of indiscernibles $\mathrm{dist}(\mathbf{p}, \mathbf{p}) = 0 \le \varepsilon$, for any choice of $\varepsilon > 0$ we have:
+\begin{equation}
+    \mathbf{p} \in N_\varepsilon(\mathbf{p})
+\end{equation}
+Therefore, when computing local density, the center point $\mathbf{p}$ is \textbf{always counted as part of its own neighborhood} (\textit{"counts the point itself"}).
+\end{remark}
+
+\begin{definition}[Local Density]
+The \textbf{local density} of a point $\mathbf{p} \in \mathcal{D}$ with respect to $\varepsilon$ is defined discretely by the cardinality of its $\varepsilon$-neighborhood:
+\begin{equation}
+    \mathrm{Density}(\mathbf{p}) = |N_\varepsilon(\mathbf{p})|
+    \label{eq:dm-local-density}
+\end{equation}
+In continuous Euclidean space $\mathbb{R}^d$, the corresponding volumetric density is $|N_\varepsilon(\mathbf{p})| / V_d(\varepsilon)$, where $V_d(\varepsilon) = \frac{\pi^{d/2}}{\Gamma(d/2 + 1)} \varepsilon^d$ is the volume of the hypersphere of radius $\varepsilon$. For fixed $d$ and $\varepsilon$, $V_d(\varepsilon)$ is constant, and cardinality $|N_\varepsilon(\mathbf{p})|$ directly tracks local mass concentration.
+\end{definition}
+
+\subsection{Disjoint Taxonomic Classification of Points}
+
+Comparing local density $\mathrm{Density}(\mathbf{p})$ against the critical threshold $MinPts$, DBSCAN unambiguously partitions $\mathcal{D}$ into three mutually disjoint subsets:
+
+\begin{definition}[Core Point]
+A point $\mathbf{p} \in \mathcal{D}$ is a \textbf{Core Point} ($\mathbf{p} \in \mathcal{C}$) if and only if its $\varepsilon$-neighborhood contains at least $MinPts$ points:
+\begin{equation}
+    \mathbf{p} \in \mathcal{C} \iff |N_\varepsilon(\mathbf{p})| \ge MinPts
+    \label{eq:dm-core-point-condition}
+\end{equation}
+Core points reside firmly in the interior of dense regions and serve as structural cluster seeds.
+\end{definition}
+
+\begin{definition}[Border Point]
+A point $\mathbf{p} \in \mathcal{D}$ is a \textbf{Border Point} ($\mathbf{p} \in \mathcal{B}$) if it fails the core point condition, but falls within the $\varepsilon$-neighborhood of at least one existing core point:
+\begin{equation}
+    \mathbf{p} \in \mathcal{B} \iff \Big(|N_\varepsilon(\mathbf{p})| < MinPts\Big) \;\land\; \Big(\exists \mathbf{q} \in \mathcal{C} \text{ such that } \mathbf{p} \in N_\varepsilon(\mathbf{q})\Big)
+    \label{eq:dm-border-point-condition}
+\end{equation}
+Border points do not possess sufficient local density to generate a cluster on their own, but form the outer boundary perimeter of the dense component they border.
+\end{definition}
+
+\begin{definition}[Noise Point / Outlier]
+A point $\mathbf{p} \in \mathcal{D}$ is a \textbf{Noise Point} ($\mathbf{p} \in \mathcal{N}$) if it is neither a core point nor a border point:
+\begin{equation}
+    \mathbf{p} \in \mathcal{N} \iff (\mathbf{p} \notin \mathcal{C}) \;\land\; (\mathbf{p} \notin \mathcal{B})
+    \label{eq:dm-noise-point-condition}
+\end{equation}
+Equivalently in terms of distances:
+\begin{equation}
+    \mathbf{p} \in \mathcal{N} \iff \Big(|N_\varepsilon(\mathbf{p})| < MinPts\Big) \;\land\; \Big(\forall \mathbf{q} \in \mathcal{C}, \; \mathrm{dist}(\mathbf{p}, \mathbf{q}) > \varepsilon\Big)
+\end{equation}
+Noise points represent isolated background samples or sampling artifacts located in the inter-cluster void.
+\end{definition}
+
+\begin{property}[Partition of the Point Set]
+For any fixed pair of parameters $(\varepsilon, MinPts)$, dataset $\mathcal{D}$ is partitioned into three pairwise disjoint classes:
+\begin{equation}
+    \mathcal{D} = \mathcal{C} \;\cup\; \mathcal{B} \;\cup\; \mathcal{N}, \qquad \text{with } \mathcal{C} \cap \mathcal{B} = \emptyset, \;\; \mathcal{C} \cap \mathcal{N} = \emptyset, \;\; \mathcal{B} \cap \mathcal{N} = \emptyset
+\end{equation}
+\end{property}
+
+\subsection{Geometric Analysis: 2D Example with \texorpdfstring{$MinPts = 7$}{MinPts = 7}}
+
+Figure~\ref{fig:dm-dbscan-points-taxonomy} illustrates this classification in a two-dimensional plane with threshold $MinPts = 7$.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    point/.style={circle, draw=black, thick, fill=black, inner sep=1.8pt},
+    corePoint/.style={circle, draw=darkgreen!90!black, thick, fill=darkgreen!40, inner sep=2.5pt},
+    borderPoint/.style={circle, draw=orange!90!black, thick, fill=orange!40, inner sep=2.5pt},
+    noisePoint/.style={circle, draw=crimson!90!black, thick, fill=crimson!40, inner sep=2.5pt},
+    epsCircleA/.style={dashed, thick, draw=darkgreen!85!black, fill=darkgreen!10},
+    epsCircleB/.style={dashed, thick, draw=orange!85!black, fill=orange!10},
+    epsCircleC/.style={dashed, thick, draw=crimson!85!black, fill=crimson!10},
+    cardBox/.style={rectangle, rounded corners=4pt, thick, font=\scriptsize, align=left, text width=3.8cm, inner sep=5pt, minimum height=1.9cm}
+]
+    \def\epsR{1.8}
+
+    % Geometric center coordinates
+    \coordinate (A) at (-2.2, 1.2);       % Core
+    \coordinate (B) at (-0.8, 2.3);       % Border
+    \coordinate (C) at (3.3, 1.2);        % Noise
+
+    % Eps radius disks
+    \filldraw[epsCircleA] (A) circle (\epsR);
+    \filldraw[epsCircleB] (B) circle (\epsR);
+    \filldraw[epsCircleC] (C) circle (\epsR);
+
+    % Radius arrows positioned away from all labels
+    \draw[thick, draw=darkgreen!80!black, -Stealth] (A) -- ++(-135:\epsR) node[midway, below left, font=\scriptsize\bfseries] {$\varepsilon$};
+    \draw[thick, draw=orange!80!black, -Stealth] (B) -- ++(80:\epsR) node[midway, left, font=\scriptsize\bfseries] {$\varepsilon$};
+    \draw[thick, draw=crimson!80!black, -Stealth] (C) -- ++(-45:\epsR) node[midway, below right, font=\scriptsize\bfseries] {$\varepsilon$};
+
+    % Points for A (Core, 7 points total including A)
+    \node[corePoint] at (A) {};
+    \node[below=2pt of A, font=\footnotesize\bfseries, text=darkgreen!90!black] {A (Core)};
+    \node[point] at (-3.0, 1.8) {};
+    \node[point] at (-3.2, 0.7) {};
+    \node[point] at (-2.5, 0.0) {};
+    \node[point] at (-1.5, 0.2) {};
+    \node[point] at (-1.4, 1.1) {};
+    \node[point] at (-2.6, 2.2) {};
+
+    % Point B (Border, contains B, A, (-1.4, 1.1), plus 2 peripheral points -> 5 total < 7)
+    \node[borderPoint] at (B) {};
+    \node[above=2pt of B, font=\footnotesize\bfseries, text=orange!90!black] {B (Border)};
+    \node[point] at (-0.1, 2.8) {};
+    \node[point] at (0.0, 1.8) {};
+
+    % Point C (Noise, contains C and 1 isolated point -> 2 total << 7)
+    \node[noisePoint] at (C) {};
+    \node[above=2pt of C, font=\footnotesize\bfseries, text=crimson!90!black] {C (Noise)};
+    \node[point] at (3.8, 0.6) {};
+
+    % Clean explanation cards BELOW the geometry: generous space, zero collisions
+    \node[cardBox, draw=darkgreen!80!black, fill=darkgreen!5, anchor=north] at (-4.3, -1.0) {
+        \textbf{\textcolor{darkgreen!90!black}{Point A (Core Point)}}\\[2pt]
+        $|N_\varepsilon(\mathbf{A})| = 7 \ge MinPts$\\
+        Generates and expands the cluster; stable interior dense seed.
+    };
+
+    \node[cardBox, draw=orange!80!black, fill=orange!5, anchor=north] at (0, -1.0) {
+        \textbf{\textcolor{orange!90!black}{Point B (Border Point)}}\\[2pt]
+        $|N_\varepsilon(\mathbf{B})| = 5 < MinPts$,\\
+        yet $\mathrm{dist}(\mathbf{A},\mathbf{B}) \le \varepsilon \implies \mathbf{B} \in N_\varepsilon(\mathbf{A})$.\\
+        Annexed to A's cluster.
+    };
+
+    \node[cardBox, draw=crimson!80!black, fill=crimson!5, anchor=north] at (4.3, -1.0) {
+        \textbf{\textcolor{crimson!90!black}{Point C (Noise Point)}}\\[2pt]
+        $|N_\varepsilon(\mathbf{C})| = 2 < MinPts$,\\
+        $\forall \mathbf{q} \in \mathcal{C}, \mathrm{dist}(\mathbf{q},\mathbf{C}) > \varepsilon$.\\
+        Discarded as an outlier.
+    };
+\end{tikzpicture}
+\caption{Geometric taxonomy of points in DBSCAN ($MinPts = 7$). Point $A$ is a Core Point ($|N_\varepsilon(A)| \ge 7$), $B$ is a Border Point ($|N_\varepsilon(B)| < 7$, but within radius $\varepsilon$ of core $A$), and $C$ is Noise (isolated, far from all cores).}
+\label{fig:dm-dbscan-points-taxonomy}
+\end{figure}
+
+The geometric properties shown are unambiguous:
+\begin{enumerate}
+    \item \textbf{Point A (Core Point)}: Drawing a radius-$\varepsilon$ circle around $A$, the point count including $A$ itself equals 7. Because $|N_\varepsilon(A)| \ge 7$, $A$ is verified as a core point.
+    \item \textbf{Point B (Border Point)}: Centering the same radius-$\varepsilon$ circle at $B$ yields only 5 points ($|N_\varepsilon(B)| = 5 < 7$). However, the Euclidean distance between $A$ and $B$ satisfies $\mathrm{dist}(A, B) \le \varepsilon$, so $B \in N_\varepsilon(A)$. Because $A$ is a core point, $B$ is classified as a border point associated with $A$.
+    \item \textbf{Point C (Noise Point)}: Centered on $C$, the neighborhood captures only 2 observations ($|N_\varepsilon(C)| = 2 \ll 7$). Furthermore, distance from $C$ to every core point exceeds $\varepsilon$. Hence, $C$ is rejected as background noise.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 8.3: DENSITY-CONNECTIVITY RELATIONS
+% ====================================================================
+\section{Density-Connectivity Relations}
+\label{sec:dm-dbscan-reachability-connectivity}
+
+To aggregate dense points into clusters without geometric failures, DBSCAN establishes three algebraic connectivity relations:
+
+\subsection{Directly Density-Reachable}
+
+\begin{definition}[Directly Density-Reachable]
+A point $\mathbf{q} \in \mathcal{D}$ is \textbf{directly density-reachable} from a point $\mathbf{p} \in \mathcal{D}$ with respect to $\varepsilon$ and $MinPts$ (notation $\mathbf{p} \to_{\mathrm{dir}} \mathbf{q}$) if:
+\begin{enumerate}
+    \item $\mathbf{p}$ is a Core Point: $|N_\varepsilon(\mathbf{p})| \ge MinPts$;
+    \item $\mathbf{q}$ lies in $\mathbf{p}$'s neighborhood: $\mathbf{q} \in N_\varepsilon(\mathbf{p})$ ($\mathrm{dist}(\mathbf{p}, \mathbf{q}) \le \varepsilon$).
+\end{enumerate}
+\end{definition}
+
+\begin{property}[Asymmetry of Direct Reachability]
+Direct density-reachability is generally \textbf{asymmetric}:
+\begin{equation}
+    \mathbf{p} \to_{\mathrm{dir}} \mathbf{q} \;\not\implies\; \mathbf{q} \to_{\mathrm{dir}} \mathbf{p}
+\end{equation}
+If $\mathbf{p} \in \mathcal{C}$ and $\mathbf{q} \in \mathcal{B}$, then $\mathbf{q}$ is directly reachable from $\mathbf{p}$. However, since $\mathbf{q}$ is not a core point ($|N_\varepsilon(\mathbf{q})| < MinPts$), no point can be directly reachable from $\mathbf{q}$. The relation is \textbf{symmetric} if and only if both points are core points:
+\begin{equation}
+    \big(\mathbf{p} \in \mathcal{C} \;\land\; \mathbf{q} \in \mathcal{C} \;\land\; \mathrm{dist}(\mathbf{p}, \mathbf{q}) \le \varepsilon\big) \iff \big(\mathbf{p} \to_{\mathrm{dir}} \mathbf{q} \;\land\; \mathbf{q} \to_{\mathrm{dir}} \mathbf{p}\big)
+\end{equation}
+\end{property}
+
+\subsection{Density-Reachable}
+
+\begin{definition}[Density-Reachable]
+A point $\mathbf{q} \in \mathcal{D}$ is \textbf{density-reachable} from a point $\mathbf{p} \in \mathcal{D}$ with respect to $\varepsilon$ and $MinPts$ (notation $\mathbf{p} \rightsquigarrow \mathbf{q}$) if there exists a finite chain of points in $\mathcal{D}$:
+\begin{equation}
+    \mathbf{p}_1, \mathbf{p}_2, \dots, \mathbf{p}_m
+\end{equation}
+such that:
+\begin{enumerate}
+    \item $\mathbf{p}_1 = \mathbf{p}$;
+    \item $\mathbf{p}_m = \mathbf{q}$;
+    \item For each $i \in \{1, 2, \dots, m-1\}$, point $\mathbf{p}_{i+1}$ is directly density-reachable from $\mathbf{p}_i$ ($\mathbf{p}_i \to_{\mathrm{dir}} \mathbf{p}_{i+1}$).
+\end{enumerate}
+\end{definition}
+
+\begin{remark}[Role of Intermediate Chain Points]
+All intermediate points $\mathbf{p}_1, \mathbf{p}_2, \dots, \mathbf{p}_{m-1}$ along the chain must be \textbf{Core Points}. Only the terminal node $\mathbf{p}_m = \mathbf{q}$ may be a Border Point. Consequently, density-reachability $\mathbf{p} \rightsquigarrow \mathbf{q}$ is non-symmetric when the end node is a border point: one can reach the border from a core, but reachability halts at a border point.
+\end{remark}
+
+\subsection{Density-Connected}
+
+Because density-reachability is asymmetric, it cannot directly serve as an equivalence relation for defining symmetric clusters. DBSCAN resolves this by introducing density-connectivity:
+
+\begin{definition}[Density-Connected]
+Two points $\mathbf{p}, \mathbf{q} \in \mathcal{D}$ are \textbf{density-connected} with respect to $\varepsilon$ and $MinPts$ (notation $\mathbf{p} \sim_{\mathrm{dens}} \mathbf{q}$) if there exists an intermediate seed point $\mathbf{o} \in \mathcal{D}$ (necessarily a Core Point) from which both $\mathbf{p}$ and $\mathbf{q}$ are density-reachable:
+\begin{equation}
+    \mathbf{p} \sim_{\mathrm{dens}} \mathbf{q} \iff \exists \mathbf{o} \in \mathcal{D} \quad \text{such that} \quad (\mathbf{o} \rightsquigarrow \mathbf{p}) \;\land\; (\mathbf{o} \rightsquigarrow \mathbf{q})
+    \label{eq:dm-density-connected}
+\end{equation}
+\end{definition}
+
+\begin{property}[Properties of Density-Connectivity]
+The density-connectivity relation $\sim_{\mathrm{dens}}$ satisfies:
+\begin{enumerate}
+    \item \textbf{Reflexivity}: For all points $\mathbf{p}$ belonging to a dense cluster, $\mathbf{p} \sim_{\mathrm{dens}} \mathbf{p}$;
+    \item \textbf{Symmetry}: $\mathbf{p} \sim_{\mathrm{dens}} \mathbf{q} \iff \mathbf{q} \sim_{\mathrm{dens}} \mathbf{p}$;
+    \item \textbf{Transitivity on Core Points}: If $\mathbf{p}_1 \sim_{\mathrm{dens}} \mathbf{p}_2$ and $\mathbf{p}_2 \sim_{\mathrm{dens}} \mathbf{p}_3$ with $\mathbf{p}_2 \in \mathcal{C}$, then $\mathbf{p}_1 \sim_{\mathrm{dens}} \mathbf{p}_3$.
+\end{enumerate}
+\end{property}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    panelBox/.style={rectangle, rounded corners=5pt, draw=navy!50!black, fill=navy!3, thick, inner sep=5pt, text width=3.8cm, minimum height=5.7cm, align=center},
+    cNode/.style={circle, draw=darkgreen!90!black, fill=darkgreen!30, thick, inner sep=2.5pt},
+    bNode/.style={circle, draw=orange!90!black, fill=orange!30, thick, inner sep=2.5pt},
+    oNode/.style={circle, draw=purple!90!black, fill=purple!30, very thick, inner sep=2.8pt},
+    chainArrow/.style={-Stealth, thick, draw=navy!85!black},
+    labelFont/.style={font=\scriptsize\bfseries}
+]
+    % Panel (a)
+    \node[panelBox] (boxA) at (-4.5, 0) {};
+    \node[anchor=north, align=center, text width=3.6cm, font=\footnotesize\bfseries, text=navy!90!black, yshift=-5pt] at (boxA.north) {(a) Directly\\[-1pt]Reachable};
+    
+    \node[cNode] (p1) at (-5.35, 0.5) {};
+    \node[bNode] (q1) at (-3.65, 0.5) {};
+    \draw[chainArrow] (p1) -- (q1) node[midway, above=2pt, font=\scriptsize\bfseries] {$\le \varepsilon$};
+    \node[above=2pt of p1, labelFont, text=darkgreen!90!black] {$\mathbf{p}$};
+    \node[below=2pt of p1, font=\tiny\bfseries, text=darkgreen!90!black] {(Core)};
+    \node[above=2pt of q1, labelFont, text=orange!90!black] {$\mathbf{q}$};
+    \node[below=2pt of q1, font=\tiny\bfseries, text=orange!90!black] {(Border)};
+    
+    \node[anchor=south, font=\scriptsize, align=center, text width=3.6cm, yshift=6pt] at (boxA.south) {
+        \textbf{$\mathbf{p} \to_{\mathrm{dir}} \mathbf{q}$ (Asymmetric)}\\[3pt]
+        $\mathbf{p} \in \mathcal{C}$ and $\mathbf{q} \in N_\varepsilon(\mathbf{p})$.\\
+        If $\mathbf{q} \in \mathcal{B}$, propagation cannot reverse: $\mathbf{q} \not\to_{\mathrm{dir}} \mathbf{p}$.
+    };
+
+    % Panel (b)
+    \node[panelBox] (boxB) at (0, 0) {};
+    \node[anchor=north, align=center, text width=3.6cm, font=\footnotesize\bfseries, text=navy!90!black, yshift=-5pt] at (boxB.north) {(b) Density-Reachable\\[-1pt](Chain)};
+
+    \node[cNode] (p2) at (-1.35, 0.2) {};
+    \node[cNode] (p21) at (-0.45, 1.0) {};
+    \node[cNode] (p22) at (0.45, 0.3) {};
+    \node[bNode] (q2) at (1.35, 0.9) {};
+    \draw[chainArrow] (p2) -- (p21);
+    \draw[chainArrow] (p21) -- (p22);
+    \draw[chainArrow] (p22) -- (q2);
+    \node[left=2pt of p2, labelFont, text=darkgreen!90!black] {$\mathbf{p}$};
+    \node[above=2pt of p21, font=\tiny, text=navy!85!black] {$\mathbf{p}_2$};
+    \node[below=2pt of p22, font=\tiny, text=navy!85!black] {$\mathbf{p}_3$};
+    \node[right=2pt of q2, labelFont, text=orange!90!black] {$\mathbf{q}$};
+
+    \node[anchor=south, font=\scriptsize, align=center, text width=3.6cm, yshift=6pt] at (boxB.south) {
+        \textbf{$\mathbf{p} \rightsquigarrow \mathbf{q}$ (Non-symmetric)}\\[3pt]
+        Chain $\mathbf{p}_1, \dots, \mathbf{p}_m$ with all inner nodes Core ($\mathcal{C}$).\\
+        Target terminal $\mathbf{q}$ may be Border ($\mathcal{B}$).
+    };
+
+    % Panel (c)
+    \node[panelBox] (boxC) at (4.5, 0) {};
+    \node[anchor=north, align=center, text width=3.6cm, font=\footnotesize\bfseries, text=navy!90!black, yshift=-5pt] at (boxC.north) {(c) Density-\\[-1pt]Connected};
+
+    \node[oNode] (o) at (4.5, 1.15) {};
+    \node[cNode] (o1) at (3.85, 0.5) {};
+    \node[cNode] (o2) at (5.15, 0.5) {};
+    \node[bNode] (p3) at (3.6, -0.15) {};
+    \node[bNode] (q3) at (5.4, -0.15) {};
+    \draw[chainArrow] (o) -- (o1);
+    \draw[chainArrow] (o1) -- (p3);
+    \draw[chainArrow] (o) -- (o2);
+    \draw[chainArrow] (o2) -- (q3);
+    \node[above=2pt of o, labelFont, text=purple!90!black] {$\mathbf{o}$ (Core)};
+    \node[left=3pt of p3, labelFont, text=orange!90!black] {$\mathbf{p}$};
+    \node[right=3pt of q3, labelFont, text=orange!90!black] {$\mathbf{q}$};
+
+    \node[anchor=south, font=\scriptsize, align=center, text width=3.6cm, yshift=6pt] at (boxC.south) {
+        \textbf{$\mathbf{p} \sim_{\mathrm{dens}} \mathbf{q}$ (Symmetric)}\\[3pt]
+        There exists a Core node $\mathbf{o} \in \mathcal{C}$ s.t.\\
+        $\mathbf{o} \rightsquigarrow \mathbf{p}$ and $\mathbf{o} \rightsquigarrow \mathbf{q}$.\\
+        Enables joint cluster membership.
+    };
+\end{tikzpicture}
+\caption{Algebraic formalization of the three density spatial relations in DBSCAN.}
+\label{fig:dm-dbscan-relations}
+\end{figure}
+
+\subsection{Formal Definition of a Density-Based Cluster}
+
+Using these relations, DBSCAN defines a cluster with axiomatic precision~\cite{ester1996}:
+
+\begin{definition}[Density-Based Cluster]
+Given dataset $\mathcal{D}$, a \textbf{cluster} $\mathcal{C}_k \subseteq \mathcal{D}$ with respect to $\varepsilon$ and $MinPts$ is a non-empty subset satisfying two conditions:
+\begin{enumerate}
+    \item \textbf{Maximality}: If $\mathbf{p} \in \mathcal{C}_k$ and $\mathbf{q} \in \mathcal{D}$ is density-reachable from $\mathbf{p}$ ($\mathbf{p} \rightsquigarrow \mathbf{q}$), then $\mathbf{q} \in \mathcal{C}_k$;
+    \item \textbf{Connectivity}: For every pair of points $\mathbf{p}, \mathbf{q} \in \mathcal{C}_k$, $\mathbf{p}$ and $\mathbf{q}$ are density-connected ($\mathbf{p} \sim_{\mathrm{dens}} \mathbf{q}$).
+\end{enumerate}
+\end{definition}
+
+\begin{theorem}[Cluster Characterization by Core Points]
+\label{thm:dm-dbscan-core-characterization-en}
+Let $\mathcal{C}_k$ be a cluster in $\mathcal{D}$ and let $\mathbf{p} \in \mathcal{C}_k$ be any of its Core Points. Then $\mathcal{C}_k$ is uniquely generated as the set of all points density-reachable from $\mathbf{p}$:
+\begin{equation}
+    \mathcal{C}_k = \left\{ \mathbf{q} \in \mathcal{D} \;\big|\; \mathbf{p} \rightsquigarrow \mathbf{q} \right\}
+\end{equation}
+\end{theorem}
+
+Theorem~\ref{thm:dm-dbscan-core-characterization-en} underpins the operational logic of the algorithm: discovering an entire cluster requires only picking an arbitrary unvisited core point $\mathbf{p}$ and taking the transitive closure of all points density-reachable from it.
+
+% ====================================================================
+% SECTION 8.4: OPERATIONAL ARCHITECTURE OF DBSCAN
+% ====================================================================
+\section{Operational Architecture of DBSCAN}
+\label{sec:dm-dbscan-algorithm}
+
+The theoretical density formulation maps into an efficient procedural workflow structured in three successive phases.
+
+\subsection{The Three Operational Phases}
+
+\begin{enumerate}
+    \item \textbf{Phase 1: Initial Point Classification (\textit{Point Labeling})}
+    \begin{itemize}[noitemsep]
+        \item For every observation $\mathbf{p} \in \mathcal{D}$, execute a neighborhood range query $N_\varepsilon(\mathbf{p}) = \{\mathbf{q} \in \mathcal{D} \mid \mathrm{dist}(\mathbf{p}, \mathbf{q}) \le \varepsilon\}$.
+        \item If $|N_\varepsilon(\mathbf{p})| \ge MinPts$, assign the label \texttt{CORE};
+        \item Otherwise, assign provisional state \texttt{UNVISITED} or \texttt{NOISE} (subject to being recognized later as a border point).
+    \end{itemize}
+
+    \item \textbf{Phase 2: Connecting Core Objects (\textit{Core Point Graph Clustering})}
+    \begin{itemize}[noitemsep]
+        \item Consider the undirected subgraph $G_{\mathrm{core}} = (\mathcal{C}, E_{\mathrm{core}})$ induced on core points $\mathcal{C}$, where an edge $(\mathbf{u}, \mathbf{v}) \in E_{\mathrm{core}}$ exists if and only if $\mathrm{dist}(\mathbf{u}, \mathbf{v}) \le \varepsilon$.
+        \item The maximal connected components of $G_{\mathrm{core}}$ determine the distinct backbones of the clusters.
+    \end{itemize}
+
+    \item \textbf{Phase 3: Border Point Assignment and Noise Filtering}
+    \begin{itemize}[noitemsep]
+        \item For every non-core point $\mathbf{b} \in \mathcal{B}$ within the $\varepsilon$-neighborhood of at least one core point $\mathbf{c} \in \mathcal{C}$, bind $\mathbf{b}$ to the cluster containing $\mathbf{c}$.
+        \item All unassigned points remaining outside any core neighborhood are permanently designated as \texttt{NOISE} (marked with symbol $\times$ and discarded).
+    \end{itemize}
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    phaseBox/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!6, thick, font=\footnotesize, text width=12.2cm, inner sep=6pt, align=left},
+    arrowDown/.style={-Stealth, very thick, draw=navy!85!black}
+]
+    \node[phaseBox, draw=darkgreen!85!black, fill=darkgreen!5] (p1) at (0, 3.6) {
+        \textbf{\textcolor{darkgreen!90!black}{\large Phase 1: Local Point Classification (\textit{Point Labeling})}}\\[3pt]
+        For each $\mathbf{p} \in \mathcal{D}$, compute range neighborhood $N_\varepsilon(\mathbf{p})$. If $|N_\varepsilon(\mathbf{p})| \ge MinPts \implies \mathbf{p} \in \mathcal{C}$ (Core, green).\\
+        Otherwise, temporary label as \texttt{NOISE} (red), open to reassignment as Border.
+    };
+
+    \node[phaseBox, below=0.7cm of p1] (p2) {
+        \textbf{\textcolor{navy!90!black}{\large Phase 2: Connecting Core Objects (\textit{Core Graph Clustering})}}\\[3pt]
+        Build the induced subgraph on core points: edge between pairs with $\mathrm{dist}(\mathbf{u}, \mathbf{v}) \le \varepsilon$.\\
+        Maximal connected components define the cluster backbones (\textbf{Cluster 1}, \textbf{Cluster 2}, \dots).
+    };
+
+    \node[phaseBox, draw=orange!85!black, fill=orange!5, below=0.7cm of p2] (p3) {
+        \textbf{\textcolor{orange!90!black}{\large Phase 3: Border Assignment and Noise Rejection}}\\[3pt]
+        Non-core nodes within distance $\varepsilon$ of any Core become Border points (yellow) and join its cluster.\\
+        Remaining unlinked points outside all core neighborhoods are permanently marked as \texttt{NOISE} ($\times$).
+    };
+
+    \draw[arrowDown] (p1) -- (p2);
+    \draw[arrowDown] (p2) -- (p3);
+\end{tikzpicture}
+\caption{The three computational phases in DBSCAN cluster formation.}
+\label{fig:dm-dbscan-phases-flowchart}
+\end{figure}
+
+\subsection{Non-Determinism in Shared Border Points}
+
+While core point partitioning and noise exclusion are strictly deterministic, assigning \textbf{contested border points} exhibits order dependence:
+
+\begin{property}[Border Point Assignment Non-Determinism]
+Let $\mathcal{C}_1$ and $\mathcal{C}_2$ be two distinct clusters generated by disjoint components of core points. If a border point $\mathbf{b} \in \mathcal{B}$ simultaneously satisfies:
+\begin{equation}
+\begin{aligned}
+    \exists \mathbf{c}_1 \in \mathcal{C}_1 \cap \mathcal{C} \quad &\text{s.t.} \quad \mathrm{dist}(\mathbf{b}, \mathbf{c}_1) \le \varepsilon, \\
+    \exists \mathbf{c}_2 \in \mathcal{C}_2 \cap \mathcal{C} \quad &\text{s.t.} \quad \mathrm{dist}(\mathbf{b}, \mathbf{c}_2) \le \varepsilon,
+\end{aligned}
+\end{equation}
+then $\mathbf{b}$ is density-reachable from both clusters.
+Crucially, because $\mathbf{b}$ is not a core point ($|N_\varepsilon(\mathbf{b})| < MinPts$), it \textbf{cannot act as a propagation bridge} between $\mathbf{c}_1$ and $\mathbf{c}_2$; the two clusters do not merge.
+
+Consequently, whether $\mathbf{b}$ is assigned to Cluster 1 or Cluster 2 depends solely on the \textbf{data processing order}: the cluster whose core point scans $\mathbf{b}$ first claims it.
+\end{property}
+
+In practice, the percentage of shared border points in real-world data is negligible, leaving macro-clustering structures intact.
+
+\subsection{DBSCAN Pseudocode}
+
+Algorithm~\ref{alg:dm-dbscan-standard-en} presents the unified traversal algorithm using an expansion queue/frontier (BFS/DFS).
+
+\begin{algorithm}[htbp]
+\small
+\SetAlgoLined
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{p}_1, \dots, \mathbf{p}_n\}$, metric radius $\varepsilon > 0$, neighborhood threshold $MinPts \in \mathbb{N}^+$.}
+\KwOutput{Label array $\mathbf{y} \in (\mathbb{N} \cup \{\texttt{NOISE}\})^n$.}
+Initialize all labels: $y[\mathbf{p}] \leftarrow \texttt{UNVISITED}$ for all $\mathbf{p} \in \mathcal{D}$\;
+$\mathrm{cluster\_id} \leftarrow 0$\;
+\BlankLine
+\ForEach{$\mathbf{p} \in \mathcal{D}$}{
+    \If{$y[\mathbf{p}] \ne \texttt{UNVISITED}$}{
+        \textbf{continue}\; \tcp{Already processed in an earlier cluster expansion}
+    }
+    $\mathcal{N}_{\mathbf{p}} \leftarrow \textsc{RangeQuery}(\mathcal{D}, \mathbf{p}, \varepsilon)$\;
+    \If{$|\mathcal{N}_{\mathbf{p}}| < MinPts$}{
+        $y[\mathbf{p}] \leftarrow \texttt{NOISE}$\; \tcp{Provisional label: may still become a Border point}
+    }
+    \Else{
+        $\mathrm{cluster\_id} \leftarrow \mathrm{cluster\_id} + 1$\;
+        $y[\mathbf{p}] \leftarrow \mathrm{cluster\_id}$\;
+        $\mathcal{S} \leftarrow \mathcal{N}_{\mathbf{p}} \setminus \{\mathbf{p}\}$\; \tcp{Expansion set (queue or seed list)}
+        \While{$\mathcal{S} \ne \emptyset$}{
+            Extract point $\mathbf{q}$ from $\mathcal{S}$\;
+            \If{$y[\mathbf{q}] == \texttt{NOISE}$}{
+                $y[\mathbf{q}] \leftarrow \mathrm{cluster\_id}$\; \tcp{Relabel Noise point to Border point}
+            }
+            \If{$y[\mathbf{q}] \ne \texttt{UNVISITED}$}{
+                \textbf{continue}\;
+            }
+            $y[\mathbf{q}] \leftarrow \mathrm{cluster\_id}$\;
+            $\mathcal{N}_{\mathbf{q}} \leftarrow \textsc{RangeQuery}(\mathcal{D}, \mathbf{q}, \varepsilon)$\;
+            \If{$|\mathcal{N}_{\mathbf{q}}| \ge MinPts$}{
+                $\mathcal{S} \leftarrow \mathcal{S} \cup \mathcal{N}_{\mathbf{q}}$\; \tcp{Propagate expansion: $\mathbf{q}$ is also a Core Point}
+            }
+        }
+    }
+}
+\caption{Standard DBSCAN algorithm with density queue expansion.}
+\label{alg:dm-dbscan-standard-en}
+\end{algorithm}
+
+\subsection{Computational Complexity Analysis}
+
+Execution speed is dominated by neighborhood range queries $\textsc{RangeQuery}(\mathcal{D}, \mathbf{p}, \varepsilon)$ performed across the dataset.
+
+\begin{itemize}
+    \item \textbf{Naive Linear Scan}:
+    Without spatial index structures, computing $N_\varepsilon(\mathbf{p})$ requires calculating distances between $\mathbf{p}$ and all $n-1$ other points in $\mathcal{O}(n \cdot d)$ time. Applied across all $n$ points, total time complexity is quadratic:
+    \begin{equation}
+        \mathcal{T}_{\mathrm{naive}}(n) = \mathcal{O}(n^2 \cdot d)
+    \end{equation}
+
+    \item \textbf{Spatial Index Trees (k-d Tree, $R^*$-Tree)}:
+    In low-to-moderate dimensions ($d \le 10$), indexing data in spatial trees reduces average query lookup to $\mathcal{O}(\log n)$, yielding an overall time complexity of:
+    \begin{equation}
+        \mathcal{T}_{\mathrm{tree}}(n) = \mathcal{O}(n \log n)
+    \end{equation}
+
+    \item \textbf{High-Dimensional Curse}:
+    When dimensionality grows ($d \gg 10$), spatial tree partitioning degenerates; trees must inspect nearly all nodes, reverting query time back to $\mathcal{O}(n)$ and total runtime to $\mathcal{O}(n^2)$.
+
+    \item \textbf{Space Complexity}:
+    Memory requirements encompass storing dataset $\mathcal{D}$, label array $y$, and the active frontier queue $\mathcal{S}$, which is strictly linear:
+    \begin{equation}
+        \mathcal{S}(n) = \mathcal{O}(n \cdot d)
+    \end{equation}
+\end{itemize}
+
+% ====================================================================
+% SECTION 8.5: SPATIAL DATA CASE STUDY
+% ====================================================================
+\section{Spatial Data Case Study}
+\label{sec:dm-dbscan-spatial-analysis}
+
+Consider the continuous 2D distribution discussed in~\cite{tan2018}, where two high-density bodies are connected by a slender neck (\textit{bridge of points}) and surrounded by sparse, scattered points.
+
+\subsection{Behavior with \texorpdfstring{$\varepsilon = 10$ and $MinPts = 4$}{Eps = 10 and MinPts = 4}}
+
+Setting $\varepsilon = 10$ and $MinPts = 4$:
+\begin{enumerate}
+    \item \textbf{Interior Backbone}: Inside the dense masses, average pairwise distances are far below 10. Inner points capture 8 to 25 neighbors within radius 10, easily exceeding $MinPts = 4$. They are classified as Core Points (dark blue) and form the cluster backbone.
+    \item \textbf{Boundary Definition}: Moving outward, local point counts decrease. Along cluster margins, points have fewer than 4 neighbors within radius 10, but sit within 10 units of an inner core point. They become Border Points (red), crisply delineating the cluster boundary.
+    \item \textbf{Handling the Narrow Bridge}: If points along the connecting neck have mutual distances $\le 10$ and each contains at least 4 neighbors, they qualify as Core Points and chain the two bodies into one cluster. If neck density drops below 4 points per radius 10, the bridge breaks and DBSCAN preserves two separate clusters.
+    \item \textbf{Outlier Isolation}: Sparse points scattered in empty space sit $> 10$ units away from any core point with $\le 2$ local neighbors. They are tagged as Noise (light gray crosses), preventing distortion of cluster boundaries.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 8.6: STRENGTHS AND GEOMETRIC CAPABILITIES
+% ====================================================================
+\section{Strengths and Geometric Capabilities}
+\label{sec:dm-dbscan-strengths}
+
+DBSCAN provides fundamental capabilities that resolve core vulnerabilities of prototype-based clustering:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    strengthCard/.style={rectangle, rounded corners=5pt, draw=darkgreen!85!black, fill=darkgreen!5, thick, font=\footnotesize, align=left, text width=5.7cm, inner sep=7pt, minimum height=2.7cm}
+]
+    \node[strengthCard, anchor=south] (s1) at (-3.45, 0.3) {
+        \textbf{\textcolor{darkgreen!90!black}{1. Inherent Noise Resistance}}\\[4pt]
+        Outliers and background points are not forced into clusters: they are formally isolated as \texttt{NOISE} without perturbing true cluster geometry or centroids.
+    };
+
+    \node[strengthCard, anchor=south] (s2) at (3.45, 0.3) {
+        \textbf{\textcolor{darkgreen!90!black}{2. Arbitrary Non-Convex Morphologies}}\\[4pt]
+        Successfully identifies concentric rings, nested crescents, spirals, and elongated filaments where K-Means fractures data.
+    };
+
+    \node[strengthCard, anchor=north] (s3) at (-3.45, -0.3) {
+        \textbf{\textcolor{darkgreen!90!black}{3. Heterogeneous Cluster Sizes}}\\[4pt]
+        No equipartition bias ($\mathrm{SSE}$). As long as local density exceeds the threshold, tiny and giant clusters comfortably coexist.
+    };
+
+    \node[strengthCard, anchor=north] (s4) at (3.45, -0.3) {
+        \textbf{\textcolor{darkgreen!90!black}{4. No Prior $K$ Specification}}\\[4pt]
+        The final cluster count is an emergent topological property; users need not guess $K$ or test random restarts.
+    };
+\end{tikzpicture}
+\caption{Four key architectural strengths of DBSCAN over prototype-based models.}
+\label{fig:dm-dbscan-strengths}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Discovery of Arbitrarily Shaped Clusters}: K-Means imposes convex Voronoi partitions. DBSCAN tracks topological density continuity, reliably segmenting non-convex geometries such as interlocking crescents and rings.
+    \item \textbf{Cluster Size Invariance}: K-Means minimizes global $\mathrm{SSE}$, showing a strong bias toward equally sized clusters. DBSCAN evaluates purely local intensive density $MinPts / V_d(\varepsilon)$, enabling small and large clusters to coexist.
+    \item \textbf{Robust Noise Filtering}: Unlike algorithms requiring hard complete partitions ($\bigcup_k C_k = \mathcal{D}$), DBSCAN explicitly accommodates an unassigned noise set ($\mathcal{N} \ne \emptyset$), keeping corrupted data from distorting valid structures.
+    \item \textbf{No Preset Number of Clusters}: The user is not required to specify $K$ upfront; the cluster count emerges directly from spatial density connections.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 8.7: CRITICAL LIMITATIONS AND APPLICATION CHALLENGES
+% ====================================================================
+\section{Critical Limitations and Application Challenges}
+\label{sec:dm-dbscan-limitations}
+
+Despite its strengths, DBSCAN faces two major operational hurdles:
+
+\subsection{1. The Varying Densities Dilemma}
+
+Because $\varepsilon$ and $MinPts$ are \textbf{global constants}, DBSCAN struggles when natural clusters within the same dataset possess starkly different densities:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    failCard/.style={rectangle, rounded corners=5pt, draw=crimson!85!black, fill=crimson!5, thick, font=\footnotesize, align=left, text width=5.8cm, inner sep=6pt, minimum height=2.8cm}
+]
+    \node[failCard, anchor=north] (d1) at (-3.2, 0) {
+        \textbf{\textcolor{crimson!90!black}{Attempt A: Excessively Large $\varepsilon$}}\\[3pt]
+        $\bullet$ Accurately captures sparse (low-density) clusters.\\
+        $\bullet$ \textbf{Failure}: Denser neighboring clusters coalesce and merge into one giant amorphous mass.
+    };
+
+    \node[failCard, anchor=north] (d2) at (3.2, 0) {
+        \textbf{\textcolor{crimson!90!black}{Attempt B: Excessively Small $\varepsilon$}}\\[3pt]
+        $\bullet$ Correctly separates compact high-density clusters.\\
+        $\bullet$ \textbf{Failure}: Valid but sparser clusters fall below the threshold and are discarded as \texttt{NOISE}.
+    };
+\end{tikzpicture}
+\caption{The global threshold dilemma when handling heterogeneous cluster densities.}
+\label{fig:dm-dbscan-varying-densities-dilemma}
+\end{figure}
+
+In the benchmark experiment presented in~\cite{tan2018}:
+\begin{itemize}
+    \item Setting $MinPts = 4, \varepsilon = 9.92$: DBSCAN detects the sparse ellipse on the left, but merges the entire right-hand section (diffuse cloud plus dense sub-clusters) into one single cluster.
+    \item Lowering the radius slightly to $\varepsilon = 9.75$ ($MinPts = 4$): DBSCAN isolates the three hyper-dense micro-clusters on the right, but completely discards the left ellipse and central cluster as noise (\texttt{NOISE}).
+\end{itemize}
+
+This limitation inspired density hierarchy algorithms:
+\begin{itemize}
+    \item \textbf{OPTICS} (\textit{Ordering Points To Identify the Clustering Structure})~\cite{ankerst1999}: produces an augmented ordering based on reachability distance, visualized via a reachability plot;
+    \item \textbf{HDBSCAN} (\textit{Hierarchical DBSCAN})~\cite{campello2015}: integrates local density with hierarchical extraction, automating cluster selection across varying density scales by optimizing persistence (\textit{excess of mass}).
+\end{itemize}
+
+\subsection{2. The Curse of Dimensionality}
+
+When the feature dimensionality $d$ is high ($d \gg 10$), DBSCAN suffers significantly. As extensively discussed in Chapter~\ref{chap:dm-data-preparation-cleaning} (\autoref{subsec:dm-curse-of-dimensionality}), hyper-volumetric dilution and relative distance concentration in high-dimensional spaces cause any metric hypersphere of radius $\varepsilon$ to be either entirely empty or, with a minute increase in $\varepsilon$, swallow nearly the entire dataset. Consequently, in high dimensionality it becomes virtually impossible to identify a metric threshold $\varepsilon$ that effectively separates dense regions from sparse ones, causing the concept of local Euclidean density to lose operational meaning.
+
+
+% ====================================================================
+% SECTION 8.8: HEURISTIC PARAMETER SELECTION: THE K-DISTANCE PLOT
+% ====================================================================
+\section{Heuristic Parameter Selection: The \texorpdfstring{$k$}{k}-Distance Plot}
+\label{sec:dm-dbscan-parameter-selection}
+
+Choosing parameters $(\varepsilon, MinPts)$ blindly typically results in either total cluster collapse or near-complete data rejection. The standard, data-driven approach is the \textbf{$k$-nearest neighbor distance plot} (\textit{$k$-distance plot})~\cite{ester1996, tan2018}.
+
+\subsection{Core Heuristic Principle}
+
+The heuristic exploits the structural gap between cluster points and noise:
+\begin{itemize}
+    \item \textbf{Points in dense clusters}: their distance to their $k$-th nearest neighbor is small and relatively consistent.
+    \item \textbf{Noise and outlier points}: their distance to their $k$-th nearest neighbor is substantially larger.
+\end{itemize}
+
+\subsection{Step-by-Step Construction}
+
+\begin{enumerate}
+    \item \textbf{Fixing Parameter $k$ ($MinPts$)}: Set $k = MinPts$. As a rule of thumb for dimension $d$:
+    \begin{equation}
+        MinPts \ge d + 1
+    \end{equation}
+    To smooth sampling fluctuations, $MinPts = 4$ is common for 2D data ($MinPts \approx 2d$ in general).
+
+    \item \textbf{Computing $k$-NN Distances}: For each point $\mathbf{p}_i \in \mathcal{D}$ ($i = 1, \dots, n$):
+    \begin{itemize}[noitemsep]
+        \item Compute distances to all other $n-1$ points;
+        \item Sort distances in ascending order:
+        \begin{equation}
+            d_{(1)}(\mathbf{p}_i) \le d_{(2)}(\mathbf{p}_i) \le \dots \le d_{(k)}(\mathbf{p}_i) \le \dots \le d_{(n-1)}(\mathbf{p}_i)
+        \end{equation}
+        \item Extract $D_i = d_{(k)}(\mathbf{p}_i)$, the distance to the $k$-th nearest neighbor.
+    \end{itemize}
+
+    \item \textbf{Global Sorting and Curve Plotting}: Sort the array $\{D_1, \dots, D_n\}$ in ascending order:
+    \begin{equation}
+        D_{\pi(1)} \le D_{\pi(2)} \le \dots \le D_{\pi(n)}
+    \end{equation}
+    Plot points with index $m$ on the X-axis and $D_{\pi(m)}$ on the Y-axis.
+
+    \item \textbf{Locating the "Knee Point"}:
+    The curve displays three distinct segments (Figure~\ref{fig:dm-dbscan-k-distance-plot}):
+    \begin{itemize}[noitemsep]
+        \item \textbf{Initial Flat Plateau ($D \le 8$)}: points inside dense clusters;
+        \item \textbf{The Knee Point}: point of maximum curvature marking the phase transition from intra-cluster density to noise;
+        \item \textbf{Steep Tail ($D \ge 15$)}: isolated noise points whose $k$-NN distance escalates sharply.
+    \end{itemize}
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize},
+    axisLine/.style={-Stealth, thick, draw=navy!85!black},
+    plotLine/.style={very thick, draw=navy!90!black},
+    kneePointStyle/.style={circle, draw=crimson!90!black, fill=crimson!25, very thick, inner sep=3.5pt},
+    guideDashed/.style={dashed, thick, draw=crimson!85!black}
+]
+    % Axes
+    \draw[axisLine] (0, 0) -- (9.8, 0) node[midway, below=18pt, font=\small\bfseries] {Points sorted by 4-NN distance ($m$)};
+    \draw[axisLine] (0, 0) -- (0, 5.5) node[above=6pt, font=\small\bfseries] {4th Nearest Neighbor Distance ($D_{\pi(m)}$)};
+
+    % Ticks X
+    \draw (0, 0) node[below left] {$0$};
+    \draw (2.5, 0.1) -- (2.5, -0.1) node[below] {$1000$};
+    \draw (5.0, 0.1) -- (5.0, -0.1) node[below] {$2000$};
+    \draw (7.0, 0.1) -- (7.0, -0.1) node[below] {$2500$};
+    \draw[thick, draw=crimson!85!black] (7.8, 0.1) -- (7.8, -0.1) node[below, font=\footnotesize\bfseries, text=crimson!90!black] {$2800$};
+    \draw (9.2, 0.1) -- (9.2, -0.1) node[below] {$3000$};
+
+    % Ticks Y
+    \draw[thick, draw=crimson!85!black] (0.1, 1.30) -- (-0.1, 1.30) node[left, font=\footnotesize\bfseries, text=crimson!90!black] {$\varepsilon \approx 10$};
+    \draw (0.1, 2.50) -- (-0.1, 2.50) node[left] {$20$};
+    \draw (0.1, 3.75) -- (-0.1, 3.75) node[left] {$30$};
+    \draw (0.1, 5.00) -- (-0.1, 5.00) node[left] {$40$};
+
+    % Perfectly smooth k-distance plot (C^\infty spline)
+    \draw[plotLine] plot[smooth] coordinates {
+        (0.0, 0.30)
+        (2.0, 0.40)
+        (4.0, 0.52)
+        (5.5, 0.65)
+        (6.6, 0.82)
+        (7.3, 1.02)
+        (7.8, 1.30)
+        (8.1, 1.68)
+        (8.4, 2.32)
+        (8.7, 3.35)
+        (9.0, 4.85)
+    };
+
+    % Knee Point
+    \node[kneePointStyle] (knee) at (7.8, 1.30) {};
+    
+    % Dashed guides to axes
+    \draw[guideDashed] (7.8, 0) -- (knee);
+    \draw[guideDashed] (0, 1.30) -- (knee);
+
+    % Callout for Knee Point (placed in clear upper-left space, zero overlap with axes or curves)
+    \node[align=left, font=\scriptsize, draw=crimson!85!black, fill=crimson!5, rounded corners=4pt, inner sep=5pt, text width=3.8cm] (kneeLabel) at (2.4, 4.1) {
+        \textbf{\textcolor{crimson!90!black}{Knee Point}}\\[2pt]
+        $\bullet$ \textbf{Metric threshold identified}: $\varepsilon \approx 10$\\
+        $\bullet$ Clear split between clusters and noise
+    };
+    \draw[-Stealth, thick, draw=crimson!85!black] (kneeLabel.south east) -- (knee);
+
+    % Badge for Intra-cluster plateau (centered in open space, 1cm clear from Y-axis)
+    \node[align=center, font=\scriptsize, draw=darkgreen!80!black, fill=darkgreen!5, rounded corners=3pt, inner sep=4pt, text width=3.2cm] (plateauLabel) at (2.5, 2.05) {
+        \textbf{\textcolor{darkgreen!90!black}{Intra-cluster plateau}}\\[1pt]
+        $\approx 2800$ points with distance $< 10$\\
+        (dense core regime)
+    };
+
+    % Badge for Noise tail with pointer arrow
+    \node[align=center, font=\scriptsize, draw=crimson!80!black, fill=crimson!5, rounded corners=3pt, inner sep=4pt] (noiseLabel) at (6.4, 4.6) {
+        \textbf{\textcolor{crimson!90!black}{Noise tail}}\\[1pt]
+        sharp escalation (isolated outliers)
+    };
+    \draw[-Stealth, thick, draw=crimson!80!black] (noiseLabel.east) -- (8.8, 4.4);
+\end{tikzpicture}
+\caption{The $k$-distance plot ($k = 4$) for approximately 3000 points. The optimal radius threshold $\varepsilon$ is identified at the knee point along the Y-axis, here located at $\varepsilon \approx 10$.}
+\label{fig:dm-dbscan-k-distance-plot}
+\end{figure}
+
+\subsection{Interpretation and Selection of \texorpdfstring{$\varepsilon \approx 10$}{Eps approx 10}}
+
+In Figure~\ref{fig:dm-dbscan-k-distance-plot}:
+\begin{itemize}
+    \item Roughly 2800 out of 3000 points have their 4-th nearest neighbor within a narrow range between 2 and 8.
+    \item The sharp inflection (knee) sits precisely at Y-value $\varepsilon \approx 10$.
+    \item Choosing $\varepsilon = 10$ ensures that points prior to the knee have at least 4 neighbors within distance 10 (becoming Core points), while points in the steep tail have their 4th neighbor beyond 10 and are classified as \texttt{NOISE}.
+\end{itemize}
+This analytical calibration matches the parameters used in the Section~\ref{sec:dm-dbscan-spatial-analysis} case study ($\varepsilon = 10, MinPts = 4$).
+
+% ====================================================================
+% SECTION 8.9: GLOBAL COMPARATIVE SYNTHESIS
+% ====================================================================
+\section{Global Comparative Synthesis: K-Means vs Hierarchical vs DBSCAN}
+\label{sec:dm-clustering-comprehensive-comparison}
+
+Table~\ref{tab:dm-clustering-all-comparison} synthesizes the topological, computational, and practical tradeoffs among all three primary clustering paradigms studied in Chapters 7 and 8.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\textwidth}{l Y Y Y}
+\toprule
+\textbf{Operational Feature} & \textbf{K-Means Clustering} & \textbf{Hierarchical Clustering} & \textbf{DBSCAN (Density-Based)} \\
+\midrule
+\textbf{Core Model} & Partitional centroid prototype & Agglomerative/Divisive nested tree & Local high-density connectivity \\
+\textbf{Number of Clusters $K$} & Mandatory a priori & Derived post-hoc by tree cutting & Emerges dynamically from data \\
+\textbf{Cluster Geometry} & Exclusively convex/hyper-spherical (Voronoi) & Arbitrary with Single Link; compact/spherical with Ward & Arbitrary (concave, rings, spirals, filaments) \\
+\textbf{Noise Sensitivity} & High (outliers drag centroid locations) & Linkage-dependent (Single Link prone to chaining) & Inherent noise immunity (formally labeled \texttt{NOISE}) \\
+\textbf{Cluster Sizes/Densities} & Assumes similar size, volume, and variance & Flexible, but greedy merges are irreversible & Handles diverse sizes; fails under heterogeneous densities \\
+\textbf{Time Complexity} & $\mathcal{O}(n \cdot K \cdot I \cdot d)$ (Linear in $n$) & $\mathcal{O}(n^2 \log n)$ to $\mathcal{O}(n^3)$ (Super-quadratic) & $\mathcal{O}(n \log n)$ with spatial index; $\mathcal{O}(n^2 \cdot d)$ naive \\
+\textbf{Space Complexity} & $\mathcal{O}((n + K) \cdot d)$ (Linear) & $\mathcal{O}(n^2)$ (Pairwise distance matrix) & $\mathcal{O}(n \cdot d)$ (Linear) \\
+\textbf{Data Scalability} & Excellent (tens of millions of records) & Very low ($n \le 20\,000$ bound by RAM) & Good to moderate (efficient up to $n \le 10^6$ in low dimensions) \\
+\textbf{High-Dimensional Impact} & Moderate degradation under Euclidean metric & Global pairwise distortion & Severe degradation (loss of density contrast) \\
+\textbf{Determinism} & Non-deterministic (restart dependent) & Strictly deterministic & Deterministic for Core/Noise; order-dependent on shared Border \\
+\bottomrule
+\end{tabularx}
+\caption{Comprehensive comparative synthesis across Partitional (K-Means), Hierarchical, and Density-Based (DBSCAN) clustering paradigms.}
+\label{tab:dm-clustering-all-comparison}
+\end{table}

@@ -145,13 +145,14 @@ La scelta della dimensione campionaria ottimale impone un compromesso tra costo 
 La presenza di un numero elevato di feature determina rilevanti criticità computazionali e geometriche.
 
 \subsection{La Maledizione della Dimensionalità (\textit{Curse of Dimensionality})}
+\label{subsec:dm-curse-of-dimensionality}
 
 All'aumentare della dimensionalità $p$, il volume dello spazio $\mathbb{R}^p$ cresce esponenzialmente rispetto al numero di osservazioni disponibili. Questo fenomeno causa:
 \begin{enumerate}
     \item \textbf{Sparsità estrema}: Le osservazioni si disperdono nello spazio multidimensionale; la densità locale tende a zero e lo spazio diventa prevalentemente vuoto.
     \item \textbf{Concentrazione delle distanze}: All'aumentare di $p$, il contrasto relativo tra la distanza minima e la distanza massima rispetto a qualsiasi punto di riferimento tende a vanificarsi:
     \begin{equation}
-        \lim_{p \to \infty} \frac{\text{dist}_{\max} - \text{dist}_{\min}}{\text{dist}_{\min}} \to 0
+        \lim_{p \to \infty} \frac{\mathrm{dist}_{\max} - \mathrm{dist}_{\min}}{\mathrm{dist}_{\min}} \to 0
     \end{equation}
     Ciò compromette le prestazioni degli algoritmi metrica-dipendenti ($k$-NN, clustering K-Means).
     \item \textbf{Instabilità delle stime}: La stima della matrice di covarianza $p \times p$ richiede una numerosità campionaria che scala esponenzialmente con $p$ per scongiurare singolarità numeriche.
@@ -594,7 +595,7 @@ Dato il vettore $V = \{-10,\, 201,\, 301,\, -401,\, 501,\, 601,\, 701\}$:
 \section{Trattamento Univariato degli Outlier}
 \label{sec:dm-univariate-outlier-treatment}
 
-L'intervento operativo sui valori anomali isolati segue criteri codificati a seconda del modello statistico di riferimento:
+Richiamando i criteri diagnostici fondati su Boxplot, Range Interquartilico (IQR) e Z-Score formalizzati nel Capitolo~\ref{chap:dm-data-understanding-multivariate-outliers} (\autoref{sec:dm-outlier-detection-taxonomy}), la fase di \textit{Data Preparation} definisce le regole operative per neutralizzare l'influenza distorsiva dei valori anomali isolati senza necessariamente scartare l'intero record:
 
 \begin{figure}[htbp]
     \centering
@@ -637,30 +638,16 @@ L'intervento operativo sui valori anomali isolati segue criteri codificati a sec
     \label{fig:dm-outlier-replacement-rules}
 \end{figure}
 
-\subsection{Criterio Basato sul Range Interquartilico (Tukey)}
-\begin{enumerate}
-    \item Si calcola l'ampiezza interquartilica $\text{IQR} = Q_3 - Q_1$.
-    \item Si definiscono le recinzioni (\textit{fences}) di ammissibilità:
-    \begin{equation}
-        L = Q_1 - 1.5 \times \text{IQR}, \quad U = Q_3 + 1.5 \times \text{IQR}
-    \end{equation}
-    \item Un'osservazione $x$ è formalmente anomala se $x < L \lor x > U$.
-    \item \textbf{Risoluzione}:
-    \begin{itemize}[noitemsep]
-        \item \textit{Winsorizzazione (Sostituzione al bordo)}: Si assegna $L$ se $x < L$, e $U$ se $x > U$. Preserva la monotonicità ordinale annullando la magnitudo distorsiva del picco.
-        \item \textit{Imputazione con la Mediana}: Si sostituisce il valore estremo con la mediana calcolata sul sottoinsieme dei dati regolari.
-    \end{itemize}
-\end{enumerate}
+\subsection{Trattamento Basato sul Range Interquartilico (Tukey)}
+Individuate le recinzioni di Tukey $[L, U] = [Q_1 - 1.5\,\text{IQR}, \, Q_3 + 1.5\,\text{IQR}]$, le opzioni di bonifica per i valori esterni $x \notin [L, U]$ prevedono:
+\begin{itemize}
+    \item \textbf{Winsorizzazione (Sostituzione al bordo)}: Si imposta $x' = L$ se $x < L$, e $x' = U$ se $x > U$. Questa trasformazione preserva la monotonicità ordinale e la numerosità campionaria originale, annullando la magnitudo distorsiva del picco estremo;
+    \item \textbf{Imputazione con la Mediana}: Si rimpiazza il valore estremo con la mediana calcolata sul sottoinsieme dei dati regolari interni all'intervallo $[L, U]$.
+\end{itemize}
 
-\subsection{Criterio Basato sullo Z-Score}
-In una distribuzione teorica normale, il $95\%$ dei campioni ricade entro $|z| \le 1.96$, il $99\%$ entro $|z| \le 2.58$, e il $99.9\%$ entro $|z| \le 3.29$.
-Si etichetta come outlier qualunque valore eccedente la soglia:
-\begin{equation}
-    |z| > 3.29 \iff x < \bar{x} - 3.29\,s \quad \lor \quad x > \bar{x} + 3.29\,s
-\end{equation}
-
-\subsubsection{Strategie di Sostituzione}
+\subsection{Trattamento Basato sullo Z-Score}
+Per attributi a distribuzione approssimativamente normale con anomalie identificate dalla condizione $|z| > 3.29$, si adottano due strategie di sostituzione:
 \begin{enumerate}
-    \item \textbf{Troncamento a $3\sigma$}: Il valore estremo viene convertito nel valore corrispondente al punto di soglia $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$). Questa scelta riconduce il record entro un intervallo plausibile senza cancellare l'informazione che l'osservazione apparteneva all'estremo della coda.
+    \item \textbf{Troncamento a $3\sigma$ (Clamping)}: Il valore estremo viene convertito nel valore corrispondente al punto di soglia $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$). Questa scelta riconduce il record entro un intervallo plausibile senza cancellare l'informazione che l'osservazione apparteneva all'estremo della coda;
     \item \textbf{Imputazione con la Media Campionaria}: Il valore anomalo viene rimpiazzato con il baricentro $z = 0$, corrispondente alla media campionaria originaria $\bar{x}$.
 \end{enumerate}

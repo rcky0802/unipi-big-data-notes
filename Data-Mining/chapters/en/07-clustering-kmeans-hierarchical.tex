@@ -13,7 +13,7 @@ In this chapter, we present the theoretical foundations, algebraic formulations,
 \section{Introduction to Partitional and Hierarchical Cluster Analysis}
 \label{sec:dm-clustering-intro-taxonomy}
 
-\textbf{Cluster Analysis} (or unsupervised grouping) constitutes one of the foundational pillars of unsupervised machine learning. Unlike supervised learning, where each instance $\mathbf{x}_i$ is accompanied by a ground-truth class label $y_i \in \mathcal{Y}$ known a priori, the primary objective of clustering is to discover latent structures, geometric patterns, or natural groupings within an unlabelled multidimensional dataset.
+As established in Chapter~\ref{chap:dm-similarity-clustering-foundations} (\autoref{sec:dm-cluster-analysis-principles}), \textbf{Cluster Analysis} partitions a multidimensional dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$ by jointly maximizing intra-cluster cohesion and inter-cluster separation. Building upon the foundational taxonomy outlined in \autoref{sec:dm-clustering-taxonomies}, this chapter investigates the two primary operational paradigms of unsupervised pattern discovery: prototype-based partitional clustering ($K$-Means) and proximity-based hierarchical clustering.
 
 \begin{figure}[htbp]
 \centering
@@ -54,13 +54,7 @@ In this chapter, we present the theoretical foundations, algebraic formulations,
 \label{fig:dm-clustering-taxonomy-overview}
 \end{figure}
 
-Given a dataset of $n$ observations $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$ with $\mathbf{x}_i \in \mathbb{R}^d$, the general clustering task requires partitioning $\mathcal{D}$ into disjoint subsets $C = \{C_1, \dots, C_K\}$ while simultaneously maximizing two complementary properties:
-\begin{enumerate}
-    \item \textbf{High intra-cluster cohesion}: observations assigned to the same group must be as close and similar to one another as possible under the chosen metric.
-    \item \textbf{High inter-cluster separation}: items belonging to distinct groups must exhibit marked distance or dissimilarity from one another.
-\end{enumerate}
-
-The two paradigms tackle this objective with fundamentally distinct philosophies: partitional clustering fixes the number of groups $K$ a priori and pursues an optimal polygonal tessellation of space via prototypes; hierarchical clustering generates a nested sequence of partitions, deferring the choice of $K$ to post-hoc dendrogram inspection.
+The two paradigms approach grouping with distinct structural philosophies: partitional clustering fixes the number of groups $K$ a priori and pursues an optimal polygonal tessellation of space via prototypes; hierarchical clustering generates a nested sequence of partitions, deferring the choice of $K$ to post-hoc dendrogram inspection.
 
 % ====================================================================
 % SECTION 7.2: K-MEANS: LLOYD'S ALGORITHM AND VORONOI GEOMETRY
@@ -75,7 +69,7 @@ Given a dataset of $n$ points $\mathcal{D} \subset \mathbb{R}^d$ and a fixed pos
 \begin{equation}
     \bigcup_{i=1}^K C_i = \mathcal{D}, \qquad C_i \cap C_j = \emptyset \quad (\forall i \ne j), \qquad C_i \ne \emptyset \quad (\forall i \in \{1, \dots, K\})
 \end{equation}
-Each cluster $C_i$ is associated with a prototype vector termed the \textbf{centroid} $\mathbf{m}_i \in \mathbb{R}^d$, which for Euclidean distance corresponds to the arithmetic sample mean of the assigned points:
+Each cluster $C_i$ is associated with a prototype vector termed the \textbf{centroid} $\mathbf{m}_i \in \mathbb{R}^d$ (often denoted as $\mathbf{c}_i$), which for Euclidean distance corresponds to the arithmetic sample mean of the assigned points:
 \begin{equation}
     \mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x}
     \label{eq:dm-centroid-definition-en}
@@ -89,11 +83,11 @@ The standard algorithm alternates recursively between two deterministic phases u
 
 \begin{algorithm}[htbp]
 \SetAlgoLined
-\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, number of clusters $K$, tolerance threshold $\epsilon \ge 0$.}
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, number of clusters $K$, tolerance threshold $\varepsilon \ge 0$.}
 \KwOutput{Final partition $\{C_1, \dots, C_K\}$ and centroids $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$.}
 Initialize $K$ centroids $\{\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}\}$ via random uniform selection from $\mathcal{D}$\;
 $t \leftarrow 0$\;
-\Repeat{centroids do not change significantly: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \epsilon$}{
+\Repeat{centroids do not change significantly: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \varepsilon$}{
     $t \leftarrow t + 1$\;
     \BlankLine
     \tcp{Phase 1: Assignment to Voronoi cells}
@@ -166,7 +160,7 @@ Each separating hyperplane between cluster $C_i$ and cluster $C_j$ is orthogonal
 Analyzing centroid trajectories across iterations $t = 1, 2, \dots$:
 \begin{itemize}[noitemsep]
     \item \textbf{Iterations 1--3}: Large macroscopic migration occurs. Initial centroids rapidly escape spurious positions and move toward the centers of high-density regions.
-    \item \textbf{Iterations 4--6 and onward}: Fine-tuning phase. Only a few boundary points swap across Voronoi boundaries until centroid shifts fall below the tolerance $\epsilon$.
+    \item \textbf{Iterations 4--6 and onward}: Fine-tuning phase. Only a few boundary points swap across Voronoi boundaries until centroid shifts fall below the tolerance $\varepsilon$.
 \end{itemize}
 
 \subsection{Generalization to Other Proximity Measures}
@@ -296,6 +290,7 @@ Since $G(\mathbf{W}, \mathbf{S}) \ge 0$ is bounded below by zero, and the set of
 Despite guaranteed convergence, the optimization landscape of K-Means is non-convex and laden with sub-optimal local minima. In fact, finding the globally optimal clustering that minimizes SSE is known to be \textbf{NP-hard} even for $K = 2$ in general dimensions, or for $d = 2$ with general $K$.
 
 \subsection{Determining the Number of Clusters: The Elbow Method}
+\label{sec:dm-kmeans-elbow-method}
 
 Because $\mathrm{SSE}(K)$ monotonically decreases as $K$ increases (trivially reaching zero at $K = n$), one cannot minimize SSE directly with respect to $K$.
 

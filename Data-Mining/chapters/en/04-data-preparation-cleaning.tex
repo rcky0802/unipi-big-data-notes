@@ -145,13 +145,14 @@ Selecting an optimal sample size involves a trade-off between computational proc
 High feature counts introduce significant computational and geometric bottlenecks.
 
 \subsection{The Curse of Dimensionality}
+\label{subsec:dm-curse-of-dimensionality}
 
 As feature dimensionality $p$ grows, the geometric volume of the embedding space $\mathbb{R}^p$ expands exponentially relative to the available sample count. Key consequences include:
 \begin{enumerate}
     \item \textbf{Extreme Sparsity}: Data observations become isolated in high-dimensional space; local point density vanishes towards zero, leaving the feature space virtually empty.
     \item \textbf{Distance Concentration}: As $p \to \infty$, the contrast between the maximum Euclidean distance and minimum Euclidean distance to any query point collapses:
     \begin{equation}
-        \lim_{p \to \infty} \frac{\text{dist}_{\max} - \text{dist}_{\min}}{\text{dist}_{\min}} \to 0
+        \lim_{p \to \infty} \frac{\mathrm{dist}_{\max} - \mathrm{dist}_{\min}}{\mathrm{dist}_{\min}} \to 0
     \end{equation}
     This severely impairs distance-based algorithms ($k$-NN, K-Means clustering, local density estimators).
     \item \textbf{Covariance Instability}: Reliably estimating a $p \times p$ sample covariance matrix requires sample sizes that scale exponentially with $p$ to avoid rank deficiency and ill-conditioning.
@@ -594,7 +595,7 @@ Given the vector $V = \{-10,\, 201,\, 301,\, -401,\, 501,\, 601,\, 701\}$:
 \section{Univariate Outlier Treatment}
 \label{sec:dm-univariate-outlier-treatment}
 
-Operational treatment of isolated univariate outliers relies on formal detection and replacement criteria:
+Recalling the diagnostic criteria based on Boxplots, Interquartile Range (IQR), and Z-Scores formalized in Chapter~\ref{chap:dm-data-understanding-multivariate-outliers} (\autoref{sec:dm-outlier-detection-taxonomy}), the \textit{Data Preparation} phase establishes operational rules to neutralize the distortive influence of isolated anomalies without necessarily dropping entire records:
 
 \begin{figure}[htbp]
     \centering
@@ -637,30 +638,16 @@ Operational treatment of isolated univariate outliers relies on formal detection
     \label{fig:dm-outlier-replacement-rules}
 \end{figure}
 
-\subsection{Interquartile Criterion (Tukey)}
-\begin{enumerate}
-    \item Compute interquartile range $\text{IQR} = Q_3 - Q_1$.
-    \item Define inner fences:
-    \begin{equation}
-        L = Q_1 - 1.5 \times \text{IQR}, \quad U = Q_3 + 1.5 \times \text{IQR}
-    \end{equation}
-    \item Observation $x$ is flagged as an outlier if $x < L \lor x > U$.
-    \item \textbf{Treatment}:
-    \begin{itemize}[noitemsep]
-        \item \textit{Winsorization}: Clamp $x$ to $L$ if $x < L$, or to $U$ if $x > U$. Preserves ordinal rankings while neutralizing distortive tail extremes.
-        \item \textit{Median Imputation}: Replace flagged outliers with the sample median computed from non-outlier records.
-    \end{itemize}
-\end{enumerate}
+\subsection{IQR-Based Outlier Treatment (Tukey)}
+Once Tukey fences $[L, U] = [Q_1 - 1.5\,\text{IQR}, \, Q_3 + 1.5\,\text{IQR}]$ are computed, treatment options for outside values $x \notin [L, U]$ include:
+\begin{itemize}
+    \item \textbf{Winsorization (Boundary Clamping)}: Set $x' = L$ if $x < L$, and $x' = U$ if $x > U$. This preserves ordinal rankings and original sample size while eliminating heavy tail distortion;
+    \item \textbf{Median Imputation}: Replace flagged outliers with the sample median computed from non-outlier instances within $[L, U]$.
+\end{itemize}
 
-\subsection{Z-Score Criterion}
-Under standard normal assumptions, $95\%$ of samples fall within $|z| \le 1.96$, $99\%$ within $|z| \le 2.58$, and $99.9\%$ within $|z| \le 3.29$.
-Flag as outliers instances exceeding:
-\begin{equation}
-    |z| > 3.29 \iff x < \bar{x} - 3.29\,s \quad \lor \quad x > \bar{x} + 3.29\,s
-\end{equation}
-
-\subsubsection{Replacement Strategies}
+\subsection{Z-Score Outlier Treatment}
+For approximately normal features where outliers are flagged by $|z| > 3.29$, two operational actions are standard:
 \begin{enumerate}
-    \item \textbf{$3\sigma$ Truncation}: Clamp extreme values to boundary $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$), pulling observations into plausible bounds without erasing their status as extreme observations.
+    \item \textbf{$3\sigma$ Truncation (Clamping)}: Clamp values to boundary $z = \pm 3.0$ ($x' = \bar{x} \pm 3.0\,s$), bringing instances into plausible bounds without erasing their status as extreme observations;
     \item \textbf{Mean Imputation}: Substitute the outlier with $z = 0$, equivalent to the sample mean $\bar{x}$.
 \end{enumerate}

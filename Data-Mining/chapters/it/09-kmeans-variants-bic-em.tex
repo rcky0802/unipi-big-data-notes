@@ -1,0 +1,858 @@
+\chapter{Varianti di K-Means, Criterio BIC, Modelli Mistura ed EM}
+\label{chap:dm-kmeans-variants-bic-em}
+
+In questo capitolo viene esplorata l'evoluzione teorico-algoritmica che consente di superare i limiti intrinseci dell'algoritmo basilare $K$-Means standard (algoritmo di Lloyd), introducendo tecniche avanzate di partizionamento divisivo, criteri formali basati sulla teoria dell'informazione per la selezione automatica della complessità del modello e modelli generativi probabilistici fondati sul paradigma \textit{Expectation-Maximization} (EM).
+La trattazione copre in modo rigoroso:
+\begin{enumerate}[noitemsep]
+    \item I \textbf{limiti strutturali e geometrici del $K$-Means standard}: l'estrema sensibilità all'inizializzazione dei centroidi iniziali, la rigidità del vincolo di partizione deterministica (\textit{hard clustering}), l'ipotesi di iper-sfericità e omogeneità isotropa delle varianze e la necessità di fissare a priori il parametro iper-geometrico $K$;
+    \item L'algoritmo \textbf{Bisecting $K$-Means}: la transizione al paradigma gerarchico divisivo (\textit{top-down}), la scomposizione del problema globale in sotto-problemi locali a due vie ($K=2$), la procedura di selezione tramite prove multiple con minimizzazione dell'errore quadratico intra-cluster ($\mathrm{SSE}$), le euristiche di scelta del cluster da bisezionare, i casi limite e la raffinazione globale di Lloyd;
+    \item L'algoritmo \textbf{$X$-Means} (Pelleg e Moore~\cite{pelleg2000}): la modellazione del clustering come problema di selezione del modello statistico nell'intervallo $[K_{\min}, K_{\max}]$, il test di bisezione locale guidato dalla deviazione lungo la direzione principale, l'applicazione locale di $2$-means e il test di split fondato sulla differenza del punteggio BIC ($\Delta\mathrm{BIC}$);
+    \item Il \textbf{Criterio d'Informazione Bayesiano (BIC)} (Schwarz~\cite{schwarz1978}): derivazione asintotica dall'evidenza marginale mediante approssimazione di Laplace, tensione analitica tra verosimiglianza e penalità di complessità (rasoio di Occam), quantificazione esatta dei parametri liberi per covarianze sferiche, diagonali e piene;
+    \item Il modello \textbf{Gaussian Mixture Model (GMM)}: estensione al paradigma del raggruppamento probabilistico (\textit{soft clustering}), definizione generativa tramite variabili latenti categoriali, verosimiglianza incompleta contro verosimiglianza completa e stima a massima verosimiglianza (MLE) vs. massima a posteriori (MAP);
+    \item L'algoritmo fondazionale \textbf{Expectation-Maximization (EM)} (Dempster, Laird e Rubin~\cite{dempster1977}): disuguaglianza di Jensen, limite inferiore variazionale e funzione ausiliaria $\mathcal{Q}$, alternanza ciclica tra E-step (calcolo analitico delle responsabilità a posteriori $\gamma_{ik}$) e M-step (riponderazione chiusa di pesi $\pi_k$, vettori medi $\boldsymbol{\mu}_k$ e matrici di covarianza $\boldsymbol{\Sigma}_k$);
+    \item Il \textbf{caso di studio analitico sulla miscela di due gaussiane}: deconvoluzione di due popolazioni demografiche sovrapposte, confronto tra curva teorica continua e istogramma discreto su $20\,000$ campioni, analisi della zona di indecisione critica ($x=0$) e assegnazione continua delle probabilità di appartenenza;
+    \item Il \textbf{quadro comparativo omnicomprensivo tra $K$-Means ed EM}: tassonomia geometrica ed energetica, vantaggi, vulnerabilità computazionali, degenerazione singolare delle matrici di covarianza e tecniche di regolarizzazione ad alta dimensionalità.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 9.1: CONTESTO SCIENTIFICO E LIMITI DI K-MEANS STANDARD
+% ====================================================================
+\section{Inquadramento Scientifico e Limiti del \texorpdfstring{$K$}{K}-Means Standard}
+\label{sec:dm-kmeans-limits}
+
+L'algoritmo $K$-Means standard (algoritmo di Lloyd), formalizzato nel Capitolo~\ref{chap:dm-kmeans-hierarchical} (\autoref{sec:dm-kmeans-algorithm-geometry}), opera individuando $K$ centroidi $\mathbf{C} = \{\mathbf{c}_1, \dots, \mathbf{c}_K\}$ che minimizzano la devianza globale intra-cluster $\mathrm{SSE}$ (\autoref{eq:dm-sse-definition}). Sebbene la procedura sia computazionalmente lineare ad ogni ciclo ($\mathcal{O}(N \cdot K \cdot d)$), le analisi condotte nella \autoref{sec:dm-kmeans-limitations-isodata} hanno evidenziato tre vulnerabilità strutturali fondamentali che ne limitano l'affidabilità nei contesti applicativi reali:
+
+\begin{enumerate}
+    \item \textbf{Estrema sensibilità all'inizializzazione}: Il problema di minimizzazione dell'$\mathrm{SSE}$ è intrinsecamente non convesso ed è noto essere $\mathcal{NP}$-arduo persino nel piano bidimensionale. L'algoritmo di Lloyd garantisce unicamente la convergenza a un minimo locale: semi iniziali collocati casualmente o all'interno dello stesso addensamento naturale intrappolano il modello in configurazioni sub-ottimali;
+    \item \textbf{Necessità di specificare a priori il parametro $K$}: Il modello standard non possiede alcun meccanismo interno di selezione del modello. Poiché l'$\mathrm{SSE}$ decresce monotonicamente rispetto a $K$, non può guidare direttamente la scelta del numero naturale di cluster senza criteri di penalizzazione;
+    \item \textbf{Rigidità geometrica e partizionamento deterministico (\textit{hard clustering})}: Il $K$-Means costringe ogni istanza ad appartenere in modo esclusivo a un singolo cluster, definendo celle di Voronoi lineari. Tale formulazione incorpora implicitamente l'ipotesi che i cluster siano sferici, convessi, di pari cardinalità e a varianza isotropa omogenea.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    boxStyle/.style={rectangle, rounded corners=6pt, draw=navy!85!black, fill=navy!6, thick, font=\footnotesize, text width=3.8cm, inner sep=6pt, align=left, minimum height=3.5cm},
+    headerStyle/.style={rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick, font=\small, align=center, text width=12.8cm, inner sep=7pt},
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    \node[headerStyle] (top) at (0, 4.6) {
+        \textbf{\large LIMITI DI $K$-MEANS E VIE DI SUPERAMENTO}\\[3pt]
+        \footnotesize Transizione dai vincoli geometrici-euristici a modelli adattivi e probabilistici
+    };
+
+    \node[boxStyle, anchor=north] (b1) at (-4.5, 1.6) {
+        \centering\textbf{Sensibilità ai Semi}\\[2pt]
+        \centering\scriptsize (Minimi locali $\mathrm{SSE}$)\\[5pt]
+        \raggedright
+        $\bullet$ Rischio convergenza sub-ottimale\\[2pt]
+        $\bullet$ Soluzione: \textbf{Bisecting K-Means}\\[2pt]
+        $\bullet$ Approccio divisivo gerarchico\\[2pt]
+        $\bullet$ Bisezioni a prove multiple
+    };
+
+    \node[boxStyle, anchor=north] (b2) at (0, 1.6) {
+        \centering\textbf{Scelta a Priori di $K$}\\[2pt]
+        \centering\scriptsize (Mancanza Model Selection)\\[5pt]
+        \raggedright
+        $\bullet$ Nessun criterio oggettivo\\[2pt]
+        $\bullet$ Soluzione: \textbf{X-means e BIC}\\[2pt]
+        $\bullet$ Penalità di complessità Schwarz\\[2pt]
+        $\bullet$ Bisezione statistica locale
+    };
+
+    \node[boxStyle, anchor=north] (b3) at (4.5, 1.6) {
+        \centering\textbf{Forme Rigide e Hard Cut}\\[2pt]
+        \centering\scriptsize (Celle di Voronoi sferiche)\\[5pt]
+        \raggedright
+        $\bullet$ Nessuna incertezza nei confini\\[2pt]
+        $\bullet$ Soluzione: \textbf{GMM ed EM}\\[2pt]
+        $\bullet$ Modelli generativi \textit{soft}\\[2pt]
+        $\bullet$ Covarianze eterogenee $\boldsymbol{\Sigma}_k$
+    };
+
+    % Branching connectors with ample spacing and rounded corners
+    \draw[thick, draw=navy!85!black] (top.south) -- (0, 3.0);
+    \draw[arrowStyle, rounded corners=4pt] (0, 3.0) -| (b1.north);
+    \draw[arrowStyle] (0, 3.0) -- (b2.north);
+    \draw[arrowStyle, rounded corners=4pt] (0, 3.0) -| (b3.north);
+\end{tikzpicture}
+\caption{Panoramica concettuale dei limiti strutturali del $K$-Means standard e delle tre strategie metodologiche sviluppate per risolverli.}
+\label{fig:dm-kmeans-limits-overview}
+\end{figure}
+
+Per colmare tali lacune, la ricerca in data mining ha tracciato tre percorsi metodologici complementari illustrati in Figura~\ref{fig:dm-kmeans-limits-overview}:
+\begin{itemize}
+    \item \textbf{Bisecting $K$-Means}: un paradigma gerarchico divisivo (\textit{top-down}) che abbatte drasticamente la sensibilità all'inizializzazione riducendo l'ottimizzazione a una cascata di problemi a due vie ($K=2$);
+    \item \textbf{$X$-Means e Criterio BIC}: l'integrazione di un principio formale basato sulla teoria dell'informazione e sulla verosimiglianza regolarizzata per scoprire autonomamente la granularità ottimale dei dati;
+    \item \textbf{Gaussian Mixture Models ed Expectation-Maximization}: l'abbandono delle partizioni geometriche deterministiche in favore della modellazione statistica generativa con assegnazioni probabilistiche continue (\textit{responsabilità posteriori}).
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 9.2: BISECTING K-MEANS
+% ====================================================================
+\section{L'Algoritmo Bisecting \texorpdfstring{$K$}{K}-Means}
+\label{sec:dm-bisecting-kmeans}
+
+L'algoritmo \textbf{Bisecting $K$-Means} (formalizzato come variante divisiva in~\cite{tan2018}) affronta il problema dell'inizializzazione fragile sostituendo il partizionamento globale simultaneo in $K$ gruppi con una procedura gerarchica divisiva (\textit{top-down}) fondata sul principio del \textit{divide et impera}. Invece di dover posizionare simultaneamente $K$ semi nello spazio metrico ad alta dimensionalità, l'algoritmo decompone il problema in una sequenza deterministica di $K-1$ bisezioni binarie indipendenti ($K=2$).
+
+\subsection{Formalizzazione dell'Errore Quadratico e Strategia di Partizione}
+
+Sia dato un sottoinsieme di punti $\mathcal{C} \subseteq \mathcal{D}$ di cardinalità $|\mathcal{C}| = n_{\mathcal{C}}$. L'errore quadratico intra-cluster $\mathrm{SSE}(\mathcal{C})$ è calcolato rispetto al baricentroide $\mathbf{c} = \frac{1}{n_{\mathcal{C}}} \sum_{\mathbf{x} \in \mathcal{C}} \mathbf{x}$:
+\begin{equation}
+\label{eq:dm-sse-single-cluster}
+\mathrm{SSE}(\mathcal{C}) = \sum_{\mathbf{x} \in \mathcal{C}} \|\mathbf{x} - \mathbf{c}\|_2^2
+\end{equation}
+Se il partizionamento corrente dello spazio è rappresentato da una lista ordinata di cluster $\mathcal{L} = \{\mathcal{C}_1, \mathcal{C}_2, \dots, \mathcal{C}_m\}$, l'errore quadratico totale della configurazione è dato dalla somma diretta dei singoli contributi:
+\begin{equation}
+\label{eq:dm-sse-total-list}
+\mathrm{SSE}_{\text{total}}(\mathcal{L}) = \sum_{j=1}^m \mathrm{SSE}(\mathcal{C}_j)
+\end{equation}
+Nel momento in cui un cluster $\mathcal{C}^* \in \mathcal{L}$ viene rimosso da $\mathcal{L}$ e bisezionato in due sotto-cluster disgiunti $\mathcal{A}$ e $\mathcal{B}$ (con $\mathcal{A} \cup \mathcal{B} = \mathcal{C}^*$ e $\mathcal{A} \cap \mathcal{B} = \emptyset$), il nuovo errore quadratico totale diventa:
+\begin{equation}
+\label{eq:dm-sse-split-delta}
+\mathrm{SSE}_{\text{total}}(\mathcal{L}') = \mathrm{SSE}_{\text{total}}(\mathcal{L}) - \mathrm{SSE}(\mathcal{C}^*) + \big( \mathrm{SSE}(\mathcal{A}) + \mathrm{SSE}(\mathcal{B}) \big)
+\end{equation}
+Poiché per la proprietà geometrica di Huygens-Steiner la dispersione attorno a due baricentri indipendenti è strettamente non superiore alla dispersione attorno a un singolo baricentro comune, si ha sempre $\mathrm{SSE}(\mathcal{A}) + \mathrm{SSE}(\mathcal{B}) \le \mathrm{SSE}(\mathcal{C}^*)$, garantendo una riduzione monotona della devianza residua ad ogni bisezione.
+
+\subsection{Pseudocodice e Analisi Procedurale}
+
+L'Algoritmo~\ref{alg:dm-bisecting-kmeans} descrive in dettaglio la procedura operativa di Bisecting $K$-Means.
+
+\begin{algorithm}[htbp]
+\DontPrintSemicolon
+\caption{Algoritmo Bisecting $K$-Means}
+\label{alg:dm-bisecting-kmeans}
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\} \subset \mathbb{R}^d$, numero desiderato di cluster $K$, numero di prove di bisezione $T$}
+\KwOutput{Insieme finale di $K$ cluster $\mathcal{L} = \{\mathcal{C}_1, \dots, \mathcal{C}_K\}$}
+Inizializza la lista di cluster $\mathcal{L} \leftarrow \{\mathcal{D}\}$ contenente l'intero dataset come unico cluster\;
+\While{$|\mathcal{L}| < K$}{
+    Seleziona ed estrai un cluster $\mathcal{C}^*$ da $\mathcal{L}$ secondo una prefissata euristica di split (es. massimo $\mathrm{SSE}$ o massima cardinalità)\;
+    $\mathcal{L} \leftarrow \mathcal{L} \setminus \{\mathcal{C}^*\}$\;
+    $\text{best\_sse} \leftarrow +\infty$\;
+    $(\mathcal{A}^*, \mathcal{B}^*) \leftarrow (\emptyset, \emptyset)$\;
+    \For{$i \leftarrow 1$ \KwTo $T$}{
+        Inizializza casualmente due centroidi all'interno di $\mathcal{C}^*$\;
+        Esegui l'algoritmo $K$-Means standard con $K=2$ su $\mathcal{C}^*$, ottenendo i sotto-cluster $(\mathcal{A}_i, \mathcal{B}_i)$\;
+        $\text{current\_sse} \leftarrow \mathrm{SSE}(\mathcal{A}_i) + \mathrm{SSE}(\mathcal{B}_i)$\;
+        \If{$\text{current\_sse} < \text{best\_sse}$}{
+            $\text{best\_sse} \leftarrow \text{current\_sse}$\;
+            $(\mathcal{A}^*, \mathcal{B}^*) \leftarrow (\mathcal{A}_i, \mathcal{B}_i)$\;
+        }
+    }
+    Inserisci i due sotto-cluster ottimali nella lista: $\mathcal{L} \leftarrow \mathcal{L} \cup \{\mathcal{A}^*, \mathcal{B}^*\}$\;
+}
+\Return $\mathcal{L}$\;
+\end{algorithm}
+
+\subsection{Euristiche di Selezione del Cluster e Prove Multiple}
+
+L'algoritmo prevede due gradi di libertà algoritmici cruciali:
+\begin{enumerate}
+    \item \textbf{Criterio di selezione del cluster candidato $\mathcal{C}^*$}:
+    \begin{itemize}
+        \item \textit{Massimo SSE individuale} ($\mathcal{C}^* = \arg\max_{\mathcal{C} \in \mathcal{L}} \mathrm{SSE}(\mathcal{C})$): Rappresenta la strategia standard raccomandata in letteratura. Bisezionando il gruppo con la massima dispersione interna, si massimizza la diminuzione locale del termine $\mathrm{SSE}(\mathcal{C}^*) - (\mathrm{SSE}(\mathcal{A}) + \mathrm{SSE}(\mathcal{B}))$, favorendo l'omogeneizzazione globale della varianza tra i cluster.
+        \item \textit{Massima cardinalità} ($\mathcal{C}^* = \arg\max_{\mathcal{C} \in \mathcal{L}} |\mathcal{C}|$): Seleziona il gruppo più popoloso, utile qualora i dati contengano sbilanciamenti dimensionali macroscopici o cluster di ampiezza anomala.
+    \end{itemize}
+    \item \textbf{Ruolo delle prove multiple ($T$ trials)}: Poiché il $K$-Means con $K=2$ rimane un'euristica soggetta alla scelta casuale dei due semi iniziali all'interno di $\mathcal{C}^*$, eseguire $T$ iterazioni indipendenti (solitamente $T \in [5, 20]$) e selezionare la partizione con il minor valore di $\mathrm{SSE}(\mathcal{A}) + \mathrm{SSE}(\mathcal{B})$ abbatte esponenzialmente la probabilità di convergere verso un taglio sub-ottimale.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\providecolor{accentblue}{HTML}{1976D2}
+\providecolor{purple}{HTML}{7B1FA2}
+\begin{tikzpicture}[
+    treeNode/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!8, thick, font=\footnotesize, align=center, inner sep=6pt, text width=3.6cm},
+    leafNode/.style={rectangle, rounded corners=5pt, draw=darkgreen!85!black, fill=darkgreen!10, thick, font=\footnotesize, align=center, inner sep=6pt, text width=3.5cm},
+    leafBlue/.style={rectangle, rounded corners=5pt, draw=accentblue!85!black, fill=accentblue!10, thick, font=\footnotesize, align=center, inner sep=5pt, text width=3.1cm},
+    leafNavy/.style={rectangle, rounded corners=5pt, draw=navy!85!black, fill=navy!10, thick, font=\footnotesize, align=center, inner sep=5pt, text width=3.1cm},
+    activeNode/.style={rectangle, rounded corners=5pt, draw=crimson!85!black, fill=crimson!10, thick, font=\footnotesize, align=center, inner sep=6pt, text width=3.5cm},
+    badgeTrial/.style={rectangle, rounded corners=4pt, draw=purple!80!black, fill=purple!8, dashed, thick, font=\scriptsize, align=center, inner sep=5pt, text width=6.6cm},
+    arrowTree/.style={-Stealth, thick, draw=navy!85!black, rounded corners=3pt}
+]
+
+    % Level 0: Root (centered at x = 0, y = 7.4)
+    \node[treeNode] (root) at (0, 7.4) {
+        \textbf{Root Cluster $\mathcal{D}$}\\
+        \scriptsize $N$ campioni $\cdot$ $\mathrm{SSE}_{\text{tot}}$
+    };
+
+    % Operation 1: Split 1 (centered at x = 0, y = 5.5)
+    \node[badgeTrial] (split1) at (0, 5.5) {
+        \textbf{Split 1}: $T$ prove con $K=2$ su $\mathcal{D}$\\[2pt]
+        \tiny Minimo $[\mathrm{SSE}(\mathcal{C}_1) + \mathrm{SSE}(\mathcal{C}_2)]$
+    };
+
+    % Level 1: C1 and C2 (symmetric at x = -3.7 and x = +3.7, y = 2.8)
+    \node[activeNode] (c1) at (-3.7, 2.8) {
+        \textbf{Cluster $\mathcal{C}_1$ [Max SSE]}\\
+        \scriptsize $\mathrm{SSE}(\mathcal{C}_1) > \mathrm{SSE}(\mathcal{C}_2)$\\[2pt]
+        \textbf{\textcolor{crimson!90!black}{Selezionato per bisezione}}
+    };
+
+    \node[leafNode] (c2) at (3.7, 2.8) {
+        \textbf{Cluster $\mathcal{C}_2$ [Foglia 1]}\\
+        \scriptsize $\mathrm{SSE}$ ridotto $\cdot$ compatto\\[2pt]
+        \textbf{\textcolor{darkgreen!90!black}{Preservato intatto in $\mathcal{L}$}}
+    };
+
+    % Operation 2: Split 2 (centered under C1 at x = -3.7, y = 0.5)
+    \node[badgeTrial, text width=6.0cm] (split2) at (-3.7, 0.5) {
+        \textbf{Split 2}: $T$ prove con $K=2$ su $\mathcal{C}_1$\\[2pt]
+        \tiny Minimo $[\mathrm{SSE}(\mathcal{C}_{1a}) + \mathrm{SSE}(\mathcal{C}_{1b})]$
+    };
+
+    % Level 2: Leaves C1a and C1b (centered around x = -3.7, y = -2.2)
+    \node[leafBlue] (c1a) at (-5.5, -2.2) {
+        \textbf{Cluster $\mathcal{C}_{1a}$ [Foglia 2]}\\[2pt]
+        \scriptsize Sotto-cluster ottimale\\
+        \scriptsize $\mathrm{SSE}$ residuo minimo
+    };
+
+    \node[leafNavy] (c1b) at (-1.9, -2.2) {
+        \textbf{Cluster $\mathcal{C}_{1b}$ [Foglia 3]}\\[2pt]
+        \scriptsize Sotto-cluster ottimale\\
+        \scriptsize $\mathrm{SSE}$ residuo minimo
+    };
+
+    % C2 baseline state node (aligned at x = +3.7, y = -2.2)
+    \node[leafNode] (c2leaf) at (3.7, -2.2) {
+        \textbf{Cluster $\mathcal{C}_2$ [Foglia 1]}\\[2pt]
+        \scriptsize Stato invariato\\
+        \scriptsize Nessun ulteriore split
+    };
+
+    % --- Connectors ---
+    % Root -> Split 1
+    \draw[arrowTree] (root.south) -- (split1.north);
+
+    % Split 1 -> C1 and C2 (orthogonal branching downwards)
+    \draw[thick, draw=navy!85!black] (split1.south) -- (0, 4.3);
+    \draw[arrowTree] (0, 4.3) -| (c1.north);
+    \draw[arrowTree] (0, 4.3) -| (c2.north);
+
+    % C1 -> Split 2
+    \draw[arrowTree] (c1.south) -- (split2.north);
+
+    % Split 2 -> C1a and C1b (orthogonal branching downwards)
+    \draw[thick, draw=navy!85!black] (split2.south) -- (-3.7, -0.7);
+    \draw[arrowTree] (-3.7, -0.7) -| (c1a.north);
+    \draw[arrowTree] (-3.7, -0.7) -| (c1b.north);
+
+    % C2 continuation dashed arrow
+    \draw[dashed, draw=darkgreen!80!black, very thick, -Stealth] (c2.south) -- (c2leaf.north)
+        node[midway, right=7pt, font=\scriptsize, text=darkgreen!85!black, align=left] {
+            Omogeneit\`a elevata:\\
+            ramo completato
+        };
+
+    % Bottom Summary Banner (y = -3.9)
+    \node[anchor=north, rectangle, rounded corners=5pt, draw=gray!40, fill=gray!4, font=\scriptsize, align=center, text width=13.0cm, inner sep=6pt] at (0, -3.9) {
+        \textbf{Progressione gerarchica top-down}: dal dataset $\mathcal{D}$ si estrae greedy il cluster con massimo $\mathrm{SSE}$.\\
+        Si eseguono $T$ prove con $K=2$, adottando il taglio che minimizza $\mathrm{SSE}(\mathcal{A}) + \mathrm{SSE}(\mathcal{B})$.\\
+        I cluster omogenei restano foglie, concentrando i calcoli sui gruppi eterogenei fino a $K$ cluster.
+    };
+\end{tikzpicture}
+\caption{Rappresentazione ad albero binario gerarchico della progressione divisiva di Bisecting $K$-Means con prove multiple e selezione per minimo $\mathrm{SSE}$.}
+\label{fig:dm-bisecting-kmeans-tree}
+\end{figure}
+
+
+\subsection{Complessità Computazionale e Casi Limite}
+
+L'analisi di complessità computazionale evidenzia notevoli vantaggi operativi:
+\begin{itemize}
+    \item \textbf{Costo per bisezione}: Eseguire $2$-means su un cluster di $n_k$ punti per $I_2$ iterazioni richiede tempo $\mathcal{O}(I_2 \cdot 2 \cdot n_k \cdot d)$. Poiché ad ogni livello dell'albero la somma delle cardinalità dei cluster è $\sum n_k = N$, se l'albero di divisione è bilanciato la profondità complessiva è $\mathcal{O}(\log K)$. Il costo totale ammonta a $\mathcal{O}(T \cdot I_2 \cdot N \cdot d \cdot \log K)$, risultando significativamente più rapido del $K$-Means globale standard qualora $K$ sia elevato.
+    \item \textbf{Casi degeneri e singleton}: Se un cluster candidato possiede cardinalità unitaria ($|\mathcal{C}| = 1$) oppure varianza nulla (tutti i punti coincidenti), esso non può essere bisezionato. L'euristica deve intercettare tale eccezione saltando il cluster e selezionando il candidato successivo nella lista ordinata per $\mathrm{SSE}$.
+\end{itemize}
+
+\begin{noteblock}{Raffinamento Globale di Lloyd (Global Lloyd Refinement)}
+Poiché le decisioni di partizionamento di Bisecting $K$-Means vengono assunte con un approccio greedy locale (i punti confinati nel cluster $\mathcal{C}^*$ vengono ripartiti senza poter interagire con i punti degli altri raggruppamenti già formati), la partizione finale può presentare confini di decisione leggermente disallineati rispetto all'ottimo globale dello spazio euclideo. È prassi consolidata utilizzare i $K$ centroidi generati da Bisecting $K$-Means come \textbf{semi iniziali per una fase conclusiva di $K$-Means standard}. Questa raffinazione finale converge tipicamente in un numero ridottissimo di iterazioni (2--4 iterazioni), correggendo le assegnazioni di confine senza alcun rischio di cadere in minimi locali degeneri.
+\end{noteblock}
+
+% ====================================================================
+% SEZIONE 9.3: X-MEANS E IL CRITERIO BIC
+% ====================================================================
+\section{L'Algoritmo \texorpdfstring{$X$}{X}-Means e la Scelta Automatica di \texorpdfstring{$K$}{K}}
+\label{sec:dm-xmeans-algorithm}
+
+L'algoritmo \textbf{$X$-Means}, introdotto da Dan Pelleg e Andrew Moore~\cite{pelleg2000}, risolve in modo rigoroso e interamente automatizzato il problema della scelta del parametro $K$. Invece di richiedere all'utente un valore fisso, $X$-Means richiede unicamente un intervallo di ricerca $[K_{\min}, K_{\max}]$, esplorando dinamicamente la complessità del modello attraverso una sequenza di test statistici locali guidati dal \textbf{Criterio d'Informazione Bayesiano} (\textit{Bayesian Information Criterion}, BIC).
+
+\subsection{Flusso Operativo e Decisione di Bisezione Locale}
+
+L'algoritmo opera alternando ciclicamente una fase di clustering standard e una fase di verifica statistica della bisezione:
+\begin{enumerate}
+    \item \textbf{Inizializzazione e Convergenza Globale}: Si inizializza l'algoritmo impostando $K = K_{\min}$ ed eseguendo $K$-Means convenzionale fino a convergenza.
+    \item \textbf{Perturbazione dei Centroidi lungo la Direzione Principale}: Per ciascun cluster $\mathcal{C}_k$ corrente (con centroide $\mathbf{c}_k$), si valuta l'ipotesi se $\mathcal{C}_k$ debba essere preservato come entità singola (ipotesi nulla $\mathcal{M}_1$) oppure scisso in due sotto-cluster (ipotesi alternativa $\mathcal{M}_2$). A tal fine, vengono generati due semi candidati $\mathbf{c}_k^{(1)}$ e $\mathbf{c}_k^{(2)}$ perturbando il centroide lungo un vettore direzionale $\mathbf{v}$ proporzionale all'asse di massima varianza locale:
+    \begin{equation}
+    \label{eq:dm-xmeans-perturbation}
+    \mathbf{c}_k^{(1)} = \mathbf{c}_k - \alpha \mathbf{v}, \qquad \mathbf{c}_k^{(2)} = \mathbf{c}_k + \alpha \mathbf{v}
+    \end{equation}
+    dove $\alpha = s \cdot \sqrt{\lambda_{\max}}$, con $\lambda_{\max}$ massimo autovalore della matrice di covarianza locale e $s$ costante di scala.
+    \item \textbf{Bisezione Locale $2$-means}: Si esegue un'istanza locale di $2$-means confinata esclusivamente all'insieme di punti appartenenti a $\mathcal{C}_k$, ottenendo i due sotto-centroidi raffinati $\hat{\mathbf{c}}_k^{(1)}$ e $\hat{\mathbf{c}}_k^{(2)}$.
+    \item \textbf{Test di Scelta del Modello tramite BIC}: Si calcola il valore del criterio BIC per il modello a cluster singolo $\text{BIC}(\mathcal{M}_1)$ e per il modello a cluster sdoppiato $\text{BIC}(\mathcal{M}_2)$. Si calcola il guadagno informativo:
+    \begin{equation}
+    \label{eq:dm-delta-bic}
+    \Delta\mathrm{BIC} = \mathrm{BIC}(\mathcal{M}_2) - \mathrm{BIC}(\mathcal{M}_1)
+    \end{equation}
+    Se $\Delta\mathrm{BIC} > 0$, l'incremento di verosimiglianza giustifica l'introduzione di nuovi parametri: la scissione viene accettata e il centroide originale $\mathbf{c}_k$ viene rimpiazzato dalla coppia $(\hat{\mathbf{c}}_k^{(1)}, \hat{\mathbf{c}}_k^{(2)})$. Altrimenti, la bisezione viene rigettata.
+    \item \textbf{Verifica del Criterio d'Arresto}: Se nessun cluster viene scisso oppure se la cardinalità totale dei centroidi raggiunge il limite $K_{\max}$, l'algoritmo termina. In caso contrario, si riavvia il $K$-Means globale con il nuovo insieme espanso di centroidi e si ripete la procedura.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    panelBox/.style={rectangle, rounded corners=4.5pt, draw=navy!80!black, fill=navy!4, thick, font=\footnotesize, inner sep=6pt, text width=5.7cm, minimum height=3.3cm, align=left},
+    tagBadge/.style={rectangle, rounded corners=3.5pt, draw=purple!85!black, fill=purple!12, thick, font=\scriptsize\bfseries, text=purple!90!black, inner sep=2.5pt}
+]
+    % Panel 1: Top-Left
+    \node[panelBox] (p1) at (-3.6, 2.3) {
+        \textbf{(a) Partizione Voronoi Iniziale}\\[3pt]
+        $\bullet$ Esecuzione $K$-Means con $K=3$.\\
+        $\bullet$ Spazio diviso nelle celle di Voronoi $V_k$.\\
+        $\bullet$ Ogni punto è assegnato al centroide più vicino $\mathbf{c}_k$.
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]p1.north east) {Fase 1};
+
+    % Panel 2: Top-Right
+    \node[panelBox] (p2) at (3.6, 2.3) {
+        \textbf{(b) Perturbazione Centroidi}\\[3pt]
+        $\bullet$ Per ogni cella si generano 2 semi.\\
+        $\bullet$ Spostamento opposto lungo l'asse:\\
+        $\quad \mathbf{c}_k^{(1)} = \mathbf{c}_k - \alpha \mathbf{v}$\\
+        $\quad \mathbf{c}_k^{(2)} = \mathbf{c}_k + \alpha \mathbf{v}$\\
+        $\bullet$ Preparazione alla scissione locale.
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]p2.north east) {Fase 2};
+
+    % Panel 3: Bottom-Left
+    \node[panelBox] (p3) at (-3.6, -2.1) {
+        \textbf{(c) Bisezione Locale $2$-means}\\[3pt]
+        $\bullet$ $2$-means applicato solo ai dati di $V_k$.\\
+        $\bullet$ Calcolo rapido dei baricentri locali.\\
+        $\bullet$ Nessuna interferenza tra regioni adiacenti (calcolo parallelo).
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]p3.north east) {Fase 3};
+
+    % Panel 4: Bottom-Right
+    \node[panelBox] (p4) at (3.6, -2.1) {
+        \textbf{(d) Valutazione BIC Locale}\\[3pt]
+        $\bullet$ Calcolo $\Delta\mathrm{BIC} = \mathrm{BIC}(\mathcal{M}_2) - \mathrm{BIC}(\mathcal{M}_1)$.\\
+        $\bullet$ \textcolor{darkgreen}{\textbf{Split Accettato}}: se $\Delta\mathrm{BIC} > 0$ (cluster superiore non sferico).\\
+        $\bullet$ \textcolor{crimson}{\textbf{Split Rigettato}}: se $\Delta\mathrm{BIC} \le 0$ (cluster inferiori già compatti).
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]p4.north east) {Fase 4};
+
+    % Central sequence arrows
+    \draw[-Stealth, very thick, draw=navy!80!black] (p1.east) -- (p2.west);
+    \draw[-Stealth, very thick, draw=navy!80!black] (p2.south) -- (p4.north);
+    \draw[-Stealth, very thick, draw=navy!80!black] (p4.west) -- (p3.east);
+    \draw[-Stealth, very thick, draw=navy!80!black, dashed] (p3.north) -- (p1.south) node[midway, left=4pt, font=\scriptsize\bfseries, text=navy!80!black] {Ciclo Globale};
+\end{tikzpicture}
+\caption{Ciclo operativo a quattro stadi di $X$-Means: partizione iniziale di Voronoi, perturbazione direzionale dei semi, bisezione locale e validazione statistica tramite il test informativo $\Delta\mathrm{BIC}$.}
+\label{fig:dm-xmeans-cycle}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 9.4: IL CRITERIO D'INFORMAZIONE BAYESIANO (BIC)
+% ====================================================================
+\section{Il Criterio d'Informazione Bayesiano (BIC)}
+\label{sec:dm-bic-theory}
+
+Il Criterio d'Informazione Bayesiano (BIC), formulato da Gideon Schwarz~\cite{schwarz1978}, affonda le proprie radici nella teoria asintotica della stima bayesiana del modello. Esso fornisce una misura quantitativa del compromesso fondamentale tra \textbf{bontà di adattamento ai dati} (\textit{goodness of fit}) e \textbf{complessità parametrica del modello} (\textit{parsimonia o rasoio di Occam}).
+
+\subsection{Derivazione Asintotica dall'Evidenza Marginale}
+
+Sia dato un insieme di dati osservati $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_R\}$ e una famiglia parametrica di modelli $\mathcal{M}$ indicizzata da un vettore di parametri $\boldsymbol{\theta} \in \mathbb{R}^p$. Nella formulazione bayesiana pura, la probabilità a posteriori del modello $\mathcal{M}$ dato il campione $\mathcal{D}$ è data dal teorema di Bayes:
+\begin{equation}
+\label{eq:dm-bayes-model-posterior}
+p(\mathcal{M} | \mathcal{D}) = \frac{p(\mathcal{D} | \mathcal{M}) \, p(\mathcal{M})}{p(\mathcal{D})} \propto p(\mathcal{D} | \mathcal{M}) \, p(\mathcal{M})
+\end{equation}
+In assenza di preferenze a priori sui modelli ($p(\mathcal{M})$ uniforme), la scelta ottimale consiste nel massimizzare l'\textbf{evidenza marginale} (\textit{marginal likelihood}):
+\begin{equation}
+\label{eq:dm-marginal-likelihood-integral}
+p(\mathcal{D} | \mathcal{M}) = \int_{\Theta} p(\mathcal{D} | \boldsymbol{\theta}, \mathcal{M}) \, p(\boldsymbol{\theta} | \mathcal{M}) \, d\boldsymbol{\theta}
+\end{equation}
+Poiché l'integrale~(\ref{eq:dm-marginal-likelihood-integral}) è analiticamente intrattabile nella quasi totalità dei casi non banali, Schwarz applicò il \textbf{metodo di Laplace} per approssimarlo asintoticamente quando la numerosità campionaria $R \to \infty$. Sviluppando in serie di Taylor la funzione di log-verosimiglianza $\ell(\boldsymbol{\theta}) = \ln p(\mathcal{D} | \boldsymbol{\theta}, \mathcal{M})$ attorno allo stimatore di massima verosimiglianza (\textit{MLE}) $\hat{\boldsymbol{\theta}}$:
+\begin{equation}
+\label{eq:dm-taylor-laplace}
+\ell(\boldsymbol{\theta}) \approx \ell(\hat{\boldsymbol{\theta}}) - \frac{1}{2} (\boldsymbol{\theta} - \hat{\boldsymbol{\theta}})^T \mathbf{H} (\boldsymbol{\theta} - \hat{\boldsymbol{\theta}})
+\end{equation}
+dove $\mathbf{H} = -\nabla^2 \ell(\hat{\boldsymbol{\theta}})$ è la matrice Hessiana dell'informazione osservata. Sostituendo tale forma quadratica gaussiana nell'integrale e valutando il determinante asintotico per $R$ grande, si ottiene:
+\begin{equation}
+\label{eq:dm-bic-derivation-limit}
+\ln p(\mathcal{D} | \mathcal{M}) = \ell(\hat{\boldsymbol{\theta}}) - \frac{p}{2} \ln R + \mathcal{O}(1)
+\end{equation}
+Definendo formalmente la statistica $\mathrm{BIC}(\mathcal{M})$ proporzionale al logaritmo dell'evidenza marginale, si giunge alla celebre formulazione:
+\begin{equation}
+\label{eq:dm-bic-definition}
+\mathrm{BIC}(\mathcal{M}) = \ell(\hat{\boldsymbol{\theta}}) - \frac{p}{2} \ln R
+\end{equation}
+dove:
+\begin{itemize}
+    \item $\ell(\hat{\boldsymbol{\theta}}) = \sum_{i=1}^R \ln p(\mathbf{x}_i | \hat{\boldsymbol{\theta}})$ è la log-verosimiglianza massimizzata del modello sui dati;
+    \item $p$ è il numero totale di parametri liberi stimati dal modello;
+    \item $R$ è il numero di osservazioni empiriche;
+    \item Il termine $-\frac{p}{2} \ln R$ rappresenta la \textbf{penalità di complessità di Schwarz}, che cresce logaritmicamente con la dimensione del campione e linearmente con il numero di parametri liberi.
+\end{itemize}
+
+\begin{remark}[Convenzioni di Segno nella Letteratura Scientifica]
+In letteratura statistica coesistono due definizioni formali del BIC:
+\begin{enumerate}
+    \item \textbf{Convenzione della Verosimiglianza Regolarizzata} (usata in data mining e da Pelleg-Moore): $\mathrm{BIC} = \ell(\hat{\boldsymbol{\theta}}) - \frac{p}{2} \ln R$. In questo caso il criterio va \textbf{massimizzato} (punteggi più alti indicano modelli migliori).
+    \item \textbf{Convenzione della Devianza} (usata storicamente da Schwarz e in econometria): $\mathrm{BIC}_{\text{dev}} = -2 \ell(\hat{\boldsymbol{\theta}}) + p \ln R$. In questo caso il criterio va \textbf{minimizzato}. Le due formulazioni sono esattamente equivalenti poiché $\mathrm{BIC}_{\text{dev}} = -2 \cdot \mathrm{BIC}$.
+\end{enumerate}
+\end{remark}
+
+\subsection{Formalizzazione del BIC nel Contesto del Clustering Sferico}
+
+Nell'algoritmo $X$-Means~\cite{pelleg2000}, ciascun cluster $k \in \{1, \dots, K\}$ viene modellato come una distribuzione gaussiana $d$-dimensionale isotropa e sferica, con matrice di covarianza identica e diagonale $\boldsymbol{\Sigma}_k = \sigma^2 \mathbf{I}_d$. La densità di probabilità associata a un punto $\mathbf{x}$ generato dal cluster $\mathcal{C}_k$ è:
+\begin{equation}
+\label{eq:dm-spherical-gaussian-pdf}
+p(\mathbf{x} | \mathbf{c}_k, \sigma^2) = \frac{1}{(2\pi)^{d/2} \sigma^d} \exp\left( -\frac{\|\mathbf{x} - \mathbf{c}_k\|_2^2}{2\sigma^2} \right)
+\end{equation}
+La log-verosimiglianza del sottoinsieme di $R$ punti ripartiti nei $K$ cluster è espressa analiticamente da:
+\begin{equation}
+\label{eq:dm-loglik-spherical-kmeans}
+\ell(\hat{\boldsymbol{\theta}}) = -\frac{R \cdot d}{2} \ln(2\pi) - \frac{R \cdot d}{2} \ln(\hat{\sigma}^2) - \frac{1}{2\hat{\sigma}^2} \sum_{k=1}^K \mathrm{SSE}(\mathcal{C}_k) + \sum_{k=1}^K R_k \ln\left(\frac{R_k}{R}\right)
+\end{equation}
+dove $R_k = |\mathcal{C}_k|$ è la cardinalità del cluster $k$, e lo stimatore non distorto della varianza comune residua $\hat{\sigma}^2$ è calcolato normalizzando per i gradi di libertà spaziali:
+\begin{equation}
+\label{eq:dm-sigma-sq-unbiased}
+\hat{\sigma}^2 = \frac{1}{R - K} \frac{1}{d} \sum_{k=1}^K \mathrm{SSE}(\mathcal{C}_k)
+\end{equation}
+Sostituendo $\hat{\sigma}^2$ nell'equazione~(\ref{eq:dm-loglik-spherical-kmeans}), il terzo termine si semplifica esattamente in $-\frac{(R - K) \cdot d}{2}$.
+
+\subsection{Quantificazione Rigorosa dei Parametri Liberi}
+
+Il conteggio dei parametri liberi $p_K$ del modello con $K$ cluster è strutturato come segue:
+\begin{itemize}
+    \item $K \cdot d$ parametri per specificare le coordinate spaziali dei $K$ vettori centroide $\mathbf{c}_k \in \mathbb{R}^d$;
+    \item $1$ parametro per la varianza isotropa condivisa $\hat{\sigma}^2$;
+    \item $K - 1$ parametri liberi per i pesi a priori dei cluster $\pi_k = \frac{R_k}{R}$ (poiché $\sum_{k=1}^K \pi_k = 1$).
+\end{itemize}
+Il numero totale di gradi di libertà ammonta dunque a:
+\begin{equation}
+\label{eq:dm-pk-spherical-count}
+p_K = K \cdot d + 1 + (K - 1) = K(d + 1)
+\end{equation}
+Qualora i pesi a priori siano considerati uniformi o fissati empiricamente dalle proporzioni campionarie, la letteratura computazionale adotta la formulazione ridotta $p_K = K \cdot d + 1$.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.35}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.8cm} >{\centering\arraybackslash}p{2.9cm} >{\centering\arraybackslash}p{2.6cm} Y}
+        \toprule
+        \textbf{Struttura Covarianza} & \textbf{Forma di $\boldsymbol{\Sigma}_k$} & \textbf{Parametri $p$} & \textbf{Proprietà Geometriche} \\
+        \midrule
+        \textbf{Sferica Condivisa} & $\sigma^2 \mathbf{I}_d$ & $K \cdot d + 1$ & Sfere isotrope di raggio identico per tutti i cluster. \\
+        \addlinespace[3pt]
+        \textbf{Sferica Distinta} & $\sigma_k^2 \mathbf{I}_d$ & $K(d + 1)$ & Sfere isotrope con raggio e volume disomogenei tra cluster. \\
+        \addlinespace[3pt]
+        \textbf{Diagonale Indipendente} & $\operatorname{diag}(\sigma_{k1}^2, \dots, \sigma_{kd}^2)$ & $K \cdot 2d$ & Iper-ellissoidi con assi allineati agli assi coordinati. \\
+        \addlinespace[3pt]
+        \textbf{Piena Generale} & $\boldsymbol{\Sigma}_k \succ 0$ libera & $K \left(d + \frac{d(d+1)}{2}\right)$ & Ellissoidi ad orientamento, rotazione e scala arbitrari. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Confronto del numero di parametri liberi $p$ in funzione della modellazione della matrice di covarianza per $K$ componenti gaussiane in dimensione $d$.}
+    \label{tab:dm-covariance-parameters}
+\end{table}
+
+La Tabella~\ref{tab:dm-covariance-parameters} illustra chiaramente l'esplosione quadratica della complessità parametrica ($\mathcal{O}(K \cdot d^2)$) quando si passa da assunzioni sferiche a covarianze piene, evidenziando il motivo per cui $X$-Means adotta l'ipotesi sferica per garantire robustezza numerica e velocità di calcolo anche ad elevata dimensionalità.
+
+% ====================================================================
+% SEZIONE 9.5: MODELLI DI MISTURA ED EXPECTATION-MAXIMIZATION (EM)
+% ====================================================================
+\section[Modelli Mistura e l'Algoritmo EM]{Modelli Mistura e l'Algoritmo Expectation-Maximization (EM)}
+\label{sec:dm-mixture-em}
+
+Mentre i metodi di partizionamento geometrico assegnano ciascun record a un cluster in modo binario, l'approccio generativo probabilistico fondato sui \textbf{Modelli di Mistura} (\textit{Mixture Models}) e sull'algoritmo \textbf{Expectation-Maximization} (EM)~\cite{dempster1977} modella il dataset come la realizzazione di una variabile casuale complessa generata da una combinazione convessa di distribuzioni di probabilità elementari.
+
+\subsection{Formulazione Generativa e Variabili Latenti}
+
+Si assume che ciascuna osservazione $\mathbf{x}_i \in \mathbb{R}^d$ ($i = 1, \dots, N$) sia generata secondo il seguente processo stocastico:
+\begin{enumerate}
+    \item Viene estratta una componente casuale latente $z_i \in \{1, \dots, K\}$ secondo una distribuzione categorica a priori:
+    \begin{equation}
+    p(z_i = k) = \pi_k, \qquad \text{con } \sum_{k=1}^K \pi_k = 1 \quad \text{e} \quad \pi_k \ge 0
+    \end{equation}
+    I valori $\pi_k$ sono denominati \textbf{pesi di miscelazione} o \textit{mixing proportions}.
+    \item Condizionatamente alla scelta della componente $k$, l'osservazione $\mathbf{x}_i$ è campionata dalla corrispondente distribuzione continua $p_k(\mathbf{x}_i | \boldsymbol{\theta}_k)$:
+    \begin{equation}
+    \mathbf{x}_i \sim p(\mathbf{x}_i | z_i = k, \boldsymbol{\theta}_k)
+    \end{equation}
+\end{enumerate}
+La densità di probabilità marginale dell'osservazione $\mathbf{x}_i$ è data dalla legge della probabilità totale:
+\begin{equation}
+\label{eq:dm-mixture-marginal-density}
+p(\mathbf{x}_i | \boldsymbol{\Theta}) = \sum_{k=1}^K p(z_i = k) \, p(\mathbf{x}_i | z_i = k, \boldsymbol{\theta}_k) = \sum_{k=1}^K \pi_k \, p_k(\mathbf{x}_i | \boldsymbol{\theta}_k)
+\end{equation}
+dove l'insieme globale dei parametri da stimare è $\boldsymbol{\Theta} = \{\pi_1, \dots, \pi_K, \boldsymbol{\theta}_1, \dots, \boldsymbol{\theta}_K\}$.
+
+\subsection{Verosimiglianza Incompleta contro Verosimiglianza Completa}
+
+Dato il dataset $\mathbf{X} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\}$, assumendo le osservazioni i.i.d., la funzione di \textbf{log-verosimiglianza incompleta} (osservata) è data da:
+\begin{equation}
+\label{eq:dm-incomplete-loglik}
+\ln p(\mathbf{X} | \boldsymbol{\Theta}) = \sum_{i=1}^N \ln \left( \sum_{k=1}^K \pi_k \, p_k(\mathbf{x}_i | \boldsymbol{\theta}_k) \right)
+\end{equation}
+La presenza del logaritmo di una sommatoria all'interno dell'espressione~(\ref{eq:dm-incomplete-loglik}) impedisce di ricavare una soluzione analitica in forma chiusa per i gradienti $\nabla_{\boldsymbol{\Theta}} \ln p(\mathbf{X} | \boldsymbol{\Theta}) = \mathbf{0}$, poiché i parametri delle diverse componenti risultano inestricabilmente accoppiati.
+
+Se, per ipotesi teorica, fossero note anche le variabili indicatrici latenti non osservate $\mathbf{Z} = \{\mathbf{z}_1, \dots, \mathbf{z}_N\}$, introducendo la codifica \textit{one-hot} $z_{ik} = \mathbb{I}(z_i = k)$, la \textbf{log-verosimiglianza completa} dei dati congiunti $(\mathbf{X}, \mathbf{Z})$ assumerebbe la forma linearizzata:
+\begin{equation}
+\label{eq:dm-complete-loglik}
+\ln p(\mathbf{X}, \mathbf{Z} | \boldsymbol{\Theta}) = \sum_{i=1}^N \sum_{k=1}^K z_{ik} \left[ \ln \pi_k + \ln p_k(\mathbf{x}_i | \boldsymbol{\theta}_k) \right]
+\end{equation}
+Nell'equazione~(\ref{eq:dm-complete-loglik}) il logaritmo agisce direttamente sulle densità individuali delle componenti, rendendo immediata l'ottimizzazione separata per ciascun parametro.
+
+\subsection{Fondazione Variazionale dell'Algoritmo EM}
+
+L'algoritmo Expectation-Maximization risolve l'ottimizzazione della verosimiglianza incompleta applicando la disuguaglianza di Jensen per definire una funzione limite inferiore (\textit{evidence lower bound}) calcolata rispetto alla distribuzione a posteriori delle variabili latenti.
+
+Sia $\boldsymbol{\Theta}^{(t)}$ la stima corrente dei parametri all'iterazione $t$. Si definisce la funzione ausiliaria $\mathcal{Q}(\boldsymbol{\Theta}, \boldsymbol{\Theta}^{(t)})$ come il valore atteso della log-verosimiglianza completa condizionata ai dati osservati e ai parametri correnti:
+\begin{align}
+\label{eq:dm-q-function}
+\mathcal{Q}(\boldsymbol{\Theta}, \boldsymbol{\Theta}^{(t)}) &= \mathbb{E}_{\mathbf{Z} | \mathbf{X}, \boldsymbol{\Theta}^{(t)}} \left[ \ln p(\mathbf{X}, \mathbf{Z} | \boldsymbol{\Theta}) \right] \nonumber \\
+&= \sum_{i=1}^N \sum_{k=1}^K \mathbb{E}[z_{ik} | \mathbf{x}_i, \boldsymbol{\Theta}^{(t)}] \left[ \ln \pi_k + \ln p_k(\mathbf{x}_i | \boldsymbol{\theta}_k) \right] \nonumber \\
+&= \sum_{i=1}^N \sum_{k=1}^K \gamma_{ik} \left[ \ln \pi_k + \ln p_k(\mathbf{x}_i | \boldsymbol{\theta}_k) \right]
+\end{align}
+dove $\gamma_{ik} \equiv \mathbb{E}[z_{ik} | \mathbf{x}_i, \boldsymbol{\Theta}^{(t)}] = p(z_i = k | \mathbf{x}_i, \boldsymbol{\Theta}^{(t)})$ rappresenta la \textbf{responsabilità a posteriori} che la componente $k$ attribuisce alla generazione dell'osservazione $\mathbf{x}_i$.
+
+\begin{theorem}[Monotonia della Verosimiglianza in EM]
+Per ogni successione di parametri $\boldsymbol{\Theta}^{(t)}$ e $\boldsymbol{\Theta}^{(t+1)}$ generata dall'algoritmo EM, vale la disuguaglianza di convergenza monotona:
+\begin{equation}
+\ln p(\mathbf{X} | \boldsymbol{\Theta}^{(t+1)}) \ge \ln p(\mathbf{X} | \boldsymbol{\Theta}^{(t)})
+\end{equation}
+L'algoritmo converge monotonicamente verso un punto stazionario (minimo locale o punto di sella) della superficie di verosimiglianza incompleta.
+\end{theorem}
+
+\subsection{Ciclo Operativo: E-step ed M-step}
+
+L'algoritmo itera ciclicamente due passaggi fino al raggiungimento della convergenza numerica:
+
+\paragraph{1. Passo di Aspettazione (E-step, Expectation)}
+Mantenendo costanti i parametri $\boldsymbol{\Theta}^{(t)}$, si applica la regola di Bayes per calcolare le responsabilità a posteriori per ogni punto $i$ e per ogni componente $k$:
+\begin{equation}
+\label{eq:dm-e-step}
+\gamma_{ik} = \frac{\pi_k^{(t)} \, p_k(\mathbf{x}_i | \boldsymbol{\theta}_k^{(t)})}{\sum_{j=1}^K \pi_j^{(t)} \, p_j(\mathbf{x}_i | \boldsymbol{\theta}_j^{(t)})}
+\end{equation}
+Si noti che $\sum_{k=1}^K \gamma_{ik} = 1$ per ogni singolo punto $i$. Si definisce la \textbf{massa efficace} di punti assegnati al cluster $k$ come:
+\begin{equation}
+\label{eq:dm-effective-nk}
+N_k = \sum_{i=1}^N \gamma_{ik}
+\end{equation}
+
+\paragraph{2. Passo di Massimizzazione (M-step, Maximization)}
+Mantenendo costanti le responsabilità $\gamma_{ik}$, si ricavano i nuovi parametri $\boldsymbol{\Theta}^{(t+1)}$ massimizzando la funzione ausiliaria $\mathcal{Q}$:
+\begin{equation}
+\label{eq:dm-m-step-argmax}
+\boldsymbol{\Theta}^{(t+1)} = \arg\max_{\boldsymbol{\Theta}} \mathcal{Q}(\boldsymbol{\Theta}, \boldsymbol{\Theta}^{(t)})
+\end{equation}
+Per i modelli di miscela gaussiana (\textit{GMM}), le soluzioni in forma chiusa per i pesi, i vettori medi e le matrici di covarianza risultano:
+\begin{align}
+\label{eq:dm-m-step-pi}
+\pi_k^{(t+1)} &= \frac{N_k}{N} = \frac{1}{N} \sum_{i=1}^N \gamma_{ik} \\
+\label{eq:dm-m-step-mu}
+\boldsymbol{\mu}_k^{(t+1)} &= \frac{1}{N_k} \sum_{i=1}^N \gamma_{ik} \mathbf{x}_i \\
+\label{eq:dm-m-step-sigma}
+\boldsymbol{\Sigma}_k^{(t+1)} &= \frac{1}{N_k} \sum_{i=1}^N \gamma_{ik} (\mathbf{x}_i - \boldsymbol{\mu}_k^{(t+1)}) (\mathbf{x}_i - \boldsymbol{\mu}_k^{(t+1)})^T
+\end{align}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4.5pt, draw=navy!80!black, fill=navy!4, thick, font=\footnotesize, inner sep=6pt, align=left, text width=11.0cm},
+    initBox/.style={rectangle, rounded corners=4.5pt, draw=navy!70!black, fill=navy!3, thick, font=\footnotesize, inner sep=5pt, align=left, text width=11.0cm},
+    checkCard/.style={rectangle, rounded corners=4.5pt, draw=orange!85!black, fill=orange!8, thick, font=\footnotesize, inner sep=5pt, align=left, text width=11.0cm},
+    resultBadge/.style={rectangle, rounded corners=4pt, draw=darkgreen!85!black, fill=darkgreen!10, thick, font=\footnotesize\bfseries, text=darkgreen!90!black, inner sep=5pt, align=center, text width=9.2cm},
+    tagBadge/.style={rectangle, rounded corners=3.5pt, draw=purple!85!black, fill=purple!12, thick, font=\scriptsize\bfseries, text=purple!90!black, inner sep=2.5pt},
+    flowArrow/.style={-Stealth, very thick, draw=navy!80!black},
+    loopArrow/.style={-Stealth, very thick, draw=crimson!85!black}
+]
+    % Node 1: Initialization
+    \node[initBox] (init) at (0, 0) {
+        \textbf{Inizializzazione dei Parametri $\boldsymbol{\Theta}^{(0)}$}\\[2pt]
+        $\bullet$ Pesi uniformi $\pi_k^{(0)} = \frac{1}{K}$, medie iniziali $\boldsymbol{\mu}_k^{(0)}$ (da $K$-Means o casuali).\\
+        $\bullet$ Matrici di covarianza isotrope iniziali: $\boldsymbol{\Sigma}_k^{(0)} = \hat{\sigma}^2 \mathbf{I}_d$.
+    };
+
+    % Node 2: E-Step
+    \node[box, below = 0.55cm of init] (estep) {
+        \textbf{Passo E (Aspettazione / Expectation)}\\[2pt]
+        $\bullet$ Calcolo responsabilità a posteriori e massa efficace dati i parametri $\boldsymbol{\Theta}^{(t)}$:
+        \vspace{2pt}
+        $$\gamma_{ik} = \frac{\pi_k^{(t)} p(\mathbf{x}_i \mid \boldsymbol{\theta}_k^{(t)})}{\sum_{j=1}^K \pi_j^{(t)} p(\mathbf{x}_i \mid \boldsymbol{\theta}_j^{(t)})}, \qquad N_k = \sum_{i=1}^N \gamma_{ik}$$
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]estep.north east) {Fase 1};
+
+    % Node 3: M-Step
+    \node[box, below = 0.55cm of estep] (mstep) {
+        \textbf{Passo M (Massimizzazione / Maximization)}\\[2pt]
+        $\bullet$ Aggiornamento parametri $\boldsymbol{\Theta}^{(t+1)}$ massimizzando la funzione $\mathcal{Q}(\boldsymbol{\Theta}, \boldsymbol{\Theta}^{(t)})$:
+        \vspace{2pt}
+        $$\pi_k^{(t+1)} = \frac{N_k}{N}, \qquad \boldsymbol{\mu}_k^{(t+1)} = \frac{1}{N_k}\sum_{i=1}^N \gamma_{ik}\mathbf{x}_i$$
+        \vspace{-6pt}
+        $$\boldsymbol{\Sigma}_k^{(t+1)} = \frac{1}{N_k}\sum_{i=1}^N \gamma_{ik} (\mathbf{x}_i - \boldsymbol{\mu}_k^{(t+1)})(\mathbf{x}_i - \boldsymbol{\mu}_k^{(t+1)})^T$$
+    };
+    \node[tagBadge, anchor=south east] at ([xshift=-10pt, yshift=-1.5pt]mstep.north east) {Fase 2};
+
+    % Node 4: Convergence Check
+    \node[checkCard, below = 0.55cm of mstep] (check) {
+        \textbf{Verifica del Criterio di Convergenza}\\[2pt]
+        $\bullet$ Incremento log-verosimiglianza: $|\ln p(\mathbf{X}\mid\boldsymbol{\Theta}^{(t+1)}) - \ln p(\mathbf{X}\mid\boldsymbol{\Theta}^{(t)})| < \varepsilon$.
+    };
+
+    % Node 5: Optimal Model
+    \node[resultBadge, below = 0.55cm of check] (result) {
+        \textbf{Convergenza Raggiunta (Punto Stazionario)}\\
+        \scriptsize Modello Ottimale $\boldsymbol{\Theta}^* = \{\pi_k^*, \boldsymbol{\mu}_k^*, \boldsymbol{\Sigma}_k^*\}$
+    };
+
+    % Forward Arrows
+    \draw[flowArrow] (init.south) -- (estep.north)
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy!85!black] {$\boldsymbol{\Theta}^{(0)}$};
+
+    \draw[flowArrow] (estep.south) -- (mstep.north)
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy!85!black] {Responsabilità $\gamma_{ik}$};
+
+    \draw[flowArrow] (mstep.south) -- (check.north)
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy!85!black] {$\boldsymbol{\Theta}^{(t+1)}$};
+
+    \draw[-Stealth, very thick, draw=darkgreen!85!black] (check.south) -- (result.north)
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=darkgreen!85!black] {Sì (stazionario)};
+
+    % Feedback Loop Arrow (on the left)
+    \draw[loopArrow] (check.west) -- ++(-1.1, 0)
+        node[midway, above=2pt, font=\scriptsize\bfseries, text=crimson!85!black] {No}
+        |- ([yshift=-2pt]estep.west)
+        node[pos=0.35, left=3pt, font=\scriptsize\bfseries, text=crimson!85!black, align=right] {Nuova iterazione $t \leftarrow t+1$\\con $\boldsymbol{\Theta}^{(t+1)}$};
+
+\end{tikzpicture}
+\caption{Diagramma operativo dell'algoritmo Expectation-Maximization (EM).}
+\label{fig:dm-em-cycle}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 9.6: MODELLI GAUSSIANI E STIMA STATISTICA FONDAMENTALE
+% ====================================================================
+\section{Distribuzioni Normali e Fondamenti di Stima Statistica}
+\label{sec:dm-gaussian-mle}
+
+Per apprezzare appieno il funzionamento del passo di massimizzazione nei modelli GMM, è utile richiamare i fondamenti della stima a massima verosimiglianza (\textit{Maximum Likelihood Estimation}, MLE) per una singola variabile casuale gaussiana unidimensionale.
+
+La funzione di densità di probabilità di una variabile gaussiana $x \sim \mathcal{N}(\mu, \sigma^2)$ è espressa da:
+\begin{equation}
+\label{eq:dm-1d-gaussian-pdf}
+p(x | \mu, \sigma^2) = \frac{1}{\sqrt{2\pi}\sigma} \exp\left( -\frac{(x - \mu)^2}{2\sigma^2} \right)
+\end{equation}
+Dato un campione i.i.d. di $N$ osservazioni scalari $\{x_1, \dots, x_N\}$, la funzione di log-verosimiglianza vale:
+\begin{equation}
+\label{eq:dm-1d-gaussian-loglik}
+\ell(\mu, \sigma^2) = \sum_{i=1}^N \ln p(x_i | \mu, \sigma^2) = -\frac{N}{2} \ln(2\pi) - \frac{N}{2} \ln(\sigma^2) - \frac{1}{2\sigma^2} \sum_{i=1}^N (x_i - \mu)^2
+\end{equation}
+Annullando la derivata parziale rispetto al parametro di posizione $\mu$:
+\begin{equation}
+\frac{\partial \ell}{\partial \mu} = \frac{1}{\sigma^2} \sum_{i=1}^N (x_i - \mu) = 0 \implies \hat{\mu}_{\text{MLE}} = \frac{1}{N} \sum_{i=1}^N x_i
+\end{equation}
+si ottiene la media campionaria aritmetica. Sostituendo $\hat{\mu}$ e annullando la derivata parziale rispetto a $\sigma^2$:
+\begin{equation}
+\frac{\partial \ell}{\partial (\sigma^2)} = -\frac{N}{2\sigma^2} + \frac{1}{2(\sigma^2)^2} \sum_{i=1}^N (x_i - \hat{\mu})^2 = 0 \implies \hat{\sigma}^2_{\text{MLE}} = \frac{1}{N} \sum_{i=1}^N (x_i - \hat{\mu})^2
+\end{equation}
+Nel contesto dei modelli di miscela probabilistica (GMM), il passo M estende esattamente queste derivazioni classiche sostituendo la media aritmetica semplice con una \textbf{media ponderata} governata dalle probabilità a posteriori $\gamma_{ik}$ (Equazioni~(\ref{eq:dm-m-step-mu}) e~(\ref{eq:dm-m-step-sigma})).
+
+\paragraph{Fondamento Bayesiano MAP contro MLE}
+Mentre la stima MLE massimizza puramente la verosimiglianza $\hat{\boldsymbol{\Theta}}_{\text{MLE}} = \arg\max \ln p(\mathbf{X}|\boldsymbol{\Theta})$, la stima di \textbf{Massima a Posteriori (MAP)} incorpora distribuzioni a priori coniugate $p(\boldsymbol{\Theta})$ sui parametri:
+\begin{equation}
+\hat{\boldsymbol{\Theta}}_{\text{MAP}} = \arg\max_{\boldsymbol{\Theta}} \big[ \ln p(\mathbf{X}|\boldsymbol{\Theta}) + \ln p(\boldsymbol{\Theta}) \big]
+\end{equation}
+Nei modelli di miscela ad alta dimensionalità, la stima MAP con distribuzioni a priori Normal-Inverse-Wishart sulle matrici di covarianza impedisce la singolarità del determinante ($|\boldsymbol{\Sigma}_k| \to 0$), fungendo da termine di regolarizzazione strutturale (\textit{ridge shrinkage}).
+
+% ====================================================================
+% SEZIONE 9.7: CASO DI STUDIO: MISCELA DI DUE GAUSSIANE
+% ====================================================================
+\section{Caso di Studio: Deconvoluzione di una Miscela di Due Gaussiane}
+\label{sec:dm-case-study-two-gaussians}
+
+Per comprendere concretamente l'azione del clustering probabilistico, consideriamo il problema didattico fondamentale presentato in~\cite{tan2018}, relativo alla modellazione dell'altezza in una popolazione mista eterogenea (ad esempio, la sovrapposizione di individui appartenenti a due etnie con statura media differente).
+
+\subsection{Definizione del Modello Sintetico Bimodale}
+
+Si consideri una miscela unidimensionale bilanciata ($K=2$) composta da due distribuzioni normali identicamente disperse ma con baricentri traslati:
+\begin{itemize}
+    \item \textbf{Componente 1} ($\mathcal{C}_1$): Media $\mu_1 = -4$, deviazione standard $\sigma_1 = 2$, peso $\pi_1 = 0.5$;
+    \item \textbf{Componente 2} ($\mathcal{C}_2$): Media $\mu_2 = +4$, deviazione standard $\sigma_2 = 2$, peso $\pi_2 = 0.5$.
+\end{itemize}
+La funzione di densità marginale totale della popolazione risultante è data dalla combinazione convessa:
+\begin{align}
+\label{eq:dm-two-gaussian-pdf}
+p(x) &= 0.5 \cdot \mathcal{N}(x \,|\, -4, 4) + 0.5 \cdot \mathcal{N}(x \,|\, +4, 4) \nonumber \\
+&= \frac{1}{2\sqrt{8\pi}} \left[ \exp\left( -\frac{(x+4)^2}{8} \right) + \exp\left( -\frac{(x-4)^2}{8} \right) \right]
+\end{align}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    x=0.75cm, y=32cm,
+    declare function={
+        gauss1(\x) = 0.5 * (1.0 / (2.0 * sqrt(2.0 * 3.1415926))) * exp(-((\x + 4.0)^2) / 8.0);
+        gauss2(\x) = 0.5 * (1.0 / (2.0 * sqrt(2.0 * 3.1415926))) * exp(-((\x - 4.0)^2) / 8.0);
+        gaussTot(\x) = gauss1(\x) + gauss2(\x);
+    }
+]
+    % Subtle horizontal grid lines
+    \foreach \yval in {0.02, 0.04, 0.06, 0.08, 0.10} {
+        \draw[dotted, gray!40] (-8.5, \yval) -- (8.5, \yval);
+        \node[left=3pt, font=\scriptsize, text=gray!80!black] at (-8.5, \yval) {$\yval$};
+    }
+
+    % Shaded areas for each component (translucent, showing overlap)
+    \fill[navy!15, opacity=0.6, domain=-8.5:3.0, samples=80]
+        (-8.5, 0) -- plot (\x, {gauss1(\x)}) -- (3.0, 0) -- cycle;
+    \fill[crimson!15, opacity=0.6, domain=-3.0:8.5, samples=80]
+        (-3.0, 0) -- plot (\x, {gauss2(\x)}) -- (8.5, 0) -- cycle;
+
+    % Component 1 curve (dashed blue)
+    \draw[thick, dashed, draw=navy!85!blue, domain=-8.5:3.0, samples=80, smooth]
+        plot (\x, {gauss1(\x)});
+
+    % Component 2 curve (dashed red)
+    \draw[thick, dashed, draw=crimson!85!black, domain=-3.0:8.5, samples=80, smooth]
+        plot (\x, {gauss2(\x)});
+
+    % Total mixture curve (solid, thick purple)
+    \draw[very thick, draw=purple!90!black, domain=-8.5:8.5, samples=120, smooth]
+        plot (\x, {gaussTot(\x)});
+
+    % Vertical drop lines to means
+    \draw[dashed, navy!70!black, thick] (-4, 0) -- (-4, {gaussTot(-4)});
+    \draw[dashed, crimson!70!black, thick] (4, 0) -- (4, {gaussTot(4)});
+
+    % Peak 1 point & label
+    \draw[fill=navy!85!blue, draw=white, thick] (-4, {gaussTot(-4)}) circle (2.5pt);
+    \node[above=3pt, font=\scriptsize\bfseries, text=navy!85!black, fill=white, inner sep=1.5pt, rounded corners=1.5pt]
+        at (-4, {gaussTot(-4)}) {Modo $\mathcal{C}_1$ ($\mu_1 = -4$)};
+
+    % Peak 2 point & label
+    \draw[fill=crimson!85!black, draw=white, thick] (4, {gaussTot(4)}) circle (2.5pt);
+    \node[above=3pt, font=\scriptsize\bfseries, text=crimson!85!black, fill=white, inner sep=1.5pt, rounded corners=1.5pt]
+        at (4, {gaussTot(4)}) {Modo $\mathcal{C}_2$ ($\mu_2 = +4$)};
+
+    % Decision boundary / Critical overlap line at x = 0
+    \draw[dotted, thick, draw=purple!85!black] (0, 0) -- (0, 0.055);
+    \draw[fill=purple!85!black, draw=white, thick] (0, {gaussTot(0)}) circle (2.5pt);
+
+    % Callout for critical overlap
+    \node[draw=purple!85!black, fill=white, rounded corners=3pt, inner sep=3.5pt, align=center, font=\scriptsize]
+        (overlapNode) at (0, 0.075) {
+            \textbf{Confine di Decisione ($x = 0$)}\\[1.5pt]
+            $\gamma_{1}(0) = \gamma_{2}(0) = 0.50$ (Indecisione Bayesiana)
+        };
+    \draw[-Stealth, thick, draw=purple!85!black] (overlapNode.south) -- (0, 0.033);
+
+    % Coordinate axes
+    % y-axis on the left
+    \draw[-Stealth, thick, draw=navy!90!black] (-8.5, 0) -- (-8.5, 0.125)
+        node[above=3pt, font=\footnotesize\bfseries, text=navy!90!black] {$p(x)$};
+    % x-axis along bottom
+    \draw[-Stealth, thick, draw=navy!90!black] (-8.5, 0) -- (8.8, 0)
+        node[right=3pt, font=\footnotesize\bfseries, text=navy!90!black] {$x$};
+
+    % x-axis ticks
+    \foreach \xval in {-8, -6, -4, -2, 0, 2, 4, 6, 8} {
+        \draw[thick, draw=navy!90!black] (\xval, 0) -- (\xval, -0.003);
+        \node[below=3pt, font=\scriptsize, text=gray!90!black] at (\xval, 0) {$\xval$};
+    }
+
+    % Decision regions at bottom
+    \node[below=14pt, font=\scriptsize, text=navy!80!black] at (-4, 0) {$\longleftarrow$ Regione $\mathcal{C}_1$ ($\gamma_1 > 0.5$)};
+    \node[below=14pt, font=\scriptsize, text=crimson!80!black] at (4, 0) {Regione $\mathcal{C}_2$ ($\gamma_2 > 0.5$) $\longrightarrow$};
+
+    % Legend box (Top center, above peaks)
+    \node[draw=gray!50, fill=white, rounded corners=3.5pt, font=\scriptsize, inner sep=4pt] at (0, 0.125) {
+        \textcolor{purple!90!black}{\rule{14pt}{2.0pt}} Miscela Totale $p(x)$ \qquad
+        \textcolor{navy!85!blue}{\rule{14pt}{1.3pt}} Comp. $\mathcal{C}_1$ ($\mu_1 = -4, \sigma = 2$) \qquad
+        \textcolor{crimson!85!black}{\rule{14pt}{1.3pt}} Comp. $\mathcal{C}_2$ ($\mu_2 = +4, \sigma = 2$)
+    };
+\end{tikzpicture}
+\caption{Deconvoluzione analitica di una miscela bimodale di due gaussiane con varianza identica ($\sigma=2$) e baricentri separati ($\Delta\mu = 8$).}
+\label{fig:dm-two-gaussian-density}
+\end{figure}
+
+\subsection{Analisi della Sovrapposizione e Responsabilità a Posteriori}
+
+La Figura~\ref{fig:dm-two-gaussian-density} illustra le proprietà salienti della distribuzione di miscela:
+\begin{enumerate}
+    \item \textbf{Presenza di due massimi locali marcati}: I picchi si collocano in stretta prossimità di $x = -4$ e $x = +4$.
+    \item \textbf{Punto di sella e incertezza nel punto $x = 0$}: Nel punto mediano $x = 0$, le densità condizionate delle due gaussiane coincidono perfettamente:
+    \begin{equation}
+    p_1(0) = \frac{1}{\sqrt{8\pi}} \exp\left(-\frac{16}{8}\right) = \frac{e^{-2}}{\sqrt{8\pi}}, \qquad p_2(0) = \frac{e^{-2}}{\sqrt{8\pi}}
+    \end{equation}
+    Di conseguenza, applicando l'Equazione~(\ref{eq:dm-e-step}), le responsabilità a posteriori assumono il valore identico:
+    \begin{equation}
+    \gamma_{1}(0) = \frac{0.5 \cdot p_1(0)}{0.5 \cdot p_1(0) + 0.5 \cdot p_2(0)} = 0.5, \qquad \gamma_{2}(0) = 0.5
+    \end{equation}
+    In questo punto dello spazio, l'assegnazione rigida operata da un classificatore geometrico (che imporrebbe una partizione netta del tipo $\mathcal{C}_1$ se $x < 0$ e $\mathcal{C}_2$ se $x \ge 0$) distorcerebbe la natura probabilistica del fenomeno. L'algoritmo EM quantifica esattamente l'indecisione attraverso il valore continuo $\gamma_{ik} = 0.5$.
+    \item \textbf{Confronto con $20\,000$ campioni empirici}: Quando si generano $N = 20\,000$ campioni sintetici secondo la miscela~(\ref{eq:dm-two-gaussian-pdf}), l'istogramma empirico delle frequenze si conforma alla curva teorica continua entro le deviazioni stocastiche standard previste dal teorema del limite centrale. L'algoritmo EM, inizializzato a partire da stime casuali, recupera i veri parametri generativi $(\mu_1, \mu_2, \sigma_1, \sigma_2, \pi_1, \pi_2)$ con errore trascurabile ($< 10^{-3}$).
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 9.8: CONFRONTO ARCHITETTURALE: K-MEANS VS. EM
+% ====================================================================
+\section{Confronto Architetturale e Sistematico: \texorpdfstring{$K$}{K}-Means vs. EM}
+\label{sec:dm-kmeans-em-comparison}
+
+L'algoritmo di Lloyd ($K$-Means) e l'algoritmo EM per modelli a miscela di gaussiane (GMM) condividono un'architettura iterativa formalmente isomorfa: entrambi partono da una stima iniziale dei parametri del modello e alternano una fase di determinazione dello stato dei punti a una fase di ricalcolo dei parametri dei cluster. Tuttavia, essi divergono radicalmente nelle loro assunzioni geometriche, energetiche e statistiche.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.3}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash\bfseries}p{3.3cm} Y Y}
+        \toprule
+        \textbf{Dimensione} & \textbf{$K$-Means Standard (Lloyd)} & \textbf{Gaussian Mixture (EM)} \\
+        \midrule
+        Paradigma & \textbf{Hard clustering}: deterministico e disgiunto ($r_{ik} \in \{0, 1\}$). & \textbf{Soft clustering}: probabilistico e continuo ($\gamma_{ik} \in [0, 1]$). \\
+        \addlinespace[3pt]
+        Rappresentazione & Baricentroide geometrico $\mathbf{c}_k \in \mathbb{R}^d$. & Parametri $(\pi_k, \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k)$. \\
+        \addlinespace[3pt]
+        Geometria Cluster & Iper-sferici, isotropi, a varianza omogenea. & Iper-ellissoidi con forma, volume e orientamento arbitrari. \\
+        \addlinespace[3pt]
+        Funzione Obiettivo & Minimizzazione errore quadratico intra-cluster ($\mathrm{SSE}$). & Massimizzazione log-verosimiglianza incompleta ($\ln p(\mathbf{X}|\boldsymbol{\Theta})$). \\
+        \addlinespace[3pt]
+        Fase 1 (Stato Punti) & Assegnazione Voronoi al centroide più vicino ($L_2$). & E-step: responsabilità a posteriori $\gamma_{ik}$ via Bayes. \\
+        \addlinespace[3pt]
+        Fase 2 (Ricalcolo) & Media aritmetica semplice dei punti della cella. & M-step: media e covarianza ponderate con pesi $\gamma_{ik}$. \\
+        \addlinespace[3pt]
+        Costo Computazionale & $\mathcal{O}(N \cdot K \cdot d)$ & $\mathcal{O}(N \cdot K \cdot d^2 + K \cdot d^3)$ (inversione di $\boldsymbol{\Sigma}_k$). \\
+        \addlinespace[3pt]
+        Punti di Debolezza & Sensibile ai semi, forme sferiche, nessun output probabilistico. & Singolarità per matrici degenerate, costo $\mathcal{O}(d^3)$, minimi locali. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Quadro comparativo omnicomprensivo tra $K$-Means ed Expectation-Maximization (EM).}
+    \label{tab:dm-kmeans-em-detailed-comparison}
+\end{table}
+
+\subsection{Vulnerabilità delle Singolarità della Covarianza in EM}
+
+Una vulnerabilità teorica fondamentale dell'algoritmo EM con covarianze piene $\boldsymbol{\Sigma}_k$ risiede nella presenza di \textbf{singolarità nella superficie di verosimiglianza}. Se durante le iterazioni una componente gaussiana concentra la propria responsabilità attorno a un singolo punto isolato $\mathbf{x}_m$, la covarianza campionaria collassa a zero:
+\begin{equation}
+\boldsymbol{\Sigma}_k \to \mathbf{0} \implies |\boldsymbol{\Sigma}_k| \to 0
+\end{equation}
+Poiché la densità gaussiana contiene al denominatore il fattore $|\boldsymbol{\Sigma}_k|^{1/2}$, si verifica che:
+\begin{equation}
+p_k(\mathbf{x}_m | \boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k) \to +\infty \implies \ln p(\mathbf{X} | \boldsymbol{\Theta}) \to +\infty
+\end{equation}
+La funzione di verosimiglianza non è superiormente limitata, generando picchi infiniti non corrispondenti a cluster significativi ma a singoli record isolati (\textit{overfitting patologico}). Per neutralizzare questo fenomeno si applicano convenzionalmente due rimedi:
+\begin{itemize}
+    \item \textbf{Jitter Diagonale}: Aggiunta di una piccola costante positiva $\varepsilon \mathbf{I}_d$ alla matrice di covarianza ad ogni iterazione ($\boldsymbol{\Sigma}_k' = \boldsymbol{\Sigma}_k + \epsilon \mathbf{I}_d$).
+    \item \textbf{Regolarizzazione MAP}: Introduzione di una distribuzione a priori coniugata Inverse-Wishart che impone una penalizzazione asintotica quando il determinante della covarianza tende a zero.
+\end{itemize}
+
+\subsection{Sintesi del Percorso Metodologico}
+
+Il percorso affrontato nel presente capitolo delinea l'evoluzione metodologica del clustering moderno:
+\begin{itemize}
+    \item L'approccio gerarchico divisivo (\textbf{Bisecting $K$-Means}) trasforma un'euristica instabile e globale in una cascata robusta di decisioni binarie a bassa complessità.
+    \item L'integrazione con la teoria statistica dell'informazione (\textbf{$X$-Means} e \textbf{BIC}) sostituisce la congettura soggettiva del parametro $K$ con un'ottimizzazione rigorosa della complessità del modello basata sul principio di parsimonia.
+    \item Il paradigma probabilistico (\textbf{GMM} ed \textbf{EM}) eleva il clustering da semplice partizione spaziale deterministica a inferenza statistica generativa, fornendo una stima rigorosa dell'incertezza e abilitando la cattura di geometrie orientate nello spazio continuo.
+\end{itemize}

@@ -1,0 +1,1090 @@
+\chapter{Validazione del Clustering: Misure, Teoria e Metodologie}
+\label{chap:dm-cluster-validity}
+
+In questo capitolo viene affrontata in modo rigoroso e approfondito la problematica della \textbf{Cluster Validity} (validazione dei cluster), ovvero l'insieme dei fondamenti teorici, delle metriche quantitative e delle metodologie statistiche inferenziali atte a valutare l'affidabilità, la significatività e la bontà delle strutture prodotte dagli algoritmi di raggruppamento~\cite{tan2018, jain1988}.
+
+La trattazione copre analiticamente:
+\begin{enumerate}[noitemsep]
+    \item I \textbf{fondamenti e le sfide della validazione}: l'ambiguità intrinseca del paradigma non supervisionato, il confronto con la validazione supervisionata, la tendenza degli algoritmi a scoprire cluster spuri nel rumore puramente casuale (dimostrazione su distribuzione uniforme) e le motivazioni metodologiche della valutazione;
+    \item La \textbf{tassonomia classica delle misure di validazione}: criteri non supervisionati (\textit{interni}), criteri supervisionati (\textit{esterni}), criteri \textit{relativi} e test di tendenza al raggruppamento (\textit{clustering tendency});
+    \item La \textbf{statistica di Hopkins}: formalizzazione matematica della tendenza al raggruppamento, generazione di punti di campionamento stocastico, distanze dai primi vicini e interpretazione probabilistica della divergenza dall'uniformità spaziale;
+    \item La \textbf{validazione interna basata su matrici di prossimità}: correlazione di Pearson tra matrice di similarità e matrice di incidenza ideale, ispezione visiva delle matrici di dissimilarità riordinate e comportamento comparativo su $K$-Means, Complete Link, DBSCAN e forme non convesse;
+    \item La \textbf{coesione e la separazione dei cluster}: formulazione basata su grafi contro formulazione basata su prototipi, la scomposizione analitica della dispersione totale $\mathrm{TSS} = \mathrm{WSS} + \mathrm{BSS}$, dimostrazione algebrica dettagliata del teorema di conservazione ed esempio numerico passo-passo in dimensione unidimensionale;
+    \item Il \textbf{coefficiente di Silhouette} (Rousseeuw~\cite{rousseeuw1987}): definizione geometrica punto per punto ($a(i)$, $b(i)$, $s(i)$), derivazione dei casi limite, calcolo del \textit{Silhouette Score} globale e diagnostica fine tramite profili e grafici di silhouette;
+    \item Le \textbf{metriche interne avanzate da laboratorio}: l'indice di Davies-Bouldin ($DB$) e il rapporto di Cali\'nski-Harabasz ($CH$), interpretazione geometrica e trade-off computazionali;
+    \item Le \textbf{misure esterne di validazione}: distribuzioni empiriche congiunte $p_{ij}$, formulazione formale dell'entropia condizionata e della purezza pesata, studio di caso completo sul corpus testuale \textit{LA Documents} e matrici di contingenza;
+    \item Il \textbf{quadro statistico inferenziale e i modelli nulli}: formulazione dell'ipotesi nulla $H_0$ di casualità uniforme, simulazione Monte Carlo su distribuzioni empiriche, determinazione dei $p$-value e dei valori critici per $\mathrm{SSE}$ e correlazione matriciale;
+    \item Il \textbf{laboratorio applicativo in Python}: implementazione degli indici tramite \texttt{scikit-learn}, analisi empirica del dataset del corso, stima del numero ottimale di cluster $K^*$ mediante il metodo del gomito (\textit{knee/elbow method}) e tabulazione incrociata (\textit{crosstab}) con variabili categoriche esterne.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 10.1: FONDAMENTI E SFIDE DELLA CLUSTER VALIDITY
+% ====================================================================
+\section{Fondamenti e Sfide della Validazione del Clustering}
+\label{sec:dm-validity-foundations}
+
+L'analisi dei cluster (\textit{cluster analysis}) costituisce uno dei compiti cardinali dell'apprendimento non supervisionato (\textit{unsupervised machine learning}). L'obiettivo risiede nella partizione di una collezione di oggetti o vettori di attributi $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\} \subset \mathbb{R}^d$ in gruppi disgiunti o parzialmente sovrapposti (detti \textit{cluster}), in modo tale che le istanze associate al medesimo gruppo manifestino un'elevata somiglianza reciproca (\textbf{coesione intra-cluster}), mentre elementi appartenenti a gruppi differenti risultino chiaramente distinti (\textbf{separazione inter-cluster})~\cite{tan2018}.
+
+\subsection{Divergenza tra Apprendimento Supervisionato e Non Supervisionato}
+Nell'apprendimento supervisionato (come la classificazione o la regressione), la presenza di un'etichetta target fornita a priori (\textit{ground truth}) rende la valutazione del modello oggettiva e diretta: la bontà predittiva viene misurata confrontando le previsioni con la verità empirica attraverso metriche ben consolidate quali \textit{Accuracy}, \textit{Precision}, \textit{Recall}, \textit{F-measure} o l'area sotto la curva ROC (\textit{AUC}).
+
+Al contrario, nel paradigma non supervisionato non è disponibile alcuna etichetta di classe esterna:
+\begin{quote}
+\textit{``Clustering is in the eye of the beholder.''}
+\end{quote}
+Non esiste una nozione univoca o universale di cosa costituisca un ``raggruppamento naturale''. La struttura geometrica identificata dipende inscindibilmente dalla nozione di similarità adottata e dalla classe di modelli algoritmici impiegata:
+\begin{itemize}[noitemsep]
+    \item Per l'algoritmo \textbf{$K$-Means}, un cluster è concepito come un raggruppamento compatto, iper-sferico e convesso focalizzato attorno a un baricentroide medio;
+    \item Per \textbf{DBSCAN}, un cluster è una componente connessa ad alta densità separata da regioni a bassa densità o rumore, con estensione morfologica arbitraria;
+    \item Per il \textbf{Single Linkage Hierarchical Clustering}, un cluster corrisponde a una catena contigua di punti mutualmente vicini, suscettibile al fenomeno del concatenamento (\textit{chaining effect}).
+\end{itemize}
+
+\subsection{Il Problema Critico: Clustering su Dati Puramente Casuali}
+La motivazione più urgente per introdurre una teoria rigorosa della validazione risiede nel fatto che \textbf{tutti gli algoritmi di clustering producono partizioni anche quando applicati a rumore puro}.
+
+Si consideri un esperimento concettuale condotto su un dominio bidimensionale continuo $[0, 1] \times [0, 1]$, in cui vengono campionati $N$ punti in modo del tutto indipendente da una distribuzione uniforme bivariata:
+\begin{equation}
+\label{eq:dm-uniform-noise-generation}
+\mathbf{x}_i \sim \mathcal{U}\left([0, 1]^2\right), \quad \forall i \in \{1, \dots, N\}
+\end{equation}
+Per definizione stocastica, questo insieme di dati non racchiude alcuna struttura a cluster, né attrattori o centri di densità. Tuttavia:
+\begin{enumerate}
+    \item Se si esegue l'algoritmo $K$-Means imponendo ad esempio $K=3$, la procedura suddivide il dominio stocastico in tre celle di Voronoi compatte, posizionando i centroidi in modo tale da minimizzare la devianza intra-cluster locale e restituendo una soluzione apparentemente plausibile;
+    \item Se si esegue un algoritmo gerarchico agglomerativo basato su \textit{Complete Link}, esso produce un dendrogramma completo che, se tagliato a un livello arbitrario, restituisce sotto-insiemi con diametri ben definiti;
+    \item Se si applica DBSCAN impostando parametri $(\varepsilon, \mathrm{MinPts})$ non tarati, esso può aggregare fluttuazioni locali della densità di Poisson come se fossero micro-strutture dense.
+\end{enumerate}
+
+\begin{alertblock}{Assioma Fondamentale della Validità del Clustering}
+Qualsiasi algoritmo di clustering è un ottimizzatore geometrico progettato per aggregare dati. Esso troverà invariabilmente dei cluster, anche nel vuoto informativo. Di conseguenza, nessun risultato di clustering può essere accettato senza aver prima verificato:
+\begin{enumerate}[noitemsep]
+    \item Se il dataset originale contenga un'effettiva \textbf{tendenza al raggruppamento} rispetto a un'ipotesi nulla di rumore uniforme;
+    \item Se la partizione individuata sia \textbf{robusta, statisticamente significativa} e non derivi da fluttuazioni casuali o da bias algoritmici.
+\end{enumerate}
+\end{alertblock}
+
+\subsection{Finalità Metodologiche della Cluster Validity}
+Nel ciclo di vita dell'estrazione di conoscenza (KDD), la validazione dei cluster persegue quattro obiettivi operativi distinti:
+\begin{enumerate}
+    \item \textbf{Filtraggio del rumore e verifica di tendenza}: Stabilire preliminarmente se il dataset manifesti una predisposizione non casuale all'aggregazione, scartando insiemi privi di segnale geometrico;
+    \item \textbf{Confronto tra algoritmi eterogenei}: Valutare quale paradigma (partizionale, gerarchico, density-based o probabilistico) modelli più fedelmente la geometria intrinseca delle osservazioni;
+    \item \textbf{Selezione del modello e stima degli iperparametri}: Determinare la parametrizzazione ottima, identificando il numero intrinseco di cluster $K^*$ in $K$-Means o il raggio di vicinato $\varepsilon$ in DBSCAN;
+    \item \textbf{Valutazione locale dei singoli cluster}: Esaminare la qualità intrinseca di ciascun gruppo all'interno di una medesima partizione, distinguendo nuclei ad alta coesione e separazione da cluster marginali, spuri o contaminati da rumore.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 10.2: TASSONOMIA DELLE MISURE DI VALIDAZIONE
+% ====================================================================
+\section{Tassonomia delle Misure di Validazione}
+\label{sec:dm-validity-taxonomy}
+
+Seguendo l'impostazione formale di Jain e Dubes~\cite{jain1988} e Tan et al.~\cite{tan2018}, le metriche e le metodologie di validazione si ripartiscono in quattro macro-categorie ben distinte in base alla disponibilità di informazioni ausiliarie e alla finalità analitica.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    boxStyle/.style={
+        rectangle, rounded corners=6pt, draw=navy!85!black, fill=navy!6, thick,
+        font=\footnotesize, text width=6.2cm, inner sep=8pt, align=left
+    },
+    headerStyle/.style={
+        rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!12, very thick,
+        font=\small, align=center, text width=13.6cm, inner sep=8pt
+    },
+    arrowStyle/.style={-Stealth, thick, draw=navy!85!black}
+]
+    % Header
+    \node[headerStyle] (top) {
+        \textbf{\large TASSONOMIA DELLE MISURE DI VALIDAZIONE DEL CLUSTERING}\\[3pt]
+        \footnotesize Suddivisione metodologica fondata sulla disponibilità di informazione ausiliaria e sul criterio di confronto
+    };
+
+    % Upper row
+    \node[boxStyle, below left=1.2cm and 0.3cm of top.south, anchor=north east] (b1) {
+        \textbf{\textcolor{navy}{\normalsize 1. Misure Non Supervisionate (Interne)}}\\[3pt]
+        \scriptsize \textbf{Nessuna informazione esterna utilizzata}\\[5pt]
+        $\bullet$ Valutano la partizione unicamente dai dati o dalle distanze.\\[2pt]
+        $\bullet$ \textit{Coesione intra-cluster}: compattezza e densità interna.\\[2pt]
+        $\bullet$ \textit{Separazione inter-cluster}: isolamento reciproco tra gruppi.\\[2pt]
+        $\bullet$ \textbf{Metriche}: $\mathrm{SSE}$ / $\mathrm{WSS}$, Silhouette, Davies-Bouldin ($DB$).
+    };
+
+    \node[boxStyle, below right=1.2cm and 0.3cm of top.south, anchor=north west] (b2) {
+        \textbf{\textcolor{darkgreen}{\normalsize 2. Misure Supervisionate (Esterne)}}\\[3pt]
+        \scriptsize \textbf{Confronto con partizione esterna di riferimento}\\[5pt]
+        $\bullet$ Misurano la concordanza con etichette reali (\textit{ground truth}).\\[2pt]
+        $\bullet$ Non guidano l'ottimizzazione, ma validano l'utilità applicativa.\\[2pt]
+        $\bullet$ Utili per verificare l'allineamento a categorie note a priori.\\[2pt]
+        $\bullet$ \textbf{Metriche}: Entropia condizionata, Purezza, $\mathrm{ARI}$, $\mathrm{NMI}$.
+    };
+
+    % Lower row
+    \node[boxStyle, below=1.4cm of b1] (b3) {
+        \textbf{\textcolor{orange!85!black}{\normalsize 3. Misure Relative (Model Selection)}}\\[3pt]
+        \scriptsize \textbf{Confronto comparativo tra partizioni distinte}\\[5pt]
+        $\bullet$ Confrontano soluzioni al variare di iperparametri o algoritmi.\\[2pt]
+        $\bullet$ Determinazione del numero intrinseco di cluster ($K^*$).\\[2pt]
+        $\bullet$ Identificazione del gomito (\textit{knee/elbow}) o di massimi d'indice.\\[2pt]
+        $\bullet$ \textbf{Approcci}: Curva $\mathrm{SSE}(K)$, curva Silhouette $(K)$, criterio $\mathrm{BIC}$.
+    };
+
+    \node[boxStyle, below=1.4cm of b2] (b4) {
+        \textbf{\textcolor{crimson}{\normalsize 4. Tendenza al Raggruppamento (Tendency)}}\\[3pt]
+        \scriptsize \textbf{Test preliminare di non-casualità spaziale}\\[5pt]
+        $\bullet$ Verificano se il dataset possieda pattern prima del clustering.\\[2pt]
+        $\bullet$ Rigetto dell'ipotesi nulla di rumore casuale uniforme.\\[2pt]
+        $\bullet$ Evitano di estrarre cluster spuri in assenza di struttura fisica.\\[2pt]
+        $\bullet$ \textbf{Test di riferimento}: Statistica di Hopkins ($H$).
+    };
+
+    % Arrows
+    \draw[arrowStyle] (top.south) -- ++(0,-0.4) -| (b1.north);
+    \draw[arrowStyle] (top.south) -- ++(0,-0.4) -| (b2.north);
+    \draw[arrowStyle] (b1.south) -- node[fill=white, inner sep=2pt, font=\scriptsize, text=gray!80!black] {\textit{confronto su K}} (b3.north);
+    \draw[arrowStyle] (b2.south) -- node[fill=white, inner sep=2pt, font=\scriptsize, text=gray!80!black] {\textit{verifica a priori}} (b4.north);
+\end{tikzpicture}%
+}
+\caption{Tassonomia delle misure di validazione del clustering suddivise per natura dei dati e finalità d'indagine.}
+\label{fig:dm-validity-taxonomy}
+\end{figure}
+
+Come riassunto formalmente nella Figura~\ref{fig:dm-validity-taxonomy}:
+\begin{enumerate}
+    \item \textbf{Misure Interne}: operano nello spazio non supervisionato. Verificano che i cluster siano intrinsecamente densi e ben separati. La metrica tipica include l'errore quadratico intra-cluster ($\mathrm{SSE}$), il coefficiente di silhouette e la coerenza tra matrice di dissimilarità e partizione;
+    \item \textbf{Misure Esterne}: operano confrontando l'output dell'algoritmo con etichette esterne fornite da esperti di dominio (ad esempio classi diagnostiche mediche o categorie tematiche di documenti);
+    \item \textbf{Misure Relative}: costituiscono un protocollo di confronto seriale per determinare la corretta iper-parametrizzazione (come il numero ideale di cluster $K^*$);
+    \item \textbf{Tendenza al Raggruppamento}: costituisce il test preliminare di consistenza geometrica applicato prima di intraprendere qualsiasi procedura di partizione.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 10.3: TENDENZA AL RAGGRUPPAMENTO E STATISTICA DI HOPKINS
+% ====================================================================
+\section{Tendenza al Raggruppamento e Statistica di Hopkins}
+\label{sec:dm-hopkins-statistic}
+
+Prima di spendere risorse computazionali nell'ottimizzazione di algoritmi di clustering, è doveroso verificare se i dati possiedano una struttura non uniforme. Questa problematica prende il nome di \textbf{Clustering Tendency}~\cite{tan2018}. La tecnica quantitativa più celebre e rigorosa è la \textbf{Statistica di Hopkins}~\cite{hopkins1954, jain1988}.
+
+\subsection{Formalizzazione Matematica della Statistica di Hopkins}
+Sia dato un insieme di dati multivariato $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\} \subset \mathbb{R}^d$. La procedura di Hopkins valuta la discrepanza tra la distribuzione empirica delle distanze tra punti reali e la distribuzione attesa sotto un processo stocastico uniforme.
+
+L'algoritmo si articola nelle seguenti fasi:
+\begin{enumerate}
+    \item Si estrae casualmente e senza reimmissione un sottoinsieme di $p$ punti reali da $\mathcal{D}$, denotato come:
+    \begin{equation}
+    \label{eq:dm-hopkins-real-sample}
+    \mathcal{X} = \{\mathbf{x}_1^*, \mathbf{x}_2^*, \dots, \mathbf{x}_p^*\} \subset \mathcal{D}, \quad \text{con } p \ll N
+    \end{equation}
+    Tipicamente si sceglie $p \approx 0.05 \cdot N$ o $p \approx 0.10 \cdot N$ per garantire l'indipendenza statistica dei campioni estratti.
+    
+    \item Per ogni punto estratto $\mathbf{x}_i^* \in \mathcal{X}$, si calcola la distanza euclidea minima rispetto al suo punto più vicino appartenente al rimanente insieme dei dati $\mathcal{D} \setminus \{\mathbf{x}_i^*\}$:
+    \begin{equation}
+    \label{eq:dm-hopkins-w-distance}
+    w_i = \min_{\mathbf{x} \in \mathcal{D} \setminus \{\mathbf{x}_i^*\}} \|\mathbf{x}_i^* - \mathbf{x}\|_2
+    \end{equation}
+    
+    \item Si costruisce una regione iper-rettangolare di campionamento $\Omega \subset \mathbb{R}^d$ che racchiuda l'iper-volume occupato dal dataset:
+    \begin{equation}
+    \label{eq:dm-hopkins-bounding-box}
+    \Omega = \prod_{j=1}^d \left[\min_{k=1}^N x_{kj}, \ \max_{k=1}^N x_{kj}\right]
+    \end{equation}
+    All'interno di tale bounding box $\Omega$, si generano $p$ punti sintetici indipendenti distribuiti uniformemente:
+    \begin{equation}
+    \label{eq:dm-hopkins-synthetic-sample}
+    \mathcal{Y} = \{\mathbf{y}_1, \mathbf{y}_2, \dots, \mathbf{y}_p\} \stackrel{\mathrm{i.i.d.}}{\sim} \mathcal{U}(\Omega)
+    \end{equation}
+    
+    \item Per ciascun punto sintetico $\mathbf{y}_i \in \mathcal{Y}$, si calcola la distanza minima rispetto al punto più vicino nell'intero dataset reale $\mathcal{D}$:
+    \begin{equation}
+    \label{eq:dm-hopkins-u-distance}
+    u_i = \min_{\mathbf{x} \in \mathcal{D}} \|\mathbf{y}_i - \mathbf{x}\|_2
+    \end{equation}
+    
+    \item La \textbf{statistica di Hopkins} $H$ è definita come il rapporto normalizzato tra la somma delle distanze dei punti sintetici e la somma aggregata di tutte le distanze calcolate:
+    \begin{equation}
+    \label{eq:dm-hopkins-formula}
+    H = \frac{\sum_{i=1}^p u_i}{\sum_{i=1}^p u_i + \sum_{i=1}^p w_i}
+    \end{equation}
+    In alternativa, talune formulazioni storiche adottano la somma delle distanze elevate alla potenza $d$-esima (coerente con la misura di volume nello spazio $\mathbb{R}^d$), ma la forma lineare~(\ref{eq:dm-hopkins-formula}) è lo standard ampiamente consolidato nella pratica del data mining.
+\end{enumerate}
+
+\subsection{Interpretazione Probabilistica dei Valori di $H$}
+Il valore di $H$ è intrinsecamente vincolato nell'intervallo continuo $[0, 1]$. L'interpretazione dei regimi limite è illustrata nella Tabella~\ref{tab:dm-hopkins-interpretation}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{c c X}
+\toprule
+\textbf{Valore di $H$} & \textbf{Comportamento di $u_i$ vs $w_i$} & \textbf{Diagnostica Spaziale e Tendenza al Clustering} \\
+\midrule
+$H \approx 0.5$ & $\sum u_i \approx \sum w_i$ & \textbf{Dati Uniformemente Distribuiti (Assenza di Cluster)}: le distanze dei punti casuali $\mathbf{y}_i$ dai dati reali sono statisticamente identiche alle distanze tra punti reali adiacenti. Il dataset non possiede cluster naturali. \\
+\addlinespace
+$H \to 1.0$ & $\sum u_i \gg \sum w_i$ & \textbf{Forte Tendenza al Raggruppamento (Cluster Densi)}: i punti reali risiedono in addensamenti compatti (quindi $w_i \approx 0$). I punti casuali $\mathbf{y}_i$ cadono prevalentemente nelle vaste aree vuote inter-cluster, registrando distanze elevate $u_i$. \\
+\addlinespace
+$H \to 0.0$ & $\sum u_i \ll \sum w_i$ & \textbf{Dati Regolarmente Spaziati (Griglia Iper-cubica)}: i punti reali si respingono reciprocamente formando una distribuzione periodica o reticolare (massima dispersione uniforme). \\
+\bottomrule
+\end{tabularx}
+\caption{Interpretazione quantitativa della statistica di Hopkins per la verifica della tendenza al clustering.}
+\label{tab:dm-hopkins-interpretation}
+\end{table}
+
+\begin{remark}[Soglia Decisionale Operativa]
+Nella pratica dell'analisi multivariata, si considera che un dataset manifesti una tendenza al clustering statisticamente significativa se la media di ripetute stime indipendenti della statistica di Hopkins soddisfa la condizione:
+\begin{equation}
+\label{eq:dm-hopkins-threshold}
+\bar{H} > 0.70 \quad (\text{preferibilmente } \bar{H} \ge 0.75 \text{ o } 0.80)
+\end{equation}
+Se $H \in [0.45, 0.55]$, i dati devono essere considerati indistinguibili da rumore casuale uniforme e l'applicazione di algoritmi di partizionamento deve essere sospesa o considerata esplorativa.
+\end{remark}
+
+% ====================================================================
+% SEZIONE 10.4: VALIDAZIONE INTERNA MEDIANTE MATRICI DI PROSSIMITÀ
+% ====================================================================
+\section{Validazione Interna mediante Matrici di Prossimità}
+\label{sec:dm-proximity-matrix-validity}
+
+Un approccio elegante e generale per valutare la coerenza interna di una partizione consiste nel confrontare direttamente la matrice di prossimità osservata con una matrice ideale che rifletta fedelmente l'assegnazione ai cluster individuata dall'algoritmo~\cite{tan2018}.
+
+\subsection{Matrice di Similarità vs Matrice di Incidenza Ideale}
+Sia data una collezione di $N$ oggetti $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\}$ e sia $P \in \mathbb{R}^{N \times N}$ la corrispondente \textbf{matrice di prossimità} (o matrice di somiglianza/distanza), dove $P_{ij} = \mathrm{dist}(\mathbf{x}_i, \mathbf{x}_j)$ oppure $P_{ij} = \mathrm{sim}(\mathbf{x}_i, \mathbf{x}_j)$.
+
+Data una partizione $\mathcal{C} = \{\mathcal{C}_1, \dots, \mathcal{C}_K\}$ prodotta da un algoritmo di clustering, si definisce la \textbf{matrice di incidenza ideale} (o matrice di adiacenza ideale) $Y \in \{0, 1\}^{N \times N}$ ponendo:
+\begin{equation}
+\label{eq:dm-ideal-matrix-def}
+Y_{ij} = 
+\begin{cases}
+1, & \text{se } \mathbf{x}_i, \mathbf{x}_j \in \mathcal{C}_k \text{ (medesimo cluster)}, \\
+0, & \text{se } \mathbf{x}_i \in \mathcal{C}_k, \mathbf{x}_j \in \mathcal{C}_l \text{ con } k \ne l \text{ (cluster distinti)}.
+\end{cases}
+\end{equation}
+
+Se $P_{ij}$ rappresenta una misura di \textit{similarità} (normalizzata in $[0, 1]$), in una partizione ideale e perfetta gli oggetti associati al medesimo cluster dovrebbero avere similarità pari a $1$, mentre coppie appartenenti a cluster differenti dovrebbero registrare similarità pari a $0$. Pertanto, una partizione di elevata qualità mostrerà un forte accordo statistico tra $P$ e $Y$.
+
+\subsection{Coefficiente di Correlazione Matriciale di Pearson}
+Poiché le matrici $P$ e $Y$ sono simmetriche ed hanno elementi diagonali costanti o irrilevanti ($P_{ii} = 1$ e $Y_{ii} = 1$), il grado di accordo tra la matrice reale e quella ideale viene quantificato calcolando il \textbf{coefficiente di correlazione di Pearson} esteso su tutte le $M = \frac{N(N-1)}{2}$ coppie non banali $(i, j)$ con $i < j$:
+\begin{equation}
+\label{eq:dm-matrix-correlation-formula}
+\rho(P, Y) = \frac{\sum_{i < j} \left(P_{ij} - \bar{P}\right)\left(Y_{ij} - \bar{Y}\right)}{\sqrt{\sum_{i < j} \left(P_{ij} - \bar{P}\right)^2 \sum_{i < j} \left(Y_{ij} - \bar{Y}\right)^2}}
+\end{equation}
+dove $\bar{P}$ e $\bar{Y}$ indicano le medie empiriche dei valori fuori dalla diagonale principale:
+\begin{equation}
+\bar{P} = \frac{2}{N(N-1)} \sum_{i < j} P_{ij}, \qquad \bar{Y} = \frac{2}{N(N-1)} \sum_{i < j} Y_{ij}
+\end{equation}
+
+\begin{itemize}[noitemsep]
+    \item Se $P$ è una matrice di \textbf{similarità}, valori elevati e positivi di $\rho(P, Y) \to +1$ attestano che la configurazione dei cluster rispecchia fedelmente i gradienti di affinità naturale del dataset;
+    \item Se $P$ è una matrice di \textbf{distanza/dissimilarità}, la correlazione attesa per cluster ben separati assumerà valori fortemente negativi $\rho(P, Y) \to -1$.
+\end{itemize}
+
+\subsection{Ispezione Visiva delle Matrici di Dissimilarità Riordinate}
+Uno strumento qualitativo di straordinaria efficacia diagnostica risiede nella visualizzazione grafica a mappa termica (\textit{heatmap}) della matrice delle distanze, previa \textbf{riordinazione degli indici delle istanze}:
+\begin{enumerate}
+    \item Si raggruppano gli indici di riga e di colonna in base al cluster di appartenenza: prima tutte le istanze del cluster $\mathcal{C}_1$, poi quelle di $\mathcal{C}_2$, e così via fino a $\mathcal{C}_K$;
+    \item All'interno di ciascun blocco di cluster, le istanze possono essere ulteriormente ordinate secondo la loro distanza progressiva dal rispettivo centroide o seguendo l'ordinamento delle foglie di un albero gerarchico.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[scale=0.95, every node/.style={font=\footnotesize}]
+    % Cluster 1 block
+    \draw[fill=navy!70, draw=black, thick] (0, 3) rectangle (2, 5);
+    \node[white, font=\bfseries] at (1, 4) {$\mathcal{C}_1 \times \mathcal{C}_1$};
+    \node[above] at (1, 5.1) {\textbf{Cluster 1}};
+    
+    % Inter-cluster 1-2
+    \draw[fill=gray!15, draw=black] (2, 3) rectangle (4, 5);
+    \node[gray!80!black] at (3, 4) {$\mathrm{dist} \gg 0$};
+    
+    % Inter-cluster 1-3
+    \draw[fill=gray!10, draw=black] (4, 3) rectangle (6, 5);
+    \node[gray!80!black] at (5, 4) {$\mathrm{dist} \gg 0$};
+    
+    % Inter-cluster 2-1
+    \draw[fill=gray!15, draw=black] (0, 1) rectangle (2, 3);
+    \node[gray!80!black] at (1, 2) {$\mathrm{dist} \gg 0$};
+    
+    % Cluster 2 block
+    \draw[fill=navy!70, draw=black, thick] (2, 1) rectangle (4, 3);
+    \node[white, font=\bfseries] at (3, 2) {$\mathcal{C}_2 \times \mathcal{C}_2$};
+    \node[above] at (3, 5.1) {\textbf{Cluster 2}};
+    
+    % Inter-cluster 2-3
+    \draw[fill=gray!20, draw=black] (4, 1) rectangle (6, 3);
+    \node[gray!80!black] at (5, 2) {$\mathrm{dist} \gg 0$};
+    
+    % Inter-cluster 3-1
+    \draw[fill=gray!10, draw=black] (0, -1) rectangle (2, 1);
+    \node[gray!80!black] at (1, 0) {$\mathrm{dist} \gg 0$};
+    
+    % Inter-cluster 3-2
+    \draw[fill=gray!20, draw=black] (2, -1) rectangle (4, 1);
+    \node[gray!80!black] at (3, 0) {$\mathrm{dist} \gg 0$};
+    
+    % Cluster 3 block
+    \draw[fill=navy!70, draw=black, thick] (4, -1) rectangle (6, 1);
+    \node[white, font=\bfseries] at (5, 0) {$\mathcal{C}_3 \times \mathcal{C}_3$};
+    \node[above] at (5, 5.1) {\textbf{Cluster 3}};
+
+    % Labels
+    \node[left] at (-0.1, 4) {\textbf{Cluster 1}};
+    \node[left] at (-0.1, 2) {\textbf{Cluster 2}};
+    \node[left] at (-0.1, 0) {\textbf{Cluster 3}};
+
+    % Explanatory legend
+    \node[anchor=west, text width=6.5cm, align=left] at (6.8, 2.0) {
+        \textbf{Firma Grafica a Blocchi Diagonali:}\\[4pt]
+        $\bullet$ \textbf{Blocchi diagonali scuri}: distanze intra-cluster prossime allo zero (elevatissima coesione interna).\\[3pt]
+        $\bullet$ \textbf{Regioni fuori diagonale chiare}: distanze inter-cluster marcatamente elevate (separazione netta).\\[3pt]
+        $\bullet$ In presenza di \textbf{rumore casuale}, la matrice non mostra alcuna struttura a blocchi, apparendo uniforme e granulare su tutta l'estensione.
+    };
+\end{tikzpicture}%
+}
+\caption{Rappresentazione schematica della matrice delle distanze riordinata per cluster: la presenza di marcati blocchi quadrati lungo la diagonale principale evidenzia empiricamente la validità della partizione.}
+\label{fig:dm-reordered-matrix-schema}
+\end{figure}
+
+\subsection{Sensibilità della Correlazione Matriciale alla Geometria dei Cluster}
+Sebbene la correlazione matriciale costituisca uno strumento teorico affascinante, essa risente fortemente dei presupposti geometrici di sfericità:
+\begin{itemize}
+    \item \textbf{Cluster compatti e sferici}: per partizioni prodotte da $K$-Means o \textit{Complete Link}, le distanze intra-cluster sono omogeneamente basse e le distanze inter-cluster costantemente alte. In questo scenario la correlazione matriciale è massimizzata (ad esempio $\rho \approx 0.85$ o $0.90$);
+    \item \textbf{Cluster allungati, complessi o non convessi}: se il dataset presenta cluster concentrici ad anello o forme sinuose continue (gestibili brillantemente da DBSCAN o \textit{Single Linkage}), le distanze euclidee dirette tra punti appartenenti all'estremo opposto del medesimo anello sono ampie, pur appartenendo allo stesso gruppo. La matrice di incidenza $Y$ assegnerà $Y_{ij} = 1$, ma $P_{ij}$ registrerà una distanza considerevole. Ne consegue che la correlazione matriciale $\rho(P, Y)$ risulterà ingannevolmente bassa, pur essendo la partizione geometricamente impeccabile.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 10.5: COESIONE E SEPARAZIONE DEI CLUSTER
+% ====================================================================
+\section{Coesione e Separazione: Teoria ed Equivalenza Algebrica}
+\label{sec:dm-cohesion-separation-theory}
+
+Le due proprietà cardinali che definiscono la bontà di un partizionamento non supervisionato sono la \textbf{coesione} (\textit{cohesion}, o compattezza interna) e la \textbf{separazione} (\textit{separation}, o isolamento reciproco)~\cite{tan2018}. Nella letteratura scientifica coesistono due prospettive concettuali fondamentali per quantificarle: la formulazione basata su grafi di prossimità e la formulazione basata su prototipi geometrici.
+
+\subsection{Prospettiva Basata su Grafi vs Basata su Prototipi}
+\begin{enumerate}
+    \item \textbf{Prospettiva basata su grafi}: Le istanze sono nodi di una rete pesata i cui archi hanno peso pari alla somiglianza $s(\mathbf{x}_i, \mathbf{x}_j)$ o alla distanza $d(\mathbf{x}_i, \mathbf{x}_j)$.
+    \begin{itemize}[noitemsep]
+        \item La \textit{coesione} di un cluster $\mathcal{C}_k$ è la somma dei pesi di tutti gli archi che connettono coppie interne al gruppo:
+        \begin{equation}
+        \mathrm{Cohesion}(\mathcal{C}_k) = \sum_{\mathbf{x} \in \mathcal{C}_k, \mathbf{y} \in \mathcal{C}_k} s(\mathbf{x}, \mathbf{y})
+        \end{equation}
+        \item La \textit{separazione} tra due cluster distinti $\mathcal{C}_k$ e $\mathcal{C}_l$ è il peso aggregato degli archi del taglio (\textit{cut edges}):
+        \begin{equation}
+        \mathrm{Separation}(\mathcal{C}_k, \mathcal{C}_l) = \sum_{\mathbf{x} \in \mathcal{C}_k, \mathbf{y} \in \mathcal{C}_l} s(\mathbf{x}, \mathbf{y})
+        \end{equation}
+    \end{itemize}
+    
+    \item \textbf{Prospettiva basata su prototipi}: Ciascun cluster $\mathcal{C}_k$ è condensato nel proprio rappresentante geometrico (centroide $\mathbf{c}_k$). Coesione e separazione vengono misurate valutando la dispersione quadratica dei punti rispetto ai propri centroidi e la dispersione dei centroidi rispetto al baricentro globale del dataset.
+\end{enumerate}
+
+\subsection{Formalizzazione Basata su Prototipi: WSS, BSS e TSS}
+Sia dato un dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_N\} \subset \mathbb{R}^d$ partizionato in $K$ cluster disgiunti $\mathcal{C}_1, \dots, \mathcal{C}_K$, con cardinalità $n_k = |\mathcal{C}_k|$ tale che $\sum_{k=1}^K n_k = N$.
+
+Si definisce il \textbf{centroide locale} $\mathbf{c}_k$ di ciascun cluster e il \textbf{centroide globale} $\mathbf{m}$ dell'intero dataset:
+\begin{equation}
+\label{eq:dm-centroids-definitions}
+\mathbf{c}_k = \frac{1}{n_k} \sum_{\mathbf{x} \in \mathcal{C}_k} \mathbf{x}, \qquad \mathbf{m} = \frac{1}{N} \sum_{i=1}^N \mathbf{x}_i = \frac{1}{N} \sum_{k=1}^K n_k \mathbf{c}_k
+\end{equation}
+
+Si definiscono formalmente le tre quantità di devianza quadratica:
+\begin{enumerate}
+    \item \textbf{Coesione Intra-Cluster ($\mathrm{WSS}$ o $\mathrm{SSE}$)}: somma degli errori quadratici interni ai singoli cluster (\textit{Within-Cluster Sum of Squares}):
+    \begin{equation}
+    \label{eq:dm-wss-definition}
+    \mathrm{WSS} = \sum_{k=1}^K \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{c}_k\|_2^2
+    \end{equation}
+    
+    \item \textbf{Separazione Inter-Cluster ($\mathrm{BSS}$)}: dispersione quadratica dei centroidi di cluster rispetto al baricentro globale $\mathbf{m}$, ponderata per la cardinalità di ciascun gruppo (\textit{Between-Cluster Sum of Squares}):
+    \begin{equation}
+    \label{eq:dm-bss-definition}
+    \mathrm{BSS} = \sum_{k=1}^K n_k \|\mathbf{c}_k - \mathbf{m}\|_2^2
+    \end{equation}
+    
+    \item \textbf{Devianza Totale ($\mathrm{TSS}$)}: somma globale degli scarti quadratici di tutti i vettori rispetto al baricentro globale $\mathbf{m}$ (\textit{Total Sum of Squares}):
+    \begin{equation}
+    \label{eq:dm-tss-definition}
+    \mathrm{TSS} = \sum_{i=1}^N \|\mathbf{x}_i - \mathbf{m}\|_2^2
+    \end{equation}
+\end{enumerate}
+
+\subsection{Dimostrazione Rigorosa del Teorema di Conservazione della Varianza}
+Uno dei risultati cardine dell'analisi multivariata e della cluster validity è il teorema di ortogonalità della scomposizione della devianza totale~\cite{tan2018}.
+
+\begin{theorem}[Conservazione della Devianza Globale]
+\label{thm:dm-tss-wss-bss}
+Per qualsiasi partizione deterministica di un dataset $\mathcal{D}$ in $K$ cluster disgiunti con centroidi definiti come medie aritmetiche, la somma tra la coesione interna ($\mathrm{WSS}$) e la separazione esterna ($\mathrm{BSS}$) equivale esattamente alla devianza totale dei dati ($\mathrm{TSS}$), la quale è costante e indipendente dall'algoritmo di clustering:
+\begin{equation}
+\label{eq:dm-tss-conservation}
+\mathrm{TSS} = \mathrm{WSS} + \mathrm{BSS}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Si consideri la definizione della devianza totale $\mathrm{TSS}$ scomponendo la sommatoria su tutti gli $N$ punti nelle $K$ sommatorie disgiunte sui singoli cluster $\mathcal{C}_k$:
+\begin{equation}
+\mathrm{TSS} = \sum_{i=1}^N \|\mathbf{x}_i - \mathbf{m}\|_2^2 = \sum_{k=1}^K \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{m}\|_2^2
+\end{equation}
+Per ogni punto $\mathbf{x} \in \mathcal{C}_k$, si aggiunga e si sottragga il rispettivo centroide locale $\mathbf{c}_k$:
+\begin{equation}
+\mathbf{x} - \mathbf{m} = (\mathbf{x} - \mathbf{c}_k) + (\mathbf{c}_k - \mathbf{m})
+\end{equation}
+Calcolando la norma euclidea al quadrato tramite l'espansione del prodotto scalare interiore:
+\begin{equation}
+\|\mathbf{x} - \mathbf{m}\|_2^2 = \|(\mathbf{x} - \mathbf{c}_k) + (\mathbf{c}_k - \mathbf{m})\|_2^2 = \|\mathbf{x} - \mathbf{c}_k\|_2^2 + \|\mathbf{c}_k - \mathbf{m}\|_2^2 + 2 (\mathbf{x} - \mathbf{c}_k)^\top (\mathbf{c}_k - \mathbf{m})
+\end{equation}
+Sostituendo questa identità nell'espressione sommatoria su ciascun cluster $\mathcal{C}_k$:
+\begin{equation}
+\sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{m}\|_2^2 = \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{c}_k\|_2^2 + \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{c}_k - \mathbf{m}\|_2^2 + 2 \sum_{\mathbf{x} \in \mathcal{C}_k} (\mathbf{x} - \mathbf{c}_k)^\top (\mathbf{c}_k - \mathbf{m})
+\end{equation}
+Si analizzino i tre termini singolarmente:
+\begin{enumerate}
+    \item Il primo termine coincide con l'errore quadratico interno al cluster $k$, la cui somma su tutti i $k$ fornisce per definizione $\mathrm{WSS}$:
+    \begin{equation}
+    \sum_{k=1}^K \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{c}_k\|_2^2 = \mathrm{WSS}
+    \end{equation}
+    
+    \item Nel secondo termine, la quantità $\|\mathbf{c}_k - \mathbf{m}\|_2^2$ è costante rispetto alla variabile di sommatoria $\mathbf{x}$. Di conseguenza, sommando per tutti gli $n_k$ punti appartenenti a $\mathcal{C}_k$:
+    \begin{equation}
+    \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{c}_k - \mathbf{m}\|_2^2 = n_k \|\mathbf{c}_k - \mathbf{m}\|_2^2
+    \end{equation}
+    Sommando su tutti i $K$ cluster si ottiene esattamente la definizione di $\mathrm{BSS}$:
+    \begin{equation}
+    \sum_{k=1}^K n_k \|\mathbf{c}_k - \mathbf{m}\|_2^2 = \mathrm{BSS}
+    \end{equation}
+    
+    \item Si esamini infine il termine di doppio prodotto incrociato. Poiché il vettore $(\mathbf{c}_k - \mathbf{m})$ non dipende da $\mathbf{x}$, esso può essere fattorizzato all'esterno della sommatoria:
+    \begin{equation}
+    \sum_{\mathbf{x} \in \mathcal{C}_k} (\mathbf{x} - \mathbf{c}_k)^\top (\mathbf{c}_k - \mathbf{m}) = \left[ \sum_{\mathbf{x} \in \mathcal{C}_k} (\mathbf{x} - \mathbf{c}_k) \right]^\top (\mathbf{c}_k - \mathbf{m})
+    \end{equation}
+    Tuttavia, per definizione di media aritmetica, il baricentro $\mathbf{c}_k$ azzera identicamente la somma degli scarti dei punti da se stesso:
+    \begin{equation}
+    \sum_{\mathbf{x} \in \mathcal{C}_k} (\mathbf{x} - \mathbf{c}_k) = \sum_{\mathbf{x} \in \mathcal{C}_k} \mathbf{x} - \sum_{\mathbf{x} \in \mathcal{C}_k} \mathbf{c}_k = n_k \mathbf{c}_k - n_k \mathbf{c}_k = \mathbf{0}
+    \end{equation}
+    Di conseguenza, il termine di prodotto incrociato si annulla rigorosamente per ogni cluster $k$:
+    \begin{equation}
+    2 \cdot \mathbf{0}^\top (\mathbf{c}_k - \mathbf{m}) = 0
+    \end{equation}
+\end{enumerate}
+Ricongiungendo i risultati, si ottiene:
+\begin{equation}
+\mathrm{TSS} = \sum_{k=1}^K \left[ \sum_{\mathbf{x} \in \mathcal{C}_k} \|\mathbf{x} - \mathbf{c}_k\|_2^2 + n_k \|\mathbf{c}_k - \mathbf{m}\|_2^2 \right] = \mathrm{WSS} + \mathrm{BSS}
+\end{equation}
+completando la dimostrazione.
+\end{proof}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    barStyle/.style={rectangle, draw=black, thick, minimum height=0.9cm}
+]
+    % TSS Bar
+    \node[barStyle, fill=purple!20, minimum width=11cm] (tss) at (0, 4.0) {
+        \textbf{Devianza Totale Globale: $\mathrm{TSS} = \sum \|\mathbf{x}_i - \mathbf{m}\|^2$ (Costante fissa dei dati)}
+    };
+
+    % Double arrows connecting
+    \draw[Stealth-Stealth, thick] (-5.5, 2.7) -- (5.5, 2.7);
+    \node[above, font=\footnotesize\bfseries] at (0, 2.85) {$\mathrm{TSS} = \mathrm{WSS} + \mathrm{BSS} = \text{Costante Invariante}$};
+
+    % Partition 1: Low K (Suboptimal)
+    \node[above, font=\footnotesize\bfseries] at (-3.2, 1.8) {Configurazione a basso $K$ (Cluster dispersi)};
+    \node[barStyle, fill=crimson!25, minimum width=7.7cm, anchor=west] (w1) at (-5.5, 1.25) {
+        \textbf{WSS (SSE) elevato} (Poca coesione)
+    };
+    \node[barStyle, fill=darkgreen!25, minimum width=3.3cm, anchor=west] (b1) at ($(w1.east)$) {
+        \textbf{BSS ridotto}
+    };
+
+    % Partition 2: Optimal K
+    \node[above, font=\footnotesize\bfseries] at (-3.2, -0.05) {Configurazione ottima $K^*$ (Bilanciamento intrinseco)};
+    \node[barStyle, fill=crimson!25, minimum width=2.8cm, anchor=west] (w2) at (-5.5, -0.6) {
+        \textbf{WSS basso}
+    };
+    \node[barStyle, fill=darkgreen!25, minimum width=8.2cm, anchor=west] (b2) at ($(w2.east)$) {
+        \textbf{BSS elevato} (Massima separazione tra centroidi)
+    };
+\end{tikzpicture}%
+}
+\caption{Rappresentazione del Teorema di Conservazione della Devianza $\mathrm{TSS} = \mathrm{WSS} + \mathrm{BSS}$: all'aumentare della qualità o della complessità del clustering, la minimizzazione della devianza interna $\mathrm{WSS}$ equivale biunivocamente alla massimizzazione della separazione esterna $\mathrm{BSS}$.}
+\label{fig:dm-tss-decomposition-bar}
+\end{figure}
+
+\begin{alertblock}{Significato Fondamentale per l'Ottimizzazione}
+Il Teorema~\ref{thm:dm-tss-wss-bss} sancisce che:
+\begin{equation}
+\min \mathrm{WSS} \iff \max \mathrm{BSS}
+\end{equation}
+Minimizzare la somma degli errori quadratici intra-cluster ($\mathrm{SSE}$) in $K$-Means equivale automaticamente e matematicamente a massimizzare la distanza pesata tra i centroidi dei cluster e il baricentro globale. Non è possibile migliorare la coesione interna senza allontanare i gruppi tra loro.
+
+Tuttavia, $\mathrm{BSS}$ presenta una patologia analoga a $\mathrm{WSS}$: poiché all'aumentare di $K$ la coesione interna $\mathrm{WSS}$ decresce monotonicamente fino ad annullarsi per $K=N$, la separazione $\mathrm{BSS}$ cresce monotonicamente verso il tetto massimo $\mathrm{TSS}$. Pertanto, né $\mathrm{WSS}$ né $\mathrm{BSS}$ possono essere impiegati isolatamente per selezionare il valore ottimo di $K$.
+\end{alertblock}
+
+\subsection{Esempio Numerico Didattico Unidimensionale}
+Per apprezzare il funzionamento analitico della conservazione di varianza, si consideri il dataset unidimensionale classico riportato nelle dispense di riferimento~\cite{tan2018}:
+\begin{equation}
+\mathcal{D} = \{1, 2, 4, 5\}, \quad N = 4
+\end{equation}
+
+\subsubsection{Passo 0: Calcolo del Baricentro Globale e di TSS}
+La media globale $\mathbf{m}$ vale:
+\begin{equation}
+\mathbf{m} = \frac{1 + 2 + 4 + 5}{4} = \frac{12}{4} = 3
+\end{equation}
+La devianza totale $\mathrm{TSS}$ del dataset vale:
+\begin{align}
+\mathrm{TSS} &= (1 - 3)^2 + (2 - 3)^2 + (4 - 3)^2 + (5 - 3)^2 \notag \\
+&= (-2)^2 + (-1)^2 + 1^2 + 2^2 = 4 + 1 + 1 + 4 = 10
+\end{align}
+Questo valore costituisce l'invariante geometrico del sistema.
+
+\subsubsection{Caso A: Partizione a Singolo Cluster ($K=1$)}
+Se tutti i punti sono assegnati a un unico macro-cluster $\mathcal{C}_1 = \{1, 2, 4, 5\}$:
+\begin{itemize}[noitemsep]
+    \item Il centroide locale coincide con la media globale: $\mathbf{c}_1 = 3$;
+    \item La coesione interna coincide con l'intera devianza:
+    \begin{equation}
+    \mathrm{WSS} = (1-3)^2 + (2-3)^2 + (4-3)^2 + (5-3)^2 = 10
+    \end{equation}
+    \item La separazione esterna è nulla, poiché il centroide coincide col baricentro:
+    \begin{equation}
+    \mathrm{BSS} = 4 \cdot (3 - 3)^2 = 0
+    \end{equation}
+\end{itemize}
+Verifica: $\mathrm{TSS} = 10 + 0 = 10$.
+
+\subsubsection{Caso B: Partizione Naturale a Due Cluster ($K=2$)}
+Si partizioni il dataset nei due raggruppamenti naturali intuitivi:
+\begin{equation}
+\mathcal{C}_1 = \{1, 2\}, \qquad \mathcal{C}_2 = \{4, 5\}
+\end{equation}
+con cardinalità $n_1 = 2$ e $n_2 = 2$.
+\begin{enumerate}
+    \item Si calcolano i rispettivi centroidi locali:
+    \begin{equation}
+    \mathbf{c}_1 = \frac{1 + 2}{2} = 1.5, \qquad \mathbf{c}_2 = \frac{4 + 5}{2} = 4.5
+    \end{equation}
+    
+    \item Si calcola la coesione intra-cluster ($\mathrm{WSS}$):
+    \begin{align}
+    \mathrm{SSE}(\mathcal{C}_1) &= (1 - 1.5)^2 + (2 - 1.5)^2 = 0.25 + 0.25 = 0.50 \\
+    \mathrm{SSE}(\mathcal{C}_2) &= (4 - 4.5)^2 + (5 - 4.5)^2 = 0.25 + 0.25 = 0.50 \\
+    \mathrm{WSS} &= \mathrm{SSE}(\mathcal{C}_1) + \mathrm{SSE}(\mathcal{C}_2) = 0.50 + 0.50 = 1.00
+    \end{align}
+    
+    \item Si calcola la separazione inter-cluster ($\mathrm{BSS}$):
+    \begin{align}
+    \mathrm{BSS} &= n_1 (\mathbf{c}_1 - \mathbf{m})^2 + n_2 (\mathbf{c}_2 - \mathbf{m})^2 \\
+    &= 2 \cdot (1.5 - 3)^2 + 2 \cdot (4.5 - 3)^2 \\
+    &= 2 \cdot (-1.5)^2 + 2 \cdot (1.5)^2 = 2 \cdot 2.25 + 2 \cdot 2.25 = 4.50 + 4.50 = 9.00
+    \end{align}
+\end{enumerate}
+Verifica del teorema di conservazione:
+\begin{equation}
+\mathrm{WSS} + \mathrm{BSS} = 1.00 + 9.00 = 10.00 = \mathrm{TSS}
+\end{equation}
+L'introduzione della partizione corretta a due cluster ha abbattuto la devianza interna del $90\%$ (da $10$ a $1$), convertendola integralmente in separazione tra gruppi ($\mathrm{BSS} = 9$).
+
+% ====================================================================
+% SEZIONE 10.6: IL COEFFICIENTE DI SILHOUETTE
+% ====================================================================
+\section{Il Coefficiente di Silhouette}
+\label{sec:dm-silhouette-coefficient}
+
+Introdotto originariamente da Peter Rousseeuw nel 1987~\cite{rousseeuw1987}, il \textbf{Coefficiente di Silhouette} è una delle metriche di validazione interna più versatili ed ampiamente utilizzate nel machine learning. Il suo pregio fondamentale risiede nella capacità di fondere simultaneamente la nozione di coesione interna e di separazione esterna a livello di \textbf{singolo punto dati}, senza dipendere esplicitamente dalla forma sferica o dal baricentroide medio~\cite{tan2018}.
+
+\subsection{Definizione Matematica Punto per Punto}
+Sia data una partizione di un dataset $\mathcal{D}$ in $K \ge 2$ cluster $\mathcal{C}_1, \dots, \mathcal{C}_K$. Per ogni specifica istanza $\mathbf{x}_i \in \mathcal{C}_k$:
+
+\begin{enumerate}
+    \item Si calcola la \textbf{dissimilarità intra-cluster media} $a(i)$, che esprime la distanza media di $\mathbf{x}_i$ da tutti gli altri punti appartenenti al proprio cluster:
+    \begin{equation}
+    \label{eq:dm-silhouette-a}
+    a(i) = \frac{1}{|\mathcal{C}_k| - 1} \sum_{\mathbf{x}_j \in \mathcal{C}_k, j \ne i} \mathrm{dist}(\mathbf{x}_i, \mathbf{x}_j)
+    \end{equation}
+    Il parametro $a(i)$ quantifica la \textbf{coesione}: valori piccoli indicano che il punto si trova profondamente integrato e vicino ai compagni di cluster.
+    
+    \item Si determina la \textbf{distanza media verso i cluster vicini}: per ogni altro cluster $\mathcal{C}_l \ne \mathcal{C}_k$, si calcola la distanza media da $\mathbf{x}_i$ a tutti i punti di $\mathcal{C}_l$:
+    \begin{equation}
+    d(\mathbf{x}_i, \mathcal{C}_l) = \frac{1}{|\mathcal{C}_l|} \sum_{\mathbf{x}_j \in \mathcal{C}_l} \mathrm{dist}(\mathbf{x}_i, \mathbf{x}_j)
+    \end{equation}
+    Si definisce $b(i)$ come il minimo di tali medie tra tutti i cluster concorrenti:
+    \begin{equation}
+    \label{eq:dm-silhouette-b}
+    b(i) = \min_{l \ne k} d(\mathbf{x}_i, \mathcal{C}_l)
+    \end{equation}
+    Il cluster che realizza il minimo in~(\ref{eq:dm-silhouette-b}) viene designato come il \textbf{cluster più vicino} (\textit{neighboring cluster}) per l'istanza $\mathbf{x}_i$. La quantità $b(i)$ quantifica la \textbf{separazione}: valori ampi indicano un marcato isolamento dal cluster contiguo.
+    
+    \item Il \textbf{coefficiente di Silhouette individuale} $s(i)$ per il punto $\mathbf{x}_i$ è definito come la differenza normalizzata:
+    \begin{equation}
+    \label{eq:dm-silhouette-s}
+    s(i) = \frac{b(i) - a(i)}{\max\left(a(i), \ b(i)\right)}
+    \end{equation}
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={font=\footnotesize}
+]
+    % Central formula note at the top
+    \node[rectangle, rounded corners=6pt, draw=purple!85!black, fill=purple!8, inner sep=6pt, align=center, font=\small] (formula) at (0, 3.8) {
+        $\displaystyle s(i) = \frac{b(i) - a(i)}{\max(a(i), \ b(i))}$\\[3pt]
+        \scriptsize $-1 \le s(i) \le 1$
+    };
+
+    % Cluster A (own cluster) on the left
+    \draw[fill=navy!8, draw=navy!85!black, very thick] (-4.0, 0) ellipse (2.9cm and 1.8cm);
+    \node[navy!90!black, font=\bfseries\normalsize] at (-4.0, 2.2) {Cluster di Appartenenza $\mathcal{C}_k$};
+    
+    % Points in Cluster A
+    \filldraw[navy!80!black] (-5.8, 0.4) circle (2.5pt);
+    \filldraw[navy!80!black] (-5.0, -1.0) circle (2.5pt);
+    \filldraw[navy!80!black] (-5.4, -0.3) circle (2.5pt);
+    \filldraw[navy!80!black] (-4.3, 0.8) circle (2.5pt);
+    \filldraw[navy!80!black] (-4.0, -0.7) circle (2.5pt);
+
+    % Reference sample point x_i on boundary of cluster A
+    \coordinate (xi) at (-2.3, 0.1);
+    \filldraw[crimson] (xi) circle (3.5pt) node[above=2pt, crimson, font=\bfseries\normalsize] {$\mathbf{x}_i$};
+
+    % Intra-cluster distance dashed lines
+    \draw[dashed, navy!80!black, thick] (xi) -- (-5.8, 0.4);
+    \draw[dashed, navy!80!black, thick] (xi) -- (-5.0, -1.0);
+    \draw[dashed, navy!80!black, thick] (xi) -- (-4.3, 0.8);
+    \draw[dashed, navy!80!black, thick] (xi) -- (-4.0, -0.7);
+
+    % Callout for a(i) positioned below cluster A
+    \node[rectangle, rounded corners=5pt, draw=navy!80!black, fill=navy!6, text width=5.6cm, inner sep=6pt, align=center, font=\footnotesize] (boxA) at (-4.0, -2.8) {
+        \textbf{Coesione intra-cluster $a(i)$}\\[2pt]
+        Media delle distanze da $\mathbf{x}_i$ a tutti gli altri punti del cluster $\mathcal{C}_k$
+    };
+    \draw[-Stealth, navy!80!black, thick] (boxA.north) -- (-4.0, -1.9);
+
+    % Cluster B (nearest neighboring cluster) on the right
+    \draw[fill=darkgreen!8, draw=darkgreen!85!black, very thick] (4.0, 0) ellipse (2.9cm and 1.9cm);
+    \node[darkgreen!90!black, font=\bfseries\normalsize] at (4.0, 2.3) {Cluster Concorrente Più Vicino $\mathcal{C}_l$};
+
+    % Points in Cluster B
+    \filldraw[darkgreen!80!black] (2.3, 0.5) circle (2.5pt);
+    \filldraw[darkgreen!80!black] (2.7, -0.8) circle (2.5pt);
+    \filldraw[darkgreen!80!black] (3.8, 0.9) circle (2.5pt);
+    \filldraw[darkgreen!80!black] (4.5, -0.5) circle (2.5pt);
+    \filldraw[darkgreen!80!black] (5.6, 0.2) circle (2.5pt);
+
+    % Inter-cluster distance dashed lines from x_i
+    \draw[dashed, darkgreen!80!black, thick] (xi) -- (2.3, 0.5);
+    \draw[dashed, darkgreen!80!black, thick] (xi) -- (2.7, -0.8);
+    \draw[dashed, darkgreen!80!black, thick] (xi) -- (4.5, -0.5);
+
+    % Callout for b(i) positioned below cluster B
+    \node[rectangle, rounded corners=5pt, draw=darkgreen!80!black, fill=darkgreen!6, text width=5.6cm, inner sep=6pt, align=center, font=\footnotesize] (boxB) at (4.0, -2.8) {
+        \textbf{Separazione inter-cluster $b(i)$}\\[2pt]
+        Minima distanza media da $\mathbf{x}_i$ verso i punti di un cluster esterno $\mathcal{C}_l$
+    };
+    \draw[-Stealth, darkgreen!80!black, thick] (boxB.north) -- (4.0, -1.9);
+\end{tikzpicture}%
+}
+\caption{Geometria del coefficiente di Silhouette: confronto visivo tra la coesione interna $a(i)$ e la separazione dal cluster contiguo più vicino $b(i)$.}
+\label{fig:dm-silhouette-geometry}
+\end{figure}
+
+\subsection{Analisi dei Regimi Limite del Coefficiente}
+Dalla presenza del denominatore normalizzante $\max(a(i), b(i))$, scaturisce direttamente che:
+\begin{equation}
+-1 \le s(i) \le 1, \quad \forall i
+\end{equation}
+L'interpretazione analitica dei tre regimi estremi è riassunta di seguito:
+\begin{itemize}
+    \item \textbf{Condizione Ottimale ($s(i) \to +1$)}: Si verifica quando $a(i) \ll b(i)$, ovvero la distanza interna è trascurabile rispetto alla separazione dal cluster contiguo. Il punto risiede nel cuore del proprio raggruppamento, perfettamente isolato dall'esterno.
+    \item \textbf{Punto di Confine ($s(i) \approx 0$)}: Si verifica quando $a(i) \approx b(i)$. Il punto giace esattamente sulla frontiera decisionale di Voronoi che separa il cluster $\mathcal{C}_k$ dal cluster contiguo $\mathcal{C}_l$. L'assegnazione ad uno o all'altro gruppo risulta ambigua ed arbitraria.
+    \item \textbf{Errore Grave di Assegnazione ($s(i) \to -1$)}: Si verifica quando $a(i) \gg b(i)$. In questo caso, il punto si trova mediamente molto più vicino agli elementi del cluster concorrente rispetto ai membri del gruppo a cui è stato formalmente assegnato dall'algoritmo. Tale circostanza evidenzia un evidente fallimento dell'ottimizzazione o un vincolo rigido sub-ottimale.
+\end{itemize}
+
+\subsection{Silhouette Score Globale e Grafici di Profilo}
+Per passare dalla valutazione puntuale alla validazione globale dell'intera partizione, si calcola il \textbf{Silhouette Score Medio} $\bar{s}$:
+\begin{equation}
+\label{eq:dm-mean-silhouette-score}
+\bar{s} = \frac{1}{N} \sum_{i=1}^N s(i)
+\end{equation}
+Un Silhouette Score globale $\bar{s} > 0.70$ denota una struttura eccellente a cluster forti e separati; valori nell'intervallo $[0.50, 0.70]$ attestano una struttura ragionevole; punteggi inferiori a $0.25$ denotano assenza di cluster o forte sovrapposizione.
+
+Oltre al valore medio aggregato, la silhouette consente la costruzione del \textbf{Silhouette Plot} (grafico dei profili):
+\begin{enumerate}
+    \item Si ordinano le istanze di ciascun cluster in senso decrescente in base al loro coefficiente $s(i)$;
+    \item Si traccia un istogramma a barre orizzontali per ogni cluster, visualizzando lo spessore (cardinalità del gruppo) e la penetrazione verso destra lungo l'asse orizzontale $[-1, 1]$;
+    \item Si traccia una linea verticale tratteggiata in corrispondenza del valore medio globale $\bar{s}$.
+\end{enumerate}
+Questo grafico consente di diagnosticare istantaneamente se determinati cluster siano intrinsecamente deboli (ossia contengano numerose barre corte o negative) pur a fronte di un punteggio medio globale apparentemente soddisfacente.
+
+% ====================================================================
+% SEZIONE 10.7: INDICI AGGIUNTIVI DA LABORATORIO
+% ====================================================================
+\section[Metriche Interne: Davies-Bouldin e Cali\'nski-Harabasz]{Metriche Interne: Davies-Bouldin\\e Cali\'nski-Harabasz}
+\label{sec:dm-additional-internal-indices}
+
+Nel laboratorio analitico di data mining (in particolare nel notebook sperimentale di clustering~\cite{tan2018}), vengono impiegate metriche complementari che offrono un compromesso computazionale superiore rispetto alla Silhouette (la quale richiede la memorizzazione o il calcolo quadratico delle distanze a coppie $\mathcal{O}(N^2)$).
+
+\subsection{Indice di Davies-Bouldin (DB Score)}
+Introdotto da Davies e Bouldin nel 1979~\cite{davies1979}, l'indice $DB$ valuta il peggior rapporto di similarità tra ciascun cluster e il suo rivale più prossimo.
+
+Siano $\mathbf{c}_i$ e $\mathbf{c}_j$ i centroidi dei cluster $\mathcal{C}_i$ e $\mathcal{C}_j$. Si definisce la dispersione intra-cluster media $\sigma_i$ come la distanza media dei punti appartenenti a $\mathcal{C}_i$ rispetto a $\mathbf{c}_i$:
+\begin{equation}
+\label{eq:dm-db-sigma}
+\sigma_i = \frac{1}{|\mathcal{C}_i|} \sum_{\mathbf{x} \in \mathcal{C}_i} \|\mathbf{x} - \mathbf{c}_i\|_2
+\end{equation}
+La similarità $R_{ij}$ tra la coppia di cluster $\mathcal{C}_i$ e $\mathcal{C}_j$ è definita come:
+\begin{equation}
+\label{eq:dm-db-rij}
+R_{ij} = \frac{\sigma_i + \sigma_j}{d(\mathbf{c}_i, \mathbf{c}_j)}
+\end{equation}
+dove al numeratore compare la somma delle dispersioni interne (richiesta di coesione) e al denominatore compare la distanza euclidea tra i due centroidi $d(\mathbf{c}_i, \mathbf{c}_j) = \|\mathbf{c}_i - \mathbf{c}_j\|_2$ (richiesta di separazione).
+
+L'indice di \textbf{Davies-Bouldin} $DB$ è definito calcolando la media aritmetica della massima similarità registrata da ciascun cluster:
+\begin{equation}
+\label{eq:dm-db-score}
+DB = \frac{1}{K} \sum_{i=1}^K \max_{j \ne i} R_{ij}
+\end{equation}
+
+\begin{property}[Proprietà dell'Indice $DB$]
+\begin{itemize}[noitemsep]
+    \item Il punteggio $DB$ è limitato inferiormente da zero: $DB \in [0, +\infty)$;
+    \item \textbf{Criterio di Ottimalità}: Valori inferiori denotano un clustering di qualità superiore (cluster compatti con dispersioni $\sigma_i$ piccole e ben distanziati con denominatore $d(\mathbf{c}_i, \mathbf{c}_j)$ grande);
+    \item Complessità computazionale: calcolabile in tempo $\mathcal{O}(N \cdot d + K^2 \cdot d)$, risultando drasticamente più veloce della Silhouette sui dataset di grandi dimensioni.
+\end{itemize}
+\end{property}
+
+\subsection{Indice di Cali\'nski-Harabasz (Variance Ratio Criterion)}
+Proposto da Cali\'nski e Harabasz nel 1974~\cite{calinski1974}, l'indice $CH$ (detto anche \textit{Variance Ratio Criterion}) rapporta direttamente la separazione inter-cluster $\mathrm{BSS}$ e la coesione intra-cluster $\mathrm{WSS}$, normalizzandole per i rispettivi gradi di libertà:
+\begin{equation}
+\label{eq:dm-calinski-harabasz}
+CH = \frac{\mathrm{BSS} / (K - 1)}{\mathrm{WSS} / (N - K)}
+\end{equation}
+Valori più elevati di $CH$ indicano cluster maggiormente densi e separati. In corrispondenza del valore intrinseco di $K^*$, la curva $CH(K)$ manifesta frequentemente un picco locale pronunciato.
+
+% ====================================================================
+% SEZIONE 10.8: MISURE ESTERNE: ENTROPIA, PUREZZA E CONCORDANZA
+% ====================================================================
+\section{Misure Esterne: Entropia, Purezza e Corrispondenza}
+\label{sec:dm-external-measures}
+
+Quando è disponibile una classificazione esterna indipendente (etichette fornite a priori da esperti di dominio), le metriche supervisionate consentono di misurare fino a che punto i cluster scoperti ricostruiscano o riflettano fedelmente tali categorie~\cite{tan2018}.
+
+\subsection{Distribuzioni di Probabilità Empiriche e Matrice di Contingenza}
+Sia data una partizione prodotta dall'algoritmo $\mathcal{C} = \{\mathcal{C}_1, \dots, \mathcal{C}_K\}$ e sia $\mathcal{L} = \{\mathcal{L}_1, \dots, \mathcal{L}_L\}$ la partizione reale delle etichette esterne (\textit{ground truth}), con dimensione totale del dataset pari a $N$.
+
+Si costruisce la \textbf{matrice di contingenza} (o di co-occorrenza) la cui cella generica $m_{ij}$ rappresenta il numero di elementi assegnati contemporaneamente al cluster $\mathcal{C}_i$ e alla classe esterna $\mathcal{L}_j$:
+\begin{equation}
+\label{eq:dm-contingency-cell}
+m_{ij} = |\mathcal{C}_i \cap \mathcal{L}_j|, \qquad m_i = |\mathcal{C}_i| = \sum_{j=1}^L m_{ij}, \qquad m_{\cdot j} = |\mathcal{L}_j| = \sum_{i=1}^K m_{ij}
+\end{equation}
+
+Per ciascun cluster $\mathcal{C}_i$, si definisce la distribuzione di probabilità empirica condizionata che un elemento estratto a caso da $\mathcal{C}_i$ appartenga alla classe $\mathcal{L}_j$:
+\begin{equation}
+\label{eq:dm-empirical-prob}
+p_{ij} = \frac{m_{ij}}{m_i} = \frac{|\mathcal{C}_i \cap \mathcal{L}_j|}{|\mathcal{C}_i|}
+\end{equation}
+ovviamente con $\sum_{j=1}^L p_{ij} = 1$ per ogni cluster fisso $i$.
+
+\subsection{Formulazione Matematica di Entropia e Purezza}
+\begin{enumerate}
+    \item \textbf{Entropia Individuale di un Cluster ($e_i$)}: Applicando la definizione fondazionale di Entropia di Shannon formalizzata nel Capitolo~\ref{chap:dm-similarity-clustering-foundations} (\autoref{sec:dm-information-theory}), si quantifica il disordine informativo o l'eterogeneità interna del cluster $\mathcal{C}_i$ rispetto alla distribuzione delle classi di riferimento:
+    \begin{equation}
+    \label{eq:dm-entropy-single}
+    e_i = - \sum_{j=1}^L p_{ij} \log_2(p_{ij})
+    \end{equation}
+    convenendo che $0 \log_2(0) = 0$. L'entropia è minima ($e_i = 0$) se il cluster è perfettamente puro (contiene istanze appartenenti a una singola classe); è massima ($\log_2 L$) se tutte le classi sono equiprobabili nel cluster.
+    
+    \item \textbf{Entropia Globale Ponderata del Clustering ($E$)}: Media pesata delle entropie individuali, proporzionale alla dimensione dei singoli cluster:
+    \begin{equation}
+    \label{eq:dm-entropy-global}
+    E = \sum_{i=1}^K \frac{m_i}{N} e_i = - \sum_{i=1}^K \frac{m_i}{N} \sum_{j=1}^L p_{ij} \log_2(p_{ij})
+    \end{equation}
+    Minori valori di $E$ indicano partizioni di qualità superiore rispetto alle etichette di classe.
+    
+    \item \textbf{Purezza Individuale di un Cluster ($p_i$)}: Rappresenta la frazione del cluster occupata dalla classe maggioritaria in esso contenuta:
+    \begin{equation}
+    \label{eq:dm-purity-single}
+    p_i = \max_j p_{ij} = \max_j \frac{m_{ij}}{m_i}
+    \end{equation}
+    
+    \item \textbf{Purezza Globale Ponderata del Clustering ($P$)}: Media pesata delle purezze individuali:
+    \begin{equation}
+    \label{eq:dm-purity-global}
+    P = \sum_{i=1}^K \frac{m_i}{N} p_i = \frac{1}{N} \sum_{i=1}^K \max_j m_{ij}
+    \end{equation}
+    La purezza varia nell'intervallo $[0, 1]$: valori prossimi ad $1$ attestano che ciascun cluster è dominato quasi esclusivamente da un'unica classe target.
+\end{enumerate}
+
+\subsection{Studio di Caso Analitico: Il Corpus Testuale ``LA Documents''}
+Nelle lezioni di riferimento~\cite{tan2018} viene esaminato un esperimento applicativo condotto sul corpus testuale \textit{Los Angeles Times Documents} ($N = 3\,204$ articoli ripartiti su 6 argomenti di cronaca: intrattenimento, finanza, esteri, politica, sport, tecnologia).
+
+Il dataset viene partizionato mediante $K$-Means impostando $K=9$. La matrice di contingenza risultante è riportata integralmente nella Tabella~\ref{tab:dm-la-documents}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l *{6}{c} c c c}
+\toprule
+\textbf{Cluster} & \textbf{Ent.} & \textbf{Fin.} & \textbf{Est.} & \textbf{Pol.} & \textbf{Spo.} & \textbf{Tec.} & \textbf{Totale} & \textbf{Purezza} & \textbf{Entropia} \\
+\midrule
+$\mathcal{C}_1$ & 3 & 5 & 40 & 506 & 0 & 3 & 557 & 0.908 & 0.505 \\
+$\mathcal{C}_2$ & 17 & 7 & 280 & 29 & 0 & 0 & 333 & 0.841 & 0.778 \\
+$\mathcal{C}_3$ & 2 & 1 & 1 & 7 & 0 & 2 & 13 & 0.538 & 1.761 \\
+$\mathcal{C}_4$ & 7 & 1 & 1 & 0 & 422 & 3 & 434 & 0.972 & 0.239 \\
+$\mathcal{C}_5$ & 40 & 180 & 20 & 10 & 2 & 3 & 255 & 0.706 & 1.341 \\
+$\mathcal{C}_6$ & 4 & 505 & 6 & 0 & 0 & 4 & 519 & 0.973 & 0.208 \\
+$\mathcal{C}_7$ & 423 & 3 & 12 & 3 & 0 & 1 & 442 & 0.957 & 0.320 \\
+$\mathcal{C}_8$ & 105 & 3 & 5 & 1 & 0 & 0 & 114 & 0.921 & 0.449 \\
+$\mathcal{C}_9$ & 60 & 17 & 85 & 8 & 0 & 367 & 537 & 0.683 & 1.258 \\
+\midrule
+\textbf{Globale} & & & & & & & \textbf{3204} & \textbf{0.887} & \textbf{0.672} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Matrice di contingenza e calcolo di entropia e purezza per il clustering a $K=9$ del dataset \textit{LA Documents} (Tan et al.~\cite{tan2018}).}
+\label{tab:dm-la-documents}
+\end{table}
+
+\begin{noteblock}{Interpretazione Qualitativa dei Risultati}
+Dall'ispezione analitica della Tabella~\ref{tab:dm-la-documents} emergono osservazioni cruciali:
+\begin{enumerate}
+    \item \textbf{Cluster ad altissima purezza}: il cluster $\mathcal{C}_4$ (422 articoli di Sport su 434, purezza $97.2\%$) e il cluster $\mathcal{C}_6$ (505 articoli di Finanza su 519, purezza $97.3\%$) manifestano una separazione semantica quasi perfetta. Le loro entropie sono inferiori a $0.25$;
+    \item \textbf{Sotto-partizione naturale della classe Intrattenimento}: la classe \textit{Entertainment} è stata suddivisa dall'algoritmo tra il cluster $\mathcal{C}_7$ (423 articoli) e il cluster $\mathcal{C}_8$ (105 articoli). Sebbene tale classe sia frammentata su due cluster, entrambi i cluster risultano altamente puri ($95.7\%$ e $92.1\%$), a dimostrazione che l'algoritmo ha scoperto due sottotemi distinti all'interno della stessa macro-categoria;
+    \item \textbf{Cluster misti complessi}: il cluster $\mathcal{C}_9$ racchiude 367 articoli di Tecnologia, ma è contaminato da 85 articoli Esteri e 60 di Intrattenimento, determinando un'entropia elevata ($1.258$).
+\end{enumerate}
+\end{noteblock}
+
+% ====================================================================
+% SEZIONE 10.9: MODELLI NULLI E INFERENZA STATISTICA
+% ====================================================================
+\section{Quadro Statistico Inferenziale e Modelli Nulli}
+\label{sec:dm-statistical-null-models}
+
+Come stabilito nella Sezione~\ref{sec:dm-validity-foundations}, un valore di validità (ad esempio un $\mathrm{SSE} = 24.5$ o una correlazione matriciale $\rho = 0.42$) è privo di significato epistemologico se non confrontato con il valore atteso sotto una distribuzione di probabilità di riferimento. L'approccio rigoroso della cluster validity si fonda sull'\textbf{inferenza statistica basata su modelli nulli}~\cite{tan2018, jain1988}.
+
+\subsection{Formulazione dell'Ipotesi Nulla di Randomness}
+Per stabilire la significatività statistica di un clustering, si formula formalmente l'ipotesi nulla:
+\begin{equation}
+\label{eq:dm-null-hypothesis}
+H_0: \text{I dati sono privi di cluster e generati casualmente.}
+\end{equation}
+
+Nel contesto dei dati continui multidimensionali, l'ipotesi nulla standard modella le osservazioni come un processo di Poisson omogeneo generato uniformemente all'interno dell'iper-rettangolo o dell'iper-sfera che racchiude i dati osservati:
+\begin{equation}
+\mathbf{x} \sim \mathcal{U}\left(\prod_{j=1}^d [a_j, b_j]\right)
+\end{equation}
+oppure mediante una permutazione casuale indipendente degli attributi lungo ciascuna coordinata (preservando le distribuzioni marginali unidimensionali ma distruggendo la covarianza multivariata).
+
+\subsection{Simulazione Monte Carlo e Distribuzione Empirica Sotto $H_0$}
+Poiché la distribuzione analitica di metriche complesse come l'$\mathrm{SSE}$ o la correlazione matriciale non è derivabile in forma chiusa sotto $H_0$, si ricorre al \textbf{campionamento Monte Carlo}:
+\begin{enumerate}
+    \item Si generano $B$ dataset casuali indipendenti $\mathcal{D}^{(1)}, \mathcal{D}^{(2)}, \dots, \mathcal{D}^{(B)}$ (tipicamente $B = 500$ o $1\,000$) con la medesima cardinalità $N$ e dimensionalità $d$ del dataset reale sotto l'ipotesi nulla $H_0$;
+    \item Si esegue l'algoritmo di clustering su ciascun dataset sintetico $\mathcal{D}^{(b)}$ con le medesime condizioni e iperparametri;
+    \item Si calcola il valore della metrica statistica target $\theta^{(b)}$ (ad esempio l'$\mathrm{SSE}$ o la correlazione $\rho$) su ciascun dataset sintetico;
+    \item Si costruisce la distribuzione empirica nulla $f(\theta \mid H_0)$.
+\end{enumerate}
+
+\subsection{Calcolo del $p$-Value Empirico}
+Sia $\theta_{\mathrm{obs}}$ il valore della statistica calcolato sul dataset reale.
+\begin{itemize}
+    \item Per metriche in cui la bontà è associata alla minimizzazione (come l'$\mathrm{SSE}$), il $p$-value empirico è la proporzione di dataset casuali che hanno prodotto un errore uguale o inferiore a quello osservato:
+    \begin{equation}
+    \label{eq:dm-p-value-minimization}
+    p\text{-value} = \frac{1}{B} \sum_{b=1}^B \mathbb{I}\left(\theta^{(b)} \le \theta_{\mathrm{obs}}\right)
+    \end{equation}
+    \item Per metriche in cui la qualità è associata alla massimizzazione (come la correlazione matriciale $\rho$ o la Silhouette):
+    \begin{equation}
+    \label{eq:dm-p-value-maximization}
+    p\text{-value} = \frac{1}{B} \sum_{b=1}^B \mathbb{I}\left(\theta^{(b)} \ge \theta_{\mathrm{obs}}\right)
+    \end{equation}
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={font=\footnotesize}
+]
+    % Decision zone horizontal braces below the axis (y = -0.75)
+    % Rejection Region brace
+    \draw[decorate, decoration={brace, mirror, amplitude=5pt}, crimson!80!black, thick] 
+        (0.5, -0.75) -- (6.8, -0.75) 
+        node[midway, below=5pt, font=\scriptsize, align=center, text=crimson!90!black] 
+        {\textbf{Regione di Rigetto di $H_0$} ($\theta \le \theta_{\mathrm{crit}}$)\\[1.5pt]Evidenza di cluster reali ($p < \alpha$)};
+
+    % Non-rejection Region brace
+    \draw[decorate, decoration={brace, mirror, amplitude=5pt}, navy!70!black, thick] 
+        (6.8, -0.75) -- (12.4, -0.75) 
+        node[midway, below=5pt, font=\scriptsize, align=center, text=navy!85!black] 
+        {\textbf{Regione di Non-Rigetto} ($\theta > \theta_{\mathrm{crit}}$)\\[1.5pt]Compatibile con rumore ($p \ge \alpha$)};
+
+    % Shaded areas under the null distribution curve
+    % Critical tail (rejection tail under H0)
+    \fill[crimson!25, domain=6.0:6.8, samples=30] 
+        (6.0, 0) -- plot (\x, {3.2 * exp(-0.5 * ((\x - 9.2)/1.0)^2)}) -- (6.8, 0) -- cycle;
+
+    % Acceptance area under H0
+    \fill[navy!12, domain=6.8:12.2, samples=60] 
+        (6.8, 0) -- plot (\x, {3.2 * exp(-0.5 * ((\x - 9.2)/1.0)^2)}) -- (12.2, 0) -- cycle;
+
+    % Outline of the null distribution bell curve
+    \draw[navy!85!black, thick, domain=6.0:12.2, samples=80] 
+        plot (\x, {3.2 * exp(-0.5 * ((\x - 9.2)/1.0)^2)});
+
+    % Axes
+    \draw[-Stealth, thick] (0, 0) -- (12.8, 0) node[above left=2pt, font=\footnotesize] {Valore Statistico $\theta$ ($\mathrm{SSE}$)};
+    \draw[-Stealth, thick] (0, 0) -- (0, 4.6) node[above=2pt, font=\footnotesize] {Frequenza Relativa};
+
+    % Null distribution labels placed clearly above the bell curve peak
+    \node[navy!90!black, font=\bfseries, align=center] at (9.5, 3.9) {Distribuzione Nulla $f(\theta \mid H_0)$\\[2pt]\scriptsize (500 simulazioni Monte Carlo)};
+
+    % Mean of null distribution tick
+    \draw[gray!60, thin] (9.2, 0.1) -- (9.2, -0.1);
+    \node[below=2pt, gray!70!black, font=\scriptsize] at (9.2, 0) {$\mu_{H_0}$};
+
+    % Critical boundary threshold (x = 6.8)
+    \draw[dashed, darkgreen!80!black, thick] (6.8, 0) -- (6.8, 1.75);
+    \fill[darkgreen!80!black] (6.8, 0) circle (2pt);
+    \node[below=2pt, darkgreen!80!black, font=\scriptsize\bfseries] at (6.8, 0) {$\theta_{\mathrm{crit}}$};
+    \node[draw=darkgreen!80!black, fill=darkgreen!8, rounded corners=3pt, font=\scriptsize\bfseries, align=center, text=darkgreen!90!black, inner sep=3.5pt] 
+        at (6.8, 2.25) {Soglia Critica $\alpha = 0.01$\\[1pt]\normalfont\scriptsize ($z_{\mathrm{crit}} \approx -2.33$)};
+
+    % Critical tail callout (x = 4.6)
+    \draw[-Stealth, darkgreen!80!black, thin] (4.9, 1.1) -- (6.3, 0.2);
+    \node[darkgreen!90!black, font=\scriptsize, align=center] at (4.5, 1.4) {Coda critica\\($\alpha = 0.01$)};
+
+    % Observed value (x = 2.0)
+    \fill[crimson] (2.0, 0) circle (2.5pt);
+    \node[below=2pt, crimson!90!black, font=\scriptsize\bfseries] at (2.0, 0) {$\theta_{\mathrm{obs}}$};
+    \draw[crimson, very thick, -Stealth] (2.0, 2.8) -- (2.0, 0.2);
+    \node[draw=crimson, fill=crimson!8, rounded corners=3pt, font=\footnotesize, align=center, text=crimson!90!black, inner sep=4pt] 
+        at (2.0, 3.4) {\textbf{Valore Osservato} $\theta_{\mathrm{obs}}$\\[2pt]\scriptsize Dati reali ($p\text{-value} < 0.001$)};
+
+\end{tikzpicture}%
+}
+\caption{Quadro decisionale dell'ipotesi nulla: se l'errore $\mathrm{SSE}$ reale cade marcatamente a sinistra della distribuzione generata casualmente, l'ipotesi di casualità viene rigettata con significatività statistica rigorosa.}
+\label{fig:dm-null-model-distribution}
+\end{figure}
+
+Come sintetizzato graficamente nella Figura~\ref{fig:dm-null-model-distribution}, se il valore empirico osservato $\theta_{\mathrm{obs}}$ risiede ben al di fuori della coda di probabilità della distribuzione nulla ($p\text{-value} < \alpha$, tipicamente $\alpha = 0.01$), l'ipotesi di uniformità viene rigettata: la partizione non è un mero artefatto algoritmico ma riflette una discontinuità reale nei dati.
+
+% ====================================================================
+% SEZIONE 10.10: LABORATORIO PYTHON APPLICATIVO
+% ====================================================================
+\section{Laboratorio Python: Metriche di Validazione e Selezione di \texorpdfstring{$K$}{K}}
+\label{sec:dm-python-lab}
+
+In questa sezione finale vengono presentate le metodologie operative implementate nell'attività laboratoriale di data mining (desunte dal notebook ufficiale del corso \texttt{3\_clustering.ipynb}~\cite{tan2018}), evidenziando l'impiego del package \texttt{scikit-learn} per la quantificazione delle metriche interne ed esterne e la stima del numero ottimale di cluster.
+
+\begin{noteblock}{Ambiente Interattivo e Riproducibilità del Laboratorio}
+    Tutte le routine computazionali, le metriche di validazione e le procedure di model selection presentate in questa sezione sono direttamente eseguibili e riproducibili tramite l'ambiente Jupyter ufficiale del corso:
+    \begin{itemize}[noitemsep]
+        \item Notebook interattivo: \href{http://localhost:8888/lab/tree/notebooks/3_clustering.ipynb}{\textbf{Notebook 3 (Clustering)}} (file \texttt{Data-Mining/notebooks/3\_clustering.ipynb});
+        \item Avvio rapido con Docker: \texttt{docker compose up jupyter} (oppure tramite script Windows \texttt{scripts/start-jupyter.cmd});
+        \item Interfaccia web: \href{http://localhost:8888/lab}{\texttt{http://localhost:8888/lab}} (accesso diretto senza token o password).
+    \end{itemize}
+\end{noteblock}
+
+\begin{remark}[Riferimento al Notebook Interattivo]
+    Il codice delle sottosezioni seguenti mappa direttamente le celle della sezione \textit{Metrics to Evaluate Clustering} e \textit{K parameter estimation} del notebook interattivo \href{http://localhost:8888/lab/tree/notebooks/3_clustering.ipynb}{\textbf{3\_clustering.ipynb}}:
+    \begin{itemize}[noitemsep]
+        \item \textbf{Metriche interne} ($\mathrm{SSE}$, Davies-Bouldin, Silhouette): celle 33--34;
+        \item \textbf{Metodo del gomito} (scansione di $K \in [2, 40]$ ed evidenziazione di $K^*$): celle 38--40;
+        \item \textbf{Validazione esterna} (matrice di contingenza e profilazione con \texttt{day}): celle 35--37.
+    \end{itemize}
+\end{remark}
+
+\subsection{Implementazione Metriche Interne in Scikit-Learn}
+Nel codice di laboratorio (cella 34 del \href{http://localhost:8888/lab/tree/notebooks/3_clustering.ipynb}{\textbf{Notebook 3}}), dopo aver addestrato un modello $K$-Means sulla matrice pre-processata dei dati numerici standardizzati $X$, le metriche di compattezza ($\mathrm{SSE}$), separazione (Davies-Bouldin) e concordanza (Silhouette) vengono estratte in modo conciso:
+
+\begin{lstlisting}[style=code, language=Python, caption={Calcolo congiunto di $\mathrm{SSE}$, Davies-Bouldin e Silhouette Score in Python.}]
+from sklearn.cluster import KMeans
+from sklearn import metrics
+from sklearn.metrics import silhouette_score
+
+# Addestramento di K-Means con K fissato
+kmeans = KMeans(n_clusters=4, n_init=10, max_iter=300, random_state=42)
+kmeans.fit(X)
+
+# 1. Coesione intra-cluster: Inerzia (SSE / WSS)
+# Attributo built-in che calcola la somma delle distanze quadratiche dai centroidi
+sse = kmeans.inertia_
+print(f'SSE (Inertia / WSS): {sse:.3f}')
+
+# 2. Separazione inter-cluster: Davies-Bouldin Score
+# Valuta il rapporto di similarita peggiore; ottimale vicino a 0
+db_score = metrics.davies_bouldin_score(X, kmeans.labels_)
+print(f'Davies-Bouldin Score: {db_score:.3f}')
+
+# 3. Silhouette Score globale: media armonica tra coesione e separazione
+# Spettro [-1, 1]; ottimale vicino a +1
+sil_score = silhouette_score(X, kmeans.labels_)
+print(f'Silhouette Score: {sil_score:.3f}')
+\end{lstlisting}
+
+\subsection{Stima del Parametro \texorpdfstring{$K$}{K} Ottimale: Il Metodo del Gomito (Elbow/Knee)}
+Come formalizzato nel Capitolo~\ref{chap:dm-kmeans-hierarchical} (\autoref{sec:dm-kmeans-elbow-method}), l'identificazione euristica di $K^*$ si basa sull'individuazione del punto di flesso (\textit{knee point}) in cui il guadagno marginale di coesione interna subisce una marcata decelerazione.
+
+Il listato~\ref{lst:dm-elbow-method} (desunto dalle celle 38--40 del \href{http://localhost:8888/lab/tree/notebooks/3_clustering.ipynb}{\textbf{Notebook 3}}) illustra la scansione programmatica dell'intervallo $K \in [2, 40]$ e il tracciamento della curva per individuare visivamente la transizione a gomito:
+
+\begin{lstlisting}[style=code, language=Python, label={lst:dm-elbow-method}, caption={Scansione sistematica e tracciamento della curva del gomito per la selezione di $K^*$.}]
+import matplotlib.pyplot as plt
+
+sse_list = []
+max_k = 40
+
+# Iterazione sull'intervallo di complessita
+for k in range(2, max_k + 1):
+    km = KMeans(n_clusters=k, n_init=10, max_iter=100, random_state=42)
+    km.fit(X)
+    sse_list.append(km.inertia_)
+
+# Identificazione del punto critico di ginocchio
+k_star = 10
+sse_star = sse_list[k_star - 2]  # Allineamento indice base-zero
+
+# Visualizzazione grafica della curva del gomito
+plt.figure(figsize=(9, 5))
+plt.plot(range(2, max_k + 1), sse_list, marker='o', color='navy', lw=2)
+plt.ylabel('SSE (Inertia)', fontsize=14)
+plt.xlabel('Numero di Cluster (K)', fontsize=14)
+plt.title('Metodo del Gomito per la Stima di K*', fontsize=16)
+
+# Linee tratteggiate di ancoraggio sul punto ottimale
+plt.vlines(x=k_star, ymin=0, ymax=sse_star, colors='crimson', linestyles='dashed', lw=1.5)
+plt.hlines(y=sse_star, xmin=0, xmax=k_star, colors='crimson', linestyles='dashed', lw=1.5)
+plt.scatter(k_star, sse_star, color='crimson', s=90, zorder=5, label=f'Ginocchio K*={k_star}')
+
+plt.legend(fontsize=12)
+plt.grid(True, linestyle=':', alpha=0.6)
+plt.show()
+\end{lstlisting}
+
+\subsection{Validazione Esterna tramite Tabulazioni Incrociate (Crosstab)}
+Nel laboratorio (celle 35--37 del \href{http://localhost:8888/lab/tree/notebooks/3_clustering.ipynb}{\textbf{Notebook 3}}), per esaminare se i cluster numerici scoperti corrispondano a comportamenti differenziati rispetto a variabili categoriche esterne non utilizzate nel clustering (come il giorno della settimana \texttt{day} o la fascia oraria \texttt{time} nel dataset delle mance \texttt{tips}), si impiega la funzione \texttt{pd.crosstab}:
+
+\begin{lstlisting}[style=code, language=Python, caption={Analisi di contingenza empirica e profilazione esterna dei cluster in Pandas.}]
+import pandas as pd
+
+# Creazione della matrice di contingenza tra etichette di cluster e variabile esterna
+cross_df = pd.crosstab(kmeans.labels_, df_cat['day'])
+print("Matrice di Contingenza Cluster vs Giorno:")
+print(cross_df)
+
+# Visualizzazione della distribuzione per cluster
+cross_df.plot(kind='bar', stacked=False, figsize=(10, 5), colormap='viridis')
+plt.title('Distribuzione della variabile esterna "day" per cluster')
+plt.xlabel('Cluster ID')
+plt.ylabel('Conteggio Istanza')
+plt.grid(axis='y', linestyle=':', alpha=0.7)
+plt.show()
+\end{lstlisting}
+
+La matrice di contingenza consente all'analista di calcolare immediatamente la purezza e l'entropia condizionata del partizionamento rispetto alle etichette categoriche, completando in tal modo il ciclo di valutazione quantitativa della validità.

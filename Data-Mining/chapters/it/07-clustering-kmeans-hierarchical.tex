@@ -13,7 +13,7 @@ In questo capitolo vengono presentati i fondamenti teorici, le formulazioni alge
 \section{Introduzione alla Cluster Analysis Partizionale e Gerarchica}
 \label{sec:dm-clustering-intro-taxonomy}
 
-La \textbf{Cluster Analysis} (o raggruppamento non supervisionato) costituisce una delle discipline fondanti dell'apprendimento automatico non supervisionato (\textit{unsupervised machine learning}). A differenza dell'apprendimento supervisionato, in cui ogni istanza $\mathbf{x}_i$ è corredata da un'etichetta di classe nota a priori $y_i \in \mathcal{Y}$ (\textit{ground truth}), nel clustering l'obiettivo primario consiste nello scoprire strutture latenti, regolarità geometriche o aggregazioni naturali all'interno di un insieme di dati multidimensionali non etichettati.
+Come introdotto nel Capitolo~\ref{chap:dm-similarity-clustering-foundations} (\autoref{sec:dm-cluster-analysis-principles}), la \textbf{Cluster Analysis} persegue la partizione di un dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$ massimizzando congiuntamente la coesione interna e la separazione esterna tra i gruppi. Sulle basi della tassonomia generale dei metodi delineata nella \autoref{sec:dm-clustering-taxonomies}, questo capitolo approfondisce i due capisaldi operativi dell'apprendimento non supervisionato: l'approccio partizionale fondato su prototipi ($K$-Means) e l'approccio gerarchico basato su matrici di prossimità e dendrogrammi.
 
 \begin{figure}[htbp]
 \centering
@@ -54,13 +54,7 @@ La \textbf{Cluster Analysis} (o raggruppamento non supervisionato) costituisce u
 \label{fig:dm-clustering-taxonomy-overview}
 \end{figure}
 
-Dato un insieme di $n$ osservazioni $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\}$ con $\mathbf{x}_i \in \mathbb{R}^d$, il problema generale del clustering richiede di ripartire $\mathcal{D}$ in sottoinsiemi $C = \{C_1, \dots, C_K\}$ massimizzando congiuntamente due proprietà complementari:
-\begin{enumerate}
-    \item \textbf{Massima omogeneità interna (\textit{high intra-cluster cohesion})}: le osservazioni assegnate al medesimo raggruppamento devono risultare il più vicine e simili possibile secondo una metrica stabilita.
-    \item \textbf{Massima eterogeneità esterna (\textit{high inter-cluster separation})}: elementi appartenenti a gruppi distinti devono esibire una marcata distanza o dissimilarità reciproca.
-\end{enumerate}
-
-I due paradigmi affrontano tale sfida con filosofie strutturali differenti: il paradigma partizionale fissa a priori il numero di raggruppamenti $K$ e persegue una tassellazione poligonale ottima dello spazio mediante prototipi; il paradigma gerarchico genera una sequenza continua di partizioni nidificate, delegando la determinazione di $K$ a un'analisi a posteriori del dendrogramma.
+I due paradigmi affrontano l'obiettivo del raggruppamento con filosofie strutturali differenti: il paradigma partizionale fissa a priori il numero di raggruppamenti $K$ e persegue una tassellazione poligonale ottima dello spazio mediante prototipi; il paradigma gerarchico genera una sequenza continua di partizioni nidificate, delegando la determinazione di $K$ a un'analisi a posteriori del dendrogramma.
 
 % ====================================================================
 % SEZIONE 7.2: K-MEANS: ALGORITMO DI LLOYD E GEOMETRIA DI VORONOI
@@ -75,7 +69,7 @@ Data una collezione di $n$ punti $\mathcal{D} \subset \mathbb{R}^d$ e un intero 
 \begin{equation}
     \bigcup_{i=1}^K C_i = \mathcal{D}, \qquad C_i \cap C_j = \emptyset \quad (\forall i \ne j), \qquad C_i \ne \emptyset \quad (\forall i \in \{1, \dots, K\})
 \end{equation}
-A ciascun cluster $C_i$ è associato un vettore prototipo denominato \textbf{centroide} $\mathbf{m}_i \in \mathbb{R}^d$, che per la distanza euclidea coincide con il baricentro aritmetico dei punti assegnati:
+A ciascun cluster $C_i$ è associato un vettore prototipo denominato \textbf{centroide} $\mathbf{m}_i \in \mathbb{R}^d$ (indicato talvolta anche con $\mathbf{c}_i$), che per la distanza euclidea coincide con il baricentro aritmetico dei punti assegnati:
 \begin{equation}
     \mathbf{m}_i = \frac{1}{|C_i|} \sum_{\mathbf{x} \in C_i} \mathbf{x}
     \label{eq:dm-centroid-definition}
@@ -89,11 +83,11 @@ L'algoritmo di base opera alternando ricorsivamente due fasi deterministiche fin
 
 \begin{algorithm}[htbp]
 \SetAlgoLined
-\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, numero di cluster $K$, tolleranza $\epsilon \ge 0$.}
+\KwInput{Dataset $\mathcal{D} = \{\mathbf{x}_1, \dots, \mathbf{x}_n\} \subset \mathbb{R}^d$, numero di cluster $K$, tolleranza $\varepsilon \ge 0$.}
 \KwOutput{Partizione finale $\{C_1, \dots, C_K\}$ e centroidi $\{\mathbf{m}_1, \dots, \mathbf{m}_K\}$.}
 Inizializza $K$ centroidi iniziali $\{\mathbf{m}_1^{(0)}, \dots, \mathbf{m}_K^{(0)}\}$ mediante estrazione casuale da $\mathcal{D}$\;
 $t \leftarrow 0$\;
-\Repeat{i centroidi non variano significativamente: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \epsilon$}{
+\Repeat{i centroidi non variano significativamente: $\sum_{i=1}^K \|\mathbf{m}_i^{(t+1)} - \mathbf{m}_i^{(t)}\|^2 \le \varepsilon$}{
     $t \leftarrow t + 1$\;
     \BlankLine
     \tcp{Fase 1: Assegnazione alle celle di Voronoi}
@@ -166,7 +160,7 @@ Ciascun iperpiano di separazione tra il cluster $C_i$ e il cluster $C_j$ è orto
 Studiando l'evoluzione dei centroidi lungo l'asse delle iterazioni $t = 1, 2, \dots$:
 \begin{itemize}[noitemsep]
     \item \textbf{Iterazioni 1--3}: Si osserva la migrazione macroscopica più rilevante. I centroidi iniziali si allontanano rapidamente dalle configurazioni spurie e migrano verso i baricentri delle macro-regioni a maggiore densità.
-    \item \textbf{Iterazioni 4--6 e successive}: Si entra nella fase di raffinamento fine. Pochi punti di confine vengono riassegnati lungo le superfici di Voronoi finché la variazione dei centroidi si annulla o scende sotto la soglia numerica prefissata $\epsilon$.
+    \item \textbf{Iterazioni 4--6 e successive}: Si entra nella fase di raffinamento fine. Pochi punti di confine vengono riassegnati lungo le superfici di Voronoi finché la variazione dei centroidi si annulla o scende sotto la soglia numerica prefissata $\varepsilon$.
 \end{itemize}
 
 \subsection{Generalizzazione ad Altre Metriche di Prossimità}
@@ -296,6 +290,7 @@ Poiché $G(\mathbf{W}, \mathbf{S}) \ge 0$ è limitata inferiormente da zero, e i
 Nonostante la convergenza garantita, la superficie di errore dell'ottimizzazione K-Means è altamente non convessa e costellata da innumerevoli minimi locali sub-ottimali. Infatti, la determinazione della partizione che minimizza globalmente l'SSE è un problema \textbf{NP-hard} anche per soli $K = 2$ cluster in dimensione arbitraria, o per dimensione $d = 2$ con $K$ arbitrario.
 
 \subsection{Determinazione del Numero di Cluster: Il Metodo a Gomito}
+\label{sec:dm-kmeans-elbow-method}
 
 Poiché all'aumentare di $K$ la funzione $\mathrm{SSE}(K)$ decresce monotonicamente (fino ad annullarsi banalmente per $K = n$), non è possibile minimizzare l'SSE direttamente rispetto a $K$. 
 

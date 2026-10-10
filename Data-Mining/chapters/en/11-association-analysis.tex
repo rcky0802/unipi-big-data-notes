@@ -1,0 +1,1410 @@
+\chapter{Association Analysis: Basic Concepts and Algorithms}
+\label{chap:dm-association-analysis}
+
+Association analysis represents one of the foundational methodologies in unsupervised data mining~\cite{tan2018}. Originating in retail market-basket analysis to discover customer purchasing patterns, association analysis provides a rigorous formal, algorithmic, and statistical framework for uncovering latent relationships, co-occurrences, and cross-item dependencies within large transactional datasets~\cite{agrawal1993, agrawal1994}.
+
+This chapter provides a comprehensive treatment of the mathematical formulation of association mining, the combinatorial structure of the candidate itemset search space, the Apriori anti-monotonicity principle, advanced indexing data structures (such as hash trees) for efficient frequency counting, compact lossless and lossy pattern representations (closed and maximal itemsets), the intrinsic limitations of the standard confidence metric, objective statistical correlation measures (Lift, Leverage, and Pearson's $\phi$), and methodological extensions for handling continuous attributes, high-cardinality categorical variables, and multi-level concept taxonomies~\cite{tan2018}.
+
+% ====================================================================
+% SECTION 11.1: INTRODUCTION TO ASSOCIATION RULE MINING
+% ====================================================================
+\section{Introduction to Association Rule Mining}
+\label{sec:dm-association-intro}
+
+In unsupervised learning, association analysis differs fundamentally from both supervised classification (where a target label is known \textit{a priori}) and geometric clustering (where data instances are grouped by proximity in vector space). Its objective is discovering intrinsic empirical regularities expressed as \textbf{association rules}---logical implications asserting that the presence of certain items in a transaction predicts the presence of other items~\cite{tan2018, agrawal1993}.
+
+\subsection{Problem Context and Transactional Model}
+The canonical data model consists of a collection of discrete transaction records. In retail environments, a transaction corresponds to an individual customer basket or checkout invoice.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c l}
+\toprule
+\textbf{TID (Transaction ID)} & \textbf{Items (Purchased Itemset)} \\
+\midrule
+\textbf{1} & Bread, Milk \\
+\textbf{2} & Bread, Diaper, Beer, Eggs \\
+\textbf{3} & Milk, Diaper, Beer, Coke \\
+\textbf{4} & Bread, Milk, Diaper, Beer \\
+\textbf{5} & Bread, Milk, Diaper, Coke \\
+\bottomrule
+\end{tabular}
+\caption{Toy transactional database for market-basket analysis.}
+\label{tab:dm-market-basket-toy-en}
+\end{table}
+
+In Table~\ref{tab:dm-market-basket-toy-en}, each row represents a unique transaction identified by its \texttt{TID}, consisting of a non-empty subset of items drawn from the overall retail inventory.
+
+\subsection{Examples of Association Rules}
+Empirical observation of transactional records yields rules of the form:
+\begin{align}
+\{\text{Diaper}\} &\longrightarrow \{\text{Beer}\} \label{eq:dm-toy-rule-1-en} \\
+\{\text{Milk, Bread}\} &\longrightarrow \{\text{Eggs, Coke}\} \label{eq:dm-toy-rule-2-en} \\
+\{\text{Beer, Bread}\} &\longrightarrow \{\text{Milk}\} \label{eq:dm-toy-rule-3-en}
+\end{align}
+
+\begin{noteblock}{Fundamental Principle: Statistical Co-occurrence vs Causality}
+    The implication expressed by an association rule $X \rightarrow Y$ does not represent a cause-and-effect relationship, nor does it posit a temporal or sequential ordering. It describes purely a \textbf{statistical co-occurrence} within a single shopping session~\cite{tan2018}.
+    
+    Stating that $\{\text{Diaper}\} \rightarrow \{\text{Beer}\}$ means solely that customers who purchase diapers show a strong statistical propensity to also purchase beer in the same transaction; it in no way implies that purchasing diapers causes the purchase of beer.
+\end{noteblock}
+
+% ====================================================================
+% SECTION 11.2: FORMAL DEFINITIONS: ITEMSETS AND SUPPORT
+% ====================================================================
+\section{Formal Definitions: Itemsets, Support, and Frequency}
+\label{sec:dm-formal-definitions}
+
+To formalize the problem mathematically, we define the item universe and the transaction database~\cite{tan2018, agrawal1994}.
+
+\begin{definition}[Item Universe and Transaction Database]
+Let $I = \{i_1, i_2, \dots, i_d\}$ denote the finite set of all $d$ distinct items in the application domain. Let $T = \{t_1, t_2, \dots, t_N\}$ denote the set of $N$ transactions, where each transaction $t_j \subseteq I$ is a non-empty item subset.
+\end{definition}
+
+\begin{definition}[$k$-Itemset]
+An arbitrary subset of items $X \subseteq I$ is called an \textbf{itemset}. If the cardinality of the itemset is $|X| = k$, it is referred to as a \textbf{$k$-itemset}.
+\end{definition}
+
+For instance, in Table~\ref{tab:dm-market-basket-toy-en}, the set $X = \{\text{Milk, Bread, Diaper}\}$ contains 3 distinct items and constitutes a $3$-itemset.
+
+\subsection{Support Count and Relative Support}
+The statistical significance of an itemset is evaluated through its frequency of occurrence across the database.
+
+\begin{definition}[Support Count ($\sigma$)]
+Given an itemset $X \subseteq I$, its support count $\sigma(X)$ is the absolute number of transactions in $T$ that contain $X$ as a subset:
+\begin{equation}
+\label{eq:dm-support-count-en}
+\sigma(X) = \big| \{ t_j \in T \mid X \subseteq t_j \} \big|
+\end{equation}
+\end{definition}
+
+Verifying this definition for $X = \{\text{Milk, Bread, Diaper}\}$ on Table~\ref{tab:dm-market-basket-toy-en}:
+\begin{itemize}[noitemsep]
+    \item Transaction 1 ($t_1$): $\{\text{Bread, Milk}\}$ (missing Diaper) $\rightarrow$ does not contain $X$;
+    \item Transaction 2 ($t_2$): $\{\text{Bread, Diaper, Beer, Eggs}\}$ (missing Milk) $\rightarrow$ does not contain $X$;
+    \item Transaction 3 ($t_3$): $\{\text{Milk, Diaper, Beer, Coke}\}$ (missing Bread) $\rightarrow$ does not contain $X$;
+    \item Transaction 4 ($t_4$): $\{\text{Bread, Milk, Diaper, Beer}\}$ $\rightarrow$ contains $X$;
+    \item Transaction 5 ($t_5$): $\{\text{Bread, Milk, Diaper, Coke}\}$ $\rightarrow$ contains $X$.
+\end{itemize}
+Thus, the absolute frequency is $\sigma(\{\text{Milk, Bread, Diaper}\}) = 2$.
+
+\begin{definition}[Relative Support ($s$)]
+The relative support $s(X)$ is the fraction or proportion of transactions in $T$ that contain $X$, normalized by the total transaction count $|T| = N$:
+\begin{equation}
+\label{eq:dm-relative-support-en}
+s(X) = \frac{\sigma(X)}{|T|} = \frac{\sigma(X)}{N}
+\end{equation}
+\end{definition}
+
+In our toy dataset with $N = 5$:
+\begin{equation}
+s(\{\text{Milk, Bread, Diaper}\}) = \frac{2}{5} = 0.40 \quad (40\%)
+\end{equation}
+
+\begin{definition}[Frequent Itemset and $\mathrm{minsup}$ Threshold]
+Given a user-specified minimum support threshold $\mathrm{minsup} \in (0, 1]$, an itemset $X$ is defined as \textbf{frequent} if and only if its relative support satisfies:
+\begin{equation}
+\label{eq:dm-frequent-itemset-def-en}
+s(X) \ge \mathrm{minsup} \quad \Longleftrightarrow \quad \sigma(X) \ge \lceil \mathrm{minsup} \times |T| \rceil
+\end{equation}
+\end{definition}
+
+% ====================================================================
+% SECTION 11.3: ASSOCIATION RULES AND EVALUATION METRICS
+% ====================================================================
+\section{Association Rules and Fundamental Evaluation Metrics}
+\label{sec:dm-association-rules-metrics}
+
+With itemsets defined, we formalize association rules and their core metrics.
+
+\begin{definition}[Association Rule]
+An association rule is an implication expression of the form:
+\begin{equation}
+\label{eq:dm-rule-definition-en}
+X \longrightarrow Y
+\end{equation}
+where $X, Y \subset I$ are disjoint itemsets ($X \cap Y = \emptyset$). Itemset $X$ is termed the \textbf{antecedent} (or left-hand side, \textit{LHS}), while $Y$ is termed the \textbf{consequent} (or right-hand side, \textit{RHS}).
+\end{definition}
+
+\subsection{Primary Metrics: Support and Confidence}
+Rule utility and certainty are traditionally measured using support and confidence~\cite{agrawal1993, tan2018}:
+
+\begin{definition}[Rule Support]
+The support of rule $X \rightarrow Y$ measures the proportion of transactions in the database containing both antecedent and consequent simultaneously, matching the empirical joint probability $P(X \cup Y)$:
+\begin{equation}
+\label{eq:dm-rule-support-en}
+s(X \longrightarrow Y) = \frac{\sigma(X \cup Y)}{|T|} = P(X \cup Y)
+\end{equation}
+\end{definition}
+
+\begin{definition}[Rule Confidence]
+The confidence of rule $X \rightarrow Y$ quantifies inference reliability, representing the conditional probability that a transaction contains $Y$ given that it contains $X$:
+\begin{equation}
+\label{eq:dm-rule-confidence-en}
+c(X \longrightarrow Y) = \frac{\sigma(X \cup Y)}{\sigma(X)} = \frac{s(X \cup Y)}{s(X)} = P(Y \mid X)
+\end{equation}
+\end{definition}
+
+\subsection{Detailed Analytical Calculation Example}
+Consider the candidate rule:
+\begin{equation}
+\{\text{Milk, Diaper}\} \longrightarrow \{\text{Beer}\}
+\end{equation}
+From Table~\ref{tab:dm-market-basket-toy-en}:
+\begin{itemize}[noitemsep]
+    \item Antecedent: $X = \{\text{Milk, Diaper}\}$;
+    \item Consequent: $Y = \{\text{Beer}\}$;
+    \item Joint set: $X \cup Y = \{\text{Milk, Diaper, Beer}\}$.
+\end{itemize}
+
+Evaluating transaction counts:
+\begin{enumerate}[noitemsep]
+    \item $X \cup Y$ appears in transactions 3 and 4 $\implies \sigma(X \cup Y) = 2$;
+    \item $X$ appears in transactions 3, 4, and 5 $\implies \sigma(X) = 3$;
+    \item Total transactions: $N = |T| = 5$.
+\end{enumerate}
+
+Applying formulas~\eqref{eq:dm-rule-support-en} and~\eqref{eq:dm-rule-confidence-en}:
+\begin{align}
+s(\{\text{Milk, Diaper}\} \rightarrow \{\text{Beer}\}) &= \frac{2}{5} = 0.40 \quad (40\%) \\
+c(\{\text{Milk, Diaper}\} \rightarrow \{\text{Beer}\}) &= \frac{2}{3} \approx 0.6667 \quad (66.67\%)
+\end{align}
+
+% ====================================================================
+% SECTION 11.4: MINING TASK AND BRUTE-FORCE COMPLEXITY
+% ====================================================================
+\section{The Mining Task and Computational Tractability}
+\label{sec:dm-mining-task-complexity}
+
+\begin{definition}[Association Rule Mining Problem]
+Given transaction database $T$, support threshold $\mathrm{minsup} \in (0, 1]$, and confidence threshold $\mathrm{minconf} \in (0, 1]$, the mining problem consists of discovering all association rules $X \rightarrow Y$ satisfying:
+\begin{equation}
+\label{eq:dm-mining-constraints-en}
+\begin{cases}
+s(X \longrightarrow Y) \ge \mathrm{minsup} \\
+c(X \longrightarrow Y) \ge \mathrm{minconf}
+\end{cases}
+\end{equation}
+\end{definition}
+
+\subsection{The Brute-Force Approach and Combinatorial Explosion}
+A naive brute-force algorithm would enumerate every possible rule derivable from item universe $I$, compute its support and confidence across database $T$, and discard rules failing the thresholds.
+
+For a universe of $d$ distinct items, the total number of non-empty disjoint association rules $R$ is given by:
+\begin{equation}
+\label{eq:dm-brute-force-rules-count-en}
+R = \sum_{k=2}^d \binom{d}{k} \sum_{j=1}^{k-1} \binom{k}{j} = 3^d - 2^{d+1} + 1
+\end{equation}
+
+\begin{proof}
+Each item $i \in I$ can take one of three mutually exclusive roles relative to a candidate rule:
+\begin{enumerate}[noitemsep]
+    \item Belongs to antecedent $X$;
+    \item Belongs to consequent $Y$;
+    \item Is excluded from the rule ($i \notin X \cup Y$).
+\end{enumerate}
+This yields $3^d$ assignments. Subtracting invalid degenerate cases:
+\begin{itemize}[noitemsep]
+    \item Antecedent is empty ($X = \emptyset$): item is in $Y$ or excluded ($2^d$ cases);
+    \item Consequent is empty ($Y = \emptyset$): item is in $X$ or excluded ($2^d$ cases);
+    \item Both $X$ and $Y$ empty ($X = \emptyset, Y = \emptyset$): double-subtracted, restored once ($+1$).
+\end{itemize}
+Thus $R = 3^d - 2 \cdot 2^d + 1 = 3^d - 2^{d+1} + 1$.
+\end{proof}
+
+For a supermarket catalog with $d = 100$ items, $3^{100} \approx 5.15 \times 10^{47}$, rendering naive enumeration completely intractable.
+
+% ====================================================================
+% SECTION 11.5: THE TWO-STEP DECOUPLING APPROACH
+% ====================================================================
+\section{Decoupling the Problem: The Two-Step Approach}
+\label{sec:dm-two-step-approach}
+
+To bypass combinatorial explosion, the association mining literature adopts a two-phase decomposition~\cite{agrawal1993, agrawal1994, tan2018}.
+
+\subsection{Properties of Binary Partitions of an Itemset}
+Consider all possible candidate rules generated by partitioning 3-itemset $L = \{\text{Milk, Diaper, Beer}\}$:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Candidate Rule ($X \rightarrow Y$)} & $\sigma(X \cup Y)$ & $\sigma(X)$ & \textbf{Support $s$} & \textbf{Confidence $c$} \\
+\midrule
+$\{\text{Milk, Diaper}\} \rightarrow \{\text{Beer}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Milk, Beer}\} \rightarrow \{\text{Diaper}\}$ & 2 & 2 & $2/5 = 0.40$ & $2/2 = 1.00$ \\
+$\{\text{Diaper, Beer}\} \rightarrow \{\text{Milk}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Beer}\} \rightarrow \{\text{Milk, Diaper}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Diaper}\} \rightarrow \{\text{Milk, Beer}\}$ & 2 & 4 & $2/5 = 0.40$ & $2/4 = 0.50$ \\
+$\{\text{Milk}\} \rightarrow \{\text{Diaper, Beer}\}$ & 2 & 4 & $2/5 = 0.40$ & $2/4 = 0.50$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Rule properties across binary partitions of $\{\text{Milk, Diaper, Beer}\}$.}
+\label{tab:dm-rule-partition-properties-en}
+\end{table}
+
+Table~\ref{tab:dm-rule-partition-properties-en} reveals two key properties:
+\begin{enumerate}
+    \item \textbf{Support Invariance}: All rules derived from the same underlying itemset $L$ share identical support, equal to the support of $L$:
+    \begin{equation}
+    s(X \longrightarrow L \setminus X) = s(L) = \frac{\sigma(L)}{|T|}
+    \end{equation}
+    If $L$ is infrequent, none of its derived rules can possibly satisfy the support threshold.
+    \item \textbf{Confidence Variation}: Rule confidence varies widely across partitions, as the denominator $\sigma(X)$ depends solely on the specific antecedent.
+\end{enumerate}
+
+\subsection{Sequential Two-Step Decomposition}
+The overall mining problem is consequently decoupled into two sequential phases:
+\begin{enumerate}
+    \item \textbf{Step 1: Frequent Itemset Generation}: Identify all itemsets $L \subseteq I$ satisfying $s(L) \ge \mathrm{minsup}$.
+    \item \textbf{Step 2: Rule Generation}: For each frequent itemset $L$ found in Step 1, generate all binary partitions $X \rightarrow L \setminus X$ satisfying $c \ge \mathrm{minconf}$.
+\end{enumerate}
+
+Step 1 is the computationally dominant phase of the pipeline.
+
+% ====================================================================
+% SECTION 11.6: ITEMSET LATTICE AND GENERATION COMPLEXITY
+% ====================================================================
+\section{Itemset Lattice and Search Space Complexity}
+\label{sec:dm-itemset-lattice}
+
+Given $d$ items, the candidate itemset search space forms a \textbf{Boolean lattice} (the power set $\mathcal{P}(I)$) of cardinality:
+\begin{equation}
+|\mathcal{P}(I)| = 2^d
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.96,
+    itemnode/.style={draw=navy!85!black, fill=navy!8, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=1.35cm, minimum height=0.68cm, align=center},
+    prunednode/.style={draw=crimson!85!black, fill=crimson!14, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=1.35cm, minimum height=0.68cm, align=center, text=crimson!90!black},
+    edge/.style={draw=gray!55, thin},
+    prunededge/.style={draw=crimson!75, thick, dashed}
+]
+
+    % Shaded boundaries (drawn first)
+    \draw[crimson!75, dashed, fill=crimson!6, line width=1.3pt, rounded corners=12pt] (-6.8, 3.8) rectangle (-0.6, -2.1);
+    \draw[navy!60, dotted, fill=navy!3, line width=1.0pt, rounded corners=12pt] (0.2, 3.8) rectangle (6.8, -2.1);
+
+    % Level 0: Root (empty set)
+    \node[itemnode] (null) at (0.0, 6.2) {$\emptyset$};
+
+    % Level 1: 1-itemset (A, B, C, D, E)
+    \node[itemnode] (A) at (-4.8, 4.8) {\{A\}};
+    \node[itemnode] (B) at (-2.4, 4.8) {\{B\}};
+    \node[itemnode] (C) at (0.0, 4.8) {\{C\}};
+    \node[itemnode] (D) at (2.4, 4.8) {\{D\}};
+    \node[itemnode] (E) at (4.8, 4.8) {\{E\}};
+
+    \foreach \n in {A, B, C, D, E} {
+        \draw[edge] (null) -- (\n);
+    }
+
+    % Level 2 (k=2)
+    % Left: {AB} infrequent
+    \node[prunednode, line width=1.3pt] (AB) at (-3.7, 3.1) {\{AB\}};
+    
+    % Right: 2-itemsets not containing AB
+    \node[itemnode] (AC) at (1.2, 3.1) {\{AC\}};
+    \node[itemnode] (AD) at (2.8, 3.1) {\{AD\}};
+    \node[itemnode] (BC) at (4.4, 3.1) {\{BC\}};
+    \node[itemnode] (BD) at (6.0, 3.1) {\dots};
+
+    \draw[edge] (A) -- (AB);
+    \draw[edge] (B) -- (AB);
+    \draw[edge] (A) -- (AC);
+    \draw[edge] (C) -- (AC);
+    \draw[edge] (A) -- (AD);
+    \draw[edge] (D) -- (AD);
+    \draw[edge] (B) -- (BC);
+    \draw[edge] (C) -- (BC);
+
+    % Level 3 (k=3)
+    % Left: supersets of {AB} (pruned)
+    \node[prunednode] (ABC) at (-5.7, 1.6) {\{ABC\}};
+    \node[prunednode] (ABD) at (-3.7, 1.6) {\{ABD\}};
+    \node[prunednode] (ABE) at (-1.7, 1.6) {\{ABE\}};
+
+    % Right: 3-itemsets not containing {AB} (frequent / explored)
+    \node[itemnode] (ACD) at (1.8, 1.6) {\{ACD\}};
+    \node[itemnode] (ACE) at (3.6, 1.6) {\{ACE\}};
+    \node[itemnode] (BCD) at (5.4, 1.6) {\{BCD\}};
+
+    % Pruned connections L2 -> L3
+    \draw[prunededge] (AB) -- (ABC);
+    \draw[prunededge] (AB) -- (ABD);
+    \draw[prunededge] (AB) -- (ABE);
+
+    % Non-pruned connections L2 -> L3
+    \draw[edge] (AC) -- (ACD);
+    \draw[edge] (AD) -- (ACD);
+    \draw[edge] (AC) -- (ACE);
+    \draw[edge] (BC) -- (BCD);
+
+    % Level 4 (k=4)
+    % Left: supersets of {AB} (pruned)
+    \node[prunednode] (ABCD) at (-5.7, 0.1) {\{ABCD\}};
+    \node[prunednode] (ABCE) at (-3.7, 0.1) {\{ABCE\}};
+    \node[prunednode] (ABDE) at (-1.7, 0.1) {\{ABDE\}};
+
+    % Right: 4-itemset not containing {AB} (e.g. BCDE)
+    \node[itemnode] (BCDE) at (3.6, 0.1) {\{BCDE\}};
+
+    % Pruned connections L3 -> L4
+    \draw[prunededge] (ABC) -- (ABCD);
+    \draw[prunededge] (ABC) -- (ABCE);
+    \draw[prunededge] (ABD) -- (ABCD);
+    \draw[prunededge] (ABD) -- (ABDE);
+    \draw[prunededge] (ABE) -- (ABCE);
+    \draw[prunededge] (ABE) -- (ABDE);
+
+    % Non-pruned connections L3 -> L4
+    \draw[edge] (BCD) -- (BCDE);
+
+    % Level 5 (k=5)
+    % Left: {ABCDE} (pruned due to AB)
+    \node[prunednode] (ABCDE) at (-3.7, -1.4) {\{ABCDE\}};
+
+    \draw[prunededge] (ABCD) -- (ABCDE);
+    \draw[prunededge] (ABCE) -- (ABCDE);
+    \draw[prunededge] (ABDE) -- (ABCDE);
+
+    % Captions / cartouches below both regions
+    \node[anchor=north, text=crimson!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=crimson!70] 
+        at (-3.7, -2.25) {Pruned sub-lattice ($s(AB) < \mathrm{minsup}$)};
+
+    \node[anchor=north, text=navy!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=navy!70] 
+        at (3.5, -2.25) {Explored frequent branches ($AB \not\subseteq X$)};
+
+    % Depth levels on left margin
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 6.2) {Level 0 ($k=0$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 4.8) {Level 1 ($k=1$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 3.1) {Level 2 ($k=2$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 1.6) {Level 3 ($k=3$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 0.1) {Level 4 ($k=4$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, -1.4) {Level 5 ($k=5$)};
+
+\end{tikzpicture}%
+}
+\caption{Itemset lattice representation for $d=5$ items. As soon as $\{AB\}$ is found infrequent ($s(AB) < \mathrm{minsup}$), the entire sub-lattice of its $2^{5-2}=8$ supersets (highlighted on the left in red) is pruned \textit{a priori}, while the remaining branches not containing $\{AB\}$ (on the right) continue to be explored.}
+\label{fig:dm-itemset-lattice-pruning-en}
+\end{figure}
+
+\subsection{Search Complexity and Optimization Strategies}
+Without pruning, matching all $M = 2^d$ candidate itemsets against $N$ transactions with average length $w$ costs:
+\begin{equation}
+\label{eq:dm-exhaustive-search-complexity-en}
+\mathcal{O}\left(N \times 2^d \times w\right)
+\end{equation}
+Three orthogonal optimization strategies make itemset generation feasible~\cite{tan2018}:
+\begin{enumerate}
+    \item \textbf{Reduce Candidate Count ($M$)}: Systematically prune search space branches using anti-monotonicity;
+    \item \textbf{Reduce Transaction Count ($N$)}: Drop transactions containing fewer items than current candidate size $k$;
+    \item \textbf{Reduce Comparison Count ($N \times M$)}: Use hash trees to index transactions or candidates efficiently.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 11.7: THE APRIORI PRINCIPLE AND ANTI-MONOTONICITY
+% ====================================================================
+\section[The Apriori Principle and Anti-Monotonicity]{The Apriori Principle and the\\Anti-Monotonicity Property}
+\label{sec:dm-apriori-principle}
+
+\begin{theorem}[Apriori Principle]
+\label{thm:dm-apriori-principle-en}
+If an itemset is frequent, all of its subsets must also be frequent:
+\begin{equation}
+\label{eq:dm-apriori-forward-en}
+s(Y) \ge \mathrm{minsup} \quad \Longrightarrow \quad \forall X \subseteq Y, \; s(X) \ge \mathrm{minsup}
+\end{equation}
+\end{theorem}
+
+\subsection{Proof of Support Anti-Monotonicity}
+The principle rests on the \textbf{anti-monotonicity} of the support function with respect to set inclusion~\cite{tan2018}.
+
+\begin{theorem}[Anti-monotonicity of Support]
+The support function is monotonically non-increasing under set inclusion:
+\begin{equation}
+\label{eq:dm-anti-monotonicity-en}
+\forall X, Y \subseteq I : \quad (X \subseteq Y) \Longrightarrow s(X) \ge s(Y)
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Let $T(X) = \{ t \in T \mid X \subseteq t \}$ be the transaction set containing itemset $X$.
+If $X \subseteq Y$, any transaction containing $Y$ must necessarily contain $X$, yielding the inclusion:
+\begin{equation}
+T(Y) \subseteq T(X)
+\end{equation}
+By cardinality monotonicity on finite sets:
+\begin{equation}
+|T(Y)| \le |T(X)| \quad \Longleftrightarrow \quad \sigma(Y) \le \sigma(X)
+\end{equation}
+Dividing by positive constant $N = |T|$ gives:
+\begin{equation}
+\frac{\sigma(Y)}{|T|} \le \frac{\sigma(X)}{|T|} \quad \Longleftrightarrow \quad s(Y) \le s(X)
+\end{equation}
+Thus support cannot increase as itemset size increases.
+\end{proof}
+
+\subsection{Support-Based Pruning via Logical Contraposition}
+Applying logical contraposition to Theorem~\ref{thm:dm-apriori-principle-en} yields the operational pruning rule:
+
+\begin{corollary}[Apriori Pruning Rule]
+If an itemset is infrequent, all of its supersets are guaranteed to be infrequent and can be pruned immediately:
+\begin{equation}
+\label{eq:dm-apriori-pruning-rule-en}
+s(X) < \mathrm{minsup} \quad \Longrightarrow \quad \forall Y \supseteq X, \; s(Y) \le s(X) < \mathrm{minsup}
+\end{equation}
+\end{corollary}
+
+As shown in Figure~\ref{fig:dm-itemset-lattice-pruning-en}, once $\{AB\}$ is found infrequent, candidates $\{ABC\}$, $\{ABD\}$, $\{ABE\}$, $\{ABCD\}$, $\{ABCE\}$, $\{ABDE\}$, and $\{ABCDE\}$ are immediately pruned without database scans.
+
+% ====================================================================
+% SECTION 11.8: STEP-BY-STEP APRIORI TRACE
+% ====================================================================
+\section[Step-by-Step Apriori Execution Trace]{Step-by-Step Execution Trace of\\the Apriori Algorithm}
+\label{sec:dm-apriori-step-by-step}
+
+We trace Apriori execution on Table~\ref{tab:dm-market-basket-toy-en} with absolute support threshold:
+\begin{equation}
+\sigma_{\min} = 3 \quad \left(\mathrm{minsup} = \frac{3}{5} = 0.60\right)
+\end{equation}
+
+\subsection{Iteration 1: Frequent 1-Itemset Generation ($k=1$)}
+Scanning the database yields the frequency counts for individual items:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c l}
+\toprule
+\textbf{Item ($1$-itemset)} & \textbf{Count $\sigma$} & \textbf{Status relative to $\sigma_{\min} = 3$} \\
+\midrule
+$\{\text{Bread}\}$ & 4 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Coke}\}$ & 2 & Infrequent ($< 3$) $\rightarrow$ \textbf{PRUNED} \\
+$\{\text{Milk}\}$ & 4 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Beer}\}$ & 3 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Diaper}\}$ & 4 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Eggs}\}$ & 1 & Infrequent ($< 3$) $\rightarrow$ \textbf{PRUNED} \\
+\bottomrule
+\end{tabular}
+\caption{Support counting for candidate set $C_1$ and discovery of $F_1$.}
+\label{tab:dm-apriori-f1-en}
+\end{table}
+
+The frequent 1-itemset collection is:
+\begin{equation}
+F_1 = \{\{\text{Bread}\}, \{\text{Milk}\}, \{\text{Beer}\}, \{\text{Diaper}\}\}
+\end{equation}
+Items Coke and Eggs are permanently discarded.
+
+\subsection{Iteration 2: 2-Itemset Generation and Validation ($k=2$)}
+Forming pairwise combinations from $F_1$ yields $\binom{4}{2} = 6$ candidates in $C_2$. Database scanning gives:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c l}
+\toprule
+\textbf{Candidate ($2$-itemset)} & \textbf{Count $\sigma$} & \textbf{Status relative to $\sigma_{\min} = 3$} \\
+\midrule
+$\{\text{Bread, Milk}\}$ & 3 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Bread, Beer}\}$ & 2 & Infrequent ($< 3$) $\rightarrow$ \textbf{PRUNED} \\
+$\{\text{Bread, Diaper}\}$ & 3 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Milk, Beer}\}$ & 2 & Infrequent ($< 3$) $\rightarrow$ \textbf{PRUNED} \\
+$\{\text{Milk, Diaper}\}$ & 3 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+$\{\text{Beer, Diaper}\}$ & 3 & Frequent ($\ge 3$) $\rightarrow$ Retained \\
+\bottomrule
+\end{tabular}
+\caption{Support counting for candidate set $C_2$ and discovery of $F_2$.}
+\label{tab:dm-apriori-f2-en}
+\end{table}
+
+The frequent 2-itemset collection is:
+\begin{equation}
+F_2 = \{\{\text{Bread, Milk}\}, \{\text{Bread, Diaper}\}, \{\text{Milk, Diaper}\}, \{\text{Beer, Diaper}\}\}
+\end{equation}
+
+\subsection{Iteration 3: 3-Itemset Generation, Pruning, and Counting ($k=3$)}
+\begin{enumerate}
+    \item \textbf{Candidate Generation ($C_3$)}: Combining elements in $F_2$ yields 4 potential triplets:
+    \begin{equation}
+    \begin{aligned}
+    & \{\text{Beer, Diaper, Milk}\}, \quad \{\text{Beer, Bread, Diaper}\}, \\
+    & \{\text{Bread, Diaper, Milk}\}, \quad \{\text{Beer, Bread, Milk}\}
+    \end{aligned}
+    \end{equation}
+    \item \textbf{Candidate Pruning}: Verify that every 2-subset of each candidate belongs to $F_2$:
+    \begin{itemize}[noitemsep]
+        \item $\{\text{Beer, Diaper, Milk}\}$: $\{\text{Beer, Milk}\} \notin F_2 \implies$ \textbf{PRUNED};
+        \item $\{\text{Beer, Bread, Diaper}\}$: $\{\text{Beer, Bread}\} \notin F_2 \implies$ \textbf{PRUNED};
+        \item $\{\text{Beer, Bread, Milk}\}$: $\{\text{Beer, Bread}\} \notin F_2 \implies$ \textbf{PRUNED};
+        \item $\{\text{Bread, Diaper, Milk}\}$: all subsets are in $F_2 \implies$ \textbf{Survives pruning}.
+    \end{itemize}
+    Thus, $C_3 = \{\{\text{Bread, Diaper, Milk}\}\}$.
+    \item \textbf{Support Counting}: Scanning database transactions:
+    \begin{equation}
+    \sigma(\{\text{Bread, Diaper, Milk}\}) = 2
+    \end{equation}
+    Because $2 < \sigma_{\min} = 3$, this candidate is infrequent.
+\end{enumerate}
+
+Since $F_3 = \emptyset$, Apriori terminates. The complete frequent itemset set is $F = F_1 \cup F_2$.
+
+% ====================================================================
+% SECTION 11.9: APRIORI PSEUDOCODE AND CANDIDATE GENERATION
+% ====================================================================
+\section{Apriori Pseudocode and Candidate Generation Techniques}
+\label{sec:dm-candidate-generation-methods}
+
+Algorithm~\ref{alg:dm-apriori-en} outlines the formal structure of Apriori~\cite{agrawal1994, tan2018}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\caption{Apriori Algorithm for Frequent Itemset Mining}
+\label{alg:dm-apriori-en}
+\KwInput{Transaction database $T$, minimum support threshold $\mathrm{minsup} \in (0, 1]$.}
+\KwOutput{Complete frequent itemset collection $F = \bigcup_k F_k$.}
+\BlankLine
+$k \leftarrow 1$\;
+$F_1 \leftarrow \{ i \in I \mid s(\{i\}) \ge \mathrm{minsup} \}$ \tcp*{Generate frequent 1-itemsets}
+\Repeat{$F_k = \emptyset$}{
+    $k \leftarrow k + 1$\;
+    $C_k \leftarrow \mathrm{Candidate\text{-}Generation}(F_{k-1})$ \tcp*{Common-prefix join}
+    $C_k \leftarrow \mathrm{Candidate\text{-}Pruning}(C_k, F_{k-1})$ \tcp*{Apriori subset pruning}
+    \ForEach{transaction $t \in T$}{
+        $C_t \leftarrow \mathrm{Subsets}(C_k, t)$ \tcp*{Candidates contained in $t$}
+        \ForEach{candidate $c \in C_t$}{
+            $c.\mathrm{count} \leftarrow c.\mathrm{count} + 1$\;
+        }
+    }
+    $F_k \leftarrow \{ c \in C_k \mid c.\mathrm{count} \ge \lceil \mathrm{minsup} \times |T| \rceil \}$\;
+}
+\Return $\bigcup_k F_k$\;
+\end{algorithm}
+
+\subsection{Common-Prefix Join Method ($F_{k-1} \times F_{k-1}$)}
+To generate $C_k$ without duplicates, itemset elements are lexicographically ordered~\cite{agrawal1994}. Two itemsets $p, q \in F_{k-1}$ are merged if and only if they share a common $(k-2)$-prefix and differ only in their last element:
+\begin{equation}
+\label{eq:dm-prefix-join-condition-en}
+\begin{cases}
+p[1] = q[1] \\
+p[2] = q[2] \\
+\quad \vdots \\
+p[k-2] = q[k-2] \\
+p[k-1] < q[k-1]
+\end{cases}
+\end{equation}
+The merged candidate is:
+\begin{equation}
+c = \{p[1], p[2], \dots, p[k-2], p[k-1], q[k-1]\}
+\end{equation}
+
+\subsubsection{Common-Prefix Execution Example}
+Given frequent 3-itemset set:
+\begin{equation}
+F_3 = \{ABC, ABD, ABE, ACD, BCD, BDE, CDE\}
+\end{equation}
+Prefix length is $k-2 = 1$:
+\begin{itemize}[noitemsep]
+    \item $\mathrm{Merge}(ABC, ABD) \rightarrow$ common prefix $AB$, $C < D \implies$ \textbf{$ABCD$} generated;
+    \item $\mathrm{Merge}(ABC, ABE) \rightarrow$ common prefix $AB$, $C < E \implies$ \textbf{$ABCE$} generated;
+    \item $\mathrm{Merge}(ABD, ABE) \rightarrow$ common prefix $AB$, $D < E \implies$ \textbf{$ABDE$} generated;
+    \item $\mathrm{Merge}(ABD, ACD) \rightarrow$ differing length-2 prefixes ($AB \ne AC$) $\implies$ not merged.
+\end{itemize}
+Candidate set:
+\begin{equation}
+C_4 = \{ABCD, ABCE, ABDE\}
+\end{equation}
+
+\subsubsection{Candidate Pruning Phase}
+Checking whether all $\binom{k}{k-1} = 4$ length-3 subsets belong to $F_3$:
+\begin{itemize}[noitemsep]
+    \item For $ABCD$: subsets $\{ABC, ABD, ACD, BCD\}$ are all in $F_3 \implies$ \textbf{Retained};
+    \item For $ABCE$: subsets $\{ACE, BCE\} \notin F_3 \implies$ \textbf{PRUNED};
+    \item For $ABDE$: subset $\{ADE\} \notin F_3 \implies$ \textbf{PRUNED}.
+\end{itemize}
+The pruned candidate set is $C_4 = \{ABCD\}$.
+
+\subsection{Alternative $F_{k-1} \times F_{k-1}$ Suffix-Prefix Join}
+Two itemsets $p, q \in F_{k-1}$ are merged if the last $k-2$ elements of $p$ equal the first $k-2$ elements of $q$:
+\begin{equation}
+\label{eq:dm-suffix-prefix-condition-en}
+p[2] = q[1], \quad p[3] = q[2], \quad \dots, \quad p[k-1] = q[k-2]
+\end{equation}
+Candidate: $c = \{p[1], p[2], \dots, p[k-1], q[k-1]\}$.
+Applying this to $F_3$ yields:
+\begin{itemize}[noitemsep]
+    \item $\mathrm{Merge}(A\underline{BC}, \underline{BC}D) \rightarrow ABCD$;
+    \item $\mathrm{Merge}(A\underline{BD}, \underline{BD}E) \rightarrow ABDE$;
+    \item $\mathrm{Merge}(A\underline{CD}, \underline{CD}E) \rightarrow ACDE$;
+    \item $\mathrm{Merge}(B\underline{CD}, \underline{CD}E) \rightarrow BCDE$.
+\end{itemize}
+Subsequent subset pruning eliminates $ABDE$, $ACDE$, and $BCDE$, converging to the identical minimal set $C_4 = \{ABCD\}$.
+
+% ====================================================================
+% SECTION 11.10: SUPPORT COUNTING VIA HASH TREES
+% ====================================================================
+\section{Support Counting via Hash Tree Structures}
+\label{sec:dm-hash-tree-counting}
+
+During Apriori execution, support counting verifies which candidates in $C_k$ appear in each transaction $t \in T$.
+
+\subsection{Combinatorial Complexity of Direct Matching}
+For transaction $t$, the number of length-$k$ subsets contained within it is:
+\begin{equation}
+\binom{|t|}{k}
+\end{equation}
+For $|t| = 20$ items and candidate size $k=3$, the transaction generates $\binom{20}{3} = 1\,140$ combinations. Direct linear matching against thousands of candidates is computationally prohibitive~\cite{tan2018}.
+
+\subsection{Hash Tree Architecture}
+To minimize comparisons, candidates $C_k$ are stored in a \textbf{Hash Tree}~\cite{agrawal1994, tan2018}:
+\begin{itemize}
+    \item \textbf{Internal Nodes}: Contain hash tables with partition function $h(i) = i \pmod B$. At tree level $j$, branching depends on hashing the $j$-th item of the candidate;
+    \item \textbf{Leaf Nodes}: Store buckets of candidate itemsets up to a fixed maximum capacity.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    every node/.style={font=\footnotesize},
+    internal/.style={draw=navy!85!black, fill=navy!10, rounded corners=4pt, align=center, inner sep=4pt, font=\footnotesize\bfseries},
+    leaf/.style={draw=darkgreen!85!black, fill=darkgreen!10, rounded corners=3pt, align=center, inner sep=3.5pt, font=\scriptsize},
+    edge/.style={-Stealth, thick, gray!70}
+]
+
+    % Root
+    \node[internal] (root) at (6, 5) {Root (Level 1)\\$h(item_1) = item_1 \pmod 3$};
+
+    % Level 2 internal nodes
+    \node[internal] (n0) at (2, 3) {Internal Node ($h=0$)\\$h(item_2)$};
+    \node[leaf] (leaf1) at (6, 3) {\textbf{Leaf} ($h=1$)\\Candidate Bucket:\\$\{1, 4, 7\}, \{1, 5, 9\}$};
+    \node[internal] (n2) at (10, 3) {Internal Node ($h=2$)\\$h(item_2)$};
+
+    % Level 3 leaves
+    \node[leaf] (b0) at (0.8, 1) {\textbf{Leaf}\\$\{3, 4, 5\}$\\$\{3, 7, 8\}$};
+    \node[leaf] (b1) at (3.2, 1) {\textbf{Leaf}\\$\{6, 7, 9\}$\\$\{6, 8, 9\}$};
+    \node[leaf] (b2) at (8.8, 1) {\textbf{Leaf}\\$\{2, 3, 5\}$\\$\{2, 4, 6\}$};
+    \node[leaf] (b3) at (11.2, 1) {\textbf{Leaf}\\$\{5, 6, 7\}$\\$\{8, 9, 10\}$};
+
+    % Edges root -> level 2
+    \draw[edge] (root) -- node[above left, text=navy!90!black, font=\scriptsize] {$h(p_1)=0$} (n0);
+    \draw[edge] (root) -- node[right, text=navy!90!black, font=\scriptsize] {$h(p_1)=1$} (leaf1);
+    \draw[edge] (root) -- node[above right, text=navy!90!black, font=\scriptsize] {$h(p_1)=2$} (n2);
+
+    % Edges level 2 -> leaves
+    \draw[edge] (n0) -- node[left, font=\scriptsize] {$h(p_2)=0$} (b0);
+    \draw[edge] (n0) -- node[right, font=\scriptsize] {$h(p_2)=1$} (b1);
+    \draw[edge] (n2) -- node[left, font=\scriptsize] {$h(p_2)=0$} (b2);
+    \draw[edge] (n2) -- node[right, font=\scriptsize] {$h(p_2)=2$} (b3);
+
+\end{tikzpicture}%
+}
+\caption{Hash tree indexing architecture for efficient candidate support counting.}
+\label{fig:dm-hash-tree-architecture-en}
+\end{figure}
+
+When processing transaction $t$, the algorithm descends recursively through the tree exploring ordered item subsets. Direct subset matching occurs only against candidates residing in reached leaves, reducing comparison costs substantially~\cite{tan2018}.
+
+% ====================================================================
+% SECTION 11.11: RULE GENERATION FROM FREQUENT ITEMSETS
+% ====================================================================
+\section{Rule Generation from Frequent Itemsets}
+\label{sec:dm-rule-generation}
+
+Following Step 1, Step 2 extracts high-confidence association rules.
+
+\subsection{Combinatorial Rule Decomposition}
+For frequent itemset $L$ with cardinality $|L| = k$, the goal is identifying all non-empty subsets $X \subset L$ such that $X \rightarrow L \setminus X$ satisfies:
+\begin{equation}
+c(X \longrightarrow L \setminus X) = \frac{\sigma(L)}{\sigma(X)} \ge \mathrm{minconf}
+\end{equation}
+
+Excluding empty antecedent and consequent cases, the number of candidate rules is:
+\begin{equation}
+2^k - 2
+\end{equation}
+For frequent 4-itemset $\{A, B, C, D\}$, $2^4 - 2 = 14$ candidate rules arise:
+\begin{itemize}[noitemsep]
+    \item \textbf{1 item in RHS (4 rules)}: $ABC \rightarrow D$, $ABD \rightarrow C$, $ACD \rightarrow B$, $BCD \rightarrow A$;
+    \item \textbf{2 items in RHS (6 rules)}: $AB \rightarrow CD$, $AC \rightarrow BD$, $AD \rightarrow BC$, $BC \rightarrow AD$, $BD \rightarrow AC$, $CD \rightarrow AB$;
+    \item \textbf{3 items in RHS (4 rules)}: $A \rightarrow BCD$, $B \rightarrow ACD$, $C \rightarrow ABD$, $D \rightarrow ABC$.
+\end{itemize}
+
+\subsection{Confidence Anti-Monotonicity Property}
+Across different itemsets, confidence is generally not anti-monotone. However, for rules generated from the \textbf{same frequent itemset} $L$, confidence exhibits a key algebraic property~\cite{tan2018}.
+
+\begin{theorem}[Confidence Anti-Monotonicity on the Rule Lattice]
+\label{thm:dm-rule-confidence-pruning-en}
+For rules $R_1$ and $R_2$ derived from identical frequent itemset $L$:
+\begin{equation}
+R_1: X \longrightarrow L \setminus X, \qquad R_2: X' \longrightarrow L \setminus X' \quad \text{with } X' \subset X \subset L
+\end{equation}
+the following inequality holds:
+\begin{equation}
+c(X \longrightarrow L \setminus X) \ge c(X' \longrightarrow L \setminus X')
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+By confidence definition:
+\begin{equation}
+c(R_1) = \frac{\sigma(L)}{\sigma(X)}, \qquad c(R_2) = \frac{\sigma(L)}{\sigma(X')}
+\end{equation}
+Since $X' \subset X$, by support anti-monotonicity (Theorem~\ref{thm:dm-apriori-principle-en}):
+\begin{equation}
+\sigma(X') \ge \sigma(X)
+\end{equation}
+Inverting the ratio with constant numerator $\sigma(L) > 0$:
+\begin{equation}
+\frac{\sigma(L)}{\sigma(X')} \le \frac{\sigma(L)}{\sigma(X)} \quad \Longleftrightarrow \quad c(R_2) \le c(R_1)
+\end{equation}
+\end{proof}
+
+\begin{corollary}[Confidence-Based Rule Pruning]
+Rule confidence is \textbf{anti-monotone with respect to the number of items in the consequent} ($RHS$).
+If a rule fails the $\mathrm{minconf}$ threshold, any rule derived from the same itemset moving additional items from antecedent to consequent will have even lower confidence and can be pruned:
+\begin{equation}
+c(X \longrightarrow Y) < \mathrm{minconf} \quad \Longrightarrow \quad \forall Y' \supset Y, \; c(L \setminus Y' \longrightarrow Y') < \mathrm{minconf}
+\end{equation}
+\end{corollary}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.96,
+    rulenode/.style={draw=navy!85!black, fill=navy!8, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=2.1cm, minimum height=0.68cm, align=center},
+    prunednode/.style={draw=crimson!85!black, fill=crimson!14, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=2.1cm, minimum height=0.68cm, align=center, text=crimson!90!black},
+    edge/.style={draw=gray!55, thin},
+    prunededge/.style={draw=crimson!75, thick, dashed}
+]
+    % Background bounding boxes drawn BEFORE the nodes (so dashed lines never cross over nodes)
+    \draw[crimson!75, dashed, fill=crimson!6, line width=1.3pt, rounded corners=12pt] (-7.6, 4.3) rectangle (-0.2, -1.3);
+    \draw[navy!60, dotted, fill=navy!3, line width=1.0pt, rounded corners=12pt] (0.6, 4.3) rectangle (8.0, -1.3);
+
+    % Level 0: |Y| = 0
+    \node[rulenode, minimum width=2.5cm] (r0) at (0.2, 5.7) {$ABCD \longrightarrow \emptyset$};
+
+    % Level 1: |Y| = 1
+    \node[prunednode, line width=1.3pt] (r1) at (-3.9, 3.6) {$BCD \longrightarrow A$};
+    \node[rulenode] (r2) at (1.8, 3.6) {$ACD \longrightarrow B$};
+    \node[rulenode] (r3) at (4.3, 3.6) {$ABD \longrightarrow C$};
+    \node[rulenode] (r4) at (6.8, 3.6) {$ABC \longrightarrow D$};
+
+    \draw[edge] (r0) -- (r1);
+    \draw[edge] (r0) -- (r2);
+    \draw[edge] (r0) -- (r3);
+    \draw[edge] (r0) -- (r4);
+
+    % Level 2: |Y| = 2
+    \node[prunednode] (r21) at (-6.3, 1.8) {$CD \longrightarrow AB$};
+    \node[prunednode] (r22) at (-3.9, 1.8) {$BD \longrightarrow AC$};
+    \node[prunednode] (r23) at (-1.5, 1.8) {$BC \longrightarrow AD$};
+    \node[rulenode] (r24) at (1.8, 1.8) {$AD \longrightarrow BC$};
+    \node[rulenode] (r25) at (4.3, 1.8) {$AC \longrightarrow BD$};
+    \node[rulenode] (r26) at (6.8, 1.8) {$AB \longrightarrow CD$};
+
+    \draw[prunededge] (r1) -- (r21);
+    \draw[prunededge] (r1) -- (r22);
+    \draw[prunededge] (r1) -- (r23);
+    \draw[edge] (r2) -- (r24);
+    \draw[edge] (r3) -- (r25);
+    \draw[edge] (r4) -- (r26);
+
+    % Level 3: |Y| = 3
+    \node[prunednode] (r31) at (-6.3, 0.0) {$D \longrightarrow ABC$};
+    \node[prunednode] (r32) at (-3.9, 0.0) {$C \longrightarrow ABD$};
+    \node[prunednode] (r33) at (-1.5, 0.0) {$B \longrightarrow ACD$};
+    \node[rulenode] (r34) at (4.3, 0.0) {$A \longrightarrow BCD$};
+
+    \draw[prunededge] (r21) -- (r31);
+    \draw[prunededge] (r21) -- (r32);
+    \draw[prunededge] (r22) -- (r31);
+    \draw[prunededge] (r22) -- (r33);
+    \draw[prunededge] (r23) -- (r32);
+    \draw[prunededge] (r23) -- (r33);
+    \draw[edge] (r24) -- (r34);
+    \draw[edge] (r25) -- (r34);
+    \draw[edge] (r26) -- (r34);
+
+    % Informational plaques underneath
+    \node[anchor=north, text=crimson!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=crimson!70] 
+        at (-3.9, -1.45) {Pruned sub-lattice ($c(BCD \rightarrow A) < \mathrm{minconf}$)};
+    \node[anchor=north, text=navy!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=navy!70] 
+        at (4.3, -1.45) {Active rules with $A \notin \mathrm{consequent}$};
+
+    % Level labels
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 5.7) {Level 0 ($|Y|=0$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 3.6) {Level 1 ($|Y|=1$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 1.8) {Level 2 ($|Y|=2$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 0.0) {Level 3 ($|Y|=3$)};
+\end{tikzpicture}%
+}
+\caption{Rule lattice generated from $\{A, B, C, D\}$ organized by consequent cardinality ($|Y|$). As soon as rule $BCD \rightarrow A$ falls below $\mathrm{minconf}$, all of its descendants (having $A$ in their consequent, highlighted on the left) are pruned \textit{a priori} by confidence anti-monotonicity.}
+\label{fig:dm-rule-lattice-pruning-en}
+\end{figure}
+
+% ====================================================================
+% SECTION 11.12: COMPUTATIONAL COMPLEXITY FACTORS
+% ====================================================================
+\section{Factors Governing Computational Complexity}
+\label{sec:dm-complexity-factors}
+
+Apriori algorithm scalability is governed by four primary parameters~\cite{tan2018}:
+\begin{enumerate}
+    \item \textbf{Support Threshold ($\mathrm{minsup}$)}: Lowering $\mathrm{minsup}$ exponentially increases the number of frequent itemsets, maximum pattern length $k_{\max}$, candidate counts, and required database passes;
+    \item \textbf{Item Universe Cardinality ($d = |I|$)}: Higher item counts enlarge candidate tracking memory, with level-2 candidate pairs scaling quadratically as $\mathcal{O}(d^2)$;
+    \item \textbf{Database Size ($N = |T|$)}: Because each iteration performs a full sequential database scan, computational cost scales linearly with $N$;
+    \item \textbf{Average Transaction Width ($w$)}: Wider transactions produce longer patterns. Furthermore, the number of candidate subsets per transaction, $\binom{w}{k}$, grows combinatorially with $w$.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 11.13: MAXIMAL AND CLOSED FREQUENT ITEMSETS
+% ====================================================================
+\section[Compact Representations: Maximal and Closed Itemsets]{Compact Representations:\\Maximal and Closed Frequent Itemsets}
+\label{sec:dm-maximal-closed-itemsets}
+
+Dense datasets generate explosive candidate counts: a frequent itemset of size 20 yields $2^{20} - 1 \approx 10^6$ frequent sub-patterns. To eliminate redundancy without loss of essential information, two compact representations are employed: \textbf{maximal itemsets} and \textbf{closed itemsets}~\cite{tan2018}.
+
+\subsection{Maximal Frequent Itemsets}
+
+\begin{definition}[Maximal Frequent Itemset]
+An itemset $X$ is \textbf{maximal frequent} if $s(X) \ge \mathrm{minsup}$ and \textbf{no immediate superset of $X$} is frequent:
+\begin{equation}
+\label{eq:dm-maximal-frequent-def-en}
+X \text{ is maximal frequent} \Longleftrightarrow s(X) \ge \mathrm{minsup} \quad \land \quad \forall Y \supset X, \; s(Y) < \mathrm{minsup}
+\end{equation}
+\end{definition}
+
+Maximal frequent itemsets delineate the boundary between frequent and infrequent space in the lattice. However, while they identify all frequent itemsets, they \textbf{do not retain exact subset support values}, representing a lossy compression.
+
+\subsection{Closed and Closed Frequent Itemsets}
+
+\begin{definition}[Closed Itemset]
+An itemset $X$ is \textbf{closed} if none of its immediate supersets has the identical support count as $X$:
+\begin{equation}
+\label{eq:dm-closed-itemset-def-en}
+X \text{ is closed} \Longleftrightarrow \forall Y \supset X, \; \sigma(Y) < \sigma(X)
+\end{equation}
+Equivalently, $X$ is not closed if there exists an immediate superset $Y \supset X$ such that $\sigma(Y) = \sigma(X)$.
+\end{definition}
+
+\begin{definition}[Closed Frequent Itemset]
+An itemset is \textbf{closed frequent} if it is both closed and frequent ($s(X) \ge \mathrm{minsup}$).
+\end{definition}
+
+\begin{theorem}[Lossless Compression of Closed Frequent Itemsets]
+The collection of closed frequent itemsets forms a \textbf{lossless compact representation}. The exact support count of any arbitrary frequent itemset $S$ can be reconstructed without consulting the database:
+\begin{equation}
+\label{eq:dm-support-reconstruction-closed-en}
+\sigma(S) = \max \big\{ \sigma(C) \mid C \text{ is closed frequent and } S \subseteq C \big\}
+\end{equation}
+\end{theorem}
+
+\subsection{Analytical Case Study on Tabular Data}
+Consider the transactional database in Table~\ref{tab:dm-closed-maximal-example-en}:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c l}
+\toprule
+\textbf{TID} & \textbf{Transaction} \\
+\midrule
+\textbf{1} & $\{A, B\}$ \\
+\textbf{2} & $\{B, C, D\}$ \\
+\textbf{3} & $\{A, B, C, D\}$ \\
+\textbf{4} & $\{A, B, D\}$ \\
+\textbf{5} & $\{A, B, C, D\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Transaction database for diagnosing closed and maximal itemsets.}
+\label{tab:dm-closed-maximal-example-en}
+\end{table}
+
+Evaluating closure:
+\begin{enumerate}
+    \item Itemset $\{A\}$: occurs in TID 1, 3, 4, 5 $\implies \sigma(\{A\}) = 4$. Immediate superset $\{A, B\}$ also has $\sigma(\{A, B\}) = 4$. Because support matches, $\{A\}$ is \textbf{NOT closed};
+    \item Itemset $\{B\}$: occurs in all 5 transactions $\implies \sigma(\{B\}) = 5$. Immediate supersets have supports $\sigma(\{A, B\}) = 4$, $\sigma(\{B, C\}) = 3$, $\sigma(\{B, D\}) = 4$. Since no superset has support 5, $\{B\}$ is \textbf{CLOSED};
+    \item Itemset $\{A, B\}$: $\sigma(\{A, B\}) = 4$. Immediate supersets have supports $\sigma(\{A, B, C\}) = 2$ and $\sigma(\{A, B, D\}) = 3$. Since both are strictly less than 4, $\{A, B\}$ is \textbf{CLOSED};
+    \item Itemset $\{C\}$: $\sigma(\{C\}) = 3$. Superset $\{B, C\}$ has $\sigma(\{B, C\}) = 3$. Thus $\{C\}$ is \textbf{NOT closed};
+    \item Itemset $\{A, B, C, D\}$: $\sigma(\{A, B, C, D\}) = 2$. No supersets exist with support $\ge 2$, hence $\{A, B, C, D\}$ is \textbf{CLOSED}.
+\end{enumerate}
+
+\subsection{Set Inclusion Relationships}
+The structural hierarchy between itemset classes is shown in Figure~\ref{fig:dm-venn-itemsets-en}:
+\begin{equation}
+\label{eq:dm-itemset-hierarchy-en}
+\text{Maximal Frequent} \subseteq \text{Closed Frequent} \subseteq \text{Frequent Itemsets}
+\end{equation}
+\begin{equation}
+\text{Closed Frequent} = \text{Frequent} \cap \text{Closed}
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=1.0,
+    font=\small
+]
+    % 1. Universal Itemset Space P(I)
+    \draw[draw=gray!40, fill=gray!3, rounded corners=12pt, line width=0.9pt] (-10.5, -4.4) rectangle (10.5, 3.9);
+    \node[anchor=north west, font=\bfseries\footnotesize, text=gray!75!black] at (-10.1, 3.65) {Universal Itemset Space $\mathcal{P}(I)$};
+    \node[anchor=north east, font=\scriptsize\itshape, text=gray!60!black] at (10.1, 3.65) {All $2^d$ combinatorial patterns};
+
+    % 2. Frequent Itemsets (Left)
+    \draw[draw=navy!85, fill=navy!7, rounded corners=22pt, line width=1.3pt] 
+        (-9.6, -3.2) rectangle (3.3, 3.0);
+
+    % 3. Closed Itemsets (Right)
+    \draw[draw=darkgreen!85, fill=darkgreen!7, rounded corners=22pt, line width=1.3pt] 
+        (-3.3, -3.2) rectangle (9.6, 3.0);
+
+    % 4. Intersection Area: Closed Frequent
+    \draw[draw=navy!70!darkgreen, line width=1.5pt, rounded corners=18pt, fill=navy!18!darkgreen!12]
+        (-3.3, -3.2) rectangle (3.3, 3.0);
+
+    % 5. Maximal Frequent Subset (Inside Closed Frequent)
+    \draw[draw=crimson!90, fill=crimson!16, rounded corners=14pt, line width=1.3pt]
+        (-2.9, -2.9) rectangle (2.9, 0.05);
+
+    % =========================================================================
+    % LABELS AND REGION CONTENTS
+    % =========================================================================
+
+    % --- LEFT REGION: Frequent Non-Closed (Center x = -6.45) ---
+    \node[text=navy!95!black, font=\bfseries\large, align=center] at (-6.45, 2.3) {Frequent Itemsets\\[2pt]{\small $s(X) \ge \mathrm{minsup}$}};
+    
+    \node[text=navy!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=navy!25, line width=0.6pt] at (-6.45, 0.95) {
+        \textbf{Frequent Non-Closed (Redundant)}\\[2pt]
+        $\exists Y \supset X : \sigma(Y) = \sigma(X)$
+    };
+    
+    \node[text=navy!85!black, font=\scriptsize, align=left, fill=white, inner sep=5pt, rounded corners=5pt, draw=navy!25, line width=0.6pt] at (-6.45, -1.0) {
+        \textbf{Dataset Examples (Tab.~\ref{tab:dm-closed-maximal-example-en}):}\\[2pt]
+        $\bullet\; \{A\}$ with $\sigma=4$ ($= \sigma(\{A, B\})$)\\[2pt]
+        $\bullet\; \{C\}$ with $\sigma=3$ ($= \sigma(\{B, C\})$)
+    };
+
+    % --- RIGHT REGION: Closed Non-Frequent (Center x = +6.45) ---
+    \node[text=darkgreen!95!black, font=\bfseries\large, align=center] at (6.45, 2.3) {Closed Itemsets\\[2pt]{\small $\forall Y \supset X, \; \sigma(Y) < \sigma(X)$}};
+
+    \node[text=darkgreen!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=darkgreen!25, line width=0.6pt] at (6.45, 0.95) {
+        \textbf{Closed Non-Frequent}\\[2pt]
+        $s(X) < \mathrm{minsup}$ (below threshold)
+    };
+
+    \node[text=darkgreen!85!black, font=\scriptsize, align=left, fill=white, inner sep=5pt, rounded corners=5pt, draw=darkgreen!25, line width=0.6pt] at (6.45, -1.0) {
+        \textbf{Properties and Role:}\\[2pt]
+        $\bullet\;$ No superset shares support count $\sigma$\\
+        $\bullet\;$ Useful for rare patterns or anomalies\\
+        $\bullet\;$ Filtered out by $\mathrm{minsup}$ threshold
+    };
+
+    % --- TOP INTERSECTION: Closed Frequent (Center x = 0, y in [0.05, 3.0]) ---
+    \node[text=navy!95!black, font=\bfseries\normalsize, align=center] at (0, 2.45) {Closed Frequent Itemsets};
+    \node[text=navy!85!darkgreen, font=\scriptsize\bfseries, align=center] at (0, 2.05) {Lossless Compression (\textit{Lossless})};
+    
+    \node[text=navy!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=navy!35, line width=0.6pt] at (0, 1.05) {
+        \textbf{Exact support reconstruction:}\\
+        $\sigma(S) = \max_{C \supseteq S} \sigma(C)$\\[2pt]
+        \textit{Ex: $\{B\}$ ($\sigma=5$, closed non-maximal)}
+    };
+
+    % --- BOTTOM INTERSECTION: Maximal Frequent (Center x = 0, y in [-2.9, 0.05]) ---
+    \node[text=crimson!95!black, font=\bfseries\normalsize, align=center] at (0, -0.45) {Maximal Frequent\\Itemsets};
+    \node[text=crimson!85!black, font=\scriptsize\bfseries, align=center] at (0, -1.05) {Lossy Compression (\textit{Lossy})};
+
+    \node[text=crimson!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=crimson!35, line width=0.6pt] at (0, -1.95) {
+        $\forall Y \supset X \implies s(Y) < \mathrm{minsup}$\\[2pt]
+        \textbf{Border of frequent itemset lattice}\\[2pt]
+        \textit{Ex: $\{A, B, C, D\}$ (if $\mathrm{minsup} \le 2/5$)}
+    };
+
+    % --- BOTTOM SUMMARY BAR ---
+    \node[anchor=south, font=\footnotesize, text=gray!85!black, fill=white, inner sep=4.5pt, rounded corners=6pt, draw=gray!35, line width=0.8pt] 
+        at (0, -4.15) {
+        $\textbf{Maximal Frequent} \;\subseteq\; \textbf{Closed Frequent} \;=\; (\textbf{Frequent} \;\cap\; \textbf{Closed}) \;\subseteq\; \textbf{Frequent}$
+    };
+
+\end{tikzpicture}%
+}
+\caption{Euler-Venn diagram illustrating inclusion relationships between frequent, closed, and maximal itemsets, highlighting lossless vs lossy compression characteristics.}
+\label{fig:dm-venn-itemsets-en}
+\end{figure}
+
+Every maximal frequent itemset is necessarily closed frequent, but the converse is not generally true.
+
+% ====================================================================
+% SECTION 11.14: PATTERN EVALUATION AND CONFIDENCE LIMITATIONS
+% ====================================================================
+\section{Pattern Evaluation and Limitations of Confidence}
+\label{sec:dm-pattern-evaluation-confidence-limits}
+
+Although support and confidence are widely adopted, confidence exhibits severe interpretive flaws because it \textbf{completely ignores the marginal support of the consequent} $P(Y)$~\cite{tan2018}.
+
+\subsection{$2 \times 2$ Contingency Tables}
+The bivariate statistical relationship between itemsets $X$ and $Y$ is captured in a $2 \times 2$ contingency table:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c c c}
+\toprule
+& $Y$ & $\overline{Y}$ (No $Y$) & \textbf{Marginal Total} \\
+\midrule
+$X$ & $f_{11} = \sigma(X \cup Y)$ & $f_{10} = \sigma(X \cup \overline{Y})$ & $f_{1+} = \sigma(X)$ \\
+$\overline{X}$ (No $X$) & $f_{01} = \sigma(\overline{X} \cup Y)$ & $f_{00} = \sigma(\overline{X} \cup \overline{Y})$ & $f_{0+} = \sigma(\overline{X})$ \\
+\midrule
+\textbf{Marginal Total} & $f_{+1} = \sigma(Y)$ & $f_{+0} = \sigma(\overline{Y})$ & $N = |T|$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{$2 \times 2$ contingency table for joint association analysis.}
+\label{tab:dm-contingency-2x2-en}
+\end{table}
+
+In cell frequency terms:
+\begin{equation}
+s(X \longrightarrow Y) = \frac{f_{11}}{N}, \qquad c(X \longrightarrow Y) = \frac{f_{11}}{f_{1+}}
+\end{equation}
+
+\subsection{Case Study 1: High Confidence with Negative Correlation}
+Consider tea and coffee consumption across $N = 1\,000$ consumers:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c c c}
+\toprule
+& Coffee & $\overline{\text{Coffee}}$ & \textbf{Total} \\
+\midrule
+Tea & 150 & 50 & 200 \\
+$\overline{\text{Tea}}$ & 650 & 150 & 800 \\
+\midrule
+\textbf{Total} & 800 & 200 & $1\,000$ \\
+\bottomrule
+\end{tabular}
+\caption{Contingency table between Tea and Coffee consumption.}
+\label{tab:dm-tea-coffee-paradox-en}
+\end{table}
+
+Evaluating rule $\text{Tea} \longrightarrow \text{Coffee}$:
+\begin{itemize}
+    \item Confidence:
+    \begin{equation}
+    c(\text{Tea} \longrightarrow \text{Coffee}) = P(\text{Coffee} \mid \text{Tea}) = \frac{150}{200} = 0.75 \quad (75\%)
+    \end{equation}
+    At $75\%$ confidence, the rule appears strong.
+    \item Marginal coffee probability:
+    \begin{equation}
+    P(\text{Coffee}) = \frac{800}{1\,000} = 0.80 \quad (80\%)
+    \end{equation}
+    \item Probability among non-tea drinkers:
+    \begin{equation}
+    P(\text{Coffee} \mid \overline{\text{Tea}}) = \frac{650}{800} = 0.8125 \quad (81.25\%)
+    \end{equation}
+\end{itemize}
+
+\begin{noteblock}{Critical Paradox Interpretation}
+    In the overall customer base, coffee consumption is $80\%$. Among tea drinkers, it drops to $75\%$. Knowing someone drinks tea actually \textbf{decreases} the probability of them drinking coffee.
+    
+    The rule falsely implies positive association when Tea and Coffee are in fact \textbf{negatively correlated} (substitute goods).
+\end{noteblock}
+
+\subsection{Case Study 2: Low Confidence with Strong Positive Correlation}
+Consider tea and honey consumption across $N = 1\,000$ customers:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c c c}
+\toprule
+& Honey & $\overline{\text{Honey}}$ & \textbf{Total} \\
+\midrule
+Tea & 100 & 100 & 200 \\
+$\overline{\text{Tea}}$ & 20 & 780 & 800 \\
+\midrule
+\textbf{Total} & 120 & 880 & $1\,000$ \\
+\bottomrule
+\end{tabular}
+\caption{Contingency table between Tea and Honey consumption.}
+\label{tab:dm-tea-honey-paradox-en}
+\end{table}
+
+Evaluating rule $\text{Tea} \longrightarrow \text{Honey}$:
+\begin{equation}
+c(\text{Tea} \longrightarrow \text{Honey}) = \frac{100}{200} = 0.50 \quad (50\%)
+\end{equation}
+With $\mathrm{minconf} = 0.60$, this rule is rejected. Yet baseline honey purchasing is only:
+\begin{equation}
+P(\text{Honey}) = \frac{120}{1\,000} = 0.12 \quad (12\%)
+\end{equation}
+Drinking tea increases honey purchasing probability from $12\%$ to $50\%$ (over fourfold). The strong positive association is masked by fixed confidence filtering.
+
+\subsection{Statistical Dependence Condition}
+Genuine association requires satisfying:
+\begin{equation}
+\label{eq:dm-statistical-dependence-condition-en}
+c(X \longrightarrow Y) > s(Y) \quad \Longleftrightarrow \quad P(Y \mid X) > P(Y)
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item $P(Y \mid X) = P(Y)$: statistical independence ($P(X \cap Y) = P(X)P(Y)$);
+    \item $P(Y \mid X) > P(Y)$: positive correlation;
+    \item $P(Y \mid X) < P(Y)$: negative correlation.
+\end{itemize}
+
+% ====================================================================
+% SECTION 11.15: OBJECTIVE STATISTICAL MEASURES OF INTEREST
+% ====================================================================
+\section{Objective Statistical Measures of Interest}
+\label{sec:dm-interest-measures}
+
+To complement support and confidence, objective statistical measures quantify deviation from statistical independence~\cite{tan2018, piatetsky1991}.
+
+\subsection{Lift and Interest Metrics}
+\textbf{Lift} (or \textbf{Interest}) measures the ratio of observed joint probability to the probability expected under stochastic independence:
+\begin{equation}
+\label{eq:dm-lift-definition-en}
+\mathrm{Lift}(X \longrightarrow Y) = \frac{P(Y \mid X)}{P(Y)} = \frac{c(X \longrightarrow Y)}{s(Y)} = \frac{P(X, Y)}{P(X)P(Y)} = \frac{N f_{11}}{f_{1+} f_{+1}}
+\end{equation}
+
+\begin{itemize}
+    \item $\mathrm{Lift} = 1$: $X$ and $Y$ are independent;
+    \item $\mathrm{Lift} > 1$: $X$ and $Y$ are positively correlated;
+    \item $\mathrm{Lift} < 1$: $X$ and $Y$ are negatively correlated.
+\end{itemize}
+
+Checking Lift for the Tea and Coffee case (Table~\ref{tab:dm-tea-coffee-paradox-en}):
+\begin{equation}
+\mathrm{Lift}(\text{Tea} \longrightarrow \text{Coffee}) = \frac{0.15}{0.20 \times 0.80} = \frac{0.15}{0.16} = 0.9375 < 1
+\end{equation}
+Lift $< 1$ correctly flags negative correlation, rectifying the misleading $75\%$ confidence.
+
+\subsection{Piatetsky-Shapiro Measure and Pearson's $\phi$}
+\begin{itemize}
+    \item \textbf{Piatetsky-Shapiro ($PS$ / Leverage)}: Computes the difference between observed joint probability and expected probability under independence~\cite{piatetsky1991}:
+    \begin{equation}
+    \label{eq:dm-ps-leverage-en}
+    PS = P(X, Y) - P(X)P(Y) = \frac{f_{11}}{N} - \frac{f_{1+} f_{+1}}{N^2}
+    \end{equation}
+    \item \textbf{Pearson Correlation Coefficient ($\phi$)}: Evaluates correlation across binary variables:
+    \begin{equation}
+    \label{eq:dm-phi-correlation-en}
+    \phi = \frac{P(X, Y) - P(X)P(Y)}{\sqrt{P(X)(1-P(X))P(Y)(1-P(Y))}} = \frac{N f_{11} - f_{1+} f_{+1}}{\sqrt{f_{1+} f_{+1} f_{0+} f_{+0}}}
+    \end{equation}
+    Bounded in $[-1, +1]$, with $0$ indicating independence.
+\end{itemize}
+
+\subsection{Comparative Summary of Objective Measures}
+Table~\ref{tab:dm-interest-measures-comparison-en} summarizes major objective association measures~\cite{tan2018}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c l}
+\toprule
+\textbf{Measure} & \textbf{Symbol} & \textbf{$2 \times 2$ Contingency Table Formulation} \\
+\midrule
+\textbf{Correlation ($\phi$)} & $\phi$ & $\dfrac{N f_{11} - f_{1+} f_{+1}}{\sqrt{f_{1+} f_{+1} f_{0+} f_{+0}}}$ \\
+\textbf{Odds Ratio} & $\alpha$ & $\dfrac{f_{11} f_{00}}{f_{10} f_{01}}$ \\
+\textbf{Cohen's Kappa} & $\kappa$ & $\dfrac{N f_{11} + N f_{00} - f_{1+} f_{+1} - f_{0+} f_{+0}}{N^2 - f_{1+} f_{+1} - f_{0+} f_{+0}}$ \\
+\textbf{Interest / Lift} & $I$ & $\dfrac{N f_{11}}{f_{1+} f_{+1}}$ \\
+\textbf{Cosine / IS} & $IS$ & $\dfrac{f_{11}}{\sqrt{f_{1+} f_{+1}}}$ \\
+\textbf{Piatetsky-Shapiro} & $PS$ & $\dfrac{f_{11}}{N} - \dfrac{f_{1+} f_{+1}}{N^2}$ \\
+\textbf{Jaccard} & $J$ & $\dfrac{f_{11}}{f_{1+} + f_{+1} - f_{11}}$ \\
+\textbf{All-Confidence} & $h$ & $\min \left[ \dfrac{f_{11}}{f_{1+}}, \; \dfrac{f_{11}}{f_{+1}} \right]$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Analytical formulations of objective statistical interest measures.}
+\label{tab:dm-interest-measures-comparison-en}
+\end{table}
+
+% ====================================================================
+% SECTION 11.16: CATEGORICAL AND CONTINUOUS ATTRIBUTES
+% ====================================================================
+\section{Handling Categorical and Continuous Attributes}
+\label{sec:dm-categorical-continuous-attributes}
+
+Real-world transaction datasets are not confined to symmetric boolean flags, frequently incorporating polytomous categorical features and continuous numeric attributes~\cite{tan2018}. To integrate these dimensions into association mining, the binarization and discretization methodologies formalized in Chapter~\ref{chap:dm-data-preparation-cleaning} (\autoref{sec:dm-discretization-binning}) are applied, tailored to the requirements of the Apriori framework.
+
+\subsection{Polytomous Categorical Attributes}
+Discrete attributes (e.g., \texttt{Education} $\in \{\text{High School, College, Graduate}\}$) undergo \textbf{One-Hot Encoding} (\autoref{sec:dm-discretization-binning}):
+\begin{itemize}
+    \item Distinct binary items are created for each pair (\texttt{Education=Graduate});
+    \item Transactions become sparse asymmetric binary vectors where absence (0) is uninformative and excluded from co-occurrence calculations.
+\end{itemize}
+
+\subsubsection{The High-Cardinality Challenge}
+Categorical attributes with numerous categories (e.g., geographic zip codes) dilute individual category supports.
+\begin{itemize}
+    \item \textbf{Effect}: Under standard $\mathrm{minsup}$, almost no category survives pruning;
+    \item \textbf{Mitigation}: Apply \textbf{conceptual roll-up}, aggregating fine-grained values into higher-level macro-categories (e.g., zip codes into regions).
+\end{itemize}
+
+\subsection{Continuous Numeric Attributes}
+For continuous variables (e.g., age, income, online hours), three paradigms exist:
+\begin{enumerate}
+    \item \textbf{Discretization-Based Methods}: Domain values are segmented into discrete bins (equal-width or equal-frequency, cf.~\autoref{sec:dm-discretization-binning}), each treated as a discrete item:
+    \begin{equation}
+    \{\text{Gender = M}, \text{Age} \in [21, 30)\} \longrightarrow \{\text{Online Hours} \ge 10\}
+    \end{equation}
+    \item \textbf{Statistics-Based Methods}: Antecedents contain discrete items, while the consequent summarizes continuous distributions via mean $\mu$ and standard deviation $\sigma$:
+    \begin{equation}
+    \{\text{Age} \in [21, 30), \text{Chat = Yes}\} \longrightarrow \text{Hours: } [\mu = 14, \; \sigma = 4]
+    \end{equation}
+    \item \textbf{Non-Discretization Methods (\textit{minApriori / Fuzzy})}: Continuous attributes normalized in $[0, 1]$ are mined directly using fuzzy operators ($t$-norms) replacing boolean set intersections.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 11.17: CONCEPT TAXONOMIES AND MULTI-LEVEL RULES
+% ====================================================================
+\section{Concept Taxonomies and Multi-Level Association Rules}
+\label{sec:dm-multilevel-association-rules}
+
+Commercial items naturally organize into taxonomies (trees or DAGs), where specific leaf items aggregate into broader categories~\cite{tan2018}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=1.0,
+    rootnode/.style={draw=navy!90!black, fill=navy!18, rounded corners=6pt, font=\small\bfseries, align=center, inner sep=5pt, minimum height=0.75cm},
+    catnode/.style={draw=navy!80!black, fill=navy!10, rounded corners=5pt, font=\small\bfseries, align=center, inner sep=4.5pt, minimum height=0.7cm},
+    subcatnode/.style={draw=navy!70!black, fill=navy!6, rounded corners=4pt, font=\footnotesize\bfseries, align=center, inner sep=3.5pt, minimum height=0.65cm},
+    itemnode/.style={draw=darkgreen!85!black, fill=darkgreen!10, rounded corners=4pt, font=\scriptsize\bfseries, align=center, inner sep=3pt, text=darkgreen!90!black, minimum height=0.85cm},
+    edge/.style={draw=gray!60, line width=0.8pt},
+    levelmark/.style={font=\scriptsize\bfseries, text=gray!65!black, anchor=east}
+]
+    % Level 0: Root Node
+    \node[rootnode, minimum width=4.6cm] (root) at (0, 5.0) {All Items (\textit{Product Catalog})};
+
+    % Level 1: Broad Categories
+    \node[catnode, minimum width=3.8cm] (food) at (-4.2, 3.4) {Food};
+    \node[catnode, minimum width=3.8cm] (elec) at (4.2, 3.4) {Electronics};
+
+    \draw[edge] (root) -- (food);
+    \draw[edge] (root) -- (elec);
+
+    % Level 2: Subcategories
+    \node[subcatnode, minimum width=2.4cm] (bread) at (-6.3, 1.8) {Bread};
+    \node[subcatnode, minimum width=2.4cm] (milk)  at (-2.1, 1.8) {Milk};
+    \node[subcatnode, minimum width=2.4cm] (pc)    at (2.1, 1.8) {Computers};
+    \node[subcatnode, minimum width=2.4cm] (tv)    at (6.3, 1.8) {Audio / Video};
+
+    \draw[edge] (food) -- (bread);
+    \draw[edge] (food) -- (milk);
+    \draw[edge] (elec) -- (pc);
+    \draw[edge] (elec) -- (tv);
+
+    % Level 3: Leaf Items
+    \node[itemnode, minimum width=1.65cm] (wbread) at (-7.35, 0.0) {White\\Bread};
+    \node[itemnode, minimum width=1.65cm] (ibread) at (-5.25, 0.0) {Wheat\\Bread};
+    \node[itemnode, minimum width=1.65cm] (smilk)  at (-3.15, 0.0) {Skim\\Milk};
+    \node[itemnode, minimum width=1.65cm] (fmilk)  at (-1.05, 0.0) {Whole\\Milk};
+    \node[itemnode, minimum width=1.65cm] (desk)   at (1.05, 0.0)  {Desktop\\PC};
+    \node[itemnode, minimum width=1.65cm] (laptop) at (3.15, 0.0)  {Laptop\\Notebook};
+    \node[itemnode, minimum width=1.65cm] (led)    at (5.25, 0.0)  {OLED\\TV};
+    \node[itemnode, minimum width=1.65cm] (sound)  at (7.35, 0.0)  {Soundbar\\Audio};
+
+    \draw[edge] (bread) -- (wbread);
+    \draw[edge] (bread) -- (ibread);
+    \draw[edge] (milk)  -- (smilk);
+    \draw[edge] (milk)  -- (fmilk);
+    \draw[edge] (pc)    -- (desk);
+    \draw[edge] (pc)    -- (laptop);
+    \draw[edge] (tv)    -- (led);
+    \draw[edge] (tv)    -- (sound);
+
+    % Level guide dashed lines
+    \draw[gray!25, dashed] (-8.7, 5.0) -- (8.7, 5.0);
+    \draw[gray!25, dashed] (-8.7, 3.4) -- (8.7, 3.4);
+    \draw[gray!25, dashed] (-8.7, 1.8) -- (8.7, 1.8);
+    \draw[gray!25, dashed] (-8.7, 0.0) -- (8.7, 0.0);
+
+    % Level indicators on left
+    \node[levelmark] at (-8.9, 5.0) {Level 0 (Root)};
+    \node[levelmark] at (-8.9, 3.4) {Level 1 (Broad)};
+    \node[levelmark] at (-8.9, 1.8) {Level 2 (Category)};
+    \node[levelmark] at (-8.9, 0.0) {Level 3 (Leaves)};
+
+    % Generalization / Specialization axis on right
+    \draw[->, >=stealth, crimson!85!black, line width=1.2pt] (9.05, 0.3) -- (9.05, 4.7);
+    \node[font=\tiny\bfseries, text=crimson!90!black, anchor=west] at (9.2, 4.0) {\textbf{Generalization}};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.65) {$\bullet$ Support $\sigma \uparrow$};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.35) {$\bullet$ Reduced fragmentation};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.05) {$\bullet$ Risk of obviousness};
+
+    \draw[->, >=stealth, navy!85!black, line width=1.2pt] (9.05, 4.7) -- (9.05, 0.3);
+    \node[font=\tiny\bfseries, text=navy!90!black, anchor=west] at (9.2, 1.7) {\textbf{Specialization}};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 1.35) {$\bullet$ Support $\sigma \downarrow$};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 1.05) {$\bullet$ Higher actionable value};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 0.75) {$\bullet$ Below minsup risk};
+
+    \draw[gray!35, dotted, line width=0.8pt] (8.7, -0.6) -- (8.7, 5.4);
+\end{tikzpicture}%
+}
+\caption{Multi-level conceptual taxonomy for hierarchical association rule mining, highlighting taxonomy levels and the generalization vs.\ specialization trade-off.}
+\label{fig:dm-taxonomy-tree-en}
+\end{figure}
+
+\subsection{Motivations for Multi-Level Mining}
+\begin{enumerate}
+    \item \textbf{Insufficient Support at Leaf Levels}: Highly specific items (e.g., specialized organic milk brands) sell infrequently, failing $\mathrm{minsup}$ and facing premature pruning;
+    \item \textbf{Fragmentation at Leaf Levels}: Leaf-level mining creates fragmented rules across minor brand variants, obscuring general category associations;
+    \item \textbf{Overly Broad Rules at Top Levels}: Root-level rules ($\text{Food} \rightarrow \text{Electronics}$) are often trivial or uninformative.
+\end{enumerate}
+
+\subsection{Support and Confidence Behavior Across Taxonomies}
+Let $X_1$ and $X_2$ be lower-level items sharing parent category $X$:
+\begin{enumerate}
+    \item \textbf{Parent Support Sub-Additivity}: Parent transaction frequency is bounded above by child count sums:
+    \begin{equation}
+    \sigma(X) \le \sigma(X_1) + \sigma(X_2)
+    \end{equation}
+    The inequality arises because a single transaction can contain both $X_1$ and $X_2$.
+    \item \textbf{Upward Support Propagation}: If a lower-level itemset is frequent, replacing any item with its taxonomic ancestor yields a frequent itemset:
+    \begin{equation}
+    \sigma(X_1 \cup Y_1) \ge \mathrm{minsup} \times |T| \quad \Longrightarrow \quad \sigma(X \cup Y) \ge \mathrm{minsup} \times |T|
+    \end{equation}
+    \item \textbf{Confidence Propagation}: If a specific rule satisfies minimum confidence, generalizing the consequent also satisfies it:
+    \begin{equation}
+    c(X_1 \longrightarrow Y_1) \ge \mathrm{minconf} \quad \Longrightarrow \quad c(X_1 \longrightarrow Y) \ge \mathrm{minconf}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Multi-Level Implementation Strategies}
+\begin{itemize}
+    \item \textbf{Strategy 1: Transaction Augmentation}: Transactions are enriched by appending all taxonomic ancestors:
+    \begin{equation}
+    \begin{split}
+    &\{\text{Skim Milk, Wheat Bread}\} \longrightarrow \\
+    &\quad \{\text{Skim Milk, Wheat Bread, Milk, Bread, Food}\}
+    \end{split}
+    \end{equation}
+    \textit{Drawbacks}: Significantly increases transaction width and database size, causing support explosion and trivial redundant rules ($\text{Skim Milk} \rightarrow \text{Milk}$).
+    \item \textbf{Strategy 2: Level-by-Level Generation}: Mine frequent itemsets at the top level first, then descend restricting child searches to descendants of frequent parent patterns.
+    \textit{Drawbacks}: Requires multiple database scans and misses cross-level associations without specialized traversals.
+\end{itemize}

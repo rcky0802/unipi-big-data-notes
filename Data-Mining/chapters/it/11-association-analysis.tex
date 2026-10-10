@@ -1,0 +1,1432 @@
+\chapter{Analisi delle Associazioni: Concetti di Base e Algoritmi}
+\label{chap:dm-association-analysis}
+
+L'analisi delle associazioni (\textit{Association Analysis}) costituisce uno dei pilastri metodologici fondamentali del Data Mining non supervisionato~\cite{tan2018}. Nata originariamente nell'ambito dell'analisi dei dati di vendita al dettaglio (la cosiddetta \textit{Market-Basket Analysis} o analisi del carrello della spesa) per investigare le abitudini di acquisto della clientela, tale disciplina fornisce un impianto formale, algoritmico e statistico per identificare relazioni nascoste, ricorrenze congiunte e dipendenze informative all'interno di collezioni estese di dati transazionali~\cite{agrawal1993, agrawal1994}.
+
+Questo capitolo illustra in dettaglio la formulazione matematica del problema, la struttura combinatoria dello spazio di ricerca, il principio fondamentale di anti-monotonia alla base dell'algoritmo Apriori, le strutture dati avanzate per il conteggio efficiente delle frequenze (come gli alberi hash), le rappresentazioni compatte basate su itemset chiusi e massimali, i limiti epistemologici della confidenza con le relative misure statistiche oggettive di correlazione (Lift, Leverage, $\phi$), nonché le estensioni metodologiche necessarie per trattare attributi continui, variabili categoriche politomiche e gerarchie concettuali multi-livello~\cite{tan2018}.
+
+% ====================================================================
+% SEZIONE 11.1: INTRODUZIONE AL MINING DELLE REGOLE DI ASSOCIAZIONE
+% ====================================================================
+\section{Introduzione al Mining delle Regole di Associazione}
+\label{sec:dm-association-intro}
+
+Nell'apprendimento non supervisionato, l'analisi delle associazioni differisce concettualmente sia dalla classificazione (dove un attributo target è noto a priori) sia dal clustering (in cui si raggruppano istanze simili nello spazio geometrico). L'obiettivo primario consiste nello scoprire regolarità intrinseche espresse sotto forma di \textbf{regole di associazione}, ovvero implicazioni logico-statistiche che legano la presenza di specifici elementi all'interno di una transazione alla presenza congiunta di altri elementi~\cite{tan2018, agrawal1993}.
+
+\subsection{Inquadramento e Modello Transazionale}
+Il paradigma di riferimento modella il dominio applicativo mediante una collezione di registrazioni discrete, denominate \textit{transazioni}. In ambito retail, una transazione corrisponde allo scontrino o carrello di spesa di un cliente in una determinata sessione d'acquisto.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c l}
+\toprule
+\textbf{TID (Transaction ID)} & \textbf{Items (Insieme degli Articoli Acquistati)} \\
+\midrule
+\textbf{1} & Pane, Latte \\
+\textbf{2} & Pane, Pannolini, Birra, Uova \\
+\textbf{3} & Latte, Pannolini, Birra, Coca-Cola \\
+\textbf{4} & Pane, Latte, Pannolini, Birra \\
+\textbf{5} & Pane, Latte, Pannolini, Coca-Cola \\
+\bottomrule
+\end{tabular}
+\caption{Esempio di database transazionale giocattolo per la Market-Basket Analysis.}
+\label{tab:dm-market-basket-toy}
+\end{table}
+
+Nella Tabella~\ref{tab:dm-market-basket-toy}, ogni transazione è contraddistinta da un identificativo univoco (\texttt{TID}) ed è costituita da un sottoinsieme non vuoto di articoli estratti dall'inventario merci complessivo del punto vendita.
+
+\subsection{Esempi di Regole di Associazione}
+Dall'ispezione empirica dei dati transazionali possono essere estratte implicazioni della forma:
+\begin{align}
+\{\text{Pannolini}\} &\longrightarrow \{\text{Birra}\} \label{eq:dm-toy-rule-1} \\
+\{\text{Latte, Pane}\} &\longrightarrow \{\text{Uova, Coca-Cola}\} \label{eq:dm-toy-rule-2} \\
+\{\text{Birra, Pane}\} &\longrightarrow \{\text{Latte}\} \label{eq:dm-toy-rule-3}
+\end{align}
+
+\begin{noteblock}{Distinzione Fondamentale: Co-occorrenza Statistica vs Causalità}
+    L'implicazione logica espressa nella regola $X \rightarrow Y$ non descrive una relazione causa-effetto né postula una dipendenza temporale o sequenziale. Essa attesta esclusivamente una \textbf{co-occorrenza statistica} all'interno del medesimo paniere d'acquisto~\cite{tan2018}.
+    
+    Affermare che $\{\text{Pannolini}\} \rightarrow \{\text{Birra}\}$ significa semplicemente che i clienti che hanno inserito i pannolini nel carrello hanno mostrato un'elevata propensione congiunta ad acquistare anche birra nella stessa transazione; non implica in alcun modo che l'acquisto dei pannolini abbia generato o causato la necessità di acquistare birra.
+\end{noteblock}
+
+% ====================================================================
+% SEZIONE 11.2: DEFINIZIONI FORMALI: ITEMSET E SUPPORTO
+% ====================================================================
+\section{Definizioni Formali: Itemset, Supporto e Frequenza}
+\label{sec:dm-formal-definitions}
+
+Per formalizzare rigorosamente l'analisi delle associazioni, si definiscono gli spazi matematici degli elementi e delle transazioni~\cite{tan2018, agrawal1994}.
+
+\begin{definition}[Spazio degli Item e Database Transazionale]
+Sia $I = \{i_1, i_2, \dots, i_d\}$ l'insieme finito di tutti i $d$ elementi distinti (\textit{items}) presenti nel dominio. Sia $T = \{t_1, t_2, \dots, t_N\}$ l'insieme delle $N$ transazioni del database, dove ciascuna transazione $t_j \subseteq I$ rappresenta un sottoinsieme non vuoto di articoli.
+\end{definition}
+
+\begin{definition}[$k$-Itemset]
+Un insieme arbitrario di elementi $X \subseteq I$ è denominato \textbf{itemset}. Se la cardinalità dell'insieme è pari a $|X| = k$, l'itemset prende il nome di \textbf{$k$-itemset}.
+\end{definition}
+
+Ad esempio, nel dataset in Tabella~\ref{tab:dm-market-basket-toy}, l'itemset $X = \{\text{Latte},$ $\text{Pane},$ $\text{Pannolini}\}$ contiene 3 articoli ed è pertanto un $3$-itemset.
+
+\subsection{Conteggio di Supporto e Supporto Relativo}
+La quantificazione della rilevanza statistica di un itemset poggia sulla frequenza con cui esso compare all'interno del database transazionale.
+
+\begin{definition}[Support Count / Conteggio di Supporto ($\sigma$)]
+Dato un itemset $X \subseteq I$, il suo conteggio di supporto $\sigma(X)$ è la frequenza assoluta di transazioni in $T$ che contengono $X$ come sottoinsieme:
+\begin{equation}
+\label{eq:dm-support-count}
+\sigma(X) = \big| \{ t_j \in T \mid X \subseteq t_j \} \big|
+\end{equation}
+\end{definition}
+
+Verifichiamo analiticamente la definizione per l'itemset $X = \{\text{Latte},$ $\text{Pane},$ $\text{Pannolini}\}$ rispetto alle transazioni della Tabella~\ref{tab:dm-market-basket-toy}:
+\begin{itemize}[noitemsep]
+    \item Transazione 1 ($t_1$): $\{\text{Pane, Latte}\}$ (mancano i Pannolini) $\rightarrow$ non contiene $X$;
+    \item Transazione 2 ($t_2$): $\{\text{Pane, Pannolini, Birra, Uova}\}$ (manca il Latte) $\rightarrow$ non contiene $X$;
+    \item Transazione 3 ($t_3$): $\{\text{Latte, Pannolini, Birra, Coca-Cola}\}$ (manca il Pane) $\rightarrow$ non contiene $X$;
+    \item Transazione 4 ($t_4$): $\{\text{Pane, Latte, Pannolini, Birra}\}$ $\rightarrow$ contiene $X$;
+    \item Transazione 5 ($t_5$): $\{\text{Pane, Latte, Pannolini, Coca-Cola}\}$ $\rightarrow$ contiene $X$.
+\end{itemize}
+Pertanto, il conteggio assoluto risulta pari a $\sigma(\{\text{Latte, Pane, Pannolini}\}) = 2$.
+
+\begin{definition}[Supporto Relativo ($s$)]
+Il supporto relativo $s(X)$ è la proporzione o frazione di transazioni nel database che contengono l'itemset $X$ rispetto alla cardinalità complessiva $|T| = N$:
+\begin{equation}
+\label{eq:dm-relative-support}
+s(X) = \frac{\sigma(X)}{|T|} = \frac{\sigma(X)}{N}
+\end{equation}
+\end{definition}
+
+Nel nostro esempio giocattolo con $N = 5$:
+\begin{equation}
+s(\{\text{Latte, Pane, Pannolini}\}) = \frac{2}{5} = 0.40 \quad (40\%)
+\end{equation}
+
+\begin{definition}[Itemset Frequente e Soglia $\mathrm{minsup}$]
+Dato un parametro di soglia minima stabilito dall'analista, denominato \textbf{minsup} (\textit{minimum support threshold}) con $\mathrm{minsup} \in (0, 1]$, un itemset $X$ è definito \textbf{frequente} se e solo se il suo supporto relativo soddisfa:
+\begin{equation}
+\label{eq:dm-frequent-itemset-def}
+s(X) \ge \mathrm{minsup} \quad \Longleftrightarrow \quad \sigma(X) \ge \lceil \mathrm{minsup} \times |T| \rceil
+\end{equation}
+\end{definition}
+
+Se impostiamo $\mathrm{minsup} = 0.50$ (ovvero $\sigma_{\min} = 2.5 \implies 3$ transazioni), l'itemset $\{\text{Latte, Pane, Pannolini}\}$ con $s = 0.40$ risulta non frequente; se invece si imposta $\mathrm{minsup} = 0.40$, esso risulta frequente.
+
+% ====================================================================
+% SEZIONE 11.3: REGOLE DI ASSOCIAZIONE E METRICHE DI VALUTAZIONE
+% ====================================================================
+\section{Regole di Associazione e Metriche Fondamentali}
+\label{sec:dm-association-rules-metrics}
+
+Una volta formalizzati gli itemset, si definisce la nozione di regola di associazione.
+
+\begin{definition}[Regola di Associazione]
+Una regola di associazione è un'espressione formale d'implicazione della forma:
+\begin{equation}
+\label{eq:dm-rule-definition}
+X \longrightarrow Y
+\end{equation}
+dove $X, Y \subset I$ sono due itemset disgiunti, ovvero $X \cap Y = \emptyset$. L'itemset $X$ prende il nome di \textbf{antecedente} (o lato sinistro, \textit{LHS}), mentre $Y$ prende il nome di \textbf{conseguente} (o lato destro, \textit{RHS}).
+\end{definition}
+
+\subsection{Metriche Primarie: Supporto e Confidenza}
+La valutazione della significatività statistica e dell'affidabilità di una regola poggia su due metriche classiche introdotte da Agrawal et al.~\cite{agrawal1993, tan2018}:
+
+\begin{definition}[Supporto della Regola]
+Il supporto di una regola $X \rightarrow Y$ misura la frazione di transazioni del database che contengono simultaneamente sia l'antecedente sia il conseguente, coincidente con la probabilità empirica congiunta $P(X \cup Y)$:
+\begin{equation}
+\label{eq:dm-rule-support}
+s(X \longrightarrow Y) = \frac{\sigma(X \cup Y)}{|T|} = P(X \cup Y)
+\end{equation}
+\end{definition}
+
+\begin{definition}[Confidenza della Regola]
+La confidenza di una regola $X \rightarrow Y$ quantifica l'accuratezza o l'affidabilità dell'inferenza condizionale, indicando la percentuale di transazioni contenenti $X$ che contengono contemporaneamente anche $Y$:
+\begin{equation}
+\label{eq:dm-rule-confidence}
+c(X \longrightarrow Y) = \frac{\sigma(X \cup Y)}{\sigma(X)} = \frac{s(X \cup Y)}{s(X)} = P(Y \mid X)
+\end{equation}
+\end{definition}
+
+\subsection{Esempio di Calcolo Analitico Dettagliato}
+Consideriamo la regola:
+\begin{equation}
+\{\text{Latte, Pannolini}\} \longrightarrow \{\text{Birra}\}
+\end{equation}
+Dalle transazioni della Tabella~\ref{tab:dm-market-basket-toy}:
+\begin{itemize}[noitemsep]
+    \item Antecedente: $X = \{\text{Latte, Pannolini}\}$;
+    \item Conseguente: $Y = \{\text{Birra}\}$;
+    \item Unione congiunta: $X \cup Y = \{\text{Latte, Pannolini, Birra}\}$.
+\end{itemize}
+
+Ispezionando i conteggi di occorrenza nel database:
+\begin{enumerate}[noitemsep]
+    \item $X \cup Y$ compare nelle transazioni 3 e 4 $\implies \sigma(X \cup Y) = 2$;
+    \item $X$ compare nelle transazioni 3, 4 e 5 $\implies \sigma(X) = 3$;
+    \item Numero totale di transazioni: $N = |T| = 5$.
+\end{enumerate}
+
+Applicando le formule formali~\eqref{eq:dm-rule-support} e~\eqref{eq:dm-rule-confidence}:
+\begin{align}
+s(\{\text{Latte, Pannolini}\} \rightarrow \{\text{Birra}\}) &= \frac{2}{5} = 0.40 \quad (40\%) \\
+c(\{\text{Latte, Pannolini}\} \rightarrow \{\text{Birra}\}) &= \frac{2}{3} \approx 0.6667 \quad (66.67\%)
+\end{align}
+La regola indica che nel $40\%$ delle transazioni complessive i tre beni compaiono insieme, e che quando un carrello include latte e pannolini, nel $66.7\%$ dei casi include anche birra.
+
+% ====================================================================
+% SEZIONE 11.4: COMPITO DI MINING E COMPLESSITÀ COMPUTAZIONALE
+% ====================================================================
+\section{Il Compito di Mining e la Trattabilità Computazionale}
+\label{sec:dm-mining-task-complexity}
+
+\begin{definition}[Problema del Mining delle Regole di Associazione]
+Dato un database transazionale $T$, una soglia minima di supporto $\mathrm{minsup} \in (0, 1]$ e una soglia minima di confidenza $\mathrm{minconf} \in (0, 1]$, il problema del mining consiste nell'estrarre l'insieme completo di tutte le regole $X \rightarrow Y$ tali che:
+\begin{equation}
+\label{eq:dm-mining-constraints}
+\begin{cases}
+s(X \longrightarrow Y) \ge \mathrm{minsup} \\
+c(X \longrightarrow Y) \ge \mathrm{minconf}
+\end{cases}
+\end{equation}
+\end{definition}
+
+\subsection{L'Approccio Esaustivo (Brute-Force) e l'Esplosione Combinatoria}
+Una procedura ingenua per risolvere il problema consisterebbe nell'elencare tutte le regole logicamente possibili derivabili dal catalogo $I$, calcolare per ciascuna di esse supporto e confidenza scansionando l'intero database $T$, e infine scartare quelle che non superano i vincoli di soglia.
+
+Tale approccio è irrealizzabile per qualsiasi applicazione reale. Dato un catalogo di $d$ articoli distinti, il numero complessivo di possibili regole di associazione non vuote con antecedente e conseguente disgiunti ($X, Y \subset I, X \cap Y = \emptyset, X \ne \emptyset, Y \ne \emptyset$) è dato dalla formula combinatoria:
+\begin{equation}
+\label{eq:dm-brute-force-rules-count}
+R = \sum_{k=2}^d \binom{d}{k} \sum_{j=1}^{k-1} \binom{k}{j} = 3^d - 2^{d+1} + 1
+\end{equation}
+
+\begin{proof}
+Ogni articolo $i \in I$ può trovarsi in esattamente uno tra tre stati mutuamente esclusivi rispetto a una regola candidata:
+\begin{enumerate}[noitemsep]
+    \item Appartenere all'antecedente $X$;
+    \item Appartenere al conseguente $Y$;
+    \item Non fare parte della regola (essere escluso da $X \cup Y$).
+\end{enumerate}
+Esistono pertanto $3^d$ possibili assegnazioni. Da tale totale occorre sottrarre i casi degenere:
+\begin{itemize}[noitemsep]
+    \item Regole con antecedente vuoto ($X = \emptyset$): l'articolo può essere in $Y$ o non appartenere alla regola ($2^d$ casi);
+    \item Regole con conseguente vuoto ($Y = \emptyset$): l'articolo può essere in $X$ o non appartenere alla regola ($2^d$ casi);
+    \item La configurazione in cui sia $X$ che $Y$ sono contemporaneamente vuoti ($X = \emptyset, Y = \emptyset$) è stata sottratta due volte e va reintegrata ($+1$ caso).
+\end{itemize}
+Sottraendo le configurazioni non valide si ottiene $3^d - 2 \cdot 2^d + 1 = 3^d - 2^{d+1} + 1$.
+\end{proof}
+
+Per cataloghi commerciali di modeste dimensioni (ad esempio $d = 100$ articoli), il numero di regole candidate è $3^{100} \approx 5.15 \times 10^{47}$, una quantità astronomica che rende impossibile qualsiasi scansione esaustiva.
+
+% ====================================================================
+% SEZIONE 11.5: DISACCOPPIAMENTO A DUE FASI
+% ====================================================================
+\section{Disaccoppiamento del Problema: L'Approccio a Due Fasi}
+\label{sec:dm-two-step-approach}
+
+Per superare l'intrattenibilità dell'approccio esaustivo, la letteratura di data mining adotta un principio fondamentale basato sulla scomposizione funzionale del problema~\cite{agrawal1993, agrawal1994, tan2018}.
+
+\subsection{Proprietà delle Partizioni Binarie di uno Stesso Itemset}
+Consideriamo tutte le possibili regole derivabili partizionando in due insiemi disgiunti il medesimo $3$-itemset frequente $L = \{\text{Latte, Pannolini, Birra}\}$:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Regola Candidata ($X \rightarrow Y$)} & $\sigma(X \cup Y)$ & $\sigma(X)$ & \textbf{Supporto $s$} & \textbf{Confidenza $c$} \\
+\midrule
+$\{\text{Latte, Pannolini}\} \rightarrow \{\text{Birra}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Latte, Birra}\} \rightarrow \{\text{Pannolini}\}$ & 2 & 2 & $2/5 = 0.40$ & $2/2 = 1.00$ \\
+$\{\text{Pannolini, Birra}\} \rightarrow \{\text{Latte}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Birra}\} \rightarrow \{\text{Latte, Pannolini}\}$ & 2 & 3 & $2/5 = 0.40$ & $2/3 \approx 0.67$ \\
+$\{\text{Pannolini}\} \rightarrow \{\text{Latte, Birra}\}$ & 2 & 4 & $2/5 = 0.40$ & $2/4 = 0.50$ \\
+$\{\text{Latte}\} \rightarrow \{\text{Pannolini, Birra}\}$ & 2 & 4 & $2/5 = 0.40$ & $2/4 = 0.50$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Valutazione delle regole generate dalle partizioni binarie di $\{\text{Latte, Pannolini, Birra}\}$.}
+\label{tab:dm-rule-partition-properties}
+\end{table}
+
+Dall'ispezione della Tabella~\ref{tab:dm-rule-partition-properties} emergono due proprietà decisive:
+\begin{enumerate}
+    \item \textbf{Invarianza del Supporto}: Tutte le regole che traggono origine dallo stesso itemset congiunto $L$ presentano esattamente il medesimo supporto, pari al supporto di $L$:
+    \begin{equation}
+    s(X \longrightarrow L \setminus X) = s(L) = \frac{\sigma(L)}{|T|}
+    \end{equation}
+    Se l'itemset $L$ non supera la soglia di supporto $\mathrm{minsup}$, nessuna regola da esso derivata potrà mai soddisfare il vincolo di supporto.
+    \item \textbf{Variazione della Confidenza}: La confidenza varia invece in funzione della specifica partizione, poiché il denominatore $\sigma(X)$ dipende unicamente dalla frequenza dell'antecedente $X$.
+\end{enumerate}
+
+\subsection{Decomposizione in Due Sotto-Problemi Sequenziali}
+Grazie a tali proprietà, la ricerca delle regole di associazione viene disaccoppiata in due passaggi distinti e sequenziali:
+\begin{enumerate}
+    \item \textbf{Fase 1: Generazione degli Itemset Frequenti (\textit{Frequent Itemset Generation})}: Si identificano tutti gli itemset $L \subseteq I$ tali che $s(L) \ge \mathrm{minsup}$.
+    \item \textbf{Fase 2: Generazione delle Regole (\textit{Rule Generation})}: Per ciascun itemset frequente $L$ scoperto nella Fase 1, si estraggono tutte le partizioni binarie $X \rightarrow L \setminus X$ che soddisfano la soglia di confidenza $c \ge \mathrm{minconf}$.
+\end{enumerate}
+
+La Fase 1 rappresenta la componente computazionalmente dominante dell'intera pipeline, in quanto richiede la ricerca in uno spazio esponenziale di combinazioni su grandi moli di dati.
+
+% ====================================================================
+% SEZIONE 11.6: RETICOLO DEGLI ITEMSET E COMPLESSITÀ DI GENERAZIONE
+% ====================================================================
+\section{Reticolo degli Itemset e Complessità di Generazione}
+\label{sec:dm-itemset-lattice}
+
+Dato un insieme di $d$ elementi, lo spazio combinatorio di tutti i possibili itemset candidati ammette una struttura algebrica e geometrica naturale nota come \textbf{reticolo di Boole} (\textit{Boolean lattice}) o reticolo dell'insieme delle parti $\mathcal{P}(I)$~\cite{tan2018}. La cardinalità complessiva dello spazio di ricerca (compreso l'insieme vuoto $\emptyset$) ammonta a:
+\begin{equation}
+|\mathcal{P}(I)| = 2^d
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.96,
+    itemnode/.style={draw=navy!85!black, fill=navy!8, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=1.35cm, minimum height=0.68cm, align=center},
+    prunednode/.style={draw=crimson!85!black, fill=crimson!14, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=1.35cm, minimum height=0.68cm, align=center, text=crimson!90!black},
+    edge/.style={draw=gray!55, thin},
+    prunededge/.style={draw=crimson!75, thick, dashed}
+]
+
+    % Sfondi delimitatori (disegnati per primi)
+    \draw[crimson!75, dashed, fill=crimson!6, line width=1.3pt, rounded corners=12pt] (-6.8, 3.8) rectangle (-0.6, -2.1);
+    \draw[navy!60, dotted, fill=navy!3, line width=1.0pt, rounded corners=12pt] (0.2, 3.8) rectangle (6.8, -2.1);
+
+    % Livello 0: Radice (insieme vuoto)
+    \node[itemnode] (null) at (0.0, 6.2) {$\emptyset$};
+
+    % Livello 1: 1-itemset (A, B, C, D, E)
+    \node[itemnode] (A) at (-4.8, 4.8) {\{A\}};
+    \node[itemnode] (B) at (-2.4, 4.8) {\{B\}};
+    \node[itemnode] (C) at (0.0, 4.8) {\{C\}};
+    \node[itemnode] (D) at (2.4, 4.8) {\{D\}};
+    \node[itemnode] (E) at (4.8, 4.8) {\{E\}};
+
+    \foreach \n in {A, B, C, D, E} {
+        \draw[edge] (null) -- (\n);
+    }
+
+    % Livello 2 (k=2)
+    % Sinistra: {AB} infrequente
+    \node[prunednode, line width=1.3pt] (AB) at (-3.7, 3.1) {\{AB\}};
+    
+    % Destra: 2-itemset che non contengono AB
+    \node[itemnode] (AC) at (1.2, 3.1) {\{AC\}};
+    \node[itemnode] (AD) at (2.8, 3.1) {\{AD\}};
+    \node[itemnode] (BC) at (4.4, 3.1) {\{BC\}};
+    \node[itemnode] (BD) at (6.0, 3.1) {\dots};
+
+    \draw[edge] (A) -- (AB);
+    \draw[edge] (B) -- (AB);
+    \draw[edge] (A) -- (AC);
+    \draw[edge] (C) -- (AC);
+    \draw[edge] (A) -- (AD);
+    \draw[edge] (D) -- (AD);
+    \draw[edge] (B) -- (BC);
+    \draw[edge] (C) -- (BC);
+
+    % Livello 3 (k=3)
+    % Sinistra: supersets di {AB} (potati)
+    \node[prunednode] (ABC) at (-5.7, 1.6) {\{ABC\}};
+    \node[prunednode] (ABD) at (-3.7, 1.6) {\{ABD\}};
+    \node[prunednode] (ABE) at (-1.7, 1.6) {\{ABE\}};
+
+    % Destra: 3-itemset non contenenti {AB} (frequenti / esplorati)
+    \node[itemnode] (ACD) at (1.8, 1.6) {\{ACD\}};
+    \node[itemnode] (ACE) at (3.6, 1.6) {\{ACE\}};
+    \node[itemnode] (BCD) at (5.4, 1.6) {\{BCD\}};
+
+    % Connessioni potate L2 -> L3
+    \draw[prunededge] (AB) -- (ABC);
+    \draw[prunededge] (AB) -- (ABD);
+    \draw[prunededge] (AB) -- (ABE);
+
+    % Connessioni non potate L2 -> L3
+    \draw[edge] (AC) -- (ACD);
+    \draw[edge] (AD) -- (ACD);
+    \draw[edge] (AC) -- (ACE);
+    \draw[edge] (BC) -- (BCD);
+
+    % Livello 4 (k=4)
+    % Sinistra: supersets di {AB} (potati)
+    \node[prunednode] (ABCD) at (-5.7, 0.1) {\{ABCD\}};
+    \node[prunednode] (ABCE) at (-3.7, 0.1) {\{ABCE\}};
+    \node[prunednode] (ABDE) at (-1.7, 0.1) {\{ABDE\}};
+
+    % Destra: 4-itemset non contenente {AB} (es. BCDE)
+    \node[itemnode] (BCDE) at (3.6, 0.1) {\{BCDE\}};
+
+    % Connessioni potate L3 -> L4
+    \draw[prunededge] (ABC) -- (ABCD);
+    \draw[prunededge] (ABC) -- (ABCE);
+    \draw[prunededge] (ABD) -- (ABCD);
+    \draw[prunededge] (ABD) -- (ABDE);
+    \draw[prunededge] (ABE) -- (ABCE);
+    \draw[prunededge] (ABE) -- (ABDE);
+
+    % Connessioni non potate L3 -> L4
+    \draw[edge] (BCD) -- (BCDE);
+
+    % Livello 5 (k=5)
+    % Sinistra: {ABCDE} (potato per via di AB)
+    \node[prunednode] (ABCDE) at (-3.7, -1.4) {\{ABCDE\}};
+
+    \draw[prunededge] (ABCD) -- (ABCDE);
+    \draw[prunededge] (ABCE) -- (ABCDE);
+    \draw[prunededge] (ABDE) -- (ABCDE);
+
+    % Didascalie / cartigli sotto le due aree
+    \node[anchor=north, text=crimson!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=crimson!70] 
+        at (-3.7, -2.25) {Sotto-reticolo potato ($s(AB) < \mathrm{minsup}$)};
+
+    \node[anchor=north, text=navy!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=navy!70] 
+        at (3.5, -2.25) {Rami frequenti esplorati ($AB \not\subseteq X$)};
+
+    % Livelli di profondità sul margine sinistro
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 6.2) {Livello 0 ($k=0$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 4.8) {Livello 1 ($k=1$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 3.1) {Livello 2 ($k=2$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 1.6) {Livello 3 ($k=3$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, 0.1) {Livello 4 ($k=4$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.1, -1.4) {Livello 5 ($k=5$)};
+
+\end{tikzpicture}%
+}
+\caption{Rappresentazione a reticolo dello spazio degli itemset per $d=5$ elementi. Non appena $\{AB\}$ risulta infrequente ($s(AB) < \mathrm{minsup}$), l'intero sotto-reticolo dei suoi $2^{5-2}=8$ sovrainsiemi (evidenziato a sinistra in rosso) viene escluso a priori dalla ricerca, mentre i rami rimanenti non contenenti $\{AB\}$ (a destra) continuano a essere esplorati.}
+\label{fig:dm-itemset-lattice-pruning}
+\end{figure}
+
+\subsection{Complessità dell'Approccio Esaustivo e Strategie di Ottimizzazione}
+In un algoritmo privo di potatura, il calcolo del supporto richiederebbe il confronto di ciascuno degli $M = 2^d$ candidati con ciascuna delle $N$ transazioni. Se una transazione contiene mediamente $w$ elementi, il costo computazionale complessivo ammonterebbe a:
+\begin{equation}
+\label{eq:dm-exhaustive-search-complexity}
+\mathcal{O}\left(N \times 2^d \times w\right)
+\end{equation}
+Per rendere trattabile la generazione degli itemset frequenti si adottano tre strategie tra loro ortogonali~\cite{tan2018}:
+\begin{enumerate}
+    \item \textbf{Ridurre il numero di candidati ($M$)}: Applicare tecniche sistematiche di potatura dello spazio di ricerca (come il principio Apriori) per evitare di generare ed esplorare rami inutili del reticolo;
+    \item \textbf{Ridurre il numero di transazioni ($N$)}: Scartare progressivamente le transazioni che non contengono itemset frequenti o che presentano una lunghezza inferiore alla taglia $k$ degli itemset sotto esame;
+    \item \textbf{Ridurre il numero di confronti ($N \times M$)}: Impiegare strutture dati avanzate (quali gli alberi hash) per indicizzare transazioni o candidati ed evitare confronti a forza bruta.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 11.7: IL PRINCIPIO APRIORI E L'ANTI-MONOTONIA
+% ====================================================================
+\section{Il Principio Apriori e la Proprietà di Anti-Monotonia}
+\label{sec:dm-apriori-principle}
+
+L'algoritmo Apriori, introdotto nel 1994 da Rakesh Agrawal e Ramakrishnan Srikant~\cite{agrawal1994}, si fonda su un principio algebrico fondamentale che consente di potare massivamente lo spazio di ricerca.
+
+\begin{theorem}[Principio Apriori]
+\label{thm:dm-apriori-principle}
+Se un itemset è frequente, allora tutti i suoi sottoinsiemi devono necessariamente essere frequenti:
+\begin{equation}
+\label{eq:dm-apriori-forward}
+s(Y) \ge \mathrm{minsup} \quad \Longrightarrow \quad \forall X \subseteq Y, \; s(X) \ge \mathrm{minsup}
+\end{equation}
+\end{theorem}
+
+\subsection{Dimostrazione dell'Anti-Monotonia del Supporto}
+Il principio poggia matematicamente sulla proprietà di \textbf{anti-monotonia} della funzione di supporto rispetto alla relazione d'inclusione insiemistica~\cite{tan2018}.
+
+\begin{theorem}[Anti-monotonia del Supporto]
+La funzione di supporto è anti-monotona rispetto all'inclusione tra insiemi:
+\begin{equation}
+\label{eq:dm-anti-monotonicity}
+\forall X, Y \subseteq I : \quad (X \subseteq Y) \Longrightarrow s(X) \ge s(Y)
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Sia $T(X) = \{ t \in T \mid X \subseteq t \}$ l'insieme delle transazioni del database che contengono l'itemset $X$.
+Se un itemset $Y$ contiene $X$ ($X \subseteq Y$), qualsiasi transazione $t$ che include $Y$ deve obbligatoriamente contenere anche $X$. Ne consegue l'inclusione insiemistica:
+\begin{equation}
+T(Y) \subseteq T(X)
+\end{equation}
+Per la proprietà di monotonicità della cardinalità per insiemi finiti:
+\begin{equation}
+|T(Y)| \le |T(X)| \quad \Longleftrightarrow \quad \sigma(Y) \le \sigma(X)
+\end{equation}
+Dividendo entrambi i membri per la costante positiva $N = |T|$, si ottiene:
+\begin{equation}
+\frac{\sigma(Y)}{|T|} \le \frac{\sigma(X)}{|T|} \quad \Longleftrightarrow \quad s(Y) \le s(X)
+\end{equation}
+Di conseguenza, il supporto non può mai aumentare all'aumentare della cardinalità dell'itemset.
+\end{proof}
+
+\subsection{Potatura Basata sul Supporto (Contrapposizione Logica)}
+Applicando la regola di contrapposizione logica al Principio Apriori ($P \implies Q \iff \neg Q \implies \neg P$), si ottiene la regola operativa di potatura fondamentale:
+
+\begin{corollary}[Regola di Potatura Apriori]
+Se un itemset è non frequente (infrequente), allora tutti i suoi sovrainsiemi sono garantiti essere non frequenti e possono essere potati immediatamente dallo spazio di ricerca:
+\begin{equation}
+\label{eq:dm-apriori-pruning-rule}
+s(X) < \mathrm{minsup} \quad \Longrightarrow \quad \forall Y \supseteq X, \; s(Y) \le s(X) < \mathrm{minsup}
+\end{equation}
+\end{corollary}
+
+Come illustrato graficamente nella Figura~\ref{fig:dm-itemset-lattice-pruning}, non appena si determina che $\{AB\}$ è infrequente, tutti i candidati $\{ABC\}$, $\{ABD\}$, $\{ABE\}$, $\{ABCD\}$, $\{ABCE\}$, $\{ABDE\}$ e $\{ABCDE\}$ vengono esclusi istantaneamente senza dover effettuare alcuna scansione del database.
+
+% ====================================================================
+% SEZIONE 11.8: ESECUZIONE TRACCIATA PASSO-PASSO DELL'ALGORITMO APRIORI
+% ====================================================================
+\section{Esecuzione Tracciata Passo-Passo dell'Algoritmo Apriori}
+\label{sec:dm-apriori-step-by-step}
+
+Per comprendere la dinamica operativa dell'algoritmo, tracciamo passo dopo passo l'esecuzione sul dataset transazionale di Tabella~\ref{tab:dm-market-basket-toy} impostando un conteggio minimo assoluto:
+\begin{equation}
+\sigma_{\min} = 3 \quad \left(\mathrm{minsup} = \frac{3}{5} = 0.60\right)
+\end{equation}
+
+\subsection{Iterazione 1: Calcolo dei 1-Itemset Frequenti ($k=1$)}
+Si esegue una scansione completa del database transazionale e si accumulano i conteggi di occorrenza per ciascun singolo articolo:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c l}
+\toprule
+\textbf{Articolo ($1$-itemset)} & \textbf{Conteggio $\sigma$} & \textbf{Stato rispetto a $\sigma_{\min} = 3$} \\
+\midrule
+$\{\text{Pane}\}$ & 4 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Coca-Cola}\}$ & 2 & Infrequente ($< 3$) $\rightarrow$ \textbf{POTATO} \\
+$\{\text{Latte}\}$ & 4 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Birra}\}$ & 3 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Pannolini}\}$ & 4 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Uova}\}$ & 1 & Infrequente ($< 3$) $\rightarrow$ \textbf{POTATO} \\
+\bottomrule
+\end{tabular}
+\caption{Calcolo del supporto per i candidati $C_1$ e identificazione di $F_1$.}
+\label{tab:dm-apriori-f1}
+\end{table}
+
+L'insieme dei 1-itemset frequenti è:
+\begin{equation}
+F_1 = \{\{\text{Pane}\}, \{\text{Latte}\}, \{\text{Birra}\}, \{\text{Pannolini}\}\}
+\end{equation}
+Gli articoli Coca-Cola e Uova vengono potati permanentemente; nessun candidato delle iterazioni successive conterrà tali elementi.
+
+\subsection[Iterazione 2: Generazione e Verifica dei 2-Itemset]{Iterazione 2:\\Generazione e Verifica dei 2-Itemset}
+Si generano tutti i possibili candidati di dimensione 2 combinando a coppie gli elementi di $F_1$. Il numero di candidati in $C_2$ è $\binom{4}{2} = 6$.
+Si effettua la seconda scansione del database per calcolare i conteggi di supporto:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c l}
+\toprule
+\textbf{Candidato ($2$-itemset)} & \textbf{Conteggio $\sigma$} & \textbf{Stato rispetto a $\sigma_{\min} = 3$} \\
+\midrule
+$\{\text{Pane, Latte}\}$ & 3 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Pane, Birra}\}$ & 2 & Infrequente ($< 3$) $\rightarrow$ \textbf{POTATO} \\
+$\{\text{Pane, Pannolini}\}$ & 3 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Latte, Birra}\}$ & 2 & Infrequente ($< 3$) $\rightarrow$ \textbf{POTATO} \\
+$\{\text{Latte, Pannolini}\}$ & 3 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+$\{\text{Birra, Pannolini}\}$ & 3 & Frequente ($\ge 3$) $\rightarrow$ Mantenuto \\
+\bottomrule
+\end{tabular}
+\caption{Calcolo del supporto per i candidati $C_2$ e identificazione di $F_2$.}
+\label{tab:dm-apriori-f2}
+\end{table}
+
+L'insieme dei 2-itemset frequenti è:
+\begin{equation}
+\begin{split}
+F_2 = \{ & \{\text{Pane, Latte}\}, \{\text{Pane, Pannolini}\}, \\
+& \{\text{Latte, Pannolini}\}, \{\text{Birra, Pannolini}\} \}
+\end{split}
+\end{equation}
+
+\subsection{Iterazione 3: Generazione, Potatura e Verifica dei 3-Itemset ($k=3$)}
+\begin{enumerate}
+    \item \textbf{Generazione dei Candidati ($C_3$)}: Combinando gli elementi frequenti in $F_2$, i possibili tripletti candidati sono 4:
+    \begin{equation}
+    \begin{aligned}
+    & \{\text{Birra, Pannolini, Latte}\}, \quad \{\text{Birra, Pane, Pannolini}\}, \\
+    & \{\text{Pane, Pannolini, Latte}\}, \quad \{\text{Birra, Pane, Latte}\}
+    \end{aligned}
+    \end{equation}
+    \item \textbf{Potatura dei Candidati (\textit{Candidate Pruning})}: Si verifica se tutti i sottoinsiemi di dimensione 2 di ciascun candidato appartengano a $F_2$:
+    \begin{itemize}[noitemsep]
+        \item $\{\text{Birra, Pannolini, Latte}\}$ contiene $\{\text{Birra, Latte}\} \notin F_2 \implies$ \textbf{POTATO};
+        \item $\{\text{Birra, Pane, Pannolini}\}$ contiene $\{\text{Birra, Pane}\} \notin F_2 \implies$ \textbf{POTATO};
+        \item $\{\text{Birra, Pane, Latte}\}$ contiene $\{\text{Birra, Pane}\} \notin F_2 \implies$ \textbf{POTATO};
+        \item $\{\text{Pane, Pannolini, Latte}\}$: i suoi sottoinsiemi di taglia 2 sono $\{\text{Pane, Pannolini}\}$, $\{\text{Pane, Latte}\}$ e $\{\text{Latte, Pannolini}\}$. Poiché appartengono tutti a $F_2$, il candidato \textbf{sopravvive alla potatura}.
+    \end{itemize}
+    L'insieme dei candidati validi dopo la potatura contiene un solo elemento: $C_3 = \{\{\text{Pane, Pannolini, Latte}\}\}$.
+    \item \textbf{Conteggio del Supporto}: Scansionando il database transazionale:
+    \begin{equation}
+    \sigma(\{\text{Pane, Pannolini, Latte}\}) = 2
+    \end{equation}
+    Poiché $2 < \sigma_{\min} = 3$, anche questo candidato risulta infrequente.
+\end{enumerate}
+
+Poiché $F_3 = \emptyset$, non è possibile generare candidati di taglia 4 e l'algoritmo termina l'esplorazione. L'insieme complessivo degli itemset frequenti scoperti è $F = F_1 \cup F_2$.
+
+% ====================================================================
+% SEZIONE 11.9: PSEUDOCODICE E GENERAZIONE DEI CANDIDATI
+% ====================================================================
+\section{Pseudocodice e Tecniche di Generazione dei Candidati}
+\label{sec:dm-candidate-generation-methods}
+
+La struttura logica formale dell'algoritmo Apriori è riassunta nello pseudocodice seguente~\cite{agrawal1994, tan2018}.
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\caption{Algoritmo Apriori per l'Estrazione degli Itemset Frequenti}
+\label{alg:dm-apriori}
+\KwInput{Database transazionale $T$, soglia minima di supporto $\mathrm{minsup} \in (0, 1]$.}
+\KwOutput{Insieme completo di tutti gli itemset frequenti $F = \bigcup_k F_k$.}
+\BlankLine
+$k \leftarrow 1$\;
+$F_1 \leftarrow \{ i \in I \mid s(\{i\}) \ge \mathrm{minsup} \}$ \tcp*{Generazione 1-itemset frequenti}
+\Repeat{$F_k = \emptyset$}{
+    $k \leftarrow k + 1$\;
+    $C_k \leftarrow \mathrm{Candidate\text{-}Generation}(F_{k-1})$ \tcp*{Unione sistematica}
+    $C_k \leftarrow \mathrm{Candidate\text{-}Pruning}(C_k, F_{k-1})$ \tcp*{Potatura sottoinsiemi}
+    \ForEach{transazione $t \in T$}{
+        $C_t \leftarrow \mathrm{Subsets}(C_k, t)$ \tcp*{Candidati contenuti in $t$}
+        \ForEach{candidato $c \in C_t$}{
+            $c.\mathrm{count} \leftarrow c.\mathrm{count} + 1$\;
+        }
+    }
+    $F_k \leftarrow \{ c \in C_k \mid c.\mathrm{count} \ge \lceil \mathrm{minsup} \times |T| \rceil \}$\;
+}
+\Return $\bigcup_k F_k$\;
+\end{algorithm}
+
+\subsection{Metodo Standard $F_{k-1} \times F_{k-1}$ (Join su Prefisso Comune)}
+Per generare l'insieme dei candidati $C_k$ evitando duplicati e ridondanze, gli elementi di ogni itemset vengono ordinati lessicograficamente~\cite{agrawal1994}. Due itemset $p, q \in F_{k-1}$ vengono fusi se e solo se condividono il medesimo prefisso di lunghezza $k-2$ e differiscono esclusivamente per l'ultimo elemento:
+\begin{equation}
+\label{eq:dm-prefix-join-condition}
+\begin{cases}
+p[1] = q[1] \\
+p[2] = q[2] \\
+\quad \vdots \\
+p[k-2] = q[k-2] \\
+p[k-1] < q[k-1]
+\end{cases}
+\end{equation}
+Il candidato generato è l'unione dei due insiemi:
+\begin{equation}
+c = \{p[1], p[2], \dots, p[k-2], p[k-1], q[k-1]\}
+\end{equation}
+
+\subsubsection{Esempio Esecutivo di Prefisso Comune}
+Dato l'insieme di 3-itemset frequenti:
+\begin{equation}
+F_3 = \{ABC, ABD, ABE, ACD, BCD, BDE, CDE\}
+\end{equation}
+Il prefisso da verificare ha lunghezza $k-2 = 3-2 = 1$ (il primo elemento per $k=3$):
+\begin{itemize}[noitemsep]
+    \item $\mathrm{Merge}(ABC, ABD) \rightarrow$ prefisso comune $AB$, $C < D \implies$ \textbf{$ABCD$} generato;
+    \item $\mathrm{Merge}(ABC, ABE) \rightarrow$ prefisso comune $AB$, $C < E \implies$ \textbf{$ABCE$} generato;
+    \item $\mathrm{Merge}(ABD, ABE) \rightarrow$ prefisso comune $AB$, $D < E \implies$ \textbf{$ABDE$} generato;
+    \item $\mathrm{Merge}(ABD, ACD) \rightarrow$ prefissi di lunghezza 2 differenti ($AB \ne AC$) $\implies$ non vengono fusi.
+\end{itemize}
+L'insieme dei candidati generati è:
+\begin{equation}
+C_4 = \{ABCD, ABCE, ABDE\}
+\end{equation}
+
+\subsubsection{Fase di Potatura dei Candidati (\textit{Candidate Pruning})}
+Per ciascun candidato $c \in C_4$, si verifica che tutti i suoi $\binom{k}{k-1} = 4$ sottoinsiemi di dimensione $k-1 = 3$ appartengano a $F_3$:
+\begin{itemize}[noitemsep]
+    \item Per $ABCD$: sottoinsiemi $\{ABC, ABD, ACD, BCD\}$. Tutti appartengono a $F_3 \implies$ \textbf{Mantenuto};
+    \item Per $ABCE$: sottoinsiemi $\{ABC, ABE, ACE, BCE\}$. Gli insiemi $ACE$ e $BCE$ non appartengono a $F_3 \implies$ \textbf{POTATO};
+    \item Per $ABDE$: sottoinsiemi $\{ABD, ABE, ADE, BDE\}$. L'insieme $ADE$ non appartiene a $F_3 \implies$ \textbf{POTATO}.
+\end{itemize}
+L'insieme dei candidati dopo la potatura si riduce al singolo elemento $C_4 = \{ABCD\}$.
+
+\subsection{Metodo Alternativo $F_{k-1} \times F_{k-1}$ (Suffisso-Prefisso)}
+In questa variante alternativa, due itemset $p, q \in F_{k-1}$ vengono fusi se gli ultimi $k-2$ elementi di $p$ coincidono con i primi $k-2$ elementi di $q$:
+\begin{equation}
+\label{eq:dm-suffix-prefix-condition}
+p[2] = q[1], \quad p[3] = q[2], \quad \dots, \quad p[k-1] = q[k-2]
+\end{equation}
+Il candidato generato è $c = \{p[1], p[2], \dots, p[k-1], q[k-1]\}$.
+Ad esempio, applicando tale criterio al medesimo insieme $F_3$:
+\begin{itemize}[noitemsep]
+    \item $\mathrm{Merge}(A\underline{BC}, \underline{BC}D) \rightarrow ABCD$;
+    \item $\mathrm{Merge}(A\underline{BD}, \underline{BD}E) \rightarrow ABDE$;
+    \item $\mathrm{Merge}(A\underline{CD}, \underline{CD}E) \rightarrow ACDE$;
+    \item $\mathrm{Merge}(B\underline{CD}, \underline{CD}E) \rightarrow BCDE$.
+\end{itemize}
+Durante la successiva fase di potatura dei sottoinsiemi:
+\begin{itemize}[noitemsep]
+    \item $ABDE$: $ADE \notin F_3 \implies$ potato;
+    \item $ACDE$: $ACE \notin F_3 \implies$ potato;
+    \item $BCDE$: $BCE \notin F_3 \implies$ potato;
+    \item $ABCD$: tutti i sottoinsiemi sono in $F_3 \implies$ mantenuto.
+\end{itemize}
+Entrambe le metodologie convergono in modo equivalente all'insieme minimo $\{ABCD\}$.
+
+% ====================================================================
+% SEZIONE 11.10: CONTEGGIO DEL SUPPORTO TRAMITE HASH TREE
+% ====================================================================
+\section[Conteggio del Supporto con Hash Tree]{Conteggio del Supporto\\Mediante Strutture Hash Tree}
+\label{sec:dm-hash-tree-counting}
+
+Durante l'esecuzione dell'algoritmo Apriori, la verifica del supporto richiede di controllare quali candidati in $C_k$ siano contenuti all'interno di ciascuna transazione $t \in T$.
+
+\subsection{Complessità del Confronto Diretto}
+Per una transazione che contiene $|t|$ elementi, il numero di sottoinsiemi di dimensione $k$ in essa presenti è pari a:
+\begin{equation}
+\binom{|t|}{k}
+\end{equation}
+Se ad esempio una transazione contiene $|t| = 20$ articoli e si ricercano candidati di dimensione $k=3$, la transazione genera $\binom{20}{3} = 1\,140$ possibili combinazioni. Il confronto esaustivo di tali combinazioni contro l'intero catalogo dei candidati comporterebbe un sovraccarico proibitivo~\cite{tan2018}.
+
+\subsection{Architettura dell'Hash Tree}
+Per limitare drasticamente il numero di confronti, i candidati $C_k$ vengono organizzati in una struttura ad albero denominata \textbf{Hash Tree}~\cite{agrawal1994, tan2018}:
+\begin{itemize}
+    \item \textbf{Nodi Interni}: Contengono una tabella hash con funzione di partizionamento $h(i) = i \pmod B$. Al livello $j$ dell'albero, la ramificazione dipende dall'hash applicato sul $j$-esimo elemento dell'itemset;
+    \item \textbf{Foglie}: Contengono elenchi (\textit{buckets}) di itemset candidati fino a una capacità massima prefissata. Quando una foglia supera la capienza, essa viene trasformata in nodo interno e suddivisa.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    every node/.style={font=\footnotesize},
+    internal/.style={draw=navy!85!black, fill=navy!10, rounded corners=4pt, align=center, inner sep=4pt, font=\footnotesize\bfseries},
+    leaf/.style={draw=darkgreen!85!black, fill=darkgreen!10, rounded corners=3pt, align=center, inner sep=3.5pt, font=\scriptsize},
+    edge/.style={-Stealth, thick, gray!70}
+]
+
+    % Radice
+    \node[internal] (root) at (6, 5) {Radice (Livello 1)\\$h(item_1) = item_1 \pmod 3$};
+
+    % Livello 2 nodi interni
+    \node[internal] (n0) at (2, 3) {Nodo Interno ($h=0$)\\$h(item_2)$};
+    \node[leaf] (leaf1) at (6, 3) {\textbf{Foglia} ($h=1$)\\Bucket Candidati:\\$\{1, 4, 7\}, \{1, 5, 9\}$};
+    \node[internal] (n2) at (10, 3) {Nodo Interno ($h=2$)\\$h(item_2)$};
+
+    % Livello 3 foglie
+    \node[leaf] (b0) at (0.8, 1) {\textbf{Foglia}\\$\{3, 4, 5\}$\\$\{3, 7, 8\}$};
+    \node[leaf] (b1) at (3.2, 1) {\textbf{Foglia}\\$\{6, 7, 9\}$\\$\{6, 8, 9\}$};
+    \node[leaf] (b2) at (8.8, 1) {\textbf{Foglia}\\$\{2, 3, 5\}$\\$\{2, 4, 6\}$};
+    \node[leaf] (b3) at (11.2, 1) {\textbf{Foglia}\\$\{5, 6, 7\}$\\$\{8, 9, 10\}$};
+
+    % Connessioni radice -> livello 2
+    \draw[edge] (root) -- node[above left, text=navy!90!black, font=\scriptsize] {$h(p_1)=0$} (n0);
+    \draw[edge] (root) -- node[right, text=navy!90!black, font=\scriptsize] {$h(p_1)=1$} (leaf1);
+    \draw[edge] (root) -- node[above right, text=navy!90!black, font=\scriptsize] {$h(p_1)=2$} (n2);
+
+    % Connessioni livello 2 -> foglie
+    \draw[edge] (n0) -- node[left, font=\scriptsize] {$h(p_2)=0$} (b0);
+    \draw[edge] (n0) -- node[right, font=\scriptsize] {$h(p_2)=1$} (b1);
+    \draw[edge] (n2) -- node[left, font=\scriptsize] {$h(p_2)=0$} (b2);
+    \draw[edge] (n2) -- node[right, font=\scriptsize] {$h(p_2)=2$} (b3);
+
+\end{tikzpicture}%
+}
+\caption{Architettura di indicizzazione dei candidati mediante Hash Tree per il conteggio efficiente del supporto.}
+\label{fig:dm-hash-tree-architecture}
+\end{figure}
+
+Durante la lettura di una transazione $t$, l'algoritmo scende ricorsivamente nei rami dell'albero hash considerando tutte le possibili combinazioni ordinate dei suoi elementi. Il confronto diretto tra transazione e candidati viene effettuato esclusivamente sui sottoinsiemi memorizzati nelle foglie effettivamente raggiunte, riducendo le operazioni di confronto da esponenziali a logaritmiche rispetto al numero di candidati~\cite{tan2018}.
+
+% ====================================================================
+% SEZIONE 11.11: GENERAZIONE DELLE REGOLE DAGLI ITEMSET FREQUENTI
+% ====================================================================
+\section{Generazione delle Regole dagli Itemset Frequenti}
+\label{sec:dm-rule-generation}
+
+Completata la Fase 1 con l'individuazione degli itemset frequenti, si procede alla Fase 2: l'estrazione delle regole di associazione ad alta confidenza.
+
+\subsection{Decomposizione Combinatoria delle Regole}
+Dato un itemset frequente $L$ di cardinalità $|L| = k$, l'obiettivo consiste nell'estrarre tutti i sottoinsiemi non vuoti $X \subset L$ tali che la regola $X \rightarrow L \setminus X$ soddisfi:
+\begin{equation}
+c(X \longrightarrow L \setminus X) = \frac{\sigma(L)}{\sigma(X)} \ge \mathrm{minconf}
+\end{equation}
+
+Escludendo le regole banali in cui antecedente o conseguente sono vuoti, il numero totale di regole candidate derivabili da un singolo $k$-itemset è dato da:
+\begin{equation}
+2^k - 2
+\end{equation}
+Ad esempio, per un 4-itemset frequente $\{A, B, C, D\}$, si hanno $2^4 - 2 = 14$ possibili regole candidate:
+\begin{itemize}[noitemsep]
+    \item \textbf{1 elemento al conseguente (4 regole)}: $ABC \rightarrow D$, $ABD \rightarrow C$, $ACD \rightarrow B$, $BCD \rightarrow A$;
+    \item \textbf{2 elementi al conseguente (6 regole)}: $AB \rightarrow CD$, $AC \rightarrow BD$, $AD \rightarrow BC$, $BC \rightarrow AD$, $BD \rightarrow AC$, $CD \rightarrow AB$;
+    \item \textbf{3 elementi al conseguente (4 regole)}: $A \rightarrow BCD$, $B \rightarrow ACD$, $C \rightarrow ABD$, $D \rightarrow ABC$.
+\end{itemize}
+
+\subsection{Proprietà di Anti-Monotonia della Confidenza}
+In generale, la metrica di confidenza non è anti-monotona rispetto alla dimensione dell'antecedente tra regole generate da itemset diversi. Tuttavia, quando si analizzano regole derivate dal \textbf{medesimo itemset frequente} $L$, si verifica una proprietà algebrica decisiva~\cite{tan2018}.
+
+\begin{theorem}[Anti-monotonia della Confidenza lungo il Reticolo delle Regole]
+\label{thm:dm-rule-confidence-pruning}
+Date due regole $R_1$ e $R_2$ generate dal medesimo itemset frequente $L$:
+\begin{equation}
+R_1: X \longrightarrow L \setminus X, \qquad R_2: X' \longrightarrow L \setminus X' \quad \text{con } X' \subset X \subset L
+\end{equation}
+vale la disuguaglianza:
+\begin{equation}
+c(X \longrightarrow L \setminus X) \ge c(X' \longrightarrow L \setminus X')
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Calcoliamo esplicitamente le confidenze delle due regole:
+\begin{equation}
+c(R_1) = \frac{\sigma(L)}{\sigma(X)}, \qquad c(R_2) = \frac{\sigma(L)}{\sigma(X')}
+\end{equation}
+Poiché $X' \subset X$, per la proprietà di anti-monotonia del supporto (Teorema~\ref{thm:dm-apriori-principle}) si ha:
+\begin{equation}
+\sigma(X') \ge \sigma(X)
+\end{equation}
+Invertendo i rapporti con numeratore costante $\sigma(L) > 0$:
+\begin{equation}
+\frac{\sigma(L)}{\sigma(X')} \le \frac{\sigma(L)}{\sigma(X)} \quad \Longleftrightarrow \quad c(R_2) \le c(R_1)
+\end{equation}
+\end{proof}
+
+\begin{corollary}[Potatura delle Regole Basata sulla Confidenza]
+La confidenza di regole generate dallo stesso itemset è \textbf{anti-monotona rispetto al numero di elementi nel conseguente} ($RHS$).
+Se una regola ha confidenza inferiore alla soglia $\mathrm{minconf}$, qualsiasi regola derivata dallo stesso itemset che sposti ulteriori elementi dall'antecedente al conseguente avrà una confidenza ancora minore e può essere potata immediatamente:
+\begin{equation}
+c(X \longrightarrow Y) < \mathrm{minconf} \quad \Longrightarrow \quad \forall Y' \supset Y, \; c(L \setminus Y' \longrightarrow Y') < \mathrm{minconf}
+\end{equation}
+\end{corollary}
+
+Ad esempio, se per $\{A, B, C, D\}$ si ha che $c(BCD \rightarrow A) < \mathrm{minconf}$, allora la regola $CD \rightarrow AB$ e la regola $D \rightarrow ABC$ sono garantite avere confidenza inferiore a $\mathrm{minconf}$ e non necessitano di verifica.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.96,
+    rulenode/.style={draw=navy!85!black, fill=navy!8, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=2.1cm, minimum height=0.68cm, align=center},
+    prunednode/.style={draw=crimson!85!black, fill=crimson!14, rounded corners=4pt, font=\small\bfseries, inner sep=3.5pt, minimum width=2.1cm, minimum height=0.68cm, align=center, text=crimson!90!black},
+    edge/.style={draw=gray!55, thin},
+    prunededge/.style={draw=crimson!75, thick, dashed}
+]
+    % Regioni di sfondo disegnate PRIMA dei nodi (così i contorni tratteggiati non passano sopra i nodi)
+    \draw[crimson!75, dashed, fill=crimson!6, line width=1.3pt, rounded corners=12pt] (-7.6, 4.3) rectangle (-0.2, -1.3);
+    \draw[navy!60, dotted, fill=navy!3, line width=1.0pt, rounded corners=12pt] (0.6, 4.3) rectangle (8.0, -1.3);
+
+    % Livello 0: |Y| = 0
+    \node[rulenode, minimum width=2.5cm] (r0) at (0.2, 5.7) {$ABCD \longrightarrow \emptyset$};
+
+    % Livello 1: |Y| = 1
+    \node[prunednode, line width=1.3pt] (r1) at (-3.9, 3.6) {$BCD \longrightarrow A$};
+    \node[rulenode] (r2) at (1.8, 3.6) {$ACD \longrightarrow B$};
+    \node[rulenode] (r3) at (4.3, 3.6) {$ABD \longrightarrow C$};
+    \node[rulenode] (r4) at (6.8, 3.6) {$ABC \longrightarrow D$};
+
+    \draw[edge] (r0) -- (r1);
+    \draw[edge] (r0) -- (r2);
+    \draw[edge] (r0) -- (r3);
+    \draw[edge] (r0) -- (r4);
+
+    % Livello 2: |Y| = 2
+    \node[prunednode] (r21) at (-6.3, 1.8) {$CD \longrightarrow AB$};
+    \node[prunednode] (r22) at (-3.9, 1.8) {$BD \longrightarrow AC$};
+    \node[prunednode] (r23) at (-1.5, 1.8) {$BC \longrightarrow AD$};
+    \node[rulenode] (r24) at (1.8, 1.8) {$AD \longrightarrow BC$};
+    \node[rulenode] (r25) at (4.3, 1.8) {$AC \longrightarrow BD$};
+    \node[rulenode] (r26) at (6.8, 1.8) {$AB \longrightarrow CD$};
+
+    \draw[prunededge] (r1) -- (r21);
+    \draw[prunededge] (r1) -- (r22);
+    \draw[prunededge] (r1) -- (r23);
+    \draw[edge] (r2) -- (r24);
+    \draw[edge] (r3) -- (r25);
+    \draw[edge] (r4) -- (r26);
+
+    % Livello 3: |Y| = 3
+    \node[prunednode] (r31) at (-6.3, 0.0) {$D \longrightarrow ABC$};
+    \node[prunednode] (r32) at (-3.9, 0.0) {$C \longrightarrow ABD$};
+    \node[prunednode] (r33) at (-1.5, 0.0) {$B \longrightarrow ACD$};
+    \node[rulenode] (r34) at (4.3, 0.0) {$A \longrightarrow BCD$};
+
+    \draw[prunededge] (r21) -- (r31);
+    \draw[prunededge] (r21) -- (r32);
+    \draw[prunededge] (r22) -- (r31);
+    \draw[prunededge] (r22) -- (r33);
+    \draw[prunededge] (r23) -- (r32);
+    \draw[prunededge] (r23) -- (r33);
+    \draw[edge] (r24) -- (r34);
+    \draw[edge] (r25) -- (r34);
+    \draw[edge] (r26) -- (r34);
+
+    % Cartigli esplicativi inferiori
+    \node[anchor=north, text=crimson!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=crimson!70] 
+        at (-3.9, -1.45) {Sotto-reticolo potato ($c(BCD \rightarrow A) < \mathrm{minconf}$)};
+    \node[anchor=north, text=navy!90!black, font=\footnotesize\bfseries, fill=white, inner sep=3.5pt, rounded corners=4pt, draw=navy!70] 
+        at (4.3, -1.45) {Regole attive con $A \notin \mathrm{conseguente}$};
+
+    % Indicazioni dei livelli
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 5.7) {Livello 0 ($|Y|=0$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 3.6) {Livello 1 ($|Y|=1$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 1.8) {Livello 2 ($|Y|=2$)};
+    \node[text=gray!70, font=\scriptsize\itshape, anchor=east] at (-7.9, 0.0) {Livello 3 ($|Y|=3$)};
+\end{tikzpicture}%
+}
+\caption{Reticolo delle regole generate da $\{A, B, C, D\}$ strutturato per cardinalità del conseguente ($|Y|$). Non appena la regola $BCD \rightarrow A$ fallisce la soglia $\mathrm{minconf}$, tutti i suoi discendenti (aventi $A$ nel conseguente, evidenziati a sinistra) vengono potati a priori per anti-monotonia della confidenza.}
+\label{fig:dm-rule-lattice-pruning}
+\end{figure}
+
+% ====================================================================
+% SEZIONE 11.12: FATTORI DI COMPLESSITÀ COMPUTAZIONALE
+% ====================================================================
+\section{Fattori che Influenzano la Complessità Computazionale}
+\label{sec:dm-complexity-factors}
+
+La scalabilità e i tempi di elaborazione dell'algoritmo Apriori dipendono dall'interazione di quattro parametri strutturali del problema~\cite{tan2018}:
+\begin{enumerate}
+    \item \textbf{Soglia Minima di Supporto ($\mathrm{minsup}$)}: Rappresenta il fattore di controllo più sensibile. Al decrescere di $\mathrm{minsup}$, il numero di itemset frequenti cresce in modo esponenziale. Ciò determina un incremento della lunghezza massima $k_{\max}$ dei pattern frequenti, moltiplica il numero di candidati intermedi $C_k$ generati e impone un maggior numero di passate sequenziali sul database.
+    \item \textbf{Dimensionalità del Catalogo ($d = |I|$)}: Un elevato numero di articoli distinti espande la dimensione dello spazio di memoria richiesto per tracciare i conteggi. In particolare, il numero potenziale di coppie al secondo livello cresce quadraticamente come $\binom{d}{2} = \mathcal{O}(d^2)$.
+    \item \textbf{Dimensione del Database ($N = |T|$)}: Poiché ogni iterazione $k$ comporta una scansione sequenziale dell'archivio per il conteggio del supporto, il costo computazionale complessivo scala linearmente rispetto al numero di transazioni $N$.
+    \item \textbf{Ampiezza Media delle Transazioni ($w$)}: All'aumentare del numero medio di articoli contenuti in ciascun carrello, cresce la dimensione massima dei pattern estraibili. Inoltre, il numero di sottoinsiemi di dimensione $k$ che una transazione genera, dato da $\binom{w}{k}$, esplode combinatoriamente con $w$, appesantendo l'attraversamento degli alberi hash.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 11.13: ITEMSET FREQUENTI MASSIMALI E CHIUSI
+% ====================================================================
+\section[Rappresentazioni Compatte: Itemset Massimali e Chiusi]{Rappresentazioni Compatte: Itemset Frequenti Massimali e Chiusi}
+\label{sec:dm-maximal-closed-itemsets}
+
+Quando un dataset presenta transazioni dense o pattern frequenti estesi (ad esempio un pattern frequente di cardinalità 20), il numero di sottoinsiemi frequenti generati per anti-monotonia ammonta a $2^{20} - 1 \approx 10^6$ itemset. Per contrastare questa proliferazione esponenziale senza perdere informazione, la ricerca ha introdotto due rappresentazioni compatte fondamentali: gli \textbf{itemset massimali} e gli \textbf{itemset chiusi}~\cite{tan2018}.
+
+\subsection{Itemset Frequenti Massimali (\textit{Maximal Frequent Itemsets})}
+
+\begin{definition}[Itemset Frequente Massimale]
+Un itemset $X$ è definito \textbf{frequente massimale} se soddisfa la soglia di supporto ($s(X) \ge \mathrm{minsup}$) e \textbf{nessuno dei suoi sovrainsiemi diretti} (immediati) è frequente:
+\begin{equation}
+\label{eq:dm-maximal-frequent-def}
+X \text{ massimale frequente} \iff s(X) \ge \mathrm{minsup} \;\land\; \forall Y \supset X, \; s(Y) < \mathrm{minsup}
+\end{equation}
+\end{definition}
+
+\begin{itemize}
+    \item \textbf{Proprietà Geometrica}: Gli itemset massimali formano il "bordo" (\textit{border}) che separa gli itemset frequenti da quelli infrequenti nel reticolo;
+    \item \textbf{Limite Informativo (Compressione con Perdita)}: Conoscere l'insieme degli itemset massimali consente di determinare con certezza quali siano tutti gli itemset frequenti (essendo frequenti tutti i loro sottoinsiemi), ma \textbf{non permette di recuperare i valori di supporto esatti} dei singoli sottoinsiemi. Si tratta pertanto di una rappresentazione a compressione con perdita (\textit{lossy compression}).
+\end{itemize}
+
+\subsection{Itemset Chiusi e Chiusi Frequenti (\textit{Closed Frequent Itemsets})}
+
+\begin{definition}[Itemset Chiuso]
+Un itemset $X$ è definito \textbf{chiuso} se nessuno dei suoi sovrainsiemi diretti possiede esattamente il medesimo conteggio di supporto di $X$:
+\begin{equation}
+\label{eq:dm-closed-itemset-def}
+X \text{ è chiuso} \Longleftrightarrow \forall Y \supset X, \; \sigma(Y) < \sigma(X)
+\end{equation}
+Equivalentemente, $X$ non è chiuso se esiste almeno un sovrainsieme immediato $Y \supset X$ tale che $\sigma(Y) = \sigma(X)$.
+\end{definition}
+
+\begin{definition}[Itemset Chiuso Frequente]
+Un itemset è \textbf{chiuso frequente} se è simultaneamente chiuso e frequente ($s(X) \ge \mathrm{minsup}$).
+\end{definition}
+
+\begin{theorem}[Compressione Senza Perdita degli Itemset Chiusi Frequenti]
+L'insieme degli itemset chiusi frequenti costituisce una \textbf{rappresentazione compatta senza perdita di informazione} (\textit{lossless compression}) dell'intero spazio degli itemset frequenti. Il conteggio di supporto esatto di qualsiasi sottoinsieme frequente arbitrario $S$ è ricavabile analiticamente senza rileggere il database mediante la formula:
+\begin{equation}
+\label{eq:dm-support-reconstruction-closed}
+\sigma(S) = \max \big\{ \sigma(C) \mid C \text{ è chiuso frequente e } S \subseteq C \big\}
+\end{equation}
+\end{theorem}
+
+\subsection{Studio di Caso Analitico su Dataset Tabellare}
+Consideriamo il database di transazioni riportato in Tabella~\ref{tab:dm-closed-maximal-example}:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c l}
+\toprule
+\textbf{TID} & \textbf{Transazione} \\
+\midrule
+\textbf{1} & $\{A, B\}$ \\
+\textbf{2} & $\{B, C, D\}$ \\
+\textbf{3} & $\{A, B, C, D\}$ \\
+\textbf{4} & $\{A, B, D\}$ \\
+\textbf{5} & $\{A, B, C, D\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Dataset transazionale per la diagnosi di itemset chiusi e massimali.}
+\label{tab:dm-closed-maximal-example}
+\end{table}
+
+Calcoliamo i supporti e analizziamo la chiusura dei pattern:
+\begin{enumerate}
+    \item Itemset $\{A\}$: compare in TID 1, 3, 4, 5 $\implies \sigma(\{A\}) = 4$. Il suo sovrainsieme immediato $\{A, B\}$ compare anch'esso in TID 1, 3, 4, 5 $\implies \sigma(\{A, B\}) = 4$. Poiché $\sigma(\{A\}) = \sigma(\{A, B\})$, $\{A\}$ \textbf{NON è chiuso};
+    \item Itemset $\{B\}$: compare in tutte e 5 le transazioni $\implies \sigma(\{B\}) = 5$. I suoi sovrainsiemi immediati hanno supporti $\sigma(\{A, B\}) = 4$, $\sigma(\{B, C\}) = 3$, $\sigma(\{B, D\}) = 4$. Poiché nessun sovrainsieme raggiunge supporto 5, $\{B\}$ \textbf{è CHIUSO};
+    \item Itemset $\{A, B\}$: $\sigma(\{A, B\}) = 4$. I suoi sovrainsiemi immediati hanno supporti $\sigma(\{A, B, C\}) = 2$ e $\sigma(\{A, B, D\}) = 3$. Poiché entrambi hanno supporto strettamente inferiore a 4, $\{A, B\}$ \textbf{è CHIUSO};
+    \item Itemset $\{C\}$: $\sigma(\{C\}) = 3$. Il sovrainsieme $\{B, C\}$ ha $\sigma(\{B, C\}) = 3$. Avendo lo stesso supporto del sovrainsieme, $\{C\}$ \textbf{NON è chiuso};
+    \item Itemset $\{A, B, C, D\}$: $\sigma(\{A, B, C, D\}) = 2$. Non esistono sovrainsiemi con supporto $\ge 2$, quindi $\{A, B, C, D\}$ \textbf{è CHIUSO}.
+\end{enumerate}
+
+\subsection{Relazioni di Inclusione Insiemistica}
+La gerarchia tra le diverse classi di itemset è sintetizzata nella Figura~\ref{fig:dm-venn-itemsets} e soddisfa le seguenti relazioni di inclusione insiemistica:
+\begin{equation}
+\label{eq:dm-itemset-hierarchy}
+\text{Massimali Frequenti} \subseteq \text{Chiusi Frequenti} \subseteq \text{Itemset Frequenti}
+\end{equation}
+\begin{equation}
+\text{Chiusi Frequenti} = \text{Itemset Frequenti} \cap \text{Itemset Chiusi}
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=1.0,
+    font=\small
+]
+    % 1. Spazio Universale degli Itemset P(I)
+    \draw[draw=gray!40, fill=gray!3, rounded corners=12pt, line width=0.9pt] (-10.5, -4.4) rectangle (10.5, 3.9);
+    \node[anchor=north west, font=\bfseries\footnotesize, text=gray!75!black] at (-10.1, 3.65) {Spazio Universale degli Itemset $\mathcal{P}(I)$};
+    \node[anchor=north east, font=\scriptsize\itshape, text=gray!60!black] at (10.1, 3.65) {Tutti i $2^d$ pattern combinatori};
+
+    % 2. Insieme Itemset Frequenti (Sinistra)
+    \draw[draw=navy!85, fill=navy!7, rounded corners=22pt, line width=1.3pt] 
+        (-9.6, -3.2) rectangle (3.3, 3.0);
+
+    % 3. Insieme Itemset Chiusi (Destra)
+    \draw[draw=darkgreen!85, fill=darkgreen!7, rounded corners=22pt, line width=1.3pt] 
+        (-3.3, -3.2) rectangle (9.6, 3.0);
+
+    % 4. Area Intersezione Evidenziata: Chiusi Frequenti
+    \draw[draw=navy!70!darkgreen, line width=1.5pt, rounded corners=18pt, fill=navy!18!darkgreen!12]
+        (-3.3, -3.2) rectangle (3.3, 3.0);
+
+    % 5. Sottoinsieme Massimali Frequenti (all'interno dei Chiusi Frequenti)
+    \draw[draw=crimson!90, fill=crimson!16, rounded corners=14pt, line width=1.3pt]
+        (-2.9, -2.9) rectangle (2.9, 0.05);
+
+    % =========================================================================
+    % CONTENUTI ED ETICHETTE
+    % =========================================================================
+
+    % --- REGIONE SINISTRA: Frequenti Non Chiusi (Centro x = -6.45) ---
+    \node[text=navy!95!black, font=\bfseries\large, align=center] at (-6.45, 2.3) {Itemset Frequenti\\[2pt]{\small $s(X) \ge \mathrm{minsup}$}};
+    
+    \node[text=navy!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=navy!25, line width=0.6pt] at (-6.45, 0.95) {
+        \textbf{Frequenti non chiusi (ridondanti)}\\[2pt]
+        $\exists Y \supset X : \sigma(Y) = \sigma(X)$
+    };
+    
+    \node[text=navy!85!black, font=\scriptsize, align=left, fill=white, inner sep=5pt, rounded corners=5pt, draw=navy!25, line width=0.6pt] at (-6.45, -1.0) {
+        \textbf{Esempi dal Dataset (Tab.~\ref{tab:dm-closed-maximal-example}):}\\[2pt]
+        $\bullet\; \{A\}$ con $\sigma=4$ ($= \sigma(\{A, B\})$)\\[2pt]
+        $\bullet\; \{C\}$ con $\sigma=3$ ($= \sigma(\{B, C\})$)
+    };
+
+    % --- REGIONE DESTRA: Chiusi Non Frequenti (Centro x = +6.45) ---
+    \node[text=darkgreen!95!black, font=\bfseries\large, align=center] at (6.45, 2.3) {Itemset Chiusi\\[2pt]{\small $\forall Y \supset X, \; \sigma(Y) < \sigma(X)$}};
+
+    \node[text=darkgreen!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=darkgreen!25, line width=0.6pt] at (6.45, 0.95) {
+        \textbf{Chiusi non frequenti}\\[2pt]
+        $s(X) < \mathrm{minsup}$ (sotto soglia)
+    };
+
+    \node[text=darkgreen!85!black, font=\scriptsize, align=left, fill=white, inner sep=5pt, rounded corners=5pt, draw=darkgreen!25, line width=0.6pt] at (6.45, -1.0) {
+        \textbf{Proprietà e Ruolo:}\\[2pt]
+        $\bullet\;$ Nessun sovrainsieme ha pari frequenza\\
+        $\bullet\;$ Utili per pattern rari o anomalie\\
+        $\bullet\;$ Esclusi dall'analisi frequente
+    };
+
+    % --- INTERSEZIONE SUPERIORE: Chiusi Frequenti (Centro x = 0, y in [0.05, 3.0]) ---
+    \node[text=navy!95!black, font=\bfseries\normalsize, align=center] at (0, 2.45) {Itemset Chiusi Frequenti};
+    \node[text=navy!85!darkgreen, font=\scriptsize\bfseries, align=center] at (0, 2.05) {Compressione Senza Perdita (\textit{Lossless})};
+    
+    \node[text=navy!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=navy!35, line width=0.6pt] at (0, 1.05) {
+        \textbf{Supporto esatto ricostruibile:}\\
+        $\sigma(S) = \max_{C \supseteq S} \sigma(C)$\\[2pt]
+        \textit{Es: $\{B\}$ ($\sigma=5$, chiuso non massimale)}
+    };
+
+    % --- INTERSEZIONE INFERIORE: Massimali Frequenti (Centro x = 0, y in [-2.9, 0.05]) ---
+    \node[text=crimson!95!black, font=\bfseries\normalsize, align=center] at (0, -0.45) {Itemset Massimali\\Frequenti};
+    \node[text=crimson!85!black, font=\scriptsize\bfseries, align=center] at (0, -1.05) {Compressione Con Perdita (\textit{Lossy})};
+
+    \node[text=crimson!90!black, font=\scriptsize, align=center, fill=white, inner sep=4pt, rounded corners=5pt, draw=crimson!35, line width=0.6pt] at (0, -1.95) {
+        $\forall Y \supset X \implies s(Y) < \mathrm{minsup}$\\[2pt]
+        \textbf{Bordo estremo dei frequenti nel reticolo}\\[2pt]
+        \textit{Es: $\{A, B, C, D\}$ (se $\mathrm{minsup} \le 2/5$)}
+    };
+
+    % --- BARRA RIASSUNTIVA INFERIORE ---
+    \node[anchor=south, font=\footnotesize, text=gray!85!black, fill=white, inner sep=4.5pt, rounded corners=6pt, draw=gray!35, line width=0.8pt] 
+        at (0, -4.15) {
+        $\textbf{Massimali Frequenti} \;\subseteq\; \textbf{Chiusi Frequenti} \;=\; (\textbf{Frequenti} \;\cap\; \textbf{Chiusi}) \;\subseteq\; \textbf{Frequenti}$
+    };
+
+\end{tikzpicture}%
+}
+\caption{Diagramma di Eulero-Venn delle relazioni formali di inclusione tra itemset frequenti, chiusi e massimali, con esemplificazione della proprietà di compressione (\textit{lossless} vs \textit{lossy}).}
+\label{fig:dm-venn-itemsets}
+\end{figure}
+
+Ogni itemset massimale frequente è necessariamente un itemset chiuso frequente, mentre l'inverso non è sempre verificato.
+
+% ====================================================================
+% SEZIONE 11.14: VALUTAZIONE DEI PATTERN E LIMITI DELLA CONFIDENZA
+% ====================================================================
+\section{Valutazione dei Pattern e Limiti della Confidenza}
+\label{sec:dm-pattern-evaluation-confidence-limits}
+
+Sebbene il framework supporto-confidenza sia storicamente il più diffuso, la metrica di confidenza soffre di gravi limiti interpretativi poiché \textbf{ignora completamente il supporto marginale del conseguente} $P(Y)$~\cite{tan2018}.
+
+\subsection{Tabelle di Contingenza $2 \times 2$}
+La relazione statistica tra due itemset $X$ e $Y$ viene sintetizzata tramite una tabella di contingenza bivariata $2 \times 2$:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c c c}
+\toprule
+& $Y$ & $\overline{Y}$ (Assenza di $Y$) & \textbf{Totale Marginale} \\
+\midrule
+$X$ & $f_{11} = \sigma(X \cup Y)$ & $f_{10} = \sigma(X \cup \overline{Y})$ & $f_{1+} = \sigma(X)$ \\
+$\overline{X}$ (Assenza di $X$) & $f_{01} = \sigma(\overline{X} \cup Y)$ & $f_{00} = \sigma(\overline{X} \cup \overline{Y})$ & $f_{0+} = \sigma(\overline{X})$ \\
+\midrule
+\textbf{Totale Marginale} & $f_{+1} = \sigma(Y)$ & $f_{+0} = \sigma(\overline{Y})$ & $N = |T|$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Tabella di contingenza $2 \times 2$ per l'analisi di associazione congiunta.}
+\label{tab:dm-contingency-2x2}
+\end{table}
+
+In termini di frequenze di cella:
+\begin{equation}
+s(X \longrightarrow Y) = \frac{f_{11}}{N}, \qquad c(X \longrightarrow Y) = \frac{f_{11}}{f_{1+}}
+\end{equation}
+
+\subsection{Caso di Studio 1: Regola con Alta Confidenza ma Correlazione Negativa}
+Consideriamo l'analisi delle preferenze su $N = 1\,000$ consumatori di bevande calde (Tè e Caffè):
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c c c}
+\toprule
+& Caffè & $\overline{\text{Caffè}}$ & \textbf{Totale} \\
+\midrule
+Tè & 150 & 50 & 200 \\
+$\overline{\text{Tè}}$ & 650 & 150 & 800 \\
+\midrule
+\textbf{Totale} & 800 & 200 & $1\,000$ \\
+\bottomrule
+\end{tabular}
+\caption{Tabella di contingenza tra consumo di Tè e Caffè.}
+\label{tab:dm-tea-coffee-paradox}
+\end{table}
+
+Valutiamo la regola d'associazione $\text{Tè} \longrightarrow \text{Caffè}$:
+\begin{itemize}
+    \item Confidenza:
+    \begin{equation}
+    c(\text{Tè} \longrightarrow \text{Caffè}) = P(\text{Caffè} \mid \text{Tè}) = \frac{150}{200} = 0.75 \quad (75\%)
+    \end{equation}
+    Con una confidenza del $75\%$, la regola apparirebbe solida e affidabile.
+    \item Supporto marginale della popolazione di consumatori di caffè:
+    \begin{equation}
+    P(\text{Caffè}) = \frac{800}{1\,000} = 0.80 \quad (80\%)
+    \end{equation}
+    \item Probabilità di bere caffè tra chi non consuma tè:
+    \begin{equation}
+    P(\text{Caffè} \mid \overline{\text{Tè}}) = \frac{650}{800} = 0.8125 \quad (81.25\%)
+    \end{equation}
+\end{itemize}
+
+\begin{noteblock}{Interpretazione Critica del Paradosso}
+    Nella popolazione complessiva, la propensione ad acquistare caffè è dell'$80\%$. Quando un cliente consuma tè, tale propensione scende al $75\%$. Sapere che una persona beve tè \textbf{diminuisce} la probabilità che consumi caffè.
+    
+    Pertanto, la regola suggerisce un'associazione positiva che contraddice la realtà: Tè e Caffè sono correlati \textbf{negativamente} (beni parzialmente sostituti).
+\end{noteblock}
+
+\subsection{Caso di Studio 2: Bassa Confidenza ma Forte Associazione Positiva}
+Consideriamo il consumo congiunto di Tè e Miele su $N = 1\,000$ clienti:
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l c c c}
+\toprule
+& Miele & $\overline{\text{Miele}}$ & \textbf{Totale} \\
+\midrule
+Tè & 100 & 100 & 200 \\
+$\overline{\text{Tè}}$ & 20 & 780 & 800 \\
+\midrule
+\textbf{Totale} & 120 & 880 & $1\,000$ \\
+\bottomrule
+\end{tabular}
+\caption{Tabella di contingenza tra consumo di Tè e Miele.}
+\label{tab:dm-tea-honey-paradox}
+\end{table}
+
+Valutiamo la regola $\text{Tè} \longrightarrow \text{Miele}$:
+\begin{equation}
+c(\text{Tè} \longrightarrow \text{Miele}) = \frac{100}{200} = 0.50 \quad (50\%)
+\end{equation}
+Se la soglia dell'analista è impostata a $\mathrm{minconf} = 0.60$, questa regola viene scartata. Tuttavia, il consumo medio di miele nella popolazione generale è di appena:
+\begin{equation}
+P(\text{Miele}) = \frac{120}{1\,000} = 0.12 \quad (12\%)
+\end{equation}
+Tra chi consuma tè, la propensione all'acquisto di miele passa dal $12\%$ al $50\%$ (un incremento di oltre quattro volte). L'associazione è fortemente positiva, ma viene occultata da una soglia fissa di confidenza.
+
+\subsection{Condizione di Dipendenza Statistica}
+Per discriminare associazioni genuine da artefatti statistici, una regola deve soddisfare la condizione:
+\begin{equation}
+\label{eq:dm-statistical-dependence-condition}
+c(X \longrightarrow Y) > s(Y) \quad \Longleftrightarrow \quad P(Y \mid X) > P(Y)
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item Se $P(Y \mid X) = P(Y)$, gli eventi sono statisticamente indipendenti ($P(X \cap Y) = P(X)P(Y)$);
+    \item Se $P(Y \mid X) > P(Y)$, gli eventi sono positivamente associati;
+    \item Se $P(Y \mid X) < P(Y)$, gli eventi sono negativamente associati.
+\end{itemize}
+
+% ====================================================================
+% SEZIONE 11.15: MISURE STATISTICHE DI INTERESSE
+% ====================================================================
+\section{Misure Statistiche di Interesse Oggettive}
+\label{sec:dm-interest-measures}
+
+Per affiancare al supporto e alla confidenza metriche capaci di misurare la deviazione reale dall'indipendenza stocastica, sono state introdotte misure statistiche oggettive basate sulla tabella di contingenza~\cite{tan2018, piatetsky1991}.
+
+\subsection{Metriche di Lift e Interest}
+La misura di \textbf{Lift} (o \textbf{Interest}) quantifica il rapporto tra la probabilità congiunta osservata e quella attesa nell'ipotesi di indipendenza statistica tra antecedente e conseguente:
+\begin{equation}
+\label{eq:dm-lift-definition}
+\mathrm{Lift}(X \longrightarrow Y) = \frac{P(Y \mid X)}{P(Y)} = \frac{c(X \longrightarrow Y)}{s(Y)} = \frac{P(X, Y)}{P(X)P(Y)} = \frac{N f_{11}}{f_{1+} f_{+1}}
+\end{equation}
+
+\begin{itemize}
+    \item $\mathrm{Lift} = 1$: $X$ e $Y$ sono statisticamente indipendenti; la presenza di $X$ non fornisce informazione sulla presenza di $Y$;
+    \item $\mathrm{Lift} > 1$: $X$ e $Y$ sono positivamente correlati; la presenza di $X$ incrementa la probabilità di osservare $Y$;
+    \item $\mathrm{Lift} < 1$: $X$ e $Y$ sono negativamente correlati; la presenza di $X$ deprime la probabilità di osservare $Y$.
+\end{itemize}
+
+Verifichiamo la metrica di Lift sul caso Tè e Caffè (Tabella~\ref{tab:dm-tea-coffee-paradox}):
+\begin{equation}
+\mathrm{Lift}(\text{Tè} \longrightarrow \text{Caffè}) = \frac{0.15}{0.20 \times 0.80} = \frac{0.15}{0.16} = 0.9375 < 1
+\end{equation}
+Il valore inferiore a 1 rileva correttamente che Tè e Caffè sono correlati negativamente, correggendo l'illusione ottica della confidenza al $75\%$.
+
+\subsection{Misura di Piatetsky-Shapiro ($PS$) e Correlazione ($\phi$)}
+\begin{itemize}
+    \item \textbf{Misura di Piatetsky-Shapiro ($PS$ o Leverage)}: Misura la differenza algebrica diretta tra la probabilità congiunta osservata e quella attesa sotto indipendenza~\cite{piatetsky1991}:
+    \begin{equation}
+    \label{eq:dm-ps-leverage}
+    PS = P(X, Y) - P(X)P(Y) = \frac{f_{11}}{N} - \frac{f_{1+} f_{+1}}{N^2}
+    \end{equation}
+    \item \textbf{Coefficiente di Correlazione di Pearson ($\phi$)}: Estende la correlazione classica di Pearson a coppie di variabili binarie asimmetriche:
+    \begin{equation}
+    \label{eq:dm-phi-correlation}
+    \phi = \frac{P(X, Y) - P(X)P(Y)}{\sqrt{P(X)(1-P(X))P(Y)(1-P(Y))}} = \frac{N f_{11} - f_{1+} f_{+1}}{\sqrt{f_{1+} f_{+1} f_{0+} f_{+0}}}
+    \end{equation}
+    Assume valori nell'intervallo $[-1, +1]$, dove $0$ denota indipendenza.
+\end{itemize}
+
+\subsection{Tassonomia Comparativa delle Misure di Associazione}
+Nella Tabella~\ref{tab:dm-interest-measures-comparison} sono riassunte le principali metriche di associazione presenti nella letteratura di data mining~\cite{tan2018}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c l}
+\toprule
+\textbf{Misura} & \textbf{Simbolo} & \textbf{Formulazione su Tabella di Contingenza $2 \times 2$} \\
+\midrule
+\textbf{Correlazione ($\phi$)} & $\phi$ & $\dfrac{N f_{11} - f_{1+} f_{+1}}{\sqrt{f_{1+} f_{+1} f_{0+} f_{+0}}}$ \\
+\textbf{Odds Ratio} & $\alpha$ & $\dfrac{f_{11} f_{00}}{f_{10} f_{01}}$ \\
+\textbf{Kappa di Cohen} & $\kappa$ & $\dfrac{N f_{11} + N f_{00} - f_{1+} f_{+1} - f_{0+} f_{+0}}{N^2 - f_{1+} f_{+1} - f_{0+} f_{+0}}$ \\
+\textbf{Interest / Lift} & $I$ & $\dfrac{N f_{11}}{f_{1+} f_{+1}}$ \\
+\textbf{Cosine / IS} & $IS$ & $\dfrac{f_{11}}{\sqrt{f_{1+} f_{+1}}}$ \\
+\textbf{Piatetsky-Shapiro} & $PS$ & $\dfrac{f_{11}}{N} - \dfrac{f_{1+} f_{+1}}{N^2}$ \\
+\textbf{Jaccard} & $J$ & $\dfrac{f_{11}}{f_{1+} + f_{+1} - f_{11}}$ \\
+\textbf{All-Confidence} & $h$ & $\min \left[ \dfrac{f_{11}}{f_{1+}}, \; \dfrac{f_{11}}{f_{+1}} \right]$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Formulazione analitica delle principali metriche di interesse statistico oggettive.}
+\label{tab:dm-interest-measures-comparison}
+\end{table}
+
+% ====================================================================
+% SEZIONE 11.16: TRATTAMENTO DI ATTRIBUTI CATEGORIALI E CONTINUI
+% ====================================================================
+\section{Trattamento di Attributi Categorici e Continui}
+\label{sec:dm-categorical-continuous-attributes}
+
+I database delle transazioni reali non sono composti unicamente da panieri di articoli booleani simmetrici, ma contengono attributi categorici politomici (a più categorie) e attributi quantitativi continui~\cite{tan2018}. Per integrare tali variabili nell'analisi delle associazioni, si applicano le metodologie di binarizzazione e discretizzazione introdotte nel Capitolo~\ref{chap:dm-data-preparation-cleaning} (\autoref{sec:dm-discretization-binning}), tenendo conto dei vincoli specifici del framework Apriori.
+
+\subsection{Attributi Categorici Politomici}
+Per includere variabili discrete (come il genere o il titolo di studio), si applica la codifica \textit{One-Hot} (\autoref{sec:dm-discretization-binning}):
+\begin{itemize}
+    \item Si genera un elemento booleano distinto per ciascuna combinazione attributo-valore (ad esempio \texttt{Titolo = Laurea});
+    \item Ogni record diventa un vettore binario asimmetrico in cui l'assenza (0) è non informativa e non viene conteggiata come co-occorrenza.
+\end{itemize}
+
+\subsubsection{La Criticità degli Attributi ad Alta Cardinalità}
+Quando un attributo categorico presenta un numero elevato di valori distinti (ad esempio la città o lo stato di residenza del cliente con centinaia di categorie), il supporto medio associato a ciascun singolo valore crolla verso valori infinitesimali.
+\begin{itemize}
+    \item \textbf{Conseguenza}: Con una soglia $\mathrm{minsup}$ standard, quasi nessun valore sopravvive al filtraggio, impedendo la scoperta di pattern;
+    \item \textbf{Soluzione Operativa}: Si applica una \textbf{aggregazione concettuale preventiva}, raggruppando categorie a basso supporto in macro-classi (ad esempio aggregando i singoli comuni in regioni geografiche).
+\end{itemize}
+
+\subsection{Attributi Quantitativi Continui}
+Per variabili continue (come l'età, il reddito annuale o le ore trascorse online), si adottano tre paradigmi:
+\begin{enumerate}
+    \item \textbf{Metodi Basati su Discretizzazione (\textit{Discretization-based})}: Il dominio continuo viene partizionato mediante intervalli discreti (ad ampiezza costante o frequenza costante, cfr. \autoref{sec:dm-discretization-binning}). Ciascun intervallo viene trattato come un item categorico distinto:
+    \begin{equation}
+    \{\text{Genere = M}, \text{Età} \in [21, 30)\} \longrightarrow \{\text{Ore Online} \ge 10\}
+    \end{equation}
+    \item \textbf{Metodi Basati su Statistiche Riassuntive (\textit{Statistics-based})}: L'antecedente è composto da item discreti, mentre il conseguente modella la distribuzione della variabile continua riportando media $\mu$ e deviazione standard $\sigma$:
+    \begin{equation}
+    \{\text{Età} \in [21, 30), \text{Chat = Sì}\} \longrightarrow \text{Ore: } [\mu = 14, \; \sigma = 4]
+    \end{equation}
+    \item \textbf{Metodi Senza Discretizzazione (\textit{minApriori / Fuzzy})}: Algoritmi che estendono direttamente la definizione di supporto normalizzando gli attributi continui nell'intervallo $[0, 1]$ e sostituendo l'intersezione booleana con operatori fuzzy (t-norme).
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 11.17: GERARCHIE CONCETTUALI E REGOLE MULTI-LIVELLO
+% ====================================================================
+\section{Gerarchie Concettuali e Regole Multi-Livello}
+\label{sec:dm-multilevel-association-rules}
+
+Nei cataloghi commerciali reali, i prodotti sono naturalmente strutturati secondo una gerarchia o tassonomia concettuale (rappresentata mediante un albero o un grafo aciclico diretto), dove gli articoli specifici posti alle foglie sono progressivamente aggregati in categorie di livello superiore~\cite{tan2018}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    scale=1.0,
+    rootnode/.style={draw=navy!90!black, fill=navy!18, rounded corners=6pt, font=\small\bfseries, align=center, inner sep=5pt, minimum height=0.75cm},
+    catnode/.style={draw=navy!80!black, fill=navy!10, rounded corners=5pt, font=\small\bfseries, align=center, inner sep=4.5pt, minimum height=0.7cm},
+    subcatnode/.style={draw=navy!70!black, fill=navy!6, rounded corners=4pt, font=\footnotesize\bfseries, align=center, inner sep=3.5pt, minimum height=0.65cm},
+    itemnode/.style={draw=darkgreen!85!black, fill=darkgreen!10, rounded corners=4pt, font=\scriptsize\bfseries, align=center, inner sep=3pt, text=darkgreen!90!black, minimum height=0.85cm},
+    edge/.style={draw=gray!60, line width=0.8pt},
+    levelmark/.style={font=\scriptsize\bfseries, text=gray!65!black, anchor=east}
+]
+    % Livello 0: Radice Apicale
+    \node[rootnode, minimum width=4.6cm] (root) at (0, 5.0) {Tutti gli Articoli (\textit{All Products})};
+
+    % Livello 1: Macro-categorie
+    \node[catnode, minimum width=3.8cm] (food) at (-4.2, 3.4) {Alimentari (\textit{Food})};
+    \node[catnode, minimum width=3.8cm] (elec) at (4.2, 3.4) {Elettronica (\textit{Electronics})};
+
+    \draw[edge] (root) -- (food);
+    \draw[edge] (root) -- (elec);
+
+    % Livello 2: Categorie Intermedie
+    \node[subcatnode, minimum width=2.4cm] (bread) at (-6.3, 1.8) {Pane (\textit{Bread})};
+    \node[subcatnode, minimum width=2.4cm] (milk)  at (-2.1, 1.8) {Latte (\textit{Milk})};
+    \node[subcatnode, minimum width=2.4cm] (pc)    at (2.1, 1.8) {Computer};
+    \node[subcatnode, minimum width=2.4cm] (tv)    at (6.3, 1.8) {Audio / Video};
+
+    \draw[edge] (food) -- (bread);
+    \draw[edge] (food) -- (milk);
+    \draw[edge] (elec) -- (pc);
+    \draw[edge] (elec) -- (tv);
+
+    % Livello 3: Foglie (Articoli Specifici)
+    \node[itemnode, minimum width=1.65cm] (wbread) at (-7.35, 0.0) {Pane\\Bianco};
+    \node[itemnode, minimum width=1.65cm] (ibread) at (-5.25, 0.0) {Pane\\Integrale};
+    \node[itemnode, minimum width=1.65cm] (smilk)  at (-3.15, 0.0) {Latte\\Scremato};
+    \node[itemnode, minimum width=1.65cm] (fmilk)  at (-1.05, 0.0) {Latte\\Intero};
+    \node[itemnode, minimum width=1.65cm] (desk)   at (1.05, 0.0)  {Desktop\\PC};
+    \node[itemnode, minimum width=1.65cm] (laptop) at (3.15, 0.0)  {Laptop\\Notebook};
+    \node[itemnode, minimum width=1.65cm] (led)    at (5.25, 0.0)  {TV\\OLED};
+    \node[itemnode, minimum width=1.65cm] (sound)  at (7.35, 0.0)  {Soundbar\\Audio};
+
+    \draw[edge] (bread) -- (wbread);
+    \draw[edge] (bread) -- (ibread);
+    \draw[edge] (milk)  -- (smilk);
+    \draw[edge] (milk)  -- (fmilk);
+    \draw[edge] (pc)    -- (desk);
+    \draw[edge] (pc)    -- (laptop);
+    \draw[edge] (tv)    -- (led);
+    \draw[edge] (tv)    -- (sound);
+
+    % Linee guida tratteggiate orizzontali dei livelli
+    \draw[gray!25, dashed] (-8.7, 5.0) -- (8.7, 5.0);
+    \draw[gray!25, dashed] (-8.7, 3.4) -- (8.7, 3.4);
+    \draw[gray!25, dashed] (-8.7, 1.8) -- (8.7, 1.8);
+    \draw[gray!25, dashed] (-8.7, 0.0) -- (8.7, 0.0);
+
+    % Indicatori di livello a sinistra
+    \node[levelmark] at (-8.9, 5.0) {Livello 0 (Radice)};
+    \node[levelmark] at (-8.9, 3.4) {Livello 1 (Macro)};
+    \node[levelmark] at (-8.9, 1.8) {Livello 2 (Categoria)};
+    \node[levelmark] at (-8.9, 0.0) {Livello 3 (Foglie)};
+
+    % Asse di Generalizzazione / Specializzazione a destra
+    \draw[->, >=stealth, crimson!85!black, line width=1.2pt] (9.05, 0.3) -- (9.05, 4.7);
+    \node[font=\tiny\bfseries, text=crimson!90!black, anchor=west] at (9.2, 4.0) {\textbf{Generalizzazione}};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.65) {$\bullet$ Supporto $\sigma \uparrow$};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.35) {$\bullet$ Minore frammentazione};
+    \node[font=\tiny, text=crimson!80!black, anchor=west] at (9.2, 3.05) {$\bullet$ Rischio ovvietà};
+
+    \draw[->, >=stealth, navy!85!black, line width=1.2pt] (9.05, 4.7) -- (9.05, 0.3);
+    \node[font=\tiny\bfseries, text=navy!90!black, anchor=west] at (9.2, 1.7) {\textbf{Specializzazione}};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 1.35) {$\bullet$ Supporto $\sigma \downarrow$};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 1.05) {$\bullet$ Azionabilità pratica $\uparrow$};
+    \node[font=\tiny, text=navy!80!black, anchor=west] at (9.2, 0.75) {$\bullet$ Rischio sotto-soglia};
+
+    \draw[gray!35, dotted, line width=0.8pt] (8.7, -0.6) -- (8.7, 5.4);
+\end{tikzpicture}%
+}
+\caption{Tassonomia concettuale multi-livello per l'estrazione di regole gerarchiche, con evidenziazione dei livelli e del trade-off tra generalizzazione e specializzazione.}
+\label{fig:dm-taxonomy-tree}
+\end{figure}
+
+\subsection{Motivazioni per l'Estrazione Multi-Livello}
+\begin{enumerate}
+    \item \textbf{Supporto Insufficiente ai Livelli Foglia}: Articoli estremamente specifici (come una specifica marca di latte scremato biologico) hanno vendite unitarie modeste che non superano la soglia minima $\mathrm{minsup}$, venendo ingiustamente scartati;
+    \item \textbf{Eccessiva Frammentazione}: L'analisi al livello delle foglie genera decine di regole ridondanti tra marche affini, oscurando la tendenza generale aggregata;
+    \item \textbf{Eccessiva Genericità ai Livelli di Vertice}: Regole estratte tra macro-categorie apicali (come $\text{Alimentari} \rightarrow \text{Elettronica}$) risultano ovvie, banali o prive di utilità decisionale.
+\end{enumerate}
+
+\subsection{Comportamento di Supporto e Confidenza lungo la Tassonomia}
+Siano $X_1$ e $X_2$ due articoli appartenenti a un livello inferiore che riconducono allo stesso nodo genitore $X$ al livello superiore. Sussistono le seguenti proprietà matematiche:
+\begin{enumerate}
+    \item \textbf{Sub-additività del Supporto del Genitore}: Il conteggio delle transazioni contenenti il genitore $X$ è vincolato superiormente dalla somma dei conteggi dei figli:
+    \begin{equation}
+    \sigma(X) \le \sigma(X_1) + \sigma(X_2)
+    \end{equation}
+    Il segno di disuguaglianza deriva dal fatto che una stessa transazione può contenere simultaneamente sia $X_1$ sia $X_2$.
+    \item \textbf{Propagazione Ascendente del Supporto}: Se un itemset di livello inferiore è frequente rispetto a $\mathrm{minsup}$, l'itemset ottenuto sostituendo uno o più elementi con i rispettivi genitori è anch'esso garantito essere frequente:
+    \begin{equation}
+    \sigma(X_1 \cup Y_1) \ge \mathrm{minsup} \times |T| \quad \Longrightarrow \quad \sigma(X \cup Y) \ge \mathrm{minsup} \times |T|
+    \end{equation}
+    \item \textbf{Propagazione della Confidenza}: Se una regola specifica soddisfa la confidenza minima, la regola corrispondente che generalizza il conseguente soddisfa anch'essa il vincolo:
+    \begin{equation}
+    c(X_1 \longrightarrow Y_1) \ge \mathrm{minconf} \quad \Longrightarrow \quad c(X_1 \longrightarrow Y) \ge \mathrm{minconf}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Strategie Implementative per Regole Multi-Livello}
+La letteratura individua due strategie operative per estrarre regole lungo la gerarchia:
+\begin{itemize}
+    \item \textbf{Approccio 1: Estensione Transazionale (\textit{Transaction Augmentation})}: Ciascuna transazione viene arricchita aggiungendo esplicitamente tutti i nodi antenati della tassonomia:
+    \begin{equation}
+    \begin{split}
+    &\{\text{Latte Scremato, Pane Bianco}\} \longrightarrow \\
+    &\quad \{\text{Latte Scremato, Pane Bianco, Latte, Pane, Alimentari}\}
+    \end{split}
+    \end{equation}
+    \textit{Criticità}: Aumenta drasticamente l'ampiezza delle transazioni e la dimensione del catalogo, portando a una proliferazione di regole banali o ridondanti (ad esempio $\text{Latte Scremato} \rightarrow \text{Latte}$).
+    \item \textbf{Approccio 2: Esplorazione Stratificata Top-Down (\textit{Level-by-Level Generation})}: Si estraggono dapprima gli itemset frequenti al livello apicale della gerarchia; successivamente, la ricerca ai livelli inferiori viene ristretta unicamente ai discendenti dei nodi risultati frequenti al livello superiore.
+    \textit{Criticità}: Richiede passate multiple sul database per ciascun livello e non intercetta direttamente associazioni trasversali (\textit{cross-level}) tra livelli diversi senza algoritmi dedicati.
+\end{itemize}
