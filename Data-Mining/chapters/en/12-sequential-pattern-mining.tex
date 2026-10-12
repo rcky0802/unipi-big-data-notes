@@ -1,0 +1,869 @@
+\chapter{Sequential Pattern Mining: Models, Definitions, and Exercises}
+\label{chap:dm-sequential-pattern-mining}
+
+In classic data mining, frequent pattern mining and market-basket analysis focus on discovering sets of items (\textit{itemsets}) that co-occur within the same transaction~\cite{tan2018, agrawal1994}. However, across numerous real-world operational domains and information systems, observations do not naturally present themselves as isolated, time-agnostic transactions, but rather as ordered streams of events distributed along a continuous or discrete timeline~\cite{agrawal1995, srikant1996}.
+
+\textbf{Sequential Pattern Mining} represents the foundational algorithmic extension developed to bridge this gap: it captures ordering, causal precedence, and temporal dependency relationships among collections of events by formalizing the concept of a transaction sequence over time~\cite{tan2018, agrawal1995}.
+
+This chapter details the paradigm shift from time-invariant itemsets to sequential structures, the taxonomy of sequence data across diverse domains, the formal algebraic definitions of sequences, length, $k$-sequences, and subsequence containment, and the evaluation of support alongside multi-instance occurrence management (\textit{embeddings}), culminating in fully worked analytical exercises.
+
+% ====================================================================
+% SECTION 12.1: INTRODUCTION AND MOTIVATION
+% ====================================================================
+\section{Introduction and Motivations}
+\label{sec:dm-seq-intro}
+
+In traditional association analysis, each record in the database represents an independent consumption event, and the order of items inside a basket holds neither semantic nor algorithmic significance~\cite{tan2018}. In reality, however, human users, physical devices, and corporate workflows interact dynamically and cumulatively over time.
+
+\subsection{Real-World Sequence Data Examples}
+The prevalence of sequential data is apparent across multiple heterogeneous domains:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Consumer E-commerce Purchase Timelines}:
+    Consider the purchase trajectory of a retail consumer spanning several months:
+    \begin{equation}
+    \label{eq:seq-example-ecommerce-en}
+    \langle \{\text{Digital Camera, iPad}\} \, \{\text{memory card}\} \, \{\text{headphone, cover}\} \rangle
+    \end{equation}
+    In this sequence:
+    \begin{itemize}[noitemsep]
+        \item At initial time $t_1$, the customer simultaneously purchases two high-value technological assets: $\{\text{Digital Camera, iPad}\}$.
+        \item At a subsequent time $t_2$, the customer acquires a compatible functional accessory: $\{\text{memory card}\}$.
+        \item Later at time $t_3$, the customer completes the cycle by purchasing accessories: $\{\text{headphone, cover}\}$.
+    \end{itemize}
+    This scenario exemplifies both concurrent co-occurrence within the same shopping basket and delayed temporal dependencies across distinct shopping episodes.
+
+    \item \textbf{Three Mile Island Incident Cascading Events (1979)}:
+    In industrial telemonitoring and fault diagnosis systems, events correspond to physical faults, sensor triggers, and alarm logs rather than commercial purchases:
+    \begin{align}
+    \label{eq:seq-example-tmi-en}
+    \langle &\{\text{clogged resin}\} \, \{\text{outlet valve closure}\} \nonumber \\
+    &\{\text{loss of feedwater}\} \, \{\text{condenser polisher valve shut}\} \nonumber \\
+    &\{\text{booster pumps trip}\} \, \{\text{main waterpump trips}\} \nonumber \\
+    &\{\text{main turbine trips}\} \, \{\text{reactor pressure increases}\} \rangle
+    \end{align}
+    The Three Mile Island nuclear incident evolved through a cascading chain of thermohydraulic and electromechanical failures (resin blockage, valve shutoffs, pump trips, turbine shutdown, and rapid critical pressurization of the reactor). Mining sequential patterns from telemetry logs enables predictive maintenance and timely automated interlocks before failures become catastrophic.
+
+    \item \textbf{Library Book Borrowing Trajectories}:
+    Consider the borrowing history of a patron:
+    \begin{equation}
+    \label{eq:seq-example-library-en}
+    \langle \{\text{Fellowship of the Ring}\} \, \{\text{The Two Towers}\} \, \{\text{Return of the King}\} \rangle
+    \end{equation}
+    Here the ordering is dictated by narrative and logical dependencies: the borrower reads the trilogy in its natural chronological order.
+\end{enumerate}
+
+\begin{noteblock}{Fundamental Distinction: Instantaneous Co-occurrence vs Temporal Dependency}
+    While standard association rules (Chapter~\ref{chap:dm-association-analysis}) capture items purchased simultaneously within the same basket (e.g., $\{\text{Diapers}\} \rightarrow \{\text{Beer}\}$), \textbf{Sequential Pattern Mining} identifies delayed chronological progressions across distinct time steps:
+    \begin{align*}
+    \langle \{\text{Core Hardware}\} \rangle &\xrightarrow{\;\Delta t\;} \langle \{\text{Accessories}\} \rangle \\
+    &\xrightarrow{\;\Delta t'\;} \langle \{\text{Maintenance}\} \rangle
+    \end{align*}
+\end{noteblock}
+
+\subsection{Application Domains of Sequential Pattern Mining}
+Sequential pattern mining is widely utilized across multiple fields:
+\begin{itemize}
+    \item \textbf{Retail and Dynamic Basket Analytics}: Investigating shifts in customer preferences, analyzing Customer Lifetime Value, and detecting early signs of churn.
+    \item \textbf{Web Server Logs and Clickstream Analytics}: Tracing user navigational trajectories to optimize site layouts, personalize UX, and reduce checkout drop-off rates.
+    \item \textbf{Social Media and Information Diffusion}: Modeling tweet cascades, retweet chains, and viral spread dynamics.
+    \item \textbf{Process Mining and Industrial Workflows}: Monitoring stage progressions along assembly lines or enterprise ERP workflows to isolate bottlenecks and process deviations.
+    \item \textbf{Bioinformatics and Computational Genomics}: Discovering conserved functional motifs and regulatory sequences within DNA, RNA, or protein primary structures.
+\end{itemize}
+
+% ====================================================================
+% SECTION 12.2: FROM ITEMSETS TO SEQUENCES
+% ====================================================================
+\section{From the Transactional Paradigm to the Sequential Paradigm}
+\label{sec:dm-from-itemsets-to-sequences}
+
+To understand the necessity of sequential algorithms, it is helpful to revisit the assumptions of traditional frequent itemset mining when applied to time-distributed transactions~\cite{tan2018}.
+
+\subsection{Recap: Frequent Itemsets and Market-Basket Analysis}
+In the classic framework (Chapter~\ref{chap:dm-association-analysis}), given a finite universe of distinct items $I = \{i_1, i_2, \dots, i_m\}$ and a database of transactions $D = \{T_1, T_2, \dots, T_N\}$ with each $T_j \subseteq I$, the support of an itemset $X \subseteq I$ is defined as the fraction of transactions containing $X$:
+\begin{equation}
+\label{eq:seq-recall-support-en}
+\sigma(X) = \frac{\big| \{ T_j \in D \mid X \subseteq T_j \} \big|}{|D|}
+\end{equation}
+An itemset is declared frequent if $\sigma(X) \ge \text{minsup}$ (or if its raw count reaches $\text{Min\_freq}$). In this model, transactions are treated as independent, unordered points in time.
+
+\begin{example}[Itemset Frequency on a 7-Transaction Database]
+Consider the toy transactional database composed of $N = 7$ transactions shown in Table~\ref{tab:seq-frequent-itemsets-toy-en}, evaluated with an absolute threshold $\text{Min\_freq} = 5$ ($\text{minsup} = 5/7 \approx 71.4\%$).
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c c c c c c c c}
+\toprule
+\textbf{TID} & \textbf{Steak} & \textbf{Pepper} & \textbf{Chicken} & \textbf{Fish} & \textbf{Ham} & \textbf{Bread} & \textbf{Sausages} \\
+\midrule
+\textbf{1} & 1 & 1 & 1 & 1 & 0 & 0 & 0 \\
+\textbf{2} & 1 & 1 & 1 & 1 & 0 & 0 & 1 \\
+\textbf{3} & 1 & 1 & 1 & 1 & 1 & 1 & 1 \\
+\textbf{4} & 1 & 1 & 1 & 1 & 1 & 1 & 0 \\
+\textbf{5} & 0 & 0 & 1 & 1 & 1 & 1 & 0 \\
+\textbf{6} & 0 & 0 & 1 & 1 & 1 & 1 & 0 \\
+\textbf{7} & 1 & 0 & 0 & 0 & 1 & 0 & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Toy binary transactional database ($N = 7$ transactions).}
+\label{tab:seq-frequent-itemsets-toy-en}
+\end{table}
+
+Evaluating the absolute occurrence counts for individual columns:
+\begin{itemize}[noitemsep]
+    \item \textbf{Steak}: appears in $\{1, 2, 3, 4, 7\} \implies \text{freq} = 5 \ge 5$ \textbf{(Frequent)};
+    \item \textbf{Pepper}: appears in $\{1, 2, 3, 4\} \implies \text{freq} = 4 < 5$ (Discarded);
+    \item \textbf{Chicken}: appears in $\{1, 2, 3, 4, 5, 6\} \implies \text{freq} = 6 \ge 5$ \textbf{(Frequent)};
+    \item \textbf{Fish}: appears in $\{1, 2, 3, 4, 5, 6\} \implies \text{freq} = 6 \ge 5$ \textbf{(Frequent)};
+    \item \textbf{Ham}: appears in $\{3, 4, 5, 6, 7\} \implies \text{freq} = 5 \ge 5$ \textbf{(Frequent)};
+    \item \textbf{Bread}: appears in $\{3, 4, 5, 6\} \implies \text{freq} = 4 < 5$ (Discarded);
+    \item \textbf{Sausages}: appears in $\{2, 3\} \implies \text{freq} = 2 < 5$ (Discarded).
+\end{itemize}
+Testing 2-itemset candidates, the pair $\{\text{Chicken, Fish}\}$ occurs together in rows $\{1, 2, 3, 4, 5, 6\}$, giving an absolute frequency of $6 \ge 5$.
+
+The complete set of frequent itemsets for $\text{Min\_freq} = 5$ is:
+\begin{equation}
+\{\text{Steak}\}, \quad \{\text{Chicken}\}, \quad \{\text{Fish}\}, \quad \{\text{Ham}\}, \quad \{\text{Chicken, Fish}\}
+\end{equation}
+\end{example}
+
+\subsection{Transition to Complex Multi-Basket Domains}
+In modern enterprise architectures, each customer generates a sequential stream of transactions over time. The historical record for an entity is therefore represented as a \textbf{temporal timeline of shopping carts}, where each cart may contain multiple simultaneous items.
+
+Consider a database containing four customer accounts, whose sequential purchase histories are depicted in Figure~\ref{fig:dm-seq-customer-timelines-en}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape},
+    cart/.style={rectangle, draw=navy, fill=navy!8, rounded corners=2pt, font=\footnotesize, minimum height=0.65cm, inner sep=3.5pt, align=center},
+    arr/.style={->, >=Stealth, thick, color=navy!70},
+    cust/.style={font=\small\bfseries, anchor=east}
+]
+    % Customer 1
+    \node[cust] at (0, 3.6) {Customer 1:};
+    \node[cart, anchor=west] (c1_1) at (0.3, 3.6) {\{Steak, Chicken\}};
+    \node[cart, right=0.45cm of c1_1] (c1_2) {\{Pepper\}};
+    \node[cart, right=0.45cm of c1_2] (c1_3) {\{Fish\}};
+    \draw[arr] (c1_1) -- (c1_2);
+    \draw[arr] (c1_2) -- (c1_3);
+
+    % Customer 2
+    \node[cust] at (0, 2.4) {Customer 2:};
+    \node[cart, anchor=west] (c2_1) at (0.3, 2.4) {\{Sausages\}};
+    \node[cart, right=0.45cm of c2_1] (c2_2) {\{Steak, Chicken\}};
+    \node[cart, right=0.45cm of c2_2] (c2_3) {\{Ham, Fish\}};
+    \draw[arr] (c2_1) -- (c2_2);
+    \draw[arr] (c2_2) -- (c2_3);
+
+    % Customer 3
+    \node[cust] at (0, 1.2) {Customer 3:};
+    \node[cart, anchor=west] (c3_1) at (0.3, 1.2) {\{Pepper, Ham\}};
+    \node[cart, right=0.4cm of c3_1] (c3_2) {\{Ham, Fish\}};
+    \node[cart, right=0.4cm of c3_2] (c3_3) {\{Chicken\}};
+    \node[cart, right=0.4cm of c3_3] (c3_4) {\{Sausages\}};
+    \draw[arr] (c3_1) -- (c3_2);
+    \draw[arr] (c3_2) -- (c3_3);
+    \draw[arr] (c3_3) -- (c3_4);
+
+    % Customer 4
+    \node[cust] at (0, 0.0) {Customer 4:};
+    \node[cart, anchor=west] (c4_1) at (0.3, 0.0) {\{Steak, Chicken, Fish\}};
+    \node[cart, right=0.45cm of c4_1] (c4_2) {\{Fish\}};
+    \node[cart, right=0.45cm of c4_2] (c4_3) {\{Steak\}};
+    \draw[arr] (c4_1) -- (c4_2);
+    \draw[arr] (c4_2) -- (c4_3);
+\end{tikzpicture}
+\caption{Temporal purchase histories for four customers in a multi-basket environment.}
+\label{fig:dm-seq-customer-timelines-en}
+\end{figure}
+
+\subsection{Objective of Sequential Pattern Mining}
+The overarching goal is to extract ordered temporal subsequences that recur across a substantial fraction of customer sequences, exceeding a user-defined threshold $\text{minsup}$.
+
+Inspecting Figure~\ref{fig:dm-seq-customer-timelines-en}, consider the candidate ordered sequence:
+\begin{equation}
+\label{eq:seq-candidate-steak-fish-en}
+w = \langle \{\text{Steak, Chicken}\} \, \{\text{Fish}\} \rangle
+\end{equation}
+This candidate dictates that a customer buys Steak and Chicken concurrently, and at a \textbf{later} point in time purchases Fish.
+Checking all four customers:
+\begin{itemize}
+    \item \textbf{Customer 1}: purchases $\{\text{Steak, Chicken}\}$ at cart 1, followed by $\{\text{Fish}\}$ at cart 3 $\implies$ \textbf{Match};
+    \item \textbf{Customer 2}: purchases $\{\text{Steak, Chicken}\}$ at cart 2, followed by cart $\{\text{Ham, Fish}\}$ (containing Fish) at cart 3 $\implies$ \textbf{Match};
+    \item \textbf{Customer 3}: purchases Pepper, Ham, Fish, then Chicken. Steak and Chicken are never bought together prior to Fish $\implies$ \textbf{No Match};
+    \item \textbf{Customer 4}: purchases $\{\text{Steak, Chicken, Fish}\}$ at cart 1 (which contains $\{\text{Steak, Chicken}\}$), followed by $\{\text{Fish}\}$ at cart 2 $\implies$ \textbf{Match}.
+\end{itemize}
+
+The candidate pattern $w = \langle \{\text{Steak, Chicken}\} \, \{\text{Fish}\} \rangle$ is supported by 3 out of 4 customers:
+\begin{equation}
+\sigma(w) = \frac{3}{4} = 75\%
+\end{equation}
+This captures a recurrent chronological consumption habit that isolated single-basket mining cannot detect.
+
+\subsection{Predictive Sequential Rules in Industrial and Commercial Systems}
+From discovered frequent sequential patterns, high-confidence predictive \textbf{sequential rules} $S_1 \Longrightarrow S_2$ can be derived:
+\begin{itemize}
+    \item \textbf{Telecommunication Networks (Alarm Management)}:
+    \begin{equation}
+    \langle \{\text{Line\_Current}\} \rangle \, \langle \{\text{Rectifier\_Alarm}\} \rangle \Longrightarrow \langle \{\text{Fire\_Alarm}\} \rangle
+    \end{equation}
+    In telecommunication facilities, abnormal line draw followed by rectifier thermal warnings accurately forewarns of facility fires, allowing automated load disconnection before catastrophic ignition.
+    
+    \item \textbf{Technical Computer Bookstore (Sequential Cross-Selling)}:
+    \begin{equation}
+    \begin{split}
+    \langle \{\text{Intro\_Visual\_C}\} \rangle \, &\langle \{\text{C++\_Primer}\} \rangle \Longrightarrow \\
+    &\langle \{\text{Perl\_for\_dummies, Tcl\_Tk}\} \rangle
+    \end{split}
+    \end{equation}
+    Readers mastering foundational systems programming naturally transition toward system automation and scripting languages, enabling tailored post-purchase recommendations.
+    
+    \item \textbf{Athletic Apparel Store (Equipment Lifecycle)}:
+    \begin{equation}
+    \langle \{\text{Shoes}\} \rangle \, \langle \{\text{Racket, Racketball}\} \rangle \Longrightarrow \langle \{\text{Sports\_Jacket}\} \rangle
+    \end{equation}
+    An initial footwear purchase followed by specialized court equipment predictably leads to protective outerwear purchases.
+\end{itemize}
+
+% ====================================================================
+% SECTION 12.3: TAXONOMY AND SEQUENCE REPRESENTATION
+% ====================================================================
+\section{Taxonomy and Sequence Representation}
+\label{sec:dm-seq-taxonomy}
+
+Sequential pattern mining relies on a unified mathematical abstraction that applies identically across disparate operational domains~\cite{tan2018}.
+
+\subsection{Terminology Mapping Across Domains}
+Table~\ref{tab:dm-seq-taxonomy-mapping-en} formalizes the conceptual correspondence between theoretical abstractions and concrete real-world contexts.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{p{2.2cm} Y Y Y Y}
+\toprule
+\textbf{Application Domain} & \textbf{Sequence Database ($D$)} & \textbf{Sequence ($s$)} & \textbf{Element / Transaction ($e_j$)} & \textbf{Event / Item ($i$)} \\
+\midrule
+\textbf{Customer Retail} & Complete customer transaction database & Full lifetime purchase history of one customer & Set of items purchased simultaneously at time $t$ & Single distinct product (e.g., Milk, Book) \\
+\midrule
+\textbf{Web Clickstream} & HTTP Web server access log repository & Navigational trajectory of a single visitor session & Web pages or resources retrieved upon a click & Individual URL, file, or script requested \\
+\midrule
+\textbf{Sensor Networks} & Centralized telemetry archive & Historical time series recorded by a specific sensor & Set of alarms or status codes recorded at time $t$ & Specific alarm type or threshold alert \\
+\midrule
+\textbf{Genomics / DNA} & Molecular sequence database (e.g., GenBank) & Complete DNA strand for a biological organism & Specific position along the molecular sequence & Individual nucleotide base ($\text{A, C, G, T}$) \\
+\bottomrule
+\end{tabularx}
+\caption{Formal terminology mapping across primary application domains.}
+\label{tab:dm-seq-taxonomy-mapping-en}
+\end{table}
+
+\subsection{Tabular and Timeline Representations}
+In raw storage systems, sequential records are represented as tuples composed of an entity identifier (\texttt{Object}), a timestamp (\texttt{Timestamp}), and observed occurrences (\texttt{Events}).
+
+Consider the raw logs listed in Table~\ref{tab:dm-seq-raw-table-en}:
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c c l}
+\toprule
+\textbf{Object} & \textbf{Timestamp ($t$)} & \textbf{Recorded Events} \\
+\midrule
+\multirow{3}{*}{\textbf{A}} & 10 & $\{2, 3, 5\}$ \\
+                            & 20 & $\{1, 6\}$ \\
+                            & 23 & $\{1\}$ \\
+\midrule
+\multirow{4}{*}{\textbf{B}} & 11 & $\{4, 5, 6\}$ \\
+                            & 17 & $\{2\}$ \\
+                            & 21 & $\{1, 2, 7, 8\}$ \\
+                            & 28 & $\{1, 6\}$ \\
+\midrule
+\textbf{C}                  & 14 & $\{1, 7, 8\}$ \\
+\bottomrule
+\end{tabular}
+\caption{Raw tabular event logs for three distinct entities.}
+\label{tab:dm-seq-raw-table-en}
+\end{table}
+
+In Figure~\ref{fig:dm-seq-timeline-diagram-en}, these recordings are plotted along a continuous time axis from $t = 10$ to $t = 30$.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    timeline/.style={thick, color=navy!80, ->, >=Stealth},
+    tick/.style={thick, color=navy!80},
+    eventnode/.style={circle, fill=navy, inner sep=1.8pt},
+    stem/.style={draw=navy!60, line width=0.6pt},
+    labelbox/.style={rectangle, draw=navy!60, fill=navy!6, rounded corners=2pt, font=\scriptsize, align=center, inner sep=2.5pt}
+]
+    % Horizontal timeline
+    \draw[timeline] (-0.2, 0) -- (10.6, 0) node[right, font=\footnotesize\bfseries] {Time $t$};
+    
+    % Main time ticks (from 10 to 30)
+    % Scale: x(t) = 0.5 + (t - 10) * 0.45
+    \foreach \t/\x in {10/0.5, 15/2.75, 20/5.0, 25/7.25, 30/9.5} {
+        \draw[tick] (\x, -0.15) -- (\x, 0.15);
+        \node[below=2pt, font=\scriptsize\bfseries] at (\x, -0.15) {$\t$};
+    }
+    % Minor ticks
+    \foreach \t in {11,12,13,14, 16,17,18,19, 21,22,23,24, 26,27,28,29} {
+        \pgfmathsetmacro\xpos{0.5 + (\t - 10)*0.45}
+        \draw[color=navy!35, thin] (\xpos, -0.07) -- (\xpos, 0.07);
+    }
+
+    % ========================================================
+    % Object A track (y = 4.4)
+    % ========================================================
+    \draw[dashed, color=gray!35] (0.0, 4.4) -- (10.2, 4.4);
+    \node[anchor=east, font=\small\bfseries, color=navy] at (-0.2, 4.4) {Object A:};
+    
+    % t = 10 -> x = 0.5
+    \node[eventnode] (a1) at (0.5, 4.4) {};
+    \draw[stem] (a1) -- (0.5, 4.85);
+    \node[labelbox] at (0.5, 5.12) {$\{2, 3, 5\}$\\{\tiny $t=10$}};
+    
+    % t = 20 -> x = 5.0
+    \node[eventnode] (a2) at (5.0, 4.4) {};
+    \draw[stem] (a2) -- (5.0, 4.85);
+    \node[labelbox] at (5.0, 5.12) {$\{1, 6\}$\\{\tiny $t=20$}};
+    
+    % t = 23 -> x = 6.35 (staggered slightly higher to eliminate any proximity)
+    \node[eventnode] (a3) at (6.35, 4.4) {};
+    \draw[stem] (a3) -- (6.35, 5.25);
+    \node[labelbox] at (6.35, 5.52) {$\{1\}$\\{\tiny $t=23$}};
+
+    % ========================================================
+    % Object B track (y = 2.6)
+    % ========================================================
+    \draw[dashed, color=gray!35] (0.0, 2.6) -- (10.2, 2.6);
+    \node[anchor=east, font=\small\bfseries, color=navy] at (-0.2, 2.6) {Object B:};
+    
+    % t = 11 -> x = 0.95
+    \node[eventnode] (b1) at (0.95, 2.6) {};
+    \draw[stem] (b1) -- (0.95, 3.05);
+    \node[labelbox] at (0.95, 3.32) {$\{4, 5, 6\}$\\{\tiny $t=11$}};
+    
+    % t = 17 -> x = 3.65
+    \node[eventnode] (b2) at (3.65, 2.6) {};
+    \draw[stem] (b2) -- (3.65, 3.05);
+    \node[labelbox] at (3.65, 3.32) {$\{2\}$\\{\tiny $t=17$}};
+    
+    % t = 21 -> x = 5.45 (staggered higher)
+    \node[eventnode] (b3) at (5.45, 2.6) {};
+    \draw[stem] (b3) -- (5.45, 3.45);
+    \node[labelbox] at (5.45, 3.72) {$\{1, 2, 7, 8\}$\\{\tiny $t=21$}};
+    
+    % t = 28 -> x = 8.6
+    \node[eventnode] (b4) at (8.6, 2.6) {};
+    \draw[stem] (b4) -- (8.6, 3.05);
+    \node[labelbox] at (8.6, 3.32) {$\{1, 6\}$\\{\tiny $t=28$}};
+
+    % ========================================================
+    % Object C track (y = 1.1)
+    % ========================================================
+    \draw[dashed, color=gray!35] (0.0, 1.1) -- (10.2, 1.1);
+    \node[anchor=east, font=\small\bfseries, color=navy] at (-0.2, 1.1) {Object C:};
+    
+    % t = 14 -> x = 2.3
+    \node[eventnode] (c1) at (2.3, 1.1) {};
+    \draw[stem] (c1) -- (2.3, 1.55);
+    \node[labelbox] at (2.3, 1.82) {$\{1, 7, 8\}$\\{\tiny $t=14$}};
+\end{tikzpicture}
+\caption{Continuous timeline projection of events for Objects A, B, and C.}
+\label{fig:dm-seq-timeline-diagram-en}
+\end{figure}
+
+Inspection of Figure~\ref{fig:dm-seq-timeline-diagram-en} reveals two key properties:
+\begin{enumerate}
+    \item \textbf{Heterogeneous Time Intervals ($\Delta t$)}: The elapsed time between consecutive transactions is non-uniform. For Object B, $\Delta t_{1 \to 2} = 17 - 11 = 6$, whereas $\Delta t_{2 \to 3} = 21 - 17 = 4$, and $\Delta t_{3 \to 4} = 28 - 21 = 7$.
+    \item \textbf{Cross-Object Asynchrony}: Events across independent objects do not align along synchronized clock ticks.
+\end{enumerate}
+
+% ====================================================================
+% SECTION 12.4: MATHEMATICAL FORMALIZATION OF SEQUENCES
+% ====================================================================
+\section{Formalization of Sequence Data}
+\label{sec:dm-seq-formal-definition}
+
+We formalize the core constructs of sequence mining mathematically~\cite{tan2018, agrawal1995}.
+
+\begin{definition}[Item and Universe Set]
+Let $I = \{i_1, i_2, \dots, i_m\}$ denote a finite set of distinct elements, called \textbf{items} or \textbf{events}.
+\end{definition}
+
+\begin{definition}[Element or Transaction]
+An \textbf{element} (or transaction) $e \subseteq I$ is a non-empty subset of items:
+\begin{equation}
+e = \{i_{j_1}, i_{j_2}, \dots, i_{j_k}\} \quad \text{with } e \subseteq I, \; e \neq \emptyset
+\end{equation}
+Items belonging to the same element are enclosed in curly braces $\{ \}$ and are unordered, signifying simultaneous co-occurrence.
+\end{definition}
+
+\begin{definition}[Sequence]
+A \textbf{sequence} $s$ is an ordered list of elements, enclosed within angle brackets $\langle \;\rangle$:
+\begin{equation}
+\label{eq:seq-formal-def-en}
+s = \langle e_1, e_2, \dots, e_p \rangle
+\end{equation}
+where each $e_j \subseteq I$ is an element. Positional indices denote chronological ordering such that event timestamps satisfy $t(e_j) < t(e_{j+1})$ for all $1 \le j < p$.
+\end{definition}
+
+\begin{definition}[Sequence Length]
+The \textbf{length} of a sequence $s$, denoted by $|s|$, is strictly defined as the total number of elements (distinct time steps) it contains:
+\begin{equation}
+|s| = p
+\end{equation}
+\end{definition}
+
+\begin{definition}[$k$-Sequence]
+A sequence $s = \langle e_1, e_2, \dots, e_p \rangle$ is called a \textbf{$k$-sequence} if the total number of items contained across all its constituent elements equals $k$:
+\begin{equation}
+\label{eq:seq-k-sequence-en}
+k = \sum_{j=1}^{p} |e_j|
+\end{equation}
+\end{definition}
+
+\begin{alertblock}{Critical Distinction: Sequence Length vs $k$-Value}
+    Avoid conflating \textbf{length} $|s|$ with the size parameter \textbf{$k$}:
+    \begin{itemize}[noitemsep]
+        \item \textbf{Length} $|s| = p$ counts the number of \textbf{discrete temporal steps} (baskets/elements);
+        \item Parameter \textbf{$k$} sums the total volume of individual \textbf{items} across all baskets.
+    \end{itemize}
+\end{alertblock}
+
+\begin{example}[Calculating Length and $k$ for a Sequence]
+Consider the sequence:
+\begin{equation}
+\label{eq:seq-example-calc-en}
+s = \langle \{A, B\} \, \{B, E, F\} \, \{A\} \, \{E, F, H\} \rangle
+\end{equation}
+\begin{itemize}
+    \item \textbf{Constituent elements}:
+    \begin{equation*}
+    e_1 = \{A, B\}, \quad e_2 = \{B, E, F\}, \quad e_3 = \{A\}, \quad e_4 = \{E, F, H\}
+    \end{equation*}
+    The sequence contains $p = 4$ ordered elements $\implies$ \textbf{Length} $|s| = 4$.
+    \item \textbf{Element cardinalities}:
+    \begin{equation*}
+    |e_1| = 2, \quad |e_2| = 3, \quad |e_3| = 1, \quad |e_4| = 3
+    \end{equation*}
+    Summing item counts:
+    \begin{equation*}
+    k = |e_1| + |e_2| + |e_3| + |e_4| = 2 + 3 + 1 + 3 = 9
+    \end{equation*}
+    Hence, $s$ is a \textbf{9-sequence of length 4}.
+    \item \textbf{Associated timestamps}:
+    If elements occur at physical timestamps $t(e_1) = 0$, $t(e_2) = 120$, $t(e_3) = 130$, and $t(e_4) = 200$, intervals are heterogeneous: $\Delta t_{1 \to 2} = 120$, $\Delta t_{2 \to 3} = 10$, $\Delta t_{3 \to 4} = 70$.
+\end{itemize}
+\end{example}
+
+\subsection{Sequences Without Explicit Timestamps}
+When physical clock timestamps are omitted, standard ordinal indexing (zero-based or 1-based) is adopted as the implicit temporal dimension:
+\begin{equation}
+t(e_j) = j - 1 \quad \text{for } j = 1, 2, \dots, p
+\end{equation}
+For example, given:
+\begin{equation}
+s = \langle \{A, C\} \, \{E\} \, \{A, F\} \, \{E, G, H\} \rangle
+\end{equation}
+the default assigned timestamps are:
+\begin{equation*}
+t(\{A, C\}) = 0, \quad t(\{E\}) = 1, \quad t(\{A, F\}) = 2, \quad t(\{E, G, H\}) = 3
+\end{equation*}
+
+\subsection{Singleton Sequences vs Complex Element Sequences}
+A fundamental categorization concerns the cardinality of elements $e_j$:
+\begin{itemize}
+    \item \textbf{Singleton Element Sequences ($|e_j| = 1 \; \forall j$)}: Every time step comprises exactly one item. Here length strictly equals $k$ ($|s| = k$).
+    \begin{itemize}
+        \item \textit{Web Clickstream}:
+        \begin{equation*}
+        \langle \{\text{Home}\} \, \{\text{Electronics}\} \, \{\text{Cameras}\} \, \{\text{Cart}\} \, \{\text{Checkout}\} \rangle
+        \end{equation*}
+        \item \textit{Library Loans}:
+        \begin{equation*}
+        \langle \{\text{Book}_1\} \, \{\text{Book}_2\} \, \{\text{Book}_3\} \rangle
+        \end{equation*}
+        Length = 3, 3-sequence.
+    \end{itemize}
+    \item \textbf{Complex Element Sequences ($\exists j : |e_j| > 1$)}: Multiple items occur concurrently at one or more time steps, resulting in $k > |s|$.
+    \begin{itemize}
+        \item \textit{Industrial Incident}: $\langle \{\text{resin, valve}\} \, \{\text{pump}\} \, \{\text{turbine, pressure}\} \rangle$ (Length = 3, 5-sequence).
+    \end{itemize}
+\end{itemize}
+
+% ====================================================================
+% SECTION 12.5: CONTAINMENT RELATION AND SUBSEQUENCES
+% ====================================================================
+\section{Containment Relationship and Subsequence Definition}
+\label{sec:dm-seq-subsequence}
+
+The fundamental operation for frequency counting and sequential matching is the algebraic concept of a \textbf{subsequence}~\cite{tan2018, agrawal1995}.
+
+\begin{definition}[Subsequence / Containment]
+Let $a$ and $b$ be two arbitrary sequences:
+\begin{equation}
+a = \langle a_1, a_2, \dots, a_n \rangle \quad \text{and} \quad b = \langle b_1, b_2, \dots, b_m \rangle \quad \text{with } m \ge n
+\end{equation}
+We say that $a$ is a \textbf{subsequence} of $b$ (or that $b$ contains $a$, formally denoted by $a \subseteq b$) if and only if there exists a strictly increasing index mapping of length $n$:
+\begin{equation}
+\label{eq:seq-subsequence-indices-en}
+1 \le i_1 < i_2 < \dots < i_n \le m
+\end{equation}
+such that every element of $a$ is a subset of the matched element in $b$:
+\begin{equation}
+\label{eq:seq-subsequence-inclusion-en}
+a_1 \subseteq b_{i_1}, \quad a_2 \subseteq b_{i_2}, \quad \dots, \quad a_n \subseteq b_{i_n}
+\end{equation}
+If $a \subseteq b$, then $b$ is called a \textbf{supersequence} of $a$, or $b$ is said to support $a$.
+\end{definition}
+
+\begin{alertblock}{Crucial Property: Non-Contiguity in Time}
+    Elements of the candidate subsequence $a$ \textbf{need not appear contiguously} inside $b$. Arbitrary intervening transactions may occur between $b_{i_j}$ and $b_{i_{j+1}}$, provided that relative chronological order is strictly preserved ($i_1 < i_2 < \dots < i_n$).
+\end{alertblock}
+
+\subsection{Visual Subsequence Matching Example}
+Consider candidate subsequence $a$ and data sequence $b$:
+\begin{align}
+a &= \langle \{A\} \, \{B, C\} \, \{D\} \rangle \quad (n = 3) \\
+b &= \langle \{D\}_{t=0} \, \{A, C\}_{t=1} \, \{A, B, C\}_{t=2} \, \{F\}_{t=3} \, \{B, E\}_{t=4} \, \{D\}_{t=5} \rangle \quad (m = 6)
+\end{align}
+
+Verifying $a \subseteq b$ through strictly increasing indices:
+\begin{itemize}
+    \item For $a_1 = \{A\}$: at $t = 1$, $\{A\} \subseteq \{A, C\} = b_1 \implies i_1 = 1$;
+    \item For $a_2 = \{B, C\}$: at $t = 2$, $\{B, C\} \subseteq \{A, B, C\} = b_2 \implies i_2 = 2$;
+    \item For $a_3 = \{D\}$: at $t = 5$, $\{D\} \subseteq \{D\} = b_5 \implies i_3 = 5$.
+\end{itemize}
+Because $1 < 2 < 5$, the containment condition $a \subseteq b$ holds. Figure~\ref{fig:dm-seq-matching-example-en} illustrates this alignment.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    seqbox/.style={rectangle, draw=navy, fill=navy!10, rounded corners=3pt, font=\small, inner sep=4pt, align=center},
+    subbox/.style={rectangle, draw=darkgreen, fill=darkgreen!12, rounded corners=3pt, font=\small\bfseries, inner sep=4pt, align=center},
+    matchline/.style={draw=darkgreen!80, line width=1.2pt, dashed, ->, >=Stealth}
+]
+    % Data Sequence b (top row)
+    \node[anchor=east, font=\small\bfseries, color=navy] at (-0.3, 2.2) {Data Sequence $b$:};
+    \node[seqbox] (b0) at (0.8, 2.2) {$\{D\}$\\{\scriptsize $t=0$}};
+    \node[seqbox] (b1) at (2.4, 2.2) {$\{A, C\}$\\{\scriptsize $t=1$}};
+    \node[seqbox] (b2) at (4.3, 2.2) {$\{A, B, C\}$\\{\scriptsize $t=2$}};
+    \node[seqbox] (b3) at (6.3, 2.2) {$\{F\}$\\{\scriptsize $t=3$}};
+    \node[seqbox] (b4) at (8.0, 2.2) {$\{B, E\}$\\{\scriptsize $t=4$}};
+    \node[seqbox] (b5) at (9.8, 2.2) {$\{D\}$\\{\scriptsize $t=5$}};
+
+    % Subsequence a (bottom row)
+    \node[anchor=east, font=\small\bfseries, color=darkgreen!90!black] at (-0.3, 0.0) {Subsequence $a$:};
+    \node[subbox] (a1) at (2.4, 0.0) {$\{A\}$\\{\scriptsize $j=1$}};
+    \node[subbox] (a2) at (4.3, 0.0) {$\{B, C\}$\\{\scriptsize $j=2$}};
+    \node[subbox] (a3) at (9.8, 0.0) {$\{D\}$\\{\scriptsize $j=3$}};
+
+    % Arrows
+    \draw[matchline] (a1) -- node[right, font=\scriptsize, color=darkgreen!90!black] {$i_1=1$} (b1);
+    \draw[matchline] (a2) -- node[right, font=\scriptsize, color=darkgreen!90!black] {$i_2=2$} (b2);
+    \draw[matchline] (a3) -- node[right, font=\scriptsize, color=darkgreen!90!black] {$i_3=5$} (b5);
+\end{tikzpicture}
+\caption{Alignment between candidate subsequence $a$ and sequence $b$ with indices $i_1=1 < i_2=2 < i_3=5$.}
+\label{fig:dm-seq-matching-example-en}
+\end{figure}
+
+\subsection{Containment Edge Cases and Counterexamples}
+To consolidate understanding of Definition~\ref{eq:seq-subsequence-indices-en}, examine the three cases in Table~\ref{tab:dm-seq-subsequence-check-en}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{Y Y c Y}
+\toprule
+\textbf{Data Sequence ($b$)} & \textbf{Candidate Subsequence ($a$)} & \textbf{Contained?} & \textbf{Analytical Justification} \\
+\midrule
+$\langle \{2, 4\} \, \{3, 5, 6\} \, \{8\} \rangle$ & $\langle \{2\} \, \{3, 5\} \rangle$ & \textbf{YES} & $\{2\} \subseteq \{2, 4\}$ at index $1$; $\{3, 5\} \subseteq \{3, 5, 6\}$ at index $2$. Index ordering $i_1 = 1 < i_2 = 2$ holds. \\
+\midrule
+$\langle \{1, 2\} \, \{3, 4\} \rangle$ & $\langle \{1\} \, \{2\} \rangle$ & \textbf{NO} & Items $1$ and $2$ appear in the \textbf{same} element $b_1$. Subsequence $a$ strictly mandates $2$ occurring \textbf{after} $1$ ($i_1 < i_2$). Because no subsequent element contains $2$, containment fails. \\
+\midrule
+$\langle \{2, 4\} \, \{2, 4\} \, \{2, 5\} \rangle$ & $\langle \{2\} \, \{4\} \rangle$ & \textbf{YES} & $\{2\} \subseteq b_1$ at index $1$; $\{4\} \subseteq b_2$ at index $2$. Index ordering $i_1 = 1 < i_2 = 2$ holds. \\
+\bottomrule
+\end{tabularx}
+\caption{Subsequence containment evaluation on sample sequences.}
+\label{tab:dm-seq-subsequence-check-en}
+\end{table}
+
+\begin{noteblock}{Difference Between $\{1, 2\}$ and $\langle \{1\} \, \{2\} \rangle$}
+    The second row in Table~\ref{tab:dm-seq-subsequence-check-en} highlights the essential semantic boundary between concurrent co-occurrence and chronological ordering:
+    \begin{itemize}[noitemsep]
+        \item If two items are purchased in the same basket, they form element $\{1, 2\}$;
+        \item Sequence $\langle \{1\} \, \{2\} \rangle$ explicitly requires item $1$ to precede item $2$ ($t(1) < t(2)$).
+    \end{itemize}
+    Thus, $\{1, 2\}$ neither matches nor supports $\langle \{1\} \, \{2\} \rangle$.
+\end{noteblock}
+
+% ====================================================================
+% SECTION 12.6: SEQUENTIAL PATTERNS AND MULTIPLE INSTANCES
+% ====================================================================
+\section{Sequential Pattern Support and Multiple Instances}
+\label{sec:dm-seq-patterns-instances}
+
+We formally define support counting for candidate sequences over a sequence database~\cite{tan2018, agrawal1995}.
+
+\subsection{Definition of Sequential Pattern Support}
+\begin{definition}[Sequence Support]
+Let $D = \{s_1, s_2, \dots, s_{|D|}\}$ be a sequence database. The \textbf{support} (relative frequency) of a candidate sequence $w$ is defined as the fraction of sequences in $D$ that contain $w$ as a subsequence:
+\begin{equation}
+\label{eq:seq-support-definition-en}
+\sigma(w) = \frac{\big| \{ s \in D \mid w \subseteq s \} \big|}{|D|}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Sequential Pattern]
+A sequence $w$ is declared a \textbf{Sequential Pattern} (or frequent sequence) if and only if its support meets or exceeds a user-specified minimum threshold:
+\begin{equation}
+\sigma(w) \ge \text{minsup}
+\end{equation}
+\end{definition}
+
+\begin{example}[Support Calculation Across 4 Sequences]
+Consider candidate sequence:
+\begin{equation}
+w = \langle \{A\} \, \{B, C\} \, \{D\} \rangle
+\end{equation}
+and database $D$ comprising 4 customer sequences:
+\begin{align*}
+s_1 &= \langle \{D\} \, \{A, C\} \, \{A, B, C\} \, \{F\} \, \{D\} \rangle \\
+s_2 &= \langle \{D\} \, \{A\} \, \{A, B, D\} \, \{D\} \rangle \\
+s_3 &= \langle \{D\} \, \{A, C\} \, \{B, C\} \, \{D\} \, \{B, E\} \rangle \\
+s_4 &= \langle \{D\} \, \{B, C\} \, \{D\} \, \{F\} \rangle
+\end{align*}
+
+Verifying $w \subseteq s_k$:
+\begin{enumerate}
+    \item \textbf{Sequence $s_1$}:
+    $\{A\} \subseteq \{A, C\}$ at $t=1$, $\{B, C\} \subseteq \{A, B, C\}$ at $t=2$, $\{D\} \subseteq \{D\}$ at $t=4$.
+    Since $1 < 2 < 4 \implies w \subseteq s_1$ \textbf{(MATCH, $\checkmark$)}.
+    
+    \item \textbf{Sequence $s_2$}:
+    Element $\{A, B, D\}$ lacks item $C$. Itemset $\{B, C\}$ appears nowhere in $s_2$.
+    Thus $w \not\subseteq s_2$ \textbf{(NO MATCH, $\times$)}.
+    
+    \item \textbf{Sequence $s_3$}:
+    $\{A\} \subseteq \{A, C\}$ at $t=1$, $\{B, C\} \subseteq \{B, C\}$ at $t=2$, $\{D\} \subseteq \{D\}$ at $t=3$.
+    Since $1 < 2 < 3 \implies w \subseteq s_3$ \textbf{(MATCH, $\checkmark$)}.
+    
+    \item \textbf{Sequence $s_4$}:
+    Element $\{B, C\}$ is preceded solely by $\{D\}$ at $t=0$. Item $A$ does not appear prior to $\{B, C\}$.
+    Thus $w \not\subseteq s_4$ \textbf{(NO MATCH, $\times$)}.
+\end{enumerate}
+
+Support evaluation:
+\begin{equation}
+\sigma(w) = \frac{|\{s_1, s_3\}|}{|D|} = \frac{2}{4} = 0.50 \quad (50\%)
+\end{equation}
+If $\text{minsup} \le 50\%$, $w$ is classified as a frequent sequential pattern.
+\end{example}
+
+\subsection{Concept of Instance (Embedding) and Counting Convention}
+A candidate sequence $w$ may map onto the same data sequence $s$ via multiple distinct timestamp combinations.
+
+\begin{definition}[Instance / Embedding]
+Given candidate subsequence $w = \langle w_1, \dots, w_n \rangle$ and data sequence $s = \langle s_0, \dots, s_{m-1} \rangle$, each ordered tuple of indices $\langle i_1, i_2, \dots, i_n \rangle$ satisfying:
+\begin{equation}
+i_1 < i_2 < \dots < i_n \quad \text{with } w_j \subseteq s_{i_j} \;\; \forall j \in \{1, \dots, n\}
+\end{equation}
+is defined as a distinct \textbf{instance} (or \textbf{embedding}) of $w$ in $s$.
+\end{definition}
+
+\begin{example}[Multiple Instance Analysis]
+Consider candidate pattern:
+\begin{equation*}
+w = \langle \{A\} \, \{B\} \, \{D\} \rangle
+\end{equation*}
+and data sequence:
+\begin{equation}
+\begin{split}
+s = \langle &\{D\}_{t=0} \, \{A, C\}_{t=1} \, \{A, B, C\}_{t=2} \\
+&\{F\}_{t=3} \, \{B, E\}_{t=4} \, \{D\}_{t=5} \rangle
+\end{split}
+\end{equation}
+This sequence yields three distinct valid matching embeddings:
+\begin{enumerate}
+    \item \textbf{Instance 1}: $\langle i_1 = 1, \, i_2 = 2, \, i_3 = 5 \rangle$
+    ($\{A\} \subseteq s_1$, $\{B\} \subseteq s_2$, $\{D\} \subseteq s_5$)
+    \item \textbf{Instance 2}: $\langle i_1 = 1, \, i_2 = 4, \, i_3 = 5 \rangle$
+    ($\{A\} \subseteq s_1$, $\{B\} \subseteq s_4$, $\{D\} \subseteq s_5$)
+    \item \textbf{Instance 3}: $\langle i_1 = 2, \, i_2 = 4, \, i_3 = 5 \rangle$
+    ($\{A\} \subseteq s_2$, $\{B\} \subseteq s_4$, $\{D\} \subseteq s_5$)
+\end{enumerate}
+\end{example}
+
+\begin{alertblock}{Standard Support Counting Convention}
+    In standard Sequential Pattern Mining:
+    \begin{equation*}
+    \text{Each data sequence contributes a binary count increment of } \mathbf{+1}
+    \end{equation*}
+    regardless of the number of valid internal embeddings it contains. Discovering \textbf{at least one valid embedding} is sufficient to count the sequence toward the numerator of $\sigma(w)$.
+\end{alertblock}
+
+% ====================================================================
+% SECTION 12.7: GUIDED EXERCISES AND EMBEDDING ENUMERATION
+% ====================================================================
+\section{Guided Exercise: Full Matching and Instance Enumeration}
+\label{sec:dm-seq-exercise}
+
+We carry out a complete analytical walkthrough verifying candidate patterns and enumerating all distinct instances.
+
+\subsection{Problem Statement}
+Given the 8-element data sequence $s$ spanning $t = 0$ to $t = 7$:
+\begin{equation}
+\label{eq:seq-exercise-input-en}
+\begin{split}
+s = \langle &\{A, C\}_{t=0} \, \{C, D\}_{t=1} \, \{F, H\}_{t=2} \, \{A, B\}_{t=3} \\
+&\{B, C, D\}_{t=4} \, \{E\}_{t=5} \, \{A, B, D\}_{t=6} \, \{F\}_{t=7} \rangle
+\end{split}
+\end{equation}
+
+Determine whether the following four candidate patterns are contained in $s$, and if so, enumerate all distinct temporal instances $\langle t_1, \dots, t_n \rangle$:
+\begin{enumerate}
+    \item $P_1 = \langle \{C\} \, \{H\} \, \{C\} \rangle$
+    \item $P_2 = \langle \{A\} \, \{F\} \rangle$
+    \item $P_3 = \langle \{A\} \, \{A\} \, \{D\} \rangle$
+    \item $P_4 = \langle \{A\} \, \{A, B\} \, \{F\} \rangle$
+\end{enumerate}
+
+\subsection{Detailed Analytical Solution}
+
+\subsubsection{Pattern 1: $P_1 = \langle \{C\} \, \{H\} \, \{C\} \rangle$}
+Requires identifying timestamps $t_1 < t_2 < t_3$ such that:
+\begin{equation*}
+C \in s_{t_1}, \quad H \in s_{t_2}, \quad C \in s_{t_3}
+\end{equation*}
+\begin{itemize}
+    \item Item $H$ is only present at $t = 2$ ($s_2 = \{F, H\}$). Thus $t_2 = 2$ is fixed.
+    \item Occurrences of $C$ prior to $t = 2$:
+    \begin{itemize}[noitemsep]
+        \item $t_1 = 0$: $C \in s_0 = \{A, C\}$;
+        \item $t_1 = 1$: $C \in s_1 = \{C, D\}$.
+    \end{itemize}
+    \item Occurrences of $C$ following $t = 2$:
+    \begin{itemize}[noitemsep]
+        \item At $t = 4$: $C \in s_4 = \{B, C, D\}$. In subsequent steps ($5, 6, 7$) item $C$ does not recur. Thus $t_3 = 4$.
+    \end{itemize}
+\end{itemize}
+Combining valid timestamps yields \textbf{2 distinct instances}:
+\begin{enumerate}
+    \item $\langle t_1 = 0, \, t_2 = 2, \, t_3 = 4 \rangle$
+    \item $\langle t_1 = 1, \, t_2 = 2, \, t_3 = 4 \rangle$
+\end{enumerate}
+\textbf{Result}: Pattern $P_1$ \textbf{OCCURS} (supported with 2 instances).
+
+\subsubsection{Pattern 2: $P_2 = \langle \{A\} \, \{F\} \rangle$}
+Requires finding timestamps $t_1 < t_2$ such that:
+\begin{equation*}
+A \in s_{t_1} \quad \text{and} \quad F \in s_{t_2}
+\end{equation*}
+\begin{itemize}
+    \item Item $A$ occurs at: $t \in \{0, 3, 6\}$ ($s_0 = \{A, C\}$, $s_3 = \{A, B\}$, $s_6 = \{A, B, D\}$).
+    \item Item $F$ occurs at: $t \in \{2, 7\}$ ($s_2 = \{F, H\}$, $s_7 = \{F\}$).
+\end{itemize}
+Evaluating pairs $(t_1, t_2)$ with $t_1 < t_2$:
+\begin{itemize}
+    \item For $t_1 = 0$: valid $t_2 > 0$ are $t_2 = 2$ and $t_2 = 7 \implies \langle 0, 2 \rangle, \langle 0, 7 \rangle$.
+    \item For $t_1 = 3$: valid $t_2 > 3$ is $t_2 = 7 \implies \langle 3, 7 \rangle$.
+    \item For $t_1 = 6$: valid $t_2 > 6$ is $t_2 = 7 \implies \langle 6, 7 \rangle$.
+\end{itemize}
+This produces \textbf{4 distinct instances}:
+\begin{equation}
+\langle 0, 2 \rangle, \quad \langle 0, 7 \rangle, \quad \langle 3, 7 \rangle, \quad \langle 6, 7 \rangle
+\end{equation}
+\textbf{Result}: Pattern $P_2$ \textbf{OCCURS} (supported with 4 instances).
+
+\subsubsection{Pattern 3: $P_3 = \langle \{A\} \, \{A\} \, \{D\} \rangle$}
+Requires timestamps $t_1 < t_2 < t_3$ with:
+\begin{equation*}
+A \in s_{t_1}, \quad A \in s_{t_2}, \quad D \in s_{t_3}
+\end{equation*}
+\begin{itemize}
+    \item Candidate pairs $(t_1, t_2)$ for $A$: $(0, 3)$, $(0, 6)$, $(3, 6)$.
+    \item Item $D$ occurs at timestamps: $t \in \{1, 4, 6\}$ ($s_1 = \{C, D\}$, $s_4 = \{B, C, D\}$, $s_6 = \{A, B, D\}$).
+    \item Testing each $(t_1, t_2)$ pair:
+    \begin{itemize}
+        \item For $(0, 3)$: require $t_3 > 3$ with $D \in s_{t_3}$. Valid timestamps are $t_3 = 4$ and $t_3 = 6$.
+        Yields instances $\langle 0, 3, 4 \rangle$ and $\langle 0, 3, 6 \rangle$.
+        \item For $(0, 6)$: requires $t_3 > 6$ with $D \in s_{t_3}$. At $t = 7$, only $\{F\}$ is present; no $D$ occurs after $t=6$. No valid instance.
+        \item For $(3, 6)$: requires $t_3 > 6$, which fails for the same reason.
+    \end{itemize}
+\end{itemize}
+Yields \textbf{2 distinct instances}:
+\begin{equation}
+\langle 0, 3, 4 \rangle \quad \text{and} \quad \langle 0, 3, 6 \rangle
+\end{equation}
+\textbf{Result}: Pattern $P_3$ \textbf{OCCURS} (supported with 2 instances).
+
+\subsubsection{Pattern 4: $P_4 = \langle \{A\} \, \{A, B\} \, \{F\} \rangle$}
+Requires timestamps $t_1 < t_2 < t_3$ such that:
+\begin{equation*}
+A \in s_{t_1}, \quad \{A, B\} \subseteq s_{t_2}, \quad F \in s_{t_3}
+\end{equation*}
+\begin{itemize}
+    \item The joint set $\{A, B\}$ appears in:
+    \begin{itemize}[noitemsep]
+        \item $s_3 = \{A, B\} \implies t_2 = 3$;
+        \item $s_6 = \{A, B, D\} \implies t_2 = 6$.
+    \end{itemize}
+    \item \textbf{Case $t_2 = 3$}:
+    \begin{itemize}[noitemsep]
+        \item For $t_1 < 3$ with $A \in s_{t_1}$: unique choice is $t_1 = 0$ ($s_0 = \{A, C\}$).
+        \item For $t_3 > 3$ with $F \in s_{t_3}$: unique choice is $t_3 = 7$ ($s_7 = \{F\}$).
+        \item Resulting instance: $\langle 0, 3, 7 \rangle$.
+    \end{itemize}
+    \item \textbf{Case $t_2 = 6$}:
+    \begin{itemize}[noitemsep]
+        \item For $t_1 < 6$ with $A \in s_{t_1}$: choices are $t_1 = 0$ or $t_1 = 3$.
+        \item For $t_3 > 6$ with $F \in s_{t_3}$: unique choice is $t_3 = 7$.
+        \item Resulting instances: $\langle 0, 6, 7 \rangle$ and $\langle 3, 6, 7 \rangle$.
+    \end{itemize}
+\end{itemize}
+Yields \textbf{3 distinct instances}:
+\begin{equation}
+\langle 0, 3, 7 \rangle, \quad \langle 0, 6, 7 \rangle, \quad \langle 3, 6, 7 \rangle
+\end{equation}
+\textbf{Result}: Pattern $P_4$ \textbf{OCCURS} (supported with 3 instances).
+
+\subsection{Summary of Exercise Solutions}
+Table~\ref{tab:dm-seq-exercise-summary-en} summarizes the results for sequence $s$.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{c Y c Y}
+\toprule
+\textbf{Pattern} & \textbf{Structural Form} & \textbf{Result} & \textbf{Temporal Instances $\langle t_1, \dots, t_n \rangle$} \\
+\midrule
+$P_1$ & $\langle \{C\} \, \{H\} \, \{C\} \rangle$ & \textbf{OCCURS} & $\langle 0, 2, 4 \rangle, \; \langle 1, 2, 4 \rangle$ (2 instances) \\
+$P_2$ & $\langle \{A\} \, \{F\} \rangle$ & \textbf{OCCURS} & $\langle 0, 2 \rangle, \; \langle 0, 7 \rangle, \; \langle 3, 7 \rangle, \; \langle 6, 7 \rangle$ (4 instances) \\
+$P_3$ & $\langle \{A\} \, \{A\} \, \{D\} \rangle$ & \textbf{OCCURS} & $\langle 0, 3, 4 \rangle, \; \langle 0, 3, 6 \rangle$ (2 instances) \\
+$P_4$ & $\langle \{A\} \, \{A, B\} \, \{F\} \rangle$ & \textbf{OCCURS} & $\langle 0, 3, 7 \rangle, \; \langle 0, 6, 7 \rangle, \; \langle 3, 6, 7 \rangle$ (3 instances) \\
+\bottomrule
+\end{tabularx}
+\caption{Summary of matching results and instances for the four candidate patterns.}
+\label{tab:dm-seq-exercise-summary-en}
+\end{table}
+
+\begin{noteblock}{Methodological Takeaways}
+    The analytical walkthrough verifies that:
+    \begin{enumerate}[noitemsep]
+        \item Individual elements in a sequence pattern may contain single or multiple simultaneous items;
+        \item Temporal precedence strictly requires increasing index mappings ($t_1 < t_2 < \dots < t_n$);
+        \item Identical items may repeat at distinct subsequent time steps within the same sequence;
+        \item Under standard Sequential Pattern Mining, each matched sequence contributes $+1$ to support, regardless of how many valid internal embeddings exist.
+    \end{enumerate}
+\end{noteblock}
