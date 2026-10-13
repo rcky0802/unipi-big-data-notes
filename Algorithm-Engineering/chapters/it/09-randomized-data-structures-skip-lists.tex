@@ -1,0 +1,599 @@
+\chapter{Strutture Dati Randomizzate: Il Problema del Dizionario e Skip List}
+\label{chap:randomized-data-structures}
+
+\begin{center}
+  \textbf{Lezione 9}\\
+  \emph{Strutture Dati Randomizzate: Problema del Dizionario, Decomposizione a Blocchi e Skip List con Backward Analysis}\\[0.5em]
+  Data: 12 Ottobre 2026
+\end{center}
+
+Nelle lezioni precedenti abbiamo esaminato in profondità sia i modelli a memoria gerarchica esterna (\textit{External Memory Model}) sia i flussi di dati ad alta velocità (\textit{Data Streams}), progettando algoritmi in grado di minimizzare i trasferimenti I/O e di campionare elementi in spazio ristretto. In tutti questi ambiti, l'efficienza algoritmica è strettamente subordinata alla capacità di gestire collezioni dinamiche di dati attraverso strutture associative capaci di supportare operazioni di ricerca, inserimento e cancellazione in tempo sublineare o logaritmico.
+
+In questo capitolo affrontiamo un principio architetturale di fondamentale rilevanza nell'ingegneria degli algoritmi: la \textbf{randomizzazione applicata alle strutture dati}. Invece di affidarsi a complessi meccanismi deterministici di bilanciamento (come le rigide rotazioni degli alberi AVL o il ricoloramento degli alberi Red-Black), introduciamo scelte pseudocasuali internamente agli algoritmi. Dimostriamo come l'impiego del caso consenta di affrancare le prestazioni asintotiche dalla distribuzione dei dati in ingresso, preservando le garanzie logaritmiche $\mathcal{O}(\log n)$ in valore atteso e con alta probabilità (\textit{with high probability}), e garantendo un'implementazione snella, priva di overhead strutturale e ideale per ambienti concorrenti multi-core.
+
+Esaminiamo in dettaglio la transizione dalla ricerca binaria deterministica su liste alla \textbf{Skip List} ideata da William Pugh, formalizzandone l'altezza e conducendo l'analisi probabilistica del costo di ricerca tramite \textbf{Backward Analysis}. Nella lezione successiva (Capitolo~\ref{chap:randomized-search-trees-treaps}), estenderemo il principio della randomizzazione agli alberi binari di ricerca analizzando il \textbf{Treap} e le sue applicazioni geometriche.
+
+\FloatBarrier
+\section{Introduzione e Motivazione: Il Problema del Dizionario}
+\label{sec:dictionary-problem-and-motivation}
+
+\subsection{Formalizzazione del Problema del Dizionario (Dictionary Problem)}
+In informatica teorica e nella progettazione di sistemi ad alte prestazioni, il \textbf{problema del dizionario} modella la gestione dinamica di un insieme finito di elementi $S$ prelevati da un universo totalmente ordinato $\mathcal{U}$, ciascuno indicizzato da una chiave univoca $k \in \mathcal{U}$.
+
+\begin{definition}[Problema del Dizionario Dinamico]
+Sia $\mathcal{U}$ un universo totalmente ordinato dotato di una relazione d'ordine totale $\le$, e sia $S \subseteq \mathcal{U}$ un insieme dinamico di cardinalità $|S| = n$. Una struttura dati per il dizionario mantiene $S$ sotto l'esecuzione di una sequenza arbitraria delle seguenti operazioni fondamentali:
+\begin{enumerate}
+  \item $\textsc{Search}(k)$: determina se esiste un elemento in $S$ con chiave $k$. Se presente, restituisce il puntatore/riferimento all'oggetto corrispondente; altrimenti restituisce un valore sentinella nullo ($\textsc{NIL}$).
+  \item $\textsc{Insert}(x)$: aggiunge un nuovo elemento $x$ con chiave $k = \operatorname{Key}(x)$ all'interno dell'insieme, aggiornando $S \leftarrow S \cup \{x\}$.
+  \item $\textsc{Delete}(x)$: rimuove l'elemento $x$ da $S$, aggiornando $S \leftarrow S \setminus \{x\}$.
+\end{enumerate}
+Oltre a queste operazioni cardine, nei sistemi reali (come DBMS e motori di indicizzazione) è indispensabile supportare in modo efficiente le \textbf{query basate sull'ordine} (\textit{order-related queries}):
+\begin{enumerate}
+  \setcounter{enumi}{3}
+  \item $\textsc{Predecessor}(k)$: restituisce l'elemento in $S$ avente la massima chiave strettamente minore di $k$, ovvero:
+  \begin{equation}
+    \operatorname{pred}(k) = \operatorname{argmax}_{x \in S} \{\operatorname{Key}(x) \mid \operatorname{Key}(x) < k\}.
+  \end{equation}
+  \item $\textsc{Successor}(k)$: restituisce l'elemento in $S$ avente la minima chiave strettamente maggiore di $k$, ovvero:
+  \begin{equation}
+    \operatorname{succ}(k) = \operatorname{argmin}_{x \in S} \{\operatorname{Key}(x) \mid \operatorname{Key}(x) > k\}.
+  \end{equation}
+\end{enumerate}
+\end{definition}
+
+\subsection{Confronto tra Strutture Dati Tradizionali Determistiche}
+La progettazione classica offre differenti compromessi spazio-temporali per risolvere il problema del dizionario. La Tabella~\ref{tab:deterministic-dictionary-comparison} sintetizza le complessità computazionali asintotiche delle principali strutture dati deterministiche.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabularx}{\textwidth}{@{}lccccY@{}}
+\toprule
+\textbf{Struttura Dati} & \textbf{Search} & \textbf{Insert} & \textbf{Delete} & \textbf{Pred/Succ} & \textbf{Note Implementative} \\
+\midrule
+\textbf{Array Ordinato} & $\mathcal{O}(\log n)$ & $\mathcal{O}(n)$ & $\mathcal{O}(n)$ & $\mathcal{O}(\log n)$ & Ricerca binaria ottima su dati statici; inserimenti e cancellazioni richiedono shift di memoria contigua. \\
+\addlinespace
+\textbf{Lista Concatenata} & $\mathcal{O}(n)$ & $\mathcal{O}(1)^*$ & $\mathcal{O}(1)^*$ & $\mathcal{O}(n)$ & Aggiornamenti locali $\mathcal{O}(1)$ solo con puntatore noto; ricerca strettamente sequenziale. \\
+\addlinespace
+\textbf{BST Bilanciati} & $\mathcal{O}(\log n)$ & $\mathcal{O}(\log n)$ & $\mathcal{O}(\log n)$ & $\mathcal{O}(\log n)$ & Ottimi nel caso peggiore, ma overhead elevato: metadati per nodo, rotazioni e lock pesanti. \\
+(AVL, Red-Black) & & & & & \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto asintotico tra strutture dati deterministiche tradizionali nel caso peggiore ($^*$costo locale dato il puntatore).}
+\label{tab:deterministic-dictionary-comparison}
+\end{table}
+
+\subsection{Perché Introdurre la Randomizzazione?}
+L'approccio deterministico classico presenta due colli di bottiglia architetturali critici nei moderni sistemi di elaborazione ad elevate prestazioni:
+\begin{enumerate}
+  \item \textbf{Costo di Ristrutturazione e Complessità Implementativa:} Il mantenimento del bilanciamento perfetto o quasi-perfetto negli alberi di ricerca richiede controlli topologici complessi, memorizzazione di metadati per nodo (fattori di bilanciamento negli AVL, bit di colore nei Red-Black) e catene di rotazioni ad albero (singole e doppie) durante le mutazioni.
+  \item \textbf{Collo di Bottiglia nei Sistemi Concorrenti Multi-Thread:} Negli alberi bilanciati deterministici, un singolo inserimento o una cancellazione può innescare una cascata di rotazioni che si propaga dalla foglia fino alla radice dell'albero. Nei moderni ambienti multi-core ad alto parallelismo, ciò richiede l'acquisizione di blocchi esclusivi (\textit{exclusive locks}) su ampie porzioni dell'albero o addirittura sulla radice globale, distruggendo la scalabilità concorrente e creando contesa massiva sui lock.
+\end{enumerate}
+
+L'introduzione della \textbf{randomizzazione} rivoluziona questo scenario delegando la topologia della struttura dati a scelte casuali generate internamente (simulazioni di lanci di moneta bilanciata o generazione di priorità casuali indipendenti):
+\begin{itemize}
+  \item \textbf{Indipendenza dalla Distribuzione dei Dati:} Le prestazioni non dipendono in alcun modo dall'ordine di arrivo o dalla distribuzione delle chiavi fornite dall'utente (evitando casi degeneri pilotati da input avversari o chiavi già ordinate), bensì unicamente dalle decisioni casuali del generatore pseudocasuale interno.
+  \item \textbf{Garanzie Logaritmiche con Alta Probabilità:} Le complessità operative $\mathcal{O}(\log n)$ non sono soddisfatte solo in valore atteso $\mathbb{E}[T]$, ma sono garantite \textbf{con alta probabilità} (\textit{with high probability}, w.h.p.), ossia con probabilità almeno pari a $1 - \mathcal{O}(n^{-c})$ per qualsiasi costante fissata $c \ge 1$.
+  \item \textbf{Modularità, Semplicità e Concorrenza Lock-Free:} Le strutture randomizzate sono intrinsecamente basate su puntatori locali (lineari o a cascata), rendendo banale l'implementazione di algoritmi concorrenti privi di blocchi globali (\textit{lock-free} basati su primitive atomiche \textit{Compare-And-Swap}, CAS).
+\end{itemize}
+
+\paragraph{Applicazioni Industriali ad Alte Prestazioni.}
+Nei moderni sistemi di storage distribuiti e motori database, le strutture randomizzate ricoprono un ruolo centrale:
+\begin{itemize}
+  \item \textbf{Skip List:} Utilizzate come struttura primaria in memoria (\textit{MemTable}) nei motori di memorizzazione LSM-Tree ad altissimo throughput di scrittura, tra cui \textbf{LevelDB} (Google) e \textbf{RocksDB} (Meta). Sono inoltre impiegate in \textbf{Redis} per implementare i \textit{Sorted Sets} (\texttt{ZSET}), garantendo tempi logaritmici su inserimento, ranking e range scan concorrenti~\cite{pugh1990}.
+  \item \textbf{Treap:} Impiegati nei database geometrici, nei protocolli di routing dinamico su reti ad anello e nei motori di indicizzazione spaziale per la loro duplice natura di albero binario e heap bidimensionale~\cite{seidel1996}.
+\end{itemize}
+
+\FloatBarrier
+\section{Dalla Ricerca Binaria su Lista alla Skip List}
+\label{sec:binary-search-to-skip-list}
+
+Negli anni '90, William Pugh affrontò la sfida teorico-pratica di emulare l'efficienza della ricerca binaria (tipica degli array contigui) direttamente sopra una lista concatenata, preservando al contempo la flessibilità dinamica dei puntatori~\cite{pugh1990}.
+
+\subsection{La Lista Concatenata Base (Livello 0)}
+Consideriamo una lista semplicemente concatenata ordinata, delimitata convenzionalmente da due nodi sentinella con chiavi simboliche $-\infty$ e $+\infty$. Sia $S = \{3, 6, 7, 10, 15, 16\}$ l'insieme delle chiavi memorizzate:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    every node/.style={transform shape},
+    xscale=1.25,
+    listnode/.style={rectangle, draw=navy!80, fill=navy!6, minimum width=0.85cm, minimum height=0.55cm, rounded corners=2pt, font=\small\bfseries, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth}
+]
+    \node[listnode] (s1) at (0, 0)   {$-\infty$};
+    \node[listnode] (n1) at (1.2, 0) {$3$};
+    \node[listnode] (n2) at (2.4, 0) {$6$};
+    \node[listnode] (n3) at (3.6, 0) {$7$};
+    \node[listnode] (n4) at (4.8, 0) {$10$};
+    \node[listnode] (n5) at (6.0, 0) {$15$};
+    \node[listnode] (n6) at (7.2, 0) {$16$};
+    \node[listnode] (s2) at (8.4, 0) {$+\infty$};
+
+    \draw[pointer] (s1) -- (n1);
+    \draw[pointer] (n1) -- (n2);
+    \draw[pointer] (n2) -- (n3);
+    \draw[pointer] (n3) -- (n4);
+    \draw[pointer] (n4) -- (n5);
+    \draw[pointer] (n5) -- (n6);
+    \draw[pointer] (n6) -- (s2);
+\end{tikzpicture}
+\caption{Lista semplicemente concatenata base ordinata con sentinelle $-\infty$ e $+\infty$.}
+\label{fig:base-linked-list}
+\end{figure}
+
+In questa struttura, ogni operazione di ricerca $\textsc{Search}(k)$ richiede tempo $\mathcal{O}(n)$, poiché i puntatori consentono di avanzare esclusivamente di un singolo nodo alla volta verso destra. Non è possibile accedere direttamente all'elemento mediano in tempo costante, precludendo l'applicazione della ricerca binaria.
+
+\subsection{Il Modello Deterministico a Due Livelli}
+Per accelerare la navigazione, introduciamo una seconda lista sovrapposta denominata \textbf{corsia di sorpasso} (\textit{express lane} o Livello $L_1$), che campiona rigidamente nodi a intervalli regolari dalla lista base (Livello $L_0$):
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    every node/.style={transform shape},
+    xscale=1.25, yscale=1.2,
+    listnode/.style={rectangle, draw=navy!80, fill=navy!6, minimum width=0.85cm, minimum height=0.55cm, rounded corners=2pt, font=\small\bfseries, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth},
+    vpointer/.style={thick, color=gray!60, dashed, ->, >=Stealth}
+]
+    % Livello L1
+    \node[listnode] (l1_s1) at (0, 1.2)   {$-\infty$};
+    \node[listnode] (l1_n3) at (3.6, 1.2) {$7$};
+    \node[listnode] (l1_s2) at (8.4, 1.2) {$+\infty$};
+
+    \node[anchor=east, font=\footnotesize\bfseries, color=navy] at (-0.4, 1.2) {Livello $L_1$:};
+
+    \draw[pointer] (l1_s1) -- (l1_n3);
+    \draw[pointer] (l1_n3) -- (l1_s2);
+
+    % Livello L0
+    \node[listnode] (l0_s1) at (0, 0)   {$-\infty$};
+    \node[listnode] (l0_n1) at (1.2, 0) {$3$};
+    \node[listnode] (l0_n2) at (2.4, 0) {$6$};
+    \node[listnode] (l0_n3) at (3.6, 0) {$7$};
+    \node[listnode] (l0_n4) at (4.8, 0) {$10$};
+    \node[listnode] (l0_n5) at (6.0, 0) {$15$};
+    \node[listnode] (l0_n6) at (7.2, 0) {$16$};
+    \node[listnode] (l0_s2) at (8.4, 0) {$+\infty$};
+
+    \node[anchor=east, font=\footnotesize\bfseries, color=navy] at (-0.4, 0) {Livello $L_0$:};
+
+    \draw[pointer] (l0_s1) -- (l0_n1);
+    \draw[pointer] (l0_n1) -- (l0_n2);
+    \draw[pointer] (l0_n2) -- (l0_n3);
+    \draw[pointer] (l0_n3) -- (l0_n4);
+    \draw[pointer] (l0_n4) -- (l0_n5);
+    \draw[pointer] (l0_n5) -- (l0_n6);
+    \draw[pointer] (l0_n6) -- (l0_s2);
+
+    % Puntatori verticali perfettamente allineati
+    \draw[vpointer] (l1_s1) -- (l0_s1);
+    \draw[vpointer] (l1_n3) -- (l0_n3);
+    \draw[vpointer] (l1_s2) -- (l0_s2);
+\end{tikzpicture}
+\caption{Modello deterministico a due livelli: la corsia espressa $L_1$ scavalca sottoinsiemi di nodi.}
+\label{fig:deterministic-two-level-list}
+\end{figure}
+
+La ricerca di una chiave $k$ (ad esempio $k = 15$) si articola in due fasi ordinate:
+\begin{enumerate}
+  \item Si naviga orizzontalmente sul livello $L_1$ a partire da $-\infty$ fino a identificare il massimo elemento minore o uguale a $k$ (nell'esempio, il nodo $7$, poiché il successivo $+\infty$ è strettamente maggiore di $15$).
+  \item Si scende verticalmente sul livello base $L_0$ in corrispondenza del nodo $7$ e si prosegue la scansione sequenziale locale ($7 \to 10 \to 15$).
+\end{enumerate}
+
+\paragraph{Il Problema Fondamentale dell'Approccio Deterministico.}
+Sebbene questo schema riduca sensibilmente i confronti durante la ricerca, esso collassa in presenza di operazioni di mutazione (\textsc{Insert} e \textsc{Delete}). L'inserimento ripetuto di nuove chiavi tra due nodi promossi distrugge la simmetria geometrica dei blocchi. Per preservare le distanze costanti, l'algoritmo dovrebbe effettuare una \textbf{riorganizzazione globale} (\textit{reorganization}) spostando i puntatori espressi e ricalcolando gli intervalli, operazione che richiede tempo $\mathcal{O}(n)$ e vanifica ogni beneficio computazionale.
+
+\subsection{Decomposizione a Blocchi (Square Root Decomposition)}
+Formalizziamo ora analiticamente il costo di questo schema deterministico a due livelli e ricaviamo la dimensione ottimale dei blocchi per minimizzare il tempo di ricerca.
+
+Supponiamo di partizionare gli $n$ elementi della lista in blocchi contigui:
+\begin{itemize}
+  \item Sia $n$ il numero totale di elementi memorizzati;
+  \item Sia $k$ il numero di blocchi (corrispondente al numero di puntatori espressi al livello superiore $L_1$);
+  \item Ciascun blocco al livello inferiore $L_0$ conterrà pertanto esattamente $\frac{n}{k}$ elementi.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[
+    xscale=1.25, yscale=1.2,
+    blocknode/.style={rectangle, draw=navy!80, fill=navy!5, minimum width=2.4cm, minimum height=0.9cm, rounded corners=3pt, font=\small, align=center},
+    expressnode/.style={rectangle, draw=navy!80, fill=navy!15, minimum width=1.6cm, minimum height=0.6cm, rounded corners=2pt, font=\scriptsize\bfseries, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth},
+    vpointer/.style={thick, color=navy!65, dashed, ->, >=Stealth}
+]
+    % Etichette di riga
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (0, 1.8) {Livello $L_1$ (Corsia espressa):};
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (0, 0) {Livello $L_0$ (Lista base):};
+
+    % Nodi corsia espressa (k puntatori)
+    \node[expressnode] (e1) at (1.6, 1.8) {Puntatore $1$};
+    \node[expressnode] (e2) at (4.8, 1.8) {Puntatore $2$};
+    \node[expressnode] (e3) at (8.0, 1.8) {Puntatore $3$};
+    \node[font=\bfseries, color=navy!80] (dots) at (9.8, 1.8) {$\cdots$};
+    \node[expressnode] (ek) at (11.4, 1.8) {Puntatore $k$};
+
+    % Frecce corsia espressa
+    \draw[pointer] (e1) -- node[above=2pt, font=\scriptsize\bfseries, color=navy] {$\mathcal{O}(k)$ salti} (e2);
+    \draw[pointer] (e2) -- (e3);
+    \draw[pointer] (e3) -- (dots);
+    \draw[pointer] (dots) -- (ek);
+
+    % Blocchi lista base (dimensione n/k ciascuno)
+    \node[blocknode] (b1) at (1.6, 0) {\textbf{Blocco 1}\\ \scriptsize $n/k$ elementi};
+    \node[blocknode] (b2) at (4.8, 0) {\textbf{Blocco 2}\\ \scriptsize $n/k$ elementi};
+    \node[blocknode] (b3) at (8.0, 0) {\textbf{Blocco 3}\\ \scriptsize $n/k$ elementi};
+    \node[font=\bfseries, color=navy!80] (bdots) at (9.8, 0) {$\cdots$};
+    \node[blocknode] (bk) at (11.4, 0) {\textbf{Blocco $k$}\\ \scriptsize $n/k$ elementi};
+
+    % Connessioni sequenziali tra blocchi
+    \draw[pointer, color=navy!40] (b1) -- (b2);
+    \draw[pointer, color=navy!40] (b2) -- (b3);
+    \draw[pointer, color=navy!40] (b3) -- (bdots);
+    \draw[pointer, color=navy!40] (bdots) -- (bk);
+
+    % Frecce verticali perfettamente allineate dai puntatori espressi ai blocchi
+    \draw[vpointer] (e1.south) -- (b1.north);
+    \draw[vpointer] (e2.south) -- (b2.north);
+    \draw[vpointer] (e3.south) -- (b3.north);
+    \draw[vpointer] (ek.south) -- (bk.north);
+
+    % Graffa elementi totali
+    \draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick, color=navy!80] (0.4, -0.7) -- (12.6, -0.7)
+        node[midway, below=8pt, font=\small\bfseries, color=navy] {$n$ elementi totali ($k$ blocchi di dimensione $n/k$, costo scansione interna $\mathcal{O}(n/k)$)};
+\end{tikzpicture}%
+}
+\caption{Schema della decomposizione a blocchi deterministica con $k$ salti e blocchi di dimensione $n/k$.}
+\label{fig:square-root-decomposition-schema}
+\end{figure}
+
+Il costo di ricerca nel caso peggiore $T(k)$ è dato dalla somma dei passi orizzontali percorsi al livello superiore per individuare il blocco corretto, più i passi percorsi all'interno del singolo blocco al livello inferiore:
+\begin{equation}
+  T(k) = \mathcal{O}(k) + \mathcal{O}\left(\frac{n}{k}\right) = \mathcal{O}\left(k + \frac{n}{k}\right).
+\end{equation}
+
+\begin{theorem}[Dimensione Ottimale del Blocco]
+La funzione di costo $f(k) = k + \frac{n}{k}$ definita per $k > 0$ ammette un unico punto di minimo globale in:
+\begin{equation}
+  k^* = \sqrt{n}.
+\end{equation}
+Per tale valore, la complessità di ricerca nel caso peggiore risulta:
+\begin{equation}
+  T(\sqrt{n}) = \mathcal{O}(\sqrt{n}).
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Consideriamo la funzione continua $f(k) = k + \frac{n}{k}$ per $k \in (0, +\infty)$. Calcoliamo la derivata prima rispetto a $k$:
+\begin{equation}
+  \frac{df}{dk} = 1 - \frac{n}{k^2}.
+\end{equation}
+Ponendo la derivata prima uguale a zero per determinare i punti stazionari:
+\begin{equation}
+  1 - \frac{n}{k^2} = 0 \iff 1 = \frac{n}{k^2} \iff k^2 = n \iff k = \sqrt{n}.
+\end{equation}
+Valutiamo la derivata seconda per verificarne la convessità:
+\begin{equation}
+  \frac{d^2f}{dk^2} = \frac{2n}{k^3} > 0, \quad \forall k > 0.
+\end{equation}
+Poiché la derivata seconda è strettamente positiva per ogni $k > 0$, la funzione $f(k)$ è strettamente convessa e ammette un minimo globale assoluto in $k^* = \sqrt{n}$. Sostituendo tale valore nell'espressione del costo complessivo otteniamo:
+\begin{equation}
+  f(\sqrt{n}) = \sqrt{n} + \frac{n}{\sqrt{n}} = 2\sqrt{n} = \mathcal{O}(\sqrt{n}).
+\end{equation}
+\end{proof}
+
+\paragraph{Estensione Ricorsiva e Limiti Deterministici.}
+Applicando ricorsivamente lo schema di decomposizione a $3$ livelli, il costo scenderebbe a $\mathcal{O}(n^{1/3})$; con $\log_2 n$ livelli si raggiungerebbe teoricamente il limite logaritmico $\mathcal{O}(\log n)$. Tuttavia, la rigidità deterministica renderebbe ogni inserimento e cancellazione proibitivamente costoso per via dell'effetto domino di ristrutturazione.
+
+\begin{quote}
+  \textbf{L'intuizione chiave della Skip List:} eliminare la rigidità deterministica assegnando l'altezza di ciascun nodo in modo puramente probabilistico e indipendente tramite lanci di moneta!
+\end{quote}
+
+\FloatBarrier
+\section{Skip List: Struttura e Analisi Probabilistica Formale}
+\label{sec:skip-list-probabilistic-analysis}
+
+\subsection{Definizione Formale della Skip List}
+La Skip List è una struttura dati probabilistica costituita da una gerarchia di liste concatenate ordinate sovrapposte $\{L_0, L_1, \dots, L_h\}$ governata dalle seguenti proprietà strutturali:
+
+\begin{definition}[Skip List]
+Sia $S$ un insieme di $n$ chiavi distinte. Una Skip List per $S$ soddisfa:
+\begin{enumerate}
+  \item Il livello base $L_0$ contiene tutti gli $n$ elementi di $S$ ordinati in modo crescente, preceduti dalla sentinella $-\infty$ e seguiti dalla sentinella $+\infty$.
+  \item Per ogni livello $i \ge 0$, la lista $L_{i+1}$ è un sottoinsieme proprio della lista $L_i$, ovvero:
+  \begin{equation}
+    L_h \subset L_{h-1} \subset \dots \subset L_1 \subset L_0.
+  \end{equation}
+  \item \textbf{Crescita Geometrica Indipendente:} L'appartenenza di ciascun elemento al livello successivo $L_{i+1}$ è determinata indipendentemente mediante il lancio di una moneta bilanciata con probabilità di successo $p = \frac{1}{2}$. Se l'esito è \textbf{Testa} (Head), il nodo viene promosso al livello $i+1$; se l'esito è \textbf{Croce} (Tail), la sua crescita verticale si arresta definitivamente.
+\end{enumerate}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    every node/.style={transform shape},
+    xscale=1.25, yscale=1.3,
+    listnode/.style={rectangle, draw=navy!80, fill=navy!6, minimum width=0.85cm, minimum height=0.55cm, rounded corners=2pt, font=\scriptsize\bfseries, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth},
+    vpointer/.style={thick, color=gray!60, dashed, ->, >=Stealth}
+]
+    % Livello L3 (y = 3.0)
+    \node[listnode] (l3_inf)  at (0, 3.0)   {$-\infty$};
+    \node[listnode] (l3_15)   at (6.0, 3.0) {$15$};
+    \node[listnode] (l3_pinf) at (8.4, 3.0) {$+\infty$};
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (-0.4, 3.0) {Livello $L_3$:};
+    \draw[pointer] (l3_inf) -- (l3_15);
+    \draw[pointer] (l3_15) -- (l3_pinf);
+
+    % Livello L2 (y = 2.0)
+    \node[listnode] (l2_inf)  at (0, 2.0)   {$-\infty$};
+    \node[listnode] (l2_3)    at (1.2, 2.0) {$3$};
+    \node[listnode] (l2_15)   at (6.0, 2.0) {$15$};
+    \node[listnode] (l2_pinf) at (8.4, 2.0) {$+\infty$};
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (-0.4, 2.0) {Livello $L_2$:};
+    \draw[pointer] (l2_inf) -- (l2_3);
+    \draw[pointer] (l2_3) -- (l2_15);
+    \draw[pointer] (l2_15) -- (l2_pinf);
+
+    % Livello L1 (y = 1.0)
+    \node[listnode] (l1_inf)  at (0, 1.0)   {$-\infty$};
+    \node[listnode] (l1_3)    at (1.2, 1.0) {$3$};
+    \node[listnode] (l1_10)   at (4.8, 1.0) {$10$};
+    \node[listnode] (l1_15)   at (6.0, 1.0) {$15$};
+    \node[listnode] (l1_pinf) at (8.4, 1.0) {$+\infty$};
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (-0.4, 1.0) {Livello $L_1$:};
+    \draw[pointer] (l1_inf) -- (l1_3);
+    \draw[pointer] (l1_3) -- (l1_10);
+    \draw[pointer] (l1_10) -- (l1_15);
+    \draw[pointer] (l1_15) -- (l1_pinf);
+
+    % Livello L0 (y = 0.0)
+    \node[listnode] (l0_inf)  at (0, 0.0)   {$-\infty$};
+    \node[listnode] (l0_3)    at (1.2, 0.0) {$3$};
+    \node[listnode] (l0_6)    at (2.4, 0.0) {$6$};
+    \node[listnode] (l0_7)    at (3.6, 0.0) {$7$};
+    \node[listnode] (l0_10)   at (4.8, 0.0) {$10$};
+    \node[listnode] (l0_15)   at (6.0, 0.0) {$15$};
+    \node[listnode] (l0_16)   at (7.2, 0.0) {$16$};
+    \node[listnode] (l0_pinf) at (8.4, 0.0) {$+\infty$};
+    \node[anchor=east, font=\scriptsize\bfseries, color=navy] at (-0.4, 0.0) {Livello $L_0$:};
+    \draw[pointer] (l0_inf) -- (l0_3);
+    \draw[pointer] (l0_3) -- (l0_6);
+    \draw[pointer] (l0_6) -- (l0_7);
+    \draw[pointer] (l0_7) -- (l0_10);
+    \draw[pointer] (l0_10) -- (l0_15);
+    \draw[pointer] (l0_15) -- (l0_16);
+    \draw[pointer] (l0_16) -- (l0_pinf);
+
+    % Puntatori verticali perfettamente allineati tra .south e .north
+    \draw[vpointer] (l3_inf.south)  -- (l2_inf.north);
+    \draw[vpointer] (l2_inf.south)  -- (l1_inf.north);
+    \draw[vpointer] (l1_inf.south)  -- (l0_inf.north);
+
+    \draw[vpointer] (l2_3.south)    -- (l1_3.north);
+    \draw[vpointer] (l1_3.south)    -- (l0_3.north);
+
+    \draw[vpointer] (l1_10.south)   -- (l0_10.north);
+
+    \draw[vpointer] (l3_15.south)   -- (l2_15.north);
+    \draw[vpointer] (l2_15.south)   -- (l1_15.north);
+    \draw[vpointer] (l1_15.south)   -- (l0_15.north);
+
+    \draw[vpointer] (l3_pinf.south) -- (l2_pinf.north);
+    \draw[vpointer] (l2_pinf.south) -- (l1_pinf.north);
+    \draw[vpointer] (l1_pinf.south) -- (l0_pinf.north);
+\end{tikzpicture}
+\caption{Rappresentazione di una Skip List multilivello a 4 piani ($L_0$ fino a $L_3$).}
+\label{fig:multilevel-skip-list}
+\end{figure}
+
+\subsection{Algoritmi Fondamentali}
+
+\subsubsection{1. Ricerca ($\textsc{Search}(k)$)}
+L'algoritmo di ricerca (riportato in Algoritmo~\ref{alg:skip-list-search}) inizia dal livello più alto $h$ in corrispondenza del puntatore di testa ($-\infty$). Ad ogni passo, se la chiave successiva al livello corrente è minore o uguale a $k$, l'algoritmo avanza orizzontalmente verso destra. Non appena la chiave successiva supera strettamente $k$, l'algoritmo scende al livello sottostante. Il procedimento termina quando si scende al di sotto del livello base $L_0$.
+
+\begin{algorithm}[htbp]
+\caption{Ricerca in una Skip List ($\textsc{Search}(k)$)}
+\label{alg:skip-list-search}
+\KwInput{Skip List $SL$ con altezza massima corrente $h$, chiave cercata $k \in \mathcal{U}$}
+\KwOutput{Riferimento al nodo contenente $k$, oppure $\textsc{NIL}$ se assente}
+
+$curr \leftarrow \text{testa della Skip List al livello } h$\;
+\For{$i \leftarrow h$ \KwTo $0$}{
+    \While{$curr.\text{next}[i] \ne \textsc{NIL}$ \textbf{and} $curr.\text{next}[i].\text{key} \le k$}{
+        $curr \leftarrow curr.\text{next}[i]$\;
+    }
+}
+\If{$curr.\text{key} == k$}{
+    \Return $curr$\;
+}
+\Return $\textsc{NIL}$\;
+\end{algorithm}
+
+\subsubsection{2. Inserimento ($\textsc{Insert}(x)$)}
+Per inserire un nuovo elemento $x$ con chiave $k$:
+\begin{enumerate}
+  \item Si esegue una ricerca preliminare per localizzare la posizione, memorizzando i predecessori nell'array $\text{update}[0 \dots h]$.
+  \item Si genera l'altezza $l$ simulando lanci di moneta indipendenti:
+  \begin{equation*}
+    l \leftarrow 0; \quad \textbf{while } \operatorname{random}() < 0.5 \textbf{ do } l \leftarrow l + 1.
+  \end{equation*}
+  \item Se $l > h$, si incrementa l'altezza massima dell'intera Skip List aggiornando l'array $\text{update}$.
+  \item Si alloca il nuovo nodo di altezza $l$ e, per ogni livello $i \in [0, l]$, si ricollegano i puntatori orizzontali:
+  \begin{equation}
+    \text{nodo}.\text{next}[i] \leftarrow \text{update}[i].\text{next}[i], \qquad \text{update}[i].\text{next}[i] \leftarrow \text{nodo}.
+  \end{equation}
+\end{enumerate}
+
+\subsubsection{3. Cancellazione ($\textsc{Delete}(x)$)}
+L'operazione individua i predecessori del nodo da eliminare su tutti i livelli in cui esso è presente (tramite l'array $\text{update}$). Successivamente, scavalca il nodo aggiornando i riferimenti $\text{update}[i].\text{next}[i] \leftarrow x.\text{next}[i]$ e dealloca la memoria associata.
+
+\subsection{Formulazione dei Costi Operativi}
+I costi computazionali delle operazioni fondamentali sono governati dal numero di puntatori attraversati durante la navigazione:
+\begin{align}
+  \operatorname{Cost}(\textsc{Search}) &= \# \text{puntatori verticali} + \# \text{puntatori orizzontali}, \label{eq:cost-search} \\
+  \operatorname{Cost}(\textsc{Insert}) &= \operatorname{Cost}(\textsc{Search}) + \operatorname{altezza}(\text{chiave}), \label{eq:cost-insert} \\
+  \operatorname{Cost}(\textsc{Delete}) &= \operatorname{Cost}(\textsc{Search}) + \# \text{modifiche puntatori}. \label{eq:cost-delete}
+\end{align}
+Poiché il numero di puntatori verticali è pari all'altezza totale della Skip List e l'altezza della singola chiave è dominata dall'altezza massima, il costo complessivo è asintoticamente determinato dall'altezza globale della struttura e dal numero medio di passi orizzontali per livello.
+
+\subsection{Dimostrazione: Altezza Massima della Skip List}
+Vogliamo dimostrare che l'altezza massima $H$ di una Skip List contenente $n$ elementi rimane confinata entro $\mathcal{O}(\log n)$ \textit{with high probability}.
+
+\begin{theorem}[Altezza Massima Logaritmica]
+Sia $S$ un insieme di $n$ elementi inseriti in una Skip List con parametro di promozione $p = \frac{1}{2}$, e sia $H = \max_{k \in S} \{\operatorname{level}(k)\}$ l'altezza massima raggiunta dalla struttura. Per qualsiasi costante $c > 1$:
+\begin{equation}
+  \mathbb{P}(H \ge c \log_2 n) \le \frac{1}{n^{c-1}} = n^{-(c-1)}.
+\end{equation}
+Pertanto, l'altezza della Skip List è $\mathcal{O}(\log n)$ con alta probabilità (w.h.p.).
+\end{theorem}
+
+\begin{proof}
+La dimostrazione procede in tre passaggi analitici rigorosi:
+
+\textbf{Passo 1: Probabilità di altezza per un singolo elemento.}
+Sia $\operatorname{level}(k)$ l'altezza assegnata all'elemento con chiave $k$. Un elemento raggiunge un livello maggiore o uguale a $l$ se e solo se ottiene almeno $l$ successi consecutivi ("Testa") nel processo di lancio della moneta:
+\begin{equation}
+  \mathbb{P}(\operatorname{level}(k) \ge l) = \left(\frac{1}{2}\right)^l.
+\end{equation}
+
+\textbf{Passo 2: Altezza globale dell'intera struttura e Union Bound.}
+L'altezza globale della Skip List supera o eguaglia $l$ se e solo se esiste almeno una chiave $k \in S$ il cui livello è $\ge l$:
+\begin{equation}
+  \mathbb{P}(H \ge l) = \mathbb{P}\left(\exists k \in S : \operatorname{level}(k) \ge l\right) = \mathbb{P}\left(\bigcup_{k \in S} \{\operatorname{level}(k) \ge l\}\right).
+\end{equation}
+Applicando la \textbf{disuguaglianza di Boole} (\textit{Union Bound}), la probabilità dell'unione è maggiorata dalla somma delle probabilità individuali:
+\begin{equation}
+  \mathbb{P}(H \ge l) \le \sum_{k \in S} \mathbb{P}(\operatorname{level}(k) \ge l) = \sum_{k=1}^n \left(\frac{1}{2}\right)^l = n \cdot \left(\frac{1}{2}\right)^l = \frac{n}{2^l}.
+\end{equation}
+
+\textbf{Passo 3: Scelta di un'altezza logaritmica.}
+Fissiamo la soglia d'altezza $l = c \log_2 n$, con costante reale arbitraria $c > 1$. Sostituendo tale valore nella disuguaglianza precedente otteniamo:
+\begin{equation}
+  \mathbb{P}(H \ge c \log_2 n) \le \frac{n}{2^{c \log_2 n}} = \frac{n}{\left(2^{\log_2 n}\right)^c} = \frac{n}{n^c} = \frac{1}{n^{c-1}} = n^{-(c-1)}.
+\end{equation}
+\end{proof}
+
+\begin{example}[Interpretazione Asintotica dell'Union Bound]
+Scegliendo una costante moderata come $c = 3$, la probabilità che l'altezza massima superi $3 \log_2 n$ è inferiore a $\frac{1}{n^2}$. Per un dizionario contenente un milione di chiavi ($n = 10^6$), tale probabilità di sforamento è minore di $10^{-12}$, rendendo l'evento di un albero sbilanciato praticamente impossibile nella prassi ingegneristica.
+\end{example}
+
+\subsection{Analisi del Costo di Ricerca: Analisi all'Indietro (Backward Analysis)}
+Per stimare il numero atteso di puntatori orizzontali attraversati durante la ricerca, analizzare il percorso dall'alto verso il basso risulta complicato, poiché i passi orizzontali dipendono dalla configurazione dei nodi sottostanti.
+
+Applichiamo la tecnica fondamentale della \textbf{Backward Analysis} (Analisi all'Indietro): tracciamo il cammino di ricerca a ritroso, partendo dal nodo di destinazione al livello base $L_0$ e risalendo verso la testa della Skip List al livello massimo.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.82\textwidth}{!}{%
+\begin{tikzpicture}[
+    xscale=1.3, yscale=1.3,
+    nodebox/.style={rectangle, draw=navy!80, fill=navy!8, minimum width=1.3cm, minimum height=0.7cm, rounded corners=3pt, font=\bfseries, align=center},
+    actionarrow/.style={very thick, color=red!75!black, ->, >=Stealth},
+    guideline/.style={dashed, color=gray!35, thin}
+]
+    % Linee guida dei livelli
+    \draw[guideline] (-5.0, 2.4) -- (2.6, 2.4) node[right, font=\scriptsize\bfseries, color=navy!70] {Livello $L_{i+1}$};
+    \draw[guideline] (-5.0, 0)   -- (2.6, 0)   node[right, font=\scriptsize\bfseries, color=navy!70] {Livello $L_i$};
+
+    % Nodi
+    \node[nodebox] (top)  at (0, 2.4)  {$x$};
+    \node[nodebox] (left) at (-4.0, 0) {$x'$};
+    \node[nodebox] (curr) at (0, 0)    {$x$};
+
+    % Transizione verticale (Testa)
+    \draw[actionarrow] (curr.north) -- (top.south)
+        node[midway, right=14pt, align=left, font=\scriptsize] {
+            \textbf{Esito Testa} $\left(p = \frac{1}{2}\right)$\\[3pt]
+            Salita verticale a $L_{i+1}$
+        };
+
+    % Transizione orizzontale a sinistra (Croce)
+    \draw[actionarrow] (curr.west) -- (left.east)
+        node[midway, above=10pt, align=center, font=\scriptsize] {
+            \textbf{Esito Croce} $\left(1-p = \frac{1}{2}\right)$\\[3pt]
+            Spostamento a sinistra su $L_i$
+        };
+\end{tikzpicture}%
+}
+\caption{Transizioni elementari nell'analisi all'indietro: salita verticale (Testa) vs spostamento a sinistra (Croce).}
+\label{fig:backward-analysis-transitions}
+\end{figure}
+
+Ad ogni passo del percorso all'indietro a partire da un nodo $x$ al livello $i$:
+\begin{enumerate}
+  \item Se la chiave $x$ è stata promossa al livello superiore $L_{i+1}$ (evento che si verifica con probabilità $p = \frac{1}{2}$, corrispondente all'esito \textbf{Testa}), il percorso di ricerca a ritroso deve necessariamente risalire verticalmente al livello $i+1$.
+  \item Se la chiave $x$ non è stata promossa a $L_{i+1}$ (evento che si verifica con probabilità $1 - p = \frac{1}{2}$, corrispondente all'esito \textbf{Croce}), il percorso di ricerca a ritroso deve necessariamente provenire dal nodo immediatamente precedente a sinistra sullo stesso livello $i$.
+\end{enumerate}
+
+\begin{theorem}[Valore Atteso dei Passi Orizzontali per Livello]
+Il numero atteso di spostamenti orizzontali verso sinistra compiuti ad ogni livello prima di risalire verticalmente al livello superiore è esattamente pari a $2$:
+\begin{equation}
+  \mathbb{E}[\# \text{passi orizzontali per livello}] = 2.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Il numero di spostamenti orizzontali a sinistra prima di salire di livello è una variabile aleatoria discreta $X$ che conta il numero di insuccessi (\textit{Croce}) prima di ottenere il primo successo (\textit{Testa}). Poiché ogni lancio è indipendente con probabilità di successo $p = \frac{1}{2}$, la variabile aleatoria segue una distribuzione geometrica con probabilità:
+\begin{equation}
+  \mathbb{P}(X = h) = \left(\frac{1}{2}\right)^h \cdot \frac{1}{2} = \left(\frac{1}{2}\right)^{h+1}, \quad \text{per } h \ge 0.
+\end{equation}
+Negli appunti universitari il valore atteso è formalizzato attraverso la serie dei prodotti:
+\begin{equation}
+  \mathbb{E}[\# \text{tails}] = \sum_{h=0}^{\infty} h \cdot \left(\frac{1}{2}\right)^h = 2.
+\end{equation}
+Ricostruiamo la derivazione matematica analitica completa. Consideriamo la serie geometrica fondamentale per $|x| < 1$:
+\begin{equation}
+  \sum_{h=0}^{\infty} x^h = \frac{1}{1 - x}.
+\end{equation}
+Derivando termine a termine ambo i membri rispetto a $x$:
+\begin{equation}
+  \frac{d}{dx}\left(\sum_{h=0}^{\infty} x^h\right) = \sum_{h=1}^{\infty} h x^{h-1} = \frac{d}{dx}\left(\frac{1}{1 - x}\right) = \frac{1}{(1 - x)^2}.
+\end{equation}
+Moltiplicando l'intera uguaglianza per $x$:
+\begin{equation}
+  \sum_{h=0}^{\infty} h x^h = \frac{x}{(1 - x)^2}.
+  \label{eq:geometric-series-derivative}
+\end{equation}
+Valutando l'equazione~(\ref{eq:geometric-series-derivative}) nel punto $x = \frac{1}{2}$:
+\begin{equation}
+  \sum_{h=0}^{\infty} h \left(\frac{1}{2}\right)^h = \frac{\frac{1}{2}}{\left(1 - \frac{1}{2}\right)^2} = \frac{\frac{1}{2}}{\left(\frac{1}{2}\right)^2} = \frac{\frac{1}{2}}{\frac{1}{4}} = 2.
+\end{equation}
+\end{proof}
+
+\begin{theorem}[Costo Totale Atteso della Ricerca]
+Dato che il numero totale di livelli attraversati è limitato dall'altezza massima $\mathcal{O}(\log n)$ e il numero atteso di passi orizzontali per livello è al più $2$, il costo atteso complessivo della ricerca soddisfa:
+\begin{equation}
+  \mathbb{E}[\text{Costo Ricerca}] \le 2 \cdot \mathcal{O}(\log n) + \mathcal{O}(\log n) = \mathcal{O}(\log n).
+\end{equation}
+\end{theorem}
+
+\subsection{Nota Applicativa Avanzata: Vector Database e Grafi HNSW}
+La filosofia gerarchica a corsie multiple della Skip List ha trovato una straordinaria estensione moderna nei \textbf{Vector Database} impiegati per il retrieval semantico di vettori di embedding nei modelli di intelligenza artificiale.
+
+L'algoritmo \textbf{HNSW} (\textit{Hierarchical Navigable Small World}) modella la ricerca del vicino più prossimo (\textit{Approximate Nearest Neighbor Search}, ANNS) strutturando i vettori su livelli gerarchici di grafi di prossimità~\cite{malkov2020}:
+\begin{itemize}
+  \item Al livello base $L_0$ risiede il grafo denso completo di tutti i vettori multidimensionali;
+  \item Nei livelli superiori ($L_1, L_2, \dots$) vengono mantenuti grafi progressivamente più radi dotati di collegamenti a lungo raggio (\textit{long-range edges}), esattamente analoghi ai puntatori espressi della Skip List.
+\end{itemize}
+La navigazione parte dal livello più alto con passi ampi e scende progressivamente nei livelli inferiori per affinare localmente la ricerca, risolvendo il problema dei minimi locali e consentendo ricerche sublineari $\mathcal{O}(\log n)$ su miliardi di vettori in spazi ad altissima dimensionalità.
+
+\FloatBarrier
+\section{Conclusioni e Prospettive: Verso gli Alberi di Ricerca Randomizzati}
+\label{sec:skip-list-conclusions}
+
+In questa trattazione abbiamo esplorato come la randomizzazione consenta di superare la rigidit\`a e i vincoli delle strutture dati deterministiche tradizionali:
+\begin{itemize}
+  \item Partendo dall'inefficienza intrinseca dell'accesso sequenziale su liste collegate, abbiamo progressivamente introdotto gerarchie a puntatori espressi (dalla decomposizione deterministica in blocchi di dimensione $\sqrt{n}$ fino a torri a densit\`a geometricamente decrescente con probabilit\`a $p = 1/2$);
+  \item La \textbf{Skip List} emula probabilisticamente una ricerca binaria mantenendo una complessit\`a spaziale attesa lineare $\mathcal{O}(n)$ e garantendo operazioni di ricerca, inserimento e cancellazione in tempo atteso $\mathcal{O}(\log n)$ e con alta probabilit\`a;
+  \item La tecnica della \textbf{Backward Analysis} rovescia la prospettiva analitica seguendo il cammino a ritroso dalla chiave cercata verso la radice sentinella, formalizzando come il numero atteso di passi orizzontali per ciascun livello sia rigorosamente limitato da $1/p = 2$.
+\end{itemize}
+
+Mentre la Skip List organizza i dati mediante una gerarchia di liste collegate multilivello, sorge naturale una questione architetturale: \textit{\`e possibile applicare la medesima eleganza probabilistica direttamente agli alberi binari di ricerca, evitando le costose rotazioni deterministiche e i vincoli di bilanciamento degli alberi AVL e Red-Black?}
+A questo interrogativo fondamentale risponde il \textbf{Treap} (Randomized Search Tree), la cui teoria, meccanica delle rotazioni, analisi di Seidel-Aragon e connessioni con la geometria computazionale costituiscono l'oggetto monografico del Capitolo~\ref{chap:randomized-search-trees-treaps}.

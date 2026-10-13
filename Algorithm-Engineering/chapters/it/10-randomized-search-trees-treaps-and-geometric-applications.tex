@@ -1,0 +1,1139 @@
+\chapter{Alberi di Ricerca Randomizzati: Treap, Operazioni Dinamiche e Applicazioni Geometriche}
+\label{chap:randomized-search-trees-treaps}
+
+\begin{center}
+  \textbf{Lezione 10}\\
+  \emph{Alberi di Ricerca Randomizzati (Treap): Unicit\`a Topologica, Meccanica delle Rotazioni, Operazioni di Inserimento, Cancellazione, Split e Merge, Analisi Probabilistica di Seidel-Aragon, Alberi Cartesiani e 3-Sided Range Queries}\\[0.5em]
+  Data: 13 Ottobre 2026
+\end{center}
+
+Nelle lezioni precedenti abbiamo esaminato come la randomizzazione consenta di superare le rigidit\`a delle strutture dati deterministiche, analizzando la Skip List come generalizzazione probabilistica della ricerca binaria su liste collegate. In questo capitolo estendiamo il paradigma probabilistico agli \textbf{alberi binari di ricerca}, affrontando una delle strutture dati pi\`u eleganti e versatili dell'ingegneria degli algoritmi: il \textbf{Treap} (\textit{Tree + Heap}), introdotto formalmente da Raimund Seidel e Cecilia Aragon~\cite{seidel1996}.
+
+L'obiettivo fondamentale del Treap consiste nel garantire un bilanciamento logaritmico automatico senza memorizzare bit di colore o fattori di bilanciamento, n\'e eseguire riorganizzazioni a cascata tipiche degli alberi AVL o Red-Black. Attraverso l'assegnazione di priorit\`a casuali continue ai nodi, il Treap emula perfettamente la distribuzione topologica di un albero binario di ricerca costruito inserendo gli elementi secondo una permutazione casuale uniforme.
+
+In questa trattazione formale analizziamo:
+\begin{itemize}
+    \item La definizione formale del Treap e la dimostrazione del \textbf{Teorema di Unicit\`a della Struttura};
+    \item La meccanica delle \textbf{rotazioni ad albero} (destra e sinistra) e la conservazione degli invarianti;
+    \item Gli algoritmi dinamici completi: $\textsc{Search}$, $\textsc{Insert}$ (con bubble-up), $\textsc{Delete}$ (con trickle-down), $\textsc{Split}$ e $\textsc{Merge}$;
+    \item L'analisi probabilistica rigorosa di Seidel e Aragon: dimostrazione che la profondit\`a attesa di ciascun nodo \`e $\mathcal{O}(\log n)$ e che il \textbf{numero atteso di rotazioni per aggiornamento \`e $\mathcal{O}(1)$};
+    \item L'isomorfismo geometrico con gli \textbf{Alberi Cartesiani} di Vuillemin~\cite{vuillemin1980}, la costruzione lineare $\mathcal{O}(n)$ tramite stack monotono e la risoluzione ottimale delle \textbf{3-Sided Range Queries} con complessit\`a \textit{output-sensitive} $\mathcal{O}(\log n + k_{\text{out}})$.
+\end{itemize}
+
+\FloatBarrier
+\section{Introduzione e Definizione Formale del Treap}
+\label{sec:treap-definition-and-foundations}
+
+\subsection{Motivazione e Concetto Fondamentale}
+Negli alberi binari di ricerca classici (BST), l'efficienza delle operazioni elementari di ricerca, inserimento e cancellazione \`e strettamente vincolata all'altezza $h$ dell'albero:
+\begin{equation}
+  \operatorname{Cost}(\textsc{Operation}) = \mathcal{O}(h).
+\end{equation}
+Nel caso migliore, un albero perfettamente bilanciato garantisce $h = \lfloor \log_2 n \rfloor$. Tuttavia, sequenze sfortunate di inserimento (ad esempio chiavi inserite in ordine strettamente crescente o decrescente) degradano la topologia dell'albero in una lista monodirezionale, portando l'altezza al caso pessimo degenere $h = \mathcal{O}(n)$.
+
+Le soluzioni deterministiche tradizionali (come gli alberi AVL~\cite{knuth1997} o gli alberi Red-Black) ripristinano forzatamente il bilanciamento imponendo vincoli strutturali rigidi:
+\begin{itemize}
+    \item Richiedono bit ausiliari di memoria per ciascun nodo (bit di colore o altezze relative dei sottoalberi);
+    \item Comportano complesse casistiche di rotazione singola e doppia durante gli aggiornamenti;
+    \item Presentano gravi colli di bottiglia nei contesti concorrenti e multi-thread, poich\'e i ribilanciamenti possono propagarsi fino alla radice, richiedendo lock esclusivi estesi lungo l'intero cammino.
+\end{itemize}
+
+Il \textbf{Treap} risolve questa criticit\`a introducendo una separazione netta tra la dimensione logica dei dati (gestita dalle \textbf{chiavi}) e la dimensione strutturale dell'albero (governata dalle \textbf{priorit\`a}).
+
+\begin{definition}[Nodo del Treap]
+Ogni nodo $u$ di un Treap memorizza una coppia ordinata di attributi:
+\begin{equation}
+  u = \langle k(u), p(u) \rangle,
+\end{equation}
+dove:
+\begin{itemize}
+    \item $k(u) \in \mathcal{U}$ \`e la \textbf{chiave} appartenente a un dominio totalmente ordinato (ordinamento orizzontale);
+    \item $p(u) \in \mathbb{R}$ \`e la \textbf{priorit\`a} appartenente a un dominio numerico continuo totalmente ordinato (ordinamento verticale).
+\end{itemize}
+\end{definition}
+
+\subsection{Invarianti Strutturali Fondamentali}
+Un albero binario $T$ \`e un Treap valido se e solo se soddisfa congiuntamente due propriet\`a ortogonali per ogni nodo $u \in T$:
+
+\begin{enumerate}
+    \item \textbf{Propriet\`a di Binary Search Tree (BST) rispetto alle Chiavi:}\\
+    L'ordinamento orizzontale riflette l'ordine delle chiavi:
+    \begin{align}
+      \forall v \in \operatorname{left}(u)  &\implies k(v) < k(u), \\
+      \forall w \in \operatorname{right}(u) &\implies k(w) > k(u).
+    \end{align}
+    Ne consegue che una visita simmetrica in-order restituisce l'insieme delle chiavi in ordine strettamente crescente.
+
+    \item \textbf{Propriet\`a di Max-Heap rispetto alle Priorit\`a:}\\
+    L'ordinamento verticale gerarchico riflette l'ordine decrescente delle priorit\`a:
+    \begin{equation}
+      \forall v \in \{\operatorname{left}(u), \operatorname{right}(u)\}, \quad v \neq \text{NIL} \implies p(u) \ge p(v).
+    \end{equation}
+    Ne consegue che la radice dell'albero possiede sempre la priorit\`a massima assoluta di tutto il Treap.
+\end{enumerate}
+
+\subsection{Teorema di Unicit\`a della Struttura}
+Un risultato teorico di primaria importanza stabilisce che la forma dell'albero non dipende dalla sequenza temporale con cui le coppie sono state inserite.
+
+\begin{theorem}[Unicit\`a della Topologia del Treap]
+\label{thm:treap-uniqueness}
+Sia $S = \{ \langle x_1, p_1 \rangle, \dots, \langle x_n, p_n \rangle \}$ un insieme di $n$ coppie distinte aventi chiavi mutualmente distinte ($x_i \neq x_j$) e priorit\`a mutualmente distinte ($p_i \neq p_j$). Allora esiste \textbf{uno ed un solo} Treap $T$ che memorizza l'insieme $S$.
+\end{theorem}
+
+\begin{proof}
+Procediamo per induzione matematica sulla cardinalit\`a $n = |S|$.
+\begin{itemize}
+    \item \textbf{Caso base ($n = 0$ o $n = 1$):}\\
+    Se $n = 0$, l'unico albero possibile \`e l'albero vuoto (NIL). Se $n = 1$, l'unico albero ammissibile \`e costituito da un singolo nodo isolato contenente l'unica coppia $\langle x_1, p_1 \rangle$. In entrambi i casi, la topologia \`e banale ed univoca.
+
+    \item \textbf{Passo induttivo ($n > 1$):}\\
+    Assumiamo che il teorema sia valido per ogni insieme di cardinalit\`a strettamente inferiore a $n$. Consideriamo l'insieme $S$ di $n$ elementi.
+    
+    Poich\'e le priorit\`a $\{p_1, \dots, p_n\}$ sono tutte distinte, esiste un unico indice $r \in \{1, \dots, n\}$ tale che:
+    \begin{equation}
+      p_r = \max_{1 \le i \le n} \{ p_i \}.
+    \end{equation}
+    Affinch\'e l'invariante di Max-Heap sia soddisfatto su tutto l'albero, la radice di $T$ deve necessariamente essere il nodo $\langle x_r, p_r \rangle$. Non esiste alcuna altra scelta ammissibile per la radice.
+
+    Fissata la radice $\langle x_r, p_r \rangle$, la propriet\`a di Binary Search Tree impone in modo deterministico e categorico l'assegnazione di tutti i rimanenti $n - 1$ elementi ai sottoalberi sinistro e destro:
+    \begin{align}
+      S_L &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i < x_r \}, \\
+      S_R &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i > x_r \}.
+    \end{align}
+    Poich\'e le chiavi sono distinte, la partizione $S_L \cup S_R = S \setminus \{\langle x_r, p_r \rangle\}$ con $S_L \cap S_R = \emptyset$ \`e univoca.
+    
+    Inoltre, $|S_L| < n$ e $|S_R| < n$. Per ipotesi induttiva, esiste un unico Treap valido $T_L$ costruito su $S_L$ e un unico Treap valido $T_R$ costruito su $S_R$. Assegnando $T_L$ come sottoalbero sinistro della radice e $T_R$ come sottoalbero destro, otteniamo l'unico albero binario che soddisfa simultaneamente la propriet\`a di BST e la propriet\`a di Heap. L'unicit\`a della struttura \`e pertanto dimostrata per ogni $n \ge 0$.
+\end{itemize}
+\end{proof}
+
+\begin{corollary}[Isomorfismo con il Random BST]
+Se le priorit\`a $p_i$ sono estratte in modo indipendente e identicamente distribuito (\textit{i.i.d.}) da una variabile aleatoria continua uniforme $\mathcal{U}[0, 1]$, l'ordinamento decrescente delle priorit\`a induce una permutazione uniforme casuale $\pi \in \mathcal{S}_n$ sull'insieme delle chiavi. Pertanto, il Treap generato \`e \textbf{topologicamente indistinguibile da un albero binario di ricerca costruito inserendo le chiavi nell'ordine della permutazione casuale $\pi$}.
+\end{corollary}
+
+\FloatBarrier
+\section{Operazioni Elementari: Rotazioni nel Treap}
+\label{sec:tree-rotations}
+
+\subsection{Meccanica delle Rotazioni Destra e Sinistra}
+Per mantenere l'invariante di Max-Heap a seguito di inserimenti o cancellazioni senza alterare l'ordinamento BST delle chiavi, il Treap impiega le \textbf{rotazioni locali ad albero}. Una rotazione scambia la relazione padre-figlio tra due nodi adiacenti modificandone le altezze relative, ma preservando rigorosamente la sequenza in-order dei sottoalberi.
+
+Consideriamo due nodi adiacenti $u$ e $v$:
+\begin{itemize}
+    \item \textbf{Rotazione Destra ($\textsc{Rotate-Right}(v)$):}\\
+    Si applica quando $u$ \`e il figlio sinistro di $v$. Il nodo $u$ sale al posto di $v$, $v$ diventa il figlio destro di $u$, e il sottoalbero destro di $u$ ($B$) viene riassegnato come sottoalbero sinistro di $v$.
+    
+    \item \textbf{Rotazione Sinistra ($\textsc{Rotate-Left}(u)$):}\\
+    Operazione duale e speculare della rotazione destra. Si applica quando $v$ \`e il figlio destro di $u$. Il nodo $v$ sale al posto di $u$, $u$ diventa il figlio sinistro di $v$, e il sottoalbero sinistro di $v$ ($B$) viene riassegnato come sottoalbero destro di $u$.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    treenode/.style={circle, draw=navy!80, fill=navy!10, minimum size=0.9cm, font=\small\bfseries},
+    subtree/.style={isosceles triangle, draw=navy!60, fill=navy!4, shape border rotate=90, minimum width=1.1cm, minimum height=1.0cm, font=\scriptsize, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth},
+    rotarrow/.style={very thick, color=red!75!black, ->, >=Stealth}
+]
+    % Configurazione Sinistra (Prima di Rotate-Right / Dopo Rotate-Left)
+    \node[treenode] (v1) at (-3.2, 2.0) {$v$};
+    \node[treenode] (u1) at (-4.4, 0.8) {$u$};
+    \node[subtree]  (A1) at (-5.4, -0.6) {$A$};
+    \node[subtree]  (B1) at (-3.4, -0.6) {$B$};
+    \node[subtree]  (C1) at (-2.0, 0.6)  {$C$};
+
+    \draw[pointer] (v1) -- (u1);
+    \draw[pointer] (v1) -- (C1);
+    \draw[pointer] (u1) -- (A1);
+    \draw[pointer] (u1) -- (B1);
+
+    % Frecce di rotazione centrali
+    \draw[rotarrow] (-1.0, 1.3) -- (1.0, 1.3) node[midway, above=2pt, font=\scriptsize\bfseries, color=red!75!black] {$\textsc{Rotate-Right}(v)$};
+    \draw[rotarrow] (1.0, 0.5) -- (-1.0, 0.5) node[midway, below=2pt, font=\scriptsize\bfseries, color=red!75!black] {$\textsc{Rotate-Left}(u)$};
+
+    % Configurazione Destra (Dopo Rotate-Right / Prima di Rotate-Left)
+    \node[treenode] (u2) at (3.2, 2.0) {$u$};
+    \node[treenode] (v2) at (4.4, 0.8) {$v$};
+    \node[subtree]  (A2) at (2.0, 0.6)  {$A$};
+    \node[subtree]  (B2) at (3.4, -0.6) {$B$};
+    \node[subtree]  (C2) at (5.4, -0.6) {$C$};
+
+    \draw[pointer] (u2) -- (A2);
+    \draw[pointer] (u2) -- (v2);
+    \draw[pointer] (v2) -- (B2);
+    \draw[pointer] (v2) -- (C2);
+\end{tikzpicture}%
+}
+\caption{Meccanica algebrica delle rotazioni nel Treap. In entrambe le configurazioni, la sequenza ordinata in-order dei sottoalberi e delle chiavi \`e invariante: $A < u < B < v < C$.}
+\label{fig:treap-rotations-diagram}
+\end{figure}
+
+\subsection{Conservazione Rigorosa degli Invarianti}
+La dimostrazione di correttezza delle rotazioni si fonda sulla verifica dei due invarianti:
+\begin{property}[Invarianza dell'Ordinamento BST]
+Nella configurazione prima della rotazione destra:
+\begin{equation}
+  \forall a \in A, \; b \in B, \; c \in C \implies k(a) < k(u) < k(b) < k(v) < k(c).
+\end{equation}
+Nella configurazione dopo la rotazione destra:
+\begin{itemize}
+    \item $A$ \`e il sottoalbero sinistro di $u \implies \forall a \in A, \, k(a) < k(u)$;
+    \item $v$ \`e il figlio destro di $u \implies k(u) < k(v)$;
+    \item $B$ \`e il sottoalbero sinistro di $v \implies \forall b \in B, \, k(u) < k(b) < k(v)$;
+    \item $C$ \`e il sottoalbero destro di $v \implies \forall c \in C, \, k(v) < k(c)$.
+\end{itemize}
+L'invariante di BST \`e dunque rigorosamente preservato. Poich\'e ogni rotazione coinvolge solo 3 puntatori locali, il costo computazionale di una rotazione \`e esattamente $\mathcal{O}(1)$ nel tempo deterministico.
+\end{property}
+
+\FloatBarrier
+\section{Algoritmi Fondamentali e Operazioni Dinamiche}
+\label{sec:treap-dynamic-algorithms}
+
+\subsection{Ricerca (\textsc{Search})}
+La procedura di ricerca ignora completamente le priorit\`a dei nodi e coincide esattamente con la ricerca binaria standard in un BST:
+
+\begin{algorithm}[H]
+\caption{Ricerca di una chiave nel Treap ($\textsc{Search}(u, k)$)}
+\label{alg:treap-search}
+\KwIn{Riferimento alla radice $u$ del sottoalbero corrente, chiave cercata $k \in \mathcal{U}$}
+\KwOut{Riferimento al nodo contenente $k$, oppure NIL se non presente}
+\BlankLine
+\If{$u = \mathrm{NIL}$ \textbf{or} $k = k(u)$}{
+    \Return $u$\;
+}
+\If{$k < k(u)$}{
+    \Return $\textsc{Search}(\operatorname{left}(u), k)$\;
+}
+\Else{
+    \Return $\textsc{Search}(\operatorname{right}(u), k)$\;
+}
+\end{algorithm}
+
+La complessit\`a temporale \`e proporzionale all'altezza del cammino percorso: $\mathcal{O}(h)$. Come dimostreremo nella Sezione~\ref{sec:probabilistic-analysis}, l'altezza attesa \`e $\mathcal{O}(\log n)$.
+
+\subsection{Inserimento (\textsc{Insert}) con Risalita a Rotazioni (Bubble-Up)}
+L'inserimento di una nuova chiave $k$ procede in due fasi distinte:
+\begin{enumerate}
+    \item \textbf{Inserimento BST standard a foglia:} Si genera una priorit\`a casuale indipendente $p \sim \mathcal{U}[0, 1]$. Si individua la posizione della foglia seguendo la classica discesa binaria BST e si alloca il nuovo nodo $z = \langle k, p \rangle$.
+    \item \textbf{Ripristino dell'invariante di Max-Heap (Bubble-Up):} Fintanto che il nodo $z$ non \`e la radice e la sua priorit\`a supera quella del padre ($p(z) > p(\operatorname{parent}(z))$), si esegue una rotazione locale per far salire $z$:
+    \begin{itemize}
+        \item Se $z$ \`e figlio sinistro del padre, si applica $\textsc{Rotate-Right}(\operatorname{parent}(z))$;
+        \item Se $z$ \`e figlio destro del padre, si applica $\textsc{Rotate-Left}(\operatorname{parent}(z))$.
+    \end{itemize}
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Inserimento di una nuova coppia nel Treap ($\textsc{Insert}(T, k)$)}
+\label{alg:treap-insert}
+\KwIn{Radice $T$ del Treap, chiave $k$ da inserire}
+\KwOut{Nuova radice del Treap contenente $k$}
+\BlankLine
+$p \leftarrow \textsc{RandomUniform}(0, 1)$\;
+$z \leftarrow \textsc{CreateNode}(k, p)$\;
+\Return $\textsc{InsertNode}(T, z)$\;
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Inserimento ricorsivo con rotazioni di risalita ($\textsc{InsertNode}(u, z)$)}
+\label{alg:treap-insert-node}
+\KwIn{Nodo radice del sottoalbero corrente $u$, nuovo nodo da inserire $z$}
+\KwOut{Radice aggiornata del sottoalbero}
+\BlankLine
+\If{$u = \mathrm{NIL}$}{
+    \Return $z$\;
+}
+\If{$k(z) < k(u)$}{
+    $\operatorname{left}(u) \leftarrow \textsc{InsertNode}(\operatorname{left}(u), z)$\;
+    \If{$p(\operatorname{left}(u)) > p(u)$}{
+        $u \leftarrow \textsc{Rotate-Right}(u)$\;
+    }
+}
+\ElseIf{$k(z) > k(u)$}{
+    $\operatorname{right}(u) \leftarrow \textsc{InsertNode}(\operatorname{right}(u), z)$\;
+    \If{$p(\operatorname{right}(u)) > p(u)$}{
+        $u \leftarrow \textsc{Rotate-Left}(u)$\;
+    }
+}
+\Return $u$\;
+\end{algorithm}
+
+\subsubsection{Esempio di Traccia: Inserimento con Risalita Bubble-Up}
+Per comprendere concretamente la dinamica dell'inserimento, consideriamo il Treap didattico contenente l'insieme di chiavi $\{ (G, 3), (H, 8), (I, 6), (M, 9), (P, 2), (R, 5), (T, 7) \}$ e supponiamo di voler inserire la nuova coppia:
+\begin{equation}
+  z = \langle K, 7.5 \rangle.
+\end{equation}
+
+L'esecuzione si articola in due fasi sequenziali distinte:
+\begin{enumerate}
+    \item \textbf{Fase 1 (Discesa BST a foglia):}
+    \begin{itemize}
+        \item Confronto con la radice $M$: poich\'e $K < M$, la discesa prosegue a sinistra verso $H$.
+        \item Confronto con $H$: poich\'e $K > H$, si scende a destra verso $I$.
+        \item Confronto con $I$: poich\'e $K > I$ e il puntatore destro di $I$ \`e $\mathrm{NIL}$, il nodo $z = \langle K, 7.5 \rangle$ viene agganciato come foglia figlia destra di $I$.
+    \end{itemize}
+    In questa configurazione provvisoria (Figura~\ref{fig:treap-insert-trace}(a)), l'ordinamento orizzontale BST \`e intatto, ma si manifesta una violazione locale dell'invariante verticale di Max-Heap tra il padre $I$ e il figlio $K$:
+    \begin{equation}
+      p(K) = 7.5 > p(I) = 6.
+    \end{equation}
+    
+    \item \textbf{Fase 2 (Risalita con rotazione sinistra su $I$):}
+    Poich\'e $K$ \`e figlio destro di $I$, l'invariante di Max-Heap viene ripristinato invocando $\textsc{Rotate-Left}(I)$:
+    \begin{itemize}
+        \item Il nodo $K$ viene promosso al posto di $I$, diventando il nuovo figlio destro di $H$.
+        \item Il nodo $I$ retrocede diventando figlio sinistro di $K$.
+        \item L'eventuale sottoalbero sinistro di $K$ (in questo caso vuoto) verrebbe riassegnato come figlio destro di $I$.
+    \end{itemize}
+    \item \textbf{Verifica della terminazione al livello superiore:}
+    Il nuovo genitore di $K$ \`e $H$. Verifichiamo la condizione di heap:
+    \begin{equation}
+      p(H) = 8 \ge p(K) = 7.5.
+    \end{equation}
+    Poich\'e la priorit\`a del genitore \`e maggiore di quella del nodo risalito, la propriet\`a di Max-Heap \`e pienamente soddisfatta su tutti i livelli superiori. La procedura di inserimento termina con successo (Figura~\ref{fig:treap-insert-trace}(b)).
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=navy!8, font=\small\bfseries, minimum size=0.85cm, align=center},
+    inserted/.style={circle, draw=orange!90!black, fill=orange!20, font=\small\bfseries, minimum size=0.85cm, align=center, thick},
+    edge/.style={thick, color=navy!70}
+]
+    % (a) Inserimento a foglia
+    \node[font=\small\bfseries] at (-5.5, 3.2) {\textbf{(a) Inserimento BST a foglia ($p(K) > p(I)$)}};
+
+    \node[tnode] (mA) at (-5.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (hA) at (-8.3, 0.6) {H\\{\tiny $8$}};
+    \node[tnode] (tA) at (-1.7, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (gA) at (-9.5, -0.7) {G\\{\tiny $3$}};
+    \node[tnode] (iA) at (-7.1, -0.7) {I\\{\tiny $6$}};
+    \node[tnode] (rA) at (-2.8, -0.7) {R\\{\tiny $5$}};
+    \node[inserted] (kA) at (-6.0, -2.0) {K\\{\tiny $7.5$}};
+    \node[tnode] (pA) at (-3.9, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mA) -- (hA);
+    \draw[edge] (mA) -- (tA);
+    \draw[edge] (hA) -- (gA);
+    \draw[edge] (hA) -- (iA);
+    \draw[edge] (tA) -- (rA);
+    \draw[very thick, color=red!80!black, dashed, ->, >=Stealth] (iA) -- (kA);
+    \node[font=\scriptsize\bfseries, color=red!80!black, anchor=west] at (-5.4, -1.15) {Violazione!};
+    \draw[edge] (rA) -- (pA);
+
+    % Freccia di transizione
+    \draw[very thick, ->, >=Stealth, color=navy!80] (-0.5, 0.6) -- (1.5, 0.6)
+        node[midway, above=3pt, font=\scriptsize\bfseries, color=navy] {$\textsc{Rotate-Left}(I)$};
+
+    % (b) Dopo la rotazione sinistra
+    \node[font=\small\bfseries] at (6.0, 3.2) {\textbf{(b) Treap finale dopo $\textsc{Rotate-Left}(I)$}};
+
+    \node[tnode] (mB) at (6.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (hB) at (2.9, 0.6) {H\\{\tiny $8$}};
+    \node[tnode] (tB) at (9.3, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (gB) at (1.7, -0.7) {G\\{\tiny $3$}};
+    \node[inserted] (kB) at (4.7, -0.7) {K\\{\tiny $7.5$}};
+    \node[tnode] (rB) at (8.2, -0.7) {R\\{\tiny $5$}};
+    \node[tnode] (iB) at (3.8, -2.0) {I\\{\tiny $6$}};
+    \node[tnode] (pB) at (7.1, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mB) -- (hB);
+    \draw[edge] (mB) -- (tB);
+    \draw[edge] (hB) -- (gB);
+    \draw[edge] (hB) -- (kB);
+    \draw[edge] (tB) -- (rB);
+    \draw[edge] (kB) -- (iB);
+    \draw[edge] (rB) -- (pB);
+\end{tikzpicture}%
+}
+\caption{Traccia dell'inserimento della coppia $\langle K, 7.5 \rangle$: (a) allocazione iniziale come foglia con violazione dell'heap su $I(6)$; (b) configurazione finale dopo la rotazione $\textsc{Rotate-Left}(I)$.}
+\label{fig:treap-insert-trace}
+\end{figure}
+
+\FloatBarrier
+\subsection{Cancellazione (\textsc{Delete}) con Discesa a Rotazioni (Trickle-Down)}
+Per eliminare una chiave $k$ senza violare le propriet\`a del Treap, si adotta una strategia elegante che spinge il nodo da eliminare verso il basso:
+\begin{enumerate}
+    \item Si individua il nodo $u$ avente $k(u) = k$ tramite discesa BST.
+    \item Fintanto che $u$ non \`e una foglia, si seleziona il figlio avente \textbf{priorit\`a massima}:
+    \begin{itemize}
+        \item Se $\operatorname{left}(u)$ ha priorit\`a maggiore di $\operatorname{right}(u)$, si applica $\textsc{Rotate-Right}(u)$;
+        \item Viceversa, si applica $\textsc{Rotate-Left}(u)$.
+    \end{itemize}
+    Questa rotazione preserva l'invariante di Max-Heap su tutti i nodi sovrastanti e sposta $u$ un livello pi\`u in basso.
+    \item Quando $u$ diventa foglia (entrambi i figli sono NIL), viene deallocato e il puntatore del padre viene impostato a NIL in tempo $\mathcal{O}(1)$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Cancellazione di una chiave dal Treap ($\textsc{Delete}(u, k)$)}
+\label{alg:treap-delete}
+\KwIn{Radice $u$ del sottoalbero, chiave $k$ da rimuovere}
+\KwOut{Nuova radice del sottoalbero privo di $k$}
+\BlankLine
+\If{$u = \mathrm{NIL}$}{
+    \Return $\mathrm{NIL}$\;
+}
+\If{$k < k(u)$}{
+    $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
+}
+\ElseIf{$k > k(u)$}{
+    $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
+}
+\Else{
+    \tcp{Nodo $u$ trovato}
+    \If{$\operatorname{left}(u) = \mathrm{NIL}$ \textbf{and} $\operatorname{right}(u) = \mathrm{NIL}$}{
+        $\textsc{Deallocate}(u)$\;
+        \Return $\mathrm{NIL}$\;
+    }
+    \ElseIf{$\operatorname{left}(u) \neq \mathrm{NIL}$ \textbf{and} $(\operatorname{right}(u) = \mathrm{NIL}$ \textbf{or} $p(\operatorname{left}(u)) > p(\operatorname{right}(u)))$}{
+        $u \leftarrow \textsc{Rotate-Right}(u)$\;
+        $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
+    }
+    \Else{
+        $u \leftarrow \textsc{Rotate-Left}(u)$\;
+        $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
+    }
+}
+\Return $u$\;
+\end{algorithm}
+
+\subsubsection{Esempio di Traccia: Cancellazione con Discesa Trickle-Down}
+Supponiamo ora di voler rimuovere il nodo interno $H$ dal Treap ottenuto al termine dell'inserimento precedente:
+\begin{equation}
+  \textsc{Delete}(T, H).
+\end{equation}
+
+La cancellazione di un nodo con due figli in un Treap non ricorre alla sostituzione del valore con il predecessore o successore (come avverrebbe in un BST standard), bens\`i spinge il nodo bersaglio verso il basso simulando un processo di ``galleggiamento inverso'':
+\begin{enumerate}
+    \item \textbf{Stato iniziale di $H$:}
+    Il nodo $H$ possiede due figli: $G$ a sinistra con $p(G) = 3$, e $K$ a destra con $p(K) = 7.5$.
+    L'algoritmo confronta le priorit\`a dei due figli:
+    \begin{equation}
+      \max(p(G), p(K)) = \max(3, 7.5) = p(K) = 7.5.
+    \end{equation}
+    Poich\'e il figlio con priorit\`a maggiore \`e il figlio destro ($K$), l'algoritmo esegue $\textsc{Rotate-Left}(H)$:
+    \begin{itemize}
+        \item $K$ viene promosso a nuovo figlio sinistro della radice globale $M$.
+        \item $H$ scende diventando figlio sinistro di $K$.
+        \item Il sottoalbero sinistro di $K$ (il nodo $I(6)$) diventa il nuovo figlio destro di $H$.
+    \end{itemize}
+    I figli correnti di $H$ sono adesso $G(3)$ (sinistro) e $I(6)$ (destro).
+    
+    \item \textbf{Secondo passo di discesa per $H$:}
+    Il nodo $H$ possiede ancora due figli. L'algoritmo seleziona nuovamente il figlio con priorit\`a massima:
+    \begin{equation}
+      \max(p(G), p(I)) = \max(3, 6) = p(I) = 6.
+    \end{equation}
+    Poich\'e la priorit\`a maggiore risiede a destra in $I$, si esegue una seconda rotazione $\textsc{Rotate-Left}(H)$:
+    \begin{itemize}
+        \item $I$ sale diventando figlio sinistro di $K$.
+        \item $H$ scende diventando figlio sinistro di $I$.
+        \item Il sottoalbero sinistro originario di $I$ ($\mathrm{NIL}$) diventa figlio destro di $H$.
+    \end{itemize}
+    Ora $H$ ha come unico figlio $G(3)$ a sinistra, mentre il puntatore destro \`e $\mathrm{NIL}$.
+    
+    \item \textbf{Terzo passo di discesa (rotazione a destra):}
+    Avendo unicamente il figlio sinistro $G$, l'algoritmo esegue $\textsc{Rotate-Right}(H)$:
+    \begin{itemize}
+        \item $G$ sale diventando figlio sinistro di $I$.
+        \item $H$ retrocede diventando figlio destro di $G$.
+    \end{itemize}
+    Ora entrambi i puntatori di $H$ sono nulli ($\operatorname{left}(H) = \mathrm{NIL}, \operatorname{right}(H) = \mathrm{NIL}$): $H$ \`e diventato una \textbf{foglia}!
+    
+    \item \textbf{Deallocazione finale $\mathcal{O}(1)$:}
+    Trovandosi a foglia, il puntatore del genitore viene azzerato ($\operatorname{right}(G) \leftarrow \mathrm{NIL}$) e il nodo $H$ viene deallocato. L'albero risultante (Figura~\ref{fig:treap-delete-trace}) soddisfa sia l'ordinamento BST ($G < I < K < M < P < R < T$) sia l'invariante di Max-Heap ad ogni livello.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=navy!8, font=\small\bfseries, minimum size=0.85cm, align=center},
+    deleted/.style={circle, draw=red!80!black, fill=red!18, font=\small\bfseries, minimum size=0.85cm, align=center, thick},
+    edge/.style={thick, color=navy!70}
+]
+    % (a) Passo 0: Treap iniziale con H da cancellare
+    \node[font=\small\bfseries] at (-5.5, 3.2) {\textbf{(a) Passo 0: Treap iniziale ($H$ da cancellare)}};
+
+    \node[tnode]   (mA) at (-5.0, 1.9) {M\\{\tiny $9$}};
+    \node[deleted] (hA) at (-8.1, 0.6) {H\\{\tiny $8$}};
+    \node[tnode]   (tA) at (-1.7, 0.6) {T\\{\tiny $7$}};
+    \node[tnode]   (gA) at (-9.3, -0.7) {G\\{\tiny $3$}};
+    \node[tnode]   (kA) at (-6.3, -0.7) {K\\{\tiny $7.5$}};
+    \node[tnode]   (rA) at (-2.8, -0.7) {R\\{\tiny $5$}};
+    \node[tnode]   (iA) at (-7.2, -2.0) {I\\{\tiny $6$}};
+    \node[tnode]   (pA) at (-3.9, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mA) -- (hA);
+    \draw[edge] (mA) -- (tA);
+    \draw[edge] (hA) -- (gA);
+    \draw[edge] (hA) -- (kA);
+    \draw[edge] (kA) -- (iA);
+    \draw[edge] (tA) -- (rA);
+    \draw[edge] (rA) -- (pA);
+
+    % Freccia di transizione
+    \draw[very thick, ->, >=Stealth, color=navy!80] (-0.5, 0.6) -- (1.5, 0.6)
+        node[midway, above=3pt, font=\scriptsize\bfseries, color=navy] {Trickle-down};
+
+    % (b) Treap finale dopo la deallocazione di H
+    \node[font=\small\bfseries] at (6.0, 3.2) {\textbf{(b) Treap finale deallocato $H$}};
+
+    \node[tnode] (mB) at (6.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (kB) at (4.2, 0.6) {K\\{\tiny $7.5$}};
+    \node[tnode] (tB) at (9.3, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (iB) at (3.0, -0.7) {I\\{\tiny $6$}};
+    \node[tnode] (rB) at (8.2, -0.7) {R\\{\tiny $5$}};
+    \node[tnode] (gB) at (1.8, -2.0) {G\\{\tiny $3$}};
+    \node[tnode] (pB) at (7.1, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mB) -- (kB);
+    \draw[edge] (mB) -- (tB);
+    \draw[edge] (kB) -- (iB);
+    \draw[edge] (iB) -- (gB);
+    \draw[edge] (tB) -- (rB);
+    \draw[edge] (rB) -- (pB);
+\end{tikzpicture}%
+}
+\caption{Traccia della cancellazione del nodo $H$: (a) configurazione iniziale (Passo 0) con il nodo bersaglio $H$ evidenziato; (b) Treap finale dopo la discesa a rotazioni (trickle-down) e la deallocazione a foglia di $H$ in tempo $\mathcal{O}(1)$.}
+\label{fig:treap-delete-trace}
+\end{figure}
+
+\FloatBarrier
+\subsection{Operazioni Avanzate: \textsc{Split} e \textsc{Merge}}
+Il Treap supporta con eccezionale naturalezza due operazioni fondamentali per strutture dati persistenti e manipolazione di insiemi:
+
+\begin{itemize}
+    \item \textbf{Scissione ($\textsc{Split}(T, k)$):}\\
+    Dato un Treap $T$ e una chiave di soglia $k$, partiziona $T$ in due Treap indipendenti $T_1$ e $T_2$ tali che:
+    \begin{equation}
+      \forall x \in T_1, \; k(x) \le k \quad \text{e} \quad \forall y \in T_2, \; k(y) > k.
+    \end{equation}
+    \textbf{Implementazione in tempo logaritmico $\mathcal{O}(\log n)$:} Si inserisce temporaneamente nel Treap una chiave fittizia $\langle k, +\infty \rangle$. Poich\'e la sua priorit\`a \`e $+\infty$, le rotazioni di bubble-up la porteranno categoricamente alla \textbf{radice dell'albero}. A questo punto, il sottoalbero sinistro della radice \`e esattamente $T_1$, mentre il sottoalbero destro \`e esattamente $T_2$. Rimuovendo il nodo fittizio si ottengono i due Treap voluti in tempo $\mathcal{O}(h) = \mathcal{O}(\log n)$ (Figura~\ref{fig:treap-split-merge-concept}(a)).
+
+    \item \textbf{Fusione ($\textsc{Merge}(T_1, T_2)$):}\\
+    Dati due Treap disgiunti $T_1$ e $T_2$ tali che ogni chiave in $T_1$ sia strettamente minore di ogni chiave in $T_2$ ($\max(T_1) < \min(T_2)$), restituisce un unico Treap $T = T_1 \cup T_2$.\\
+    \textbf{Implementazione in tempo logaritmico $\mathcal{O}(\log n)$:} Si alloca una radice fittizia $z = \langle k^*, -\infty \rangle$ avente come figlio sinistro $T_1$ e come figlio destro $T_2$. Si applica poi l'algoritmo di cancellazione $\textsc{Delete}$ su $z$: le rotazioni di trickle-down spingeranno $z$ verso il basso rispettando le priorit\`a di $T_1$ e $T_2$, fondendoli in un unico Treap bilanciato in tempo $\mathcal{O}(\log n)$ (Figura~\ref{fig:treap-split-merge-concept}(b)).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    sentinelnode/.style={circle, draw=purple!80!black, fill=purple!15, minimum size=1.0cm, font=\small\bfseries, thick},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth}
+]
+    % (a) Split via +inf
+    \node[font=\small\bfseries] at (-3.5, 2.7) {\textbf{(a) $\textsc{Split}(T, k)$}};
+    \node[sentinelnode] (splitRoot) at (-3.5, 1.5) {$\langle k, +\infty \rangle$};
+
+    % Sottoalbero T1: triangolo con vertice in (-4.8, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (-6.0, -1.2) -- (-3.6, -1.2) -- (-4.8, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (-4.8, -0.5) {$T_1$};
+    \node[font=\tiny] at (-4.8, -0.85) {$\{x \mid k(x) \le k\}$};
+
+    % Sottoalbero T2: triangolo con vertice in (-2.2, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (-3.4, -1.2) -- (-1.0, -1.2) -- (-2.2, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (-2.2, -0.5) {$T_2$};
+    \node[font=\tiny] at (-2.2, -0.85) {$\{y \mid k(y) > k\}$};
+
+    \draw[pointer] (splitRoot) -- (-4.8, 0.45);
+    \draw[pointer] (splitRoot) -- (-2.2, 0.45);
+
+    % Linea divisoria verticale
+    \draw[dashed, color=gray!50, thick] (0.0, 3.0) -- (0.0, -1.4);
+
+    % (b) Merge via -inf
+    \node[font=\small\bfseries] at (4.2, 2.7) {\textbf{(b) $\textsc{Merge}(T_1, T_2)$}};
+    \node[sentinelnode] (mergeRoot) at (4.2, 1.5) {$\langle k^*, -\infty \rangle$};
+
+    % Sottoalbero T1m: triangolo con vertice in (2.5, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (1.3, -1.2) -- (3.7, -1.2) -- (2.5, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (2.5, -0.5) {$T_1$};
+    \node[font=\tiny] at (2.5, -0.85) {$\max(T_1) < k^*$};
+
+    % Sottoalbero T2m: triangolo con vertice in (5.9, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (4.7, -1.2) -- (7.1, -1.2) -- (5.9, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (5.9, -0.5) {$T_2$};
+    \node[font=\tiny] at (5.9, -0.85) {$k^* < \min(T_2)$};
+
+    \draw[pointer] (mergeRoot) -- (2.5, 0.45);
+    \draw[pointer] (mergeRoot) -- (5.9, 0.45);
+
+    % Trickle-down annotazione centrale tra i due triangoli nel canale aperto
+    \draw[thick, ->, >=Stealth, color=purple!80!black] (4.2, 0.0) -- (4.2, -0.6);
+    \node[font=\scriptsize\bfseries, color=purple!85!black, align=center] at (4.2, 0.2) {Trickle-down};
+    \node[font=\tiny, color=purple!75!black, align=center] at (4.2, -0.85) {fino a foglia};
+\end{tikzpicture}%
+}
+\caption{Principio costruttivo di $\textsc{Split}$ e $\textsc{Merge}$: l'assegnazione temporanea di priorit\`a estreme ($+\infty$ e $-\infty$) sfrutta direttamente le rotazioni del Treap per sezionare o fondere collezioni in tempo $\mathcal{O}(\log n)$.}
+\label{fig:treap-split-merge-concept}
+\end{figure}
+
+\FloatBarrier
+\section{Analisi Probabilistica Formale (Seidel e Aragon)}
+\label{sec:probabilistic-analysis}
+
+Presentiamo ora la celebre analisi probabilistica introdotta da Raimund Seidel e Cecilia Aragon~\cite{seidel1996}, che fornisce le garanzie asintotiche sulle prestazioni del Treap.
+
+\subsection{Spazio di Probabilit\`a e Variabili Indicatrici}
+Sia $S = \{x_1, x_2, \dots, x_n\}$ l'insieme delle chiavi ordinate in modo strettamente crescente:
+\begin{equation}
+  x_1 < x_2 < \dots < x_n.
+\end{equation}
+A ciascuna chiave $x_i$ \`e associata una priorit\`a indipendente $p_i \sim \mathcal{U}[0, 1]$.
+Definiamo la variabile aleatoria indicatrice $A_{i, j}$:
+\begin{equation}
+  A_{i, j} = \begin{cases}
+    1 & \text{se il nodo $x_i$ \`e un antenato (\textit{ancestor}) del nodo $x_j$ nel Treap,} \\
+    0 & \text{altrimenti.}
+  \end{cases}
+\end{equation}
+Convenzionalmente, consideriamo ogni nodo come antenato di se stesso: $A_{i, i} = 1$.
+
+\subsection{Teorema Fondamentale della Relazione di Parentela}
+
+\begin{theorem}[Condizione di Antenato nel Treap]
+\label{thm:ancestor-condition}
+Per ogni coppia di indici $i, j \in \{1, \dots, n\}$, il nodo $x_i$ \`e un antenato del nodo $x_j$ se e solo se $x_i$ possiede la priorit\`a massima tra tutte le chiavi comprese tra $x_i$ e $x_j$ inclusi:
+\begin{equation}
+  A_{i, j} = 1 \iff p_i = \max \left\{ p_k \mid k \in [\min(i, j), \max(i, j)] \right\}.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Consideriamo l'intervallo di chiavi $S_{i, j} = \{x_k \mid \min(i, j) \le k \le \max(i, j)\}$.
+\begin{itemize}
+    \item \textbf{Necessit\`a ($\implies$):} Supponiamo che $x_i$ sia un antenato di $x_j$. Per la propriet\`a di BST, tutte le chiavi strettamente comprese tra $x_i$ e $x_j$ devono trovarsi nel sottoalbero radicato in $x_i$ (dal lato in cui risiede $x_j$). Poich\'e l'intero intervallo $S_{i, j}$ appartiene al sottoalbero di $x_i$, per la propriet\`a di Max-Heap il nodo radice $x_i$ deve possedere una priorit\`a strettamente superiore a qualsiasi altro nodo presente nel suo sottoalbero: $p_i > p_k$ per ogni $k \neq i$ tale che $x_k \in S_{i, j}$.
+    
+    \item \textbf{Sufficienza ($\impliedby$):} Supponiamo che $p_i$ sia la priorit\`a massima in $S_{i, j}$. Esaminiamo il cammino dalla radice assoluta del Treap verso il basso. Il primo nodo dell'insieme $S_{i, j}$ incontrato lungo la discesa deve necessariamente essere il nodo con la priorit\`a pi\`u elevata dell'insieme, ovvero $x_i$. Nessun altro nodo di $S_{i, j}$ pu\`o precedere $x_i$, altrimenti violerebbe l'invariante di Max-Heap. Di conseguenza, tutti gli altri elementi di $S_{i, j}$ (compreso $x_j$) risiedono nel sottoalbero radicato in $x_i$. Dunque $x_i$ \`e un antenato di $x_j$.
+\end{itemize}
+\end{proof}
+
+\begin{lemma}[Probabilit\`a di Parentela]
+La probabilit\`a che $x_i$ sia antenato di $x_j$ \`e inversamente proporzionale alla loro distanza nell'ordinamento delle chiavi:
+\begin{equation}
+  \mathbb{P}(A_{i, j} = 1) = \frac{1}{|j - i| + 1}.
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+L'intervallo $S_{i, j}$ contiene esattamente $|j - i| + 1$ elementi distinti. Poich\'e le priorit\`a sono estratte in modo indipendente da una distribuzione continua uniforme, tutte le $(|j - i| + 1)!$ possibili permutazioni delle priorit\`a all'interno di questo sottoinsieme sono equiprobabili per simmetria. La probabilit\`a che uno specifico elemento ($x_i$) possieda la priorit\`a massima tra gli $|j - i| + 1$ elementi \`e esattamente $\frac{1}{|j - i| + 1}$.
+\end{proof}
+
+\subsection{Profondit\`a Attesa di un Nodo}
+La profondit\`a $\operatorname{Depth}(x_i)$ di un nodo $x_i$ nel Treap \`e definita come il numero di spigoli sul cammino dalla radice a $x_i$, che equivale al numero di antenati propri di $x_i$:
+\begin{equation}
+  \operatorname{Depth}(x_i) = \sum_{j=1}^n A_{j, i} - 1 = \sum_{j \neq i} A_{j, i}.
+\end{equation}
+
+\begin{theorem}[Valore Atteso della Profondit\`a]
+Il valore atteso della profondit\`a del nodo $x_i$ in un Treap di dimensione $n$ \`e:
+\begin{equation}
+  \mathbb{E}[\operatorname{Depth}(x_i)] = H_i + H_{n - i + 1} - 2 = \mathcal{O}(\log n),
+\end{equation}
+dove $H_k = \sum_{m=1}^k \frac{1}{m}$ denota il $k$-esimo numero armonico ($H_k = \ln k + \gamma + \mathcal{O}(1/k)$).
+\end{theorem}
+
+\begin{proof}
+Per la linearit\`a del valore atteso:
+\begin{align}
+  \mathbb{E}[\operatorname{Depth}(x_i)] &= \sum_{j \neq i} \mathbb{E}[A_{j, i}] = \sum_{j \neq i} \mathbb{P}(A_{j, i} = 1) \nonumber \\
+  &= \sum_{j=1}^{i-1} \frac{1}{i - j + 1} + \sum_{j=i+1}^n \frac{1}{j - i + 1}.
+\end{align}
+Operiamo il cambio di variabile $k = i - j + 1$ nella prima sommatoria ($k$ varia da $2$ a $i$):
+\begin{equation}
+  \sum_{j=1}^{i-1} \frac{1}{i - j + 1} = \sum_{k=2}^i \frac{1}{k} = H_i - 1.
+\end{equation}
+Operiamo il cambio di variabile $m = j - i + 1$ nella seconda sommatoria ($m$ varia da $2$ a $n - i + 1$):
+\begin{equation}
+  \sum_{j=i+1}^n \frac{1}{j - i + 1} = \sum_{m=2}^{n - i + 1} \frac{1}{m} = H_{n - i + 1} - 1.
+\end{equation}
+Sommando i due contributi:
+\begin{equation}
+  \mathbb{E}[\operatorname{Depth}(x_i)] = (H_i - 1) + (H_{n - i + 1} - 1) = H_i + H_{n - i + 1} - 2.
+\end{equation}
+Poich\'e $H_k \le \ln k + 1$, per ogni $i \in \{1, \dots, n\}$ si ha:
+\begin{equation}
+  \mathbb{E}[\operatorname{Depth}(x_i)] \le \ln i + \ln(n - i + 1) \le 2 \ln n = \mathcal{O}(\log n).
+\end{equation}
+\end{proof}
+
+\subsection{Numero Atteso di Rotazioni per Aggiornamento: $\mathcal{O}(1)$}
+Un risultato straordinario dimostrato da Seidel e Aragon riguarda il costo di ristrutturazione strutturale:
+
+\begin{theorem}[Costo Atteso di Ribilanciamento]
+Il numero atteso di rotazioni eseguite durante un'operazione di inserimento o cancellazione nel Treap \`e limitato da una costante universale:
+\begin{equation}
+  \mathbb{E}[\# \text{rotazioni per inserimento}] \le 2, \qquad \mathbb{E}[\# \text{rotazioni per cancellazione}] \le 2.
+\end{equation}
+\end{theorem}
+
+\begin{proof}[Traccia della dimostrazione]
+Durante l'inserimento di una chiave $z$, ogni rotazione destra fa salire $z$ lungo la colonna sinistra del suo sottoalbero, mentre ogni rotazione sinistra lo fa salire lungo la colonna destra. La lunghezza attesa della spina (\textit{spine}) sinistra e della spina destra del sottoalbero radicato nel nuovo nodo \`e pari a $1 - \frac{1}{k}$, la cui somma complessiva converge a meno di $2$ rotazioni in valore atteso.
+\end{proof}
+
+\FloatBarrier
+\section{Isomorfismo Geometrico e Applicazioni Multidimensionali}
+\label{sec:geometric-applications}
+
+Associando la chiave $x$ all'ascissa e la priorit\`a $y$ all'ordinata di un punto bidimensionale, il Treap rivela un isomorfismo diretto con gli \textbf{Alberi Cartesiani}~\cite{vuillemin1980} e i \textbf{Priority Search Trees}~\cite{mccreight1985}. Tale corrispondenza geometrica consente di estendere la struttura oltre la ricerca monodimensionale: dalla costruzione lineare deterministica $\mathcal{O}(n)$ e la risoluzione in tempo $\mathcal{O}(1)$ delle \textit{Range Minimum Queries} (RMQ), fino alle interrogazioni ortogonali a tre lati (\textit{3-sided range queries}) con complessit\`a ottima $\mathcal{O}(\log n + k)$.
+
+\subsection{Alberi Cartesiani (Cartesian Tree) e Mappatura 2D}
+\begin{definition}[Isomorfismo dell'Albero Cartesiano]
+Sia $P = \{(x_1, y_1), \dots, (x_n, y_n)\} \subset \mathbb{R}^2$ un insieme di $n$ punti nel piano cartesiano con coordinate mutualmente distinte. L'albero cartesiano associato a $P$ \`e un albero binario in cui:
+\begin{itemize}
+    \item Le ascisse $x_i$ definiscono le \textbf{chiavi BST} (ordinamento orizzontale);
+    \item Le ordinate $y_i$ definiscono le \textbf{priorit\`a Max-Heap} (ordinamento verticale).
+\end{itemize}
+\end{definition}
+
+Il punto con ordinata massima coincide con la radice dell'albero; la sua ascissa partiziona il piano nei sottoalberi sinistro e destro (Figura~\ref{fig:cartesian-tree-geometric-plane}).
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.9,
+    treepoint/.style={circle, draw=navy!80, fill=navy!20, inner sep=2.5pt, font=\scriptsize\bfseries},
+    conn/.style={thick, color=navy!70}
+]
+    % Assi cartesiani
+    \draw[thick, color=gray!60, ->, >=Stealth] (0, 0) -- (9.5, 0) node[right, font=\small\bfseries, color=navy] {Chiave $x$};
+    \draw[thick, color=gray!60, ->, >=Stealth] (0, 0) -- (0, 7.5) node[above, font=\small\bfseries, color=navy] {Priorit\`a $y$};
+
+    % Punti nel piano (Esempio con 5 nodi ordinati per ascissa)
+    % A(1.5, 3.0), B(3.0, 6.5), C(4.5, 2.0), D(6.5, 5.0), E(8.5, 4.0)
+    \node[treepoint, label={above:\small $B(3, 6.5)$}] (B) at (3.0, 6.5) {};
+    \node[treepoint, label={left:\small $A(1.5, 3)$}]   (A) at (1.5, 3.0) {};
+    \node[treepoint, label={above:\small $D(6.5, 5)$}] (D) at (6.5, 5.0) {};
+    \node[treepoint, label={below:\small $C(4.5, 2)$}] (C) at (4.5, 2.0) {};
+    \node[treepoint, label={right:\small $E(8.5, 4)$}] (E) at (8.5, 4.0) {};
+
+    % Collegamenti ad albero dell'albero cartesiano
+    \draw[conn] (B) -- (A);
+    \draw[conn] (B) -- (D);
+    \draw[conn] (D) -- (C);
+    \draw[conn] (D) -- (E);
+
+    % Linee di proiezione tratteggiate
+    \draw[dashed, color=gray!40] (1.5, 0) -- (A);
+    \draw[dashed, color=gray!40] (3.0, 0) -- (B);
+    \draw[dashed, color=gray!40] (4.5, 0) -- (C);
+    \draw[dashed, color=gray!40] (6.5, 0) -- (D);
+    \draw[dashed, color=gray!40] (8.5, 0) -- (E);
+\end{tikzpicture}%
+}
+\caption{Isomorfismo geometrico dell'Albero Cartesiano: $B$ possiede l'ordinata massima ed \`e radice. A sinistra di $B$ risiede $A$ ($x_A < x_B$). A destra di $B$ risiedono $\{C, D, E\}$, con $D$ come radice locale avente ordinata massima nel sottoinsieme destro.}
+\label{fig:cartesian-tree-geometric-plane}
+\end{figure}
+
+\subsection{Costruzione Deterministica Lineare $\mathcal{O}(n)$ tramite Stack Monotono}
+Se i punti sono preordinati per ascissa crescente ($x_1 < x_2 < \dots < x_n$), l'albero cartesiano pu\`o essere costruito in tempo deterministico strettamente lineare $\mathcal{O}(n)$ mediante un algoritmo incrementale a \textbf{stack monotono} (Algoritmo~\ref{alg:cartesian-build}):
+
+\begin{algorithm}[H]
+\caption{Costruzione Lineare dell'Albero Cartesiano ($\textsc{Build-Cartesian}(A[1 \dots n])$)}
+\label{alg:cartesian-build}
+\KwIn{Array di punti $A[1 \dots n]$ preordinati per chiave $x$ crescente}
+\KwOut{Radice dell'albero cartesiano}
+\BlankLine
+Inizializza uno stack vuoto $S$\;
+\For{$i \leftarrow 1$ \KwTo $n$}{
+    $last \leftarrow \mathrm{NIL}$\;
+    \While{$S$ \textbf{non \`e vuoto} \textbf{and} $y(S.\textsc{Top}()) < y(A[i])$}{
+        $last \leftarrow S.\textsc{Pop}()$\;
+    }
+    $\operatorname{left}(A[i]) \leftarrow last$\;
+    \If{$S$ \textbf{non \`e vuoto}}{
+        $\operatorname{right}(S.\textsc{Top}()) \leftarrow A[i]$\;
+    }
+    $S.\textsc{Push}(A[i])$\;
+}
+\Return elemento pi\`u profondo nello stack (la radice globale)\;
+\end{algorithm}
+
+\paragraph{Analisi di Complessit\`a Ammortizzata:}
+L'algoritmo mantiene nello stack la cosiddetta \textit{spina destra} (\textit{right spine}) dell'albero corrente. A ogni iterazione, l'elemento $A[i]$ rimuove dallo stack tutti i nodi con ordinata inferiore alla propria; l'ultimo nodo estratto diventa il suo figlio sinistro, mentre $A[i]$ diviene il figlio destro del nuovo elemento in cima allo stack. Poich\'e ciascuno degli $n$ nodi viene inserito nello stack esattamente una volta ($\textsc{Push}$) ed estratto al massimo una volta ($\textsc{Pop}$), il numero complessivo di operazioni sullo stack \`e al pi\`u $2n$. Il tempo di esecuzione complessivo \`e pertanto strettamente deterministico e lineare: $\mathcal{O}(n)$.
+
+\subsection{Risoluzione Ottimale di Range Minimum Query (RMQ) in $\mathcal{O}(1)$}
+L'albero cartesiano costituisce il ponte teorico fondamentale per collegare la ricerca del minimo in un intervallo di un array al problema del minimo antenato comune in un albero:
+\begin{equation}
+  \textsc{RMQ}_A(i, j) = \arg\min_{i \le k \le j} A[k].
+\end{equation}
+
+Costruendo l'albero cartesiano (in versione Min-Heap) sulle coppie $(k, A[k])$:
+\begin{equation}
+  \textsc{RMQ}_A(i, j) = \textsc{LCA}_{\text{CartesianTree}}(A[i], A[j]),
+\end{equation}
+dove $\textsc{LCA}$ denota il \textit{Lowest Common Ancestor} (Minimo Antenato Comune). Poich\'e l'LCA su alberi statici pu\`o essere risolto in tempo $\mathcal{O}(1)$ con pre-processing lineare $\mathcal{O}(n)$ (mediante la tecnica di Bender e Farach-Colton~\cite{bender2000}), l'albero cartesiano consente di ottenere RMQ in tempo $\mathcal{O}(1)$ ottimale.
+
+\subsection{Query di Intervallo a Tre Lati (3-Sided Range Queries)}
+Nelle applicazioni geospaziali, nei database temporali e nella geometria computazionale, una classe fondamentale di interrogazioni multidimensionali \`e costituita dalle \textbf{query di intervallo a tre lati} (o regioni semi-aperte superiormente):
+\begin{equation}
+  Q = [x_{\min}, x_{\max}] \times [y_{\min}, +\infty).
+\end{equation}
+Una tale query richiede di identificare tutti i punti $p = (x, y)$ che soddisfano simultaneamente:
+\begin{equation}
+  x_{\min} \le x \le x_{\max} \quad \land \quad y \ge y_{\min}.
+\end{equation}
+
+Nel contesto dei Treap, l'asse delle ascisse esprime l'ordinamento alfabetico o lessicografico delle chiavi (definendo la query come un intervallo di lettere $[x_{\min}, x_{\max}]$), mentre l'asse delle ordinate misura le priorit\`a numeriche (esprimendo il vincolo verticale come un intervallo di priorit\`a $[y_{\min}, +\infty)$), come illustrato in Figura~\ref{fig:3-sided-query-plane-ch10}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    pt_in/.style={circle, draw=green!60!black, fill=green!25, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, very thick, text=green!30!black},
+    pt_out/.style={circle, draw=navy!85, fill=navy!15, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, thick, text=navy!80!black},
+    pt_pruned/.style={circle, draw=orange!85!black, fill=orange!20, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, thick, text=orange!85!black},
+    tree_edge/.style={thick, dashed, color=navy!40}
+]
+    % Griglia cartesiana di sfondo
+    \draw[thin, color=gray!18, step=1.0] (0, 0) grid (12.0, 10.8);
+
+    % Assi cartesiani principali
+    \draw[thick, color=gray!75, ->, >=Stealth] (0, 0) -- (12.3, 0);
+    \draw[thick, color=gray!75, ->, >=Stealth] (0, 0) -- (0, 11.2) node[above=3pt, font=\small\bfseries, color=navy] {Priorit\`a $y$};
+    \node[below=25pt, font=\small\bfseries, color=navy] at (6.0, 0) {Chiave $x$ (Ordinamento alfabetico)};
+
+    % Tacche alfabetiche sull'asse X
+    \foreach \x/\letter in {1/G, 2/H, 3/I, 5/M, 6/O, 7/P, 9/R, 10/S, 11/T} {
+        \draw[color=gray!50] (\x, 0.08) -- (\x, -0.08) node[below=2pt, font=\small\bfseries, color=navy!80!black] {\letter};
+    }
+    % Limiti alfabetici della query su X (intervallo [L, Q])
+    \draw[line width=1.3pt, color=red!75!black] (4, 0.12) -- (4, -0.12) node[below=2pt, font=\small\bfseries, color=red!80!black] {$L$};
+    \node[below=14pt, font=\scriptsize\bfseries, color=red!80!black] at (4, 0) {($x_{\min}$)};
+
+    \draw[line width=1.3pt, color=red!75!black] (8, 0.12) -- (8, -0.12) node[below=2pt, font=\small\bfseries, color=red!80!black] {$Q$};
+    \node[below=14pt, font=\scriptsize\bfseries, color=red!80!black] at (8, 0) {($x_{\max}$)};
+
+    % Tacche numeriche di priorit\`a sull'asse Y
+    \foreach \y in {1, 2, 3, 4, 5, 7, 8, 9, 10} {
+        \draw[color=gray!50] (0.08, \y) -- (-0.08, \y) node[left=2pt, font=\scriptsize, color=gray!70] {\y};
+    }
+    % Soglia minima di priorit\`a (intervallo [6, +inf))
+    \draw[line width=1.3pt, color=red!75!black] (0.12, 6) -- (-0.12, 6) node[left=3pt, font=\small\bfseries, color=red!80!black] {$y_{\min} = 6$};
+
+    % Regione semi-infinita a 3 lati: [L, Q] x [6, +inf)
+    \fill[red!8] (4.0, 6.0) rectangle (8.0, 10.8);
+    \draw[line width=1.4pt, color=red!75!black] (4.0, 10.8) -- (4.0, 6.0) -- (8.0, 6.0) -- (8.0, 10.8);
+    \draw[line width=1.4pt, dashed, ->, >=Stealth, color=red!75!black] (4.0, 10.8) -- (4.0, 11.2) node[above=1pt, font=\scriptsize\bfseries, color=red!75!black] {$+\infty$};
+    \draw[line width=1.4pt, dashed, ->, >=Stealth, color=red!75!black] (8.0, 10.8) -- (8.0, 11.2) node[above=1pt, font=\scriptsize\bfseries, color=red!75!black] {$+\infty$};
+
+    % Linee di proiezione tratteggiate verso gli assi
+    \draw[thick, dashed, color=red!70!black] (4.0, 6.0) -- (4.0, 0);
+    \draw[thick, dashed, color=red!70!black] (8.0, 6.0) -- (8.0, 0);
+    \draw[thick, dashed, color=red!70!black] (4.0, 6.0) -- (0, 6.0);
+
+    % Collegamenti ad albero dell'albero cartesiano / Treap sottostante
+    \draw[tree_edge] (5, 10) -- (2, 8);
+    \draw[tree_edge] (2, 8) -- (1, 3);
+    \draw[tree_edge] (2, 8) -- (3, 4);
+    \draw[tree_edge] (5, 10) -- (7, 9);
+    \draw[tree_edge] (7, 9) -- (6, 4);
+    \draw[tree_edge] (7, 9) -- (10, 8);
+    \draw[tree_edge] (10, 8) -- (9, 5);
+    \draw[tree_edge] (10, 8) -- (11, 7);
+
+    % Punti nel piano cartesiano:
+    % M(5, 10) in Q
+    \node[pt_in] (M) at (5, 10) {$M$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=green!40!black] at (M.north) {$M(10) \in Q$};
+
+    % P(7, 9) in Q
+    \node[pt_in] (P) at (7, 9) {$P$};
+    \node[above right=1pt and 3pt, font=\scriptsize\bfseries, text=green!40!black] at (P.north east) {$P(9) \in Q$};
+
+    % O(6, 4) escluso da Q per priorit\`a (y < 6)
+    \node[pt_pruned] (O) at (6, 4) {$O$};
+    \node[below=3pt, font=\scriptsize\bfseries, text=orange!85!black, align=center] at (O.south) {$O(4) \notin Q$\\[-1pt]{\tiny ($y < 6$)}};
+
+    % H(2, 8) escluso da Q per chiave (H < L)
+    \node[pt_out] (H) at (2, 8) {$H$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (H.north) {$H(8) \notin Q$\ \tiny ($H < L$)};
+
+    % G(1, 3)
+    \node[pt_out] (G) at (1, 3) {$G$};
+    \node[left=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (G.west) {$G(3)$};
+
+    % I(3, 4)
+    \node[pt_out] (I) at (3, 4) {$I$};
+    \node[right=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (I.east) {$I(4)$};
+
+    % S(10, 8) escluso da Q per chiave (S > Q)
+    \node[pt_out] (S) at (10, 8) {$S$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (S.north) {$S(8) \notin Q$\ \tiny ($S > Q$)};
+
+    % R(9, 5)
+    \node[pt_out] (R) at (9, 5) {$R$};
+    \node[left=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (R.west) {$R(5)$};
+
+    % T(11, 7)
+    \node[pt_out] (T) at (11, 7) {$T$};
+    \node[right=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (T.east) {$T(7)$};
+
+    % =========================================================================
+    % RETTANGOLO ESPLICATIVO COLLOCATO FUORI DAL PIANO CARTESIANO (A DESTRA)
+    % =========================================================================
+
+    % Definizione della Query
+    \node[draw=red!70!black, fill=red!4, rounded corners=4pt, inner sep=7pt, align=left, text width=5.2cm] at (16.2, 5.5) {
+        \textbf{\textcolor{red!80!black}{\large Query a Tre Lati ($Q$)}}\\[6pt]
+        $\bullet$ \textbf{Intervallo Lettere (Chiavi $x$):}\\
+        \hspace*{8pt}$x \in [L, Q] \iff L \le x \le Q$\\[5pt]
+        $\bullet$ \textbf{Intervallo Priorit\`a (Ordinate $y$):}\\
+        \hspace*{8pt}$y \in [6, +\infty) \iff y \ge 6$\\[6pt]
+        \noindent\rule{5.2cm}{0.4pt}\\[6pt]
+        $\mathbf{Q = [L, Q] \times [6, +\infty)}$
+    };
+\end{tikzpicture}%
+}
+\caption{Query a tre lati $Q = [L, Q] \times [6, +\infty)$ nel piano cartesiano: l'asse $x$ segue l'ordine alfabetico delle chiavi e l'asse $y$ le priorit\`a. I punti nella regione sono $M$ e $P$. I punti $G, H, I$ e $R, S, T$ cadono fuori dall'intervallo di lettere, mentre $O$ viola la priorit\`a minima ($y < 6$). Le linee tratteggiate indicano la struttura del Treap.}
+\label{fig:3-sided-query-plane-ch10}
+\end{figure}
+
+\paragraph{Il Principio di Potatura Istantanea ($\mathcal{O}(1)$ Pruning):}
+La combinazione tra ordinamento orizzontale e propriet\`a di Max-Heap offre un meccanismo di potatura insuperabile per filtrare i punti fuori regione (Figura~\ref{fig:3-sided-query-plane-ch10}):
+\begin{itemize}
+    \item \textbf{Filtro orizzontale (BST sulle chiavi $x$):} consente di delimitare la ricerca esclusivamente ai rami che si intersecano con $[x_{\min}, x_{\max}]$ discendendo dal Lowest Common Ancestor (LCA) di $x_{\min}$ e $x_{\max}$.
+    \item \textbf{Filtro verticale (Max-Heap sulle priorit\`a $y$):} per qualsiasi nodo $u$, se la sua priorit\`a viola la soglia minima ($p(u) < y_{\min}$), allora per la propriet\`a di Max-Heap \textbf{nessun discendente di $u$ potr\`a mai avere priorit\`a $\ge y_{\min}$}. L'esplorazione del sottoalbero radicato in $u$ viene interrotta all'istante in tempo $\mathcal{O}(1)$.
+\end{itemize}
+
+\paragraph{Due Paradigmi di Risoluzione:}
+Nell'ingegneria algoritmica, l'interrogazione pu\`o essere condotta secondo due approcci complementari:
+\begin{enumerate}
+    \item \textbf{Visita ricorsiva guidata:} si discendono i cammini di confine per $x_{\min}$ e $x_{\max}$, visitando i sottoalberi intermedi e potando istantaneamente ogni ramo la cui radice locale presenta $y < y_{\min}$.
+    \item \textbf{Isolamento mediante Split a sentinella:} si eseguono due operazioni di \textsc{Split} inserendo due nodi sentinella con priorit\`a $+\infty$ corrispondenti a $x_{\min}$ e $x_{\max}$. Tale procedura isola un sottoalbero contenente esattamente i nodi candidati con $x \in [x_{\min}, x_{\max}]$, sul quale la visita si riduce a un puro filtraggio heap guidato dalla soglia $y_{\min}$.
+\end{enumerate}
+
+\begin{theorem}[Complessit\`a Output-Sensitive della 3-Sided Query]
+L'esecuzione di una 3-sided range query su un Treap di $n$ nodi contenente $k_{\text{out}}$ punti soddisfacenti richiede tempo:
+\begin{equation}
+  T(n, k_{\text{out}}) = \mathcal{O}(\log n + k_{\text{out}}) \quad \text{in valore atteso.}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+L'insieme dei nodi esplorati dall'algoritmo si partiziona in due classi disgiunte:
+\begin{enumerate}
+    \item \textbf{Nodi di confine:} sono i nodi incontrati lungo i cammini di ricerca BST per delimitare le soglie $x_{\min}$ e $x_{\max}$. Poich\'e l'altezza attesa del Treap \`e $\mathcal{O}(\log n)$, il numero atteso di tali nodi \`e $\mathcal{O}(\log n)$. Nel paradigma basato su split, le due rotazioni di risalita delle sentinelle impiegano parimenti tempo $\mathcal{O}(\log n)$.
+    \item \textbf{Nodi interni alla regione e foglie di potatura:} ogni nodo visitato che supera la soglia di priorit\`a $p(u) \ge y_{\min}$ appartiene alla soluzione e viene emesso in output, contribuendo al termine $+k_{\text{out}}$. Ogni ramo infruttuoso viene troncato non appena viene incontrato il primo nodo con priorit\`a $< y_{\min}$; pertanto, il numero di nodi scartati visitati \`e al pi\`u pari al numero di foglie di potatura, limitato da $2 k_{\text{out}} + 2 = \mathcal{O}(k_{\text{out}})$.
+\end{enumerate}
+La complessit\`a totale \`e dunque ottimale ed \textit{output-sensitive}: $\mathcal{O}(\log n + k_{\text{out}})$.
+\end{proof}
+
+\subsection{Esempio Passo-Passo: Risoluzione di una 3-Sided Query con Split e Potatura}
+\label{sec:treap-3sided-example}
+
+Per illustrare in dettaglio la dinamica operativa della struttura, esaminiamo l'esecuzione completa di una query a tre lati mediante la tecnica dell'isolamento con nodi sentinella e successiva potatura heap.
+
+\paragraph{Definizione dell'Istanza di Query:}
+Si consideri la query bidimensionale:
+\begin{equation}
+  Q = [x_1, x_2] \times [y_1, +\infty) = [L, Q] \times [6, +\infty),
+\end{equation}
+definita dai vincoli:
+\begin{itemize}
+    \item \textbf{Intervallo orizzontale:} chiavi alfabetiche $x \in [L, Q]$, ovvero $L \le x \le Q$ secondo l'ordine lessicografico;
+    \item \textbf{Soglia verticale:} priorit\`a numeriche $y \ge 6$.
+\end{itemize}
+
+\paragraph{Topologia del Treap Iniziale (INIT):}
+I nodi memorizzano coppie $\frac{\text{Key}}{\text{Priority}} = \frac{x}{y}$, ordinati per chiave alfabetica ($G < H < I < L < M < O < P < Q < R < S < T$) e vincolati dalla propriet\`a di Max-Heap sulle ordinate. L'albero di partenza conta $9$ elementi (Figura~\ref{fig:3-sided-step-by-step-example}(a)):
+\begin{itemize}
+    \item Radice globale: $M / 10$;
+    \item Sottoalbero sinistro: $H / 8$, con figli $G / 3$ (sinistro) e $I / 4$ (destro);
+    \item Sottoalbero destro: $P / 9$, con figlio sinistro $O / 4$ e figlio destro $S / 8$ (a sua volta genitore di $R / 5$ a sinistra e $T / 7$ a destra).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{!}{0.80\textheight}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=white, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center},
+    snode/.style={circle, draw=red!80!black, fill=red!15, minimum size=0.75cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, very thick, text=red!80!black},
+    outnode/.style={circle, draw=green!60!black, fill=green!20, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, thick, text=green!40!black},
+    prunednode/.style={circle, draw=orange!80!black, fill=orange!15, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, thick, text=orange!80!black},
+    edge/.style={thick, color=navy!70},
+    prunededge/.style={thick, dashed, color=orange!80!black},
+    tarrow/.style={->, >=Stealth, very thick, color=navy!60}
+]
+    % =============================================================
+    % STATO 1: INIT
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, 0) {\textbf{(a) Stato Iniziale (INIT)}};
+    
+    \node[tnode] (M1) at (0, -1.0) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (H1) at (-1.5, -2.0) {$H$\\[-1pt]{\tiny 8}};
+    \node[tnode] (P1) at (1.5, -2.0) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (G1) at (-2.2, -3.0) {$G$\\[-1pt]{\tiny 3}};
+    \node[tnode] (I1) at (-0.8, -3.0) {$I$\\[-1pt]{\tiny 4}};
+    \node[tnode] (O1) at (0.8, -3.0) {$O$\\[-1pt]{\tiny 4}};
+    \node[tnode] (S1) at (2.2, -3.0) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R1) at (1.6, -4.0) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T1) at (2.8, -4.0) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (M1) -- (H1);
+    \draw[edge] (M1) -- (P1);
+    \draw[edge] (H1) -- (G1);
+    \draw[edge] (H1) -- (I1);
+    \draw[edge] (P1) -- (O1);
+    \draw[edge] (P1) -- (S1);
+    \draw[edge] (S1) -- (R1);
+    \draw[edge] (S1) -- (T1);
+
+    % Transizione verso Step 1
+    \draw[tarrow] (0, -4.3) -- (0, -5.2) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {\textsc{Split} a sentinella su $L$ ($p = +\infty$)};
+
+    % =============================================================
+    % STATO 2: 1° STEP (Taglio a sinistra x < L)
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -5.6) {\textbf{(b) 1° Step: Taglio a sinistra $x < L$}};
+
+    % DROP box per x < L
+    \fill[red!8, rounded corners=4pt] (-3.1, -8.7) rectangle (-0.6, -6.8);
+    \draw[red!60, dashed, thick, rounded corners=4pt] (-3.1, -8.7) rectangle (-0.6, -6.8);
+    \node[font=\tiny\bfseries, text=red!75!black] at (-1.85, -8.9) {\textsc{Drop} ($x < L$)};
+
+    \node[snode] (L2) at (0, -6.6) {$L$\\[-1pt]{\tiny $+\infty$}};
+    \node[right=5pt, font=\tiny\bfseries, text=red!75!black] at (L2.east) {\textsc{Delete} (sentinella)};
+
+    \node[tnode] (H2) at (-1.8, -7.4) {$H$\\[-1pt]{\tiny 8}};
+    \node[tnode] (G2) at (-2.5, -8.3) {$G$\\[-1pt]{\tiny 3}};
+    \node[tnode] (I2) at (-1.1, -8.3) {$I$\\[-1pt]{\tiny 4}};
+
+    \node[tnode] (M2) at (1.5, -7.4) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (O2) at (0.8, -8.3) {$O$\\[-1pt]{\tiny 4}};
+    \node[tnode] (P2) at (2.2, -8.3) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (S2) at (2.8, -9.2) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R2) at (2.2, -10.1) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T2) at (3.4, -10.1) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (L2) -- (H2);
+    \draw[edge] (L2) -- (M2);
+    \draw[edge] (H2) -- (G2);
+    \draw[edge] (H2) -- (I2);
+    \draw[edge] (M2) -- (O2);
+    \draw[edge] (M2) -- (P2);
+    \draw[edge] (P2) -- (S2);
+    \draw[edge] (S2) -- (R2);
+    \draw[edge] (S2) -- (T2);
+
+    % Transizione verso Step 2
+    \draw[tarrow] (0, -10.4) -- (0, -11.3) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {\textsc{Split} a sentinella su $Q$ ($p = +\infty$)};
+
+    % =============================================================
+    % STATO 3: 2° STEP (Taglio a destra x > Q)
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -11.8) {\textbf{(c) 2° Step: Taglio a destra $x > Q$}};
+
+    % Box Candidati [L, Q]
+    \fill[green!8, rounded corners=4pt] (-2.6, -16.1) rectangle (-0.3, -12.95);
+    \draw[green!60!black, thick, rounded corners=4pt] (-2.6, -16.1) rectangle (-0.3, -12.95);
+    \node[below=3pt, font=\tiny\bfseries, text=green!60!black] at (-1.45, -16.1) {Candidati $[L, Q]$};
+
+    % DROP box per x > Q
+    \fill[red!8, rounded corners=4pt] (0.4, -16.1) rectangle (3.2, -12.95);
+    \draw[red!60, dashed, thick, rounded corners=4pt] (0.4, -16.1) rectangle (3.2, -12.95);
+    \node[below=3pt, font=\tiny\bfseries, text=red!75!black] at (1.8, -16.1) {\textsc{Drop} ($x > Q$)};
+
+    \node[snode] (Q3) at (0, -12.5) {$Q$\\[-1pt]{\tiny $+\infty$}};
+    \node[right=5pt, font=\tiny\bfseries, text=red!75!black] at (Q3.east) {\textsc{Delete} (sentinella)};
+    
+    \node[tnode] (M3) at (-1.8, -13.5) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (P3) at (-0.9, -14.4) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (O3) at (-1.7, -15.3) {$O$\\[-1pt]{\tiny 4}};
+
+    \node[tnode] (S3) at (1.8, -13.5) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R3) at (1.1, -14.4) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T3) at (2.5, -14.4) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (Q3) -- (M3);
+    \draw[edge] (Q3) -- (S3);
+    \draw[edge] (M3) -- (P3);
+    \draw[edge] (P3) -- (O3);
+    \draw[edge] (S3) -- (R3);
+    \draw[edge] (S3) -- (T3);
+
+    % Transizione verso Step 4
+    \draw[tarrow] (0, -16.8) -- (0, -17.7) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {Filtro priorit\`a $y \ge y_{\min} = 6$};
+
+    % =============================================================
+    % STATO 4: FILTRO y >= 6 E PRUNING
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -18.1) {\textbf{(d) Filtro $y \ge 6$ ed Esito della Visita Guidata}};
+
+    \node[outnode] (M4) at (-0.6, -19.0) {$M$\\[-1pt]{\tiny 10}};
+    \node[outnode] (P4) at (0.6, -20.0) {$P$\\[-1pt]{\tiny 9}};
+    \node[prunednode] (O4) at (-0.4, -21.0) {$O$\\[-1pt]{\tiny 4}};
+
+    \draw[edge] (M4) -- (P4);
+    \draw[prunededge] (P4) -- (O4) node[midway, left=2pt, font=\tiny\bfseries, text=orange!80!black] {$4 < 6$};
+
+    \node[right=4pt, font=\tiny\bfseries, text=green!50!black] at (M4.east) {Preso ($10 \ge 6$)};
+    \node[right=4pt, font=\tiny\bfseries, text=green!50!black] at (P4.east) {Preso ($9 \ge 6$)};
+    
+    \node[below=3pt, draw=orange!70, fill=orange!8, rounded corners=2pt, font=\tiny\bfseries, text=orange!90!black, inner sep=2pt] 
+        at (O4.south) {Potatura $\mathcal{O}(1)$ (Pruning: priorit\`a $< 6$)};
+
+    \node[draw=green!60!black, fill=green!10, rounded corners=3pt, font=\scriptsize\bfseries, text=green!40!black, inner sep=3pt] 
+        at (0, -22.3) {Output Finale: $\left\{ \frac{M}{10}, \, \frac{P}{9} \right\}$};
+
+\end{tikzpicture}%
+}
+\caption{Esecuzione passo-passo della 3-sided range query $[L, Q] \times [6, +\infty)$ su Treap, rappresentata verticalmente: (a) Stato iniziale del Treap; (b) 1° Step: Taglio sinistro con sentinella $(L, +\infty)$ e DROP di $\{G, H, I\}$ ($x < L$); (c) 2° Step: Taglio destro con sentinella $(Q, +\infty)$ e DROP di $\{R, S, T\}$ ($x > Q$), isolando il sottoalbero dei candidati $[L, Q]$; (d) Visita guidata del sottoalbero candidati con filtro $y \ge 6$ e potatura immediata $\mathcal{O}(1)$ del ramo radicato in $(O / 4)$.}
+\label{fig:3-sided-step-by-step-example}
+\end{figure}
+
+\paragraph{Fase 1: Isolamento del Confine Inferiore ($x < L$):}
+Per scartare in blocco tutti gli elementi con chiave inferiore a $L$, si inserisce la chiave sentinella $(L, +\infty)$:
+\begin{itemize}
+    \item \textbf{Bubble-up alla radice:} La sentinella entra come foglia (figlio destro di $I / 4$). Avendo priorit\`a infinita, una catena di rotazioni la promuove a radice dell'intero albero in tempo atteso $\mathcal{O}(\log n)$ (Figura~\ref{fig:3-sided-step-by-step-example}(b)).
+    \item \textbf{Scarto del sottoalbero sinistro (DROP):} Per la propriet\`a BST, il sottoalbero sinistro di $L$ racchiude l'insieme $\{G, H, I\}$. Poich\'e ciascuna di queste chiavi verifica $x < L$, esse cadono interamente fuori da $[L, Q]$ e vengono eliminate all'istante in tempo $\mathcal{O}(1)$.
+    \item \textbf{Deallocazione della sentinella:} Il nodo fittizio $(L, +\infty)$ viene rimosso, lasciando il sottoalbero destro $\{M, O, P, R, S, T\}$ come insieme attivo per la fase successiva.
+\end{itemize}
+
+\paragraph{Fase 2: Isolamento del Confine Superiore ($x > Q$):}
+Sul sottoalbero residuo si delimita l'estremo superiore inserendo la seconda sentinella $(Q, +\infty)$:
+\begin{itemize}
+    \item \textbf{Bubble-up di $Q$ alla radice:} La priorit\`a massima costringe $Q$ a scalare fino alla radice del sottoalbero tramite rotazioni in tempo $\mathcal{O}(\log n)$ (Figura~\ref{fig:3-sided-step-by-step-example}(c)).
+    \item \textbf{Scarto del sottoalbero destro (DROP):} Il sottoalbero destro di $Q$ include $\{R, S, T\}$. Poich\'e $x > Q$, tutti questi punti violano il vincolo orizzontale e vengono scartati in tempo $\mathcal{O}(1)$.
+    \item \textbf{Sottoalbero dei candidati:} Eliminata la sentinella $(Q, +\infty)$, il sottoalbero sinistro isola precisamente l'insieme dei nodi con $x \in [L, Q]$:
+    \begin{equation}
+      \text{Candidati } [L, Q] = \left\{ \frac{M}{10}, \, \frac{P}{9}, \, \frac{O}{4} \right\}.
+    \end{equation}
+    Tale sottoalbero mantiene rigorosamente valida la propriet\`a di Max-Heap sulle ordinate.
+\end{itemize}
+
+\paragraph{Fase 3: Esplorazione Guidata e Potatura Immediata ($y \ge 6$):}
+L'estrazione dei punti validi procede con una visita ricorsiva a partire dalla radice dei candidati $(M / 10)$ applicando il filtro $y \ge 6$ (Figura~\ref{fig:3-sided-step-by-step-example}(d)):
+\begin{enumerate}
+    \item \textbf{Nodo $(M / 10)$:} Priorit\`a $y = 10 \ge 6$. Il punto soddisfa la condizione e viene emesso in output. Si prosegue sui figli (figlio destro $P / 9$).
+    \item \textbf{Nodo $(P / 9)$:} Priorit\`a $y = 9 \ge 6$. Il punto viene emesso in output. Si prosegue sui figli (figlio sinistro $O / 4$).
+    \item \textbf{Nodo $(O / 4)$:} Priorit\`a $y = 4 < 6$. Il punto viola la soglia minima.
+    \begin{itemize}
+        \item \textbf{Potatura $\mathcal{O}(1)$ (\textit{Pruning}):} Per la propriet\`a di Max-Heap, nessun discendente nel sottoalbero di $(O / 4)$ potr\`a mai avere priorit\`a superiore a $4$, e di conseguenza nessuno potr\`a soddisfare la soglia $y \ge 6$. La visita di questo intero ramo viene arrestata immediatamente in tempo $\mathcal{O}(1)$.
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{Esito Computazionale e Analisi dei Costi:}
+L'insieme soluzione risultante \`e:
+\begin{equation}
+  \text{Output} = \left\{ \frac{M}{10}, \, \frac{P}{9} \right\}.
+\end{equation}
+L'intero processo si articola in:
+\begin{itemize}
+    \item \textbf{Fase di Split / Isolamento:} due inserimenti con risalita di sentinelle alla radice, con costo atteso $\mathcal{O}(\log n)$;
+    \item \textbf{Fase di Traversal ed emissione:} visita dei soli nodi appartenenti all'output ($M$ e $P$) pi\`u una singola foglia di potatura ($O$), con costo proporzionale all'output: $\mathcal{O}(k)$ con $k = 2$;
+    \item \textbf{Tempo complessivo:}
+    \begin{equation}
+      T(n) = \mathcal{O}(\log n + k),
+    \end{equation}
+    a riprova dell'eccellente efficienza output-sensitive garantita dalla sinergia tra albero di ricerca binario ed heap.
+\end{itemize}
+
+

@@ -1,0 +1,1083 @@
+\chapter{Randomized Search Trees: Treaps, Dynamic Operations, and Geometric Applications}
+\label{chap:randomized-search-trees-treaps-en}
+
+\begin{center}
+  \textbf{Lecture 10}\\
+  \emph{Randomized Search Trees (Treaps): Topological Uniqueness, Tree Rotations, Insert, Delete, Split, and Merge Operations, Seidel-Aragon Probabilistic Analysis, Cartesian Trees, and 3-Sided Range Queries}\\[0.5em]
+  Date: October 13, 2026
+\end{center}
+
+In previous lectures, we investigated how randomization can overcome the rigid constraints of deterministic data structures, studying the Skip List as a probabilistic generalization of binary search on linked lists. In this chapter, we extend the probabilistic paradigm to \textbf{binary search trees}, addressing one of the most elegant and versatile data structures in algorithm engineering: the \textbf{Treap} (\textit{Tree + Heap}), formally introduced by Raimund Seidel and Cecilia Aragon~\cite{seidel1996}.
+
+The fundamental principle of the Treap is to guarantee automatic logarithmic balance without storing balancing factors or color bits, and without triggering cascading rebalancing operations as in AVL or Red-Black trees. By assigning independent continuous random priorities to nodes, the Treap mirrors the topological distribution of a binary search tree constructed by inserting keys according to a uniform random permutation.
+
+In this formal treatment, we analyze:
+\begin{itemize}
+    \item The formal definition of the Treap and the proof of the \textbf{Structural Uniqueness Theorem};
+    \item The mechanics of \textbf{tree rotations} (right and left) and invariant preservation;
+    \item Complete dynamic algorithms: $\textsc{Search}$, $\textsc{Insert}$ (with bubble-up), $\textsc{Delete}$ (with trickle-down), $\textsc{Split}$, and $\textsc{Merge}$;
+    \item The rigorous probabilistic analysis by Seidel and Aragon: proving that the expected depth of each node is $\mathcal{O}(\log n)$ and that the \textbf{expected number of rotations per update is $\mathcal{O}(1)$};
+    \item The geometric isomorphism with Vuillemin's \textbf{Cartesian Trees}~\cite{vuillemin1980}, deterministic linear construction $\mathcal{O}(n)$ using a monotonic stack, and optimal resolution of \textbf{3-Sided Range Queries} with \textit{output-sensitive} complexity $\mathcal{O}(\log n + k_{\text{out}})$.
+\end{itemize}
+
+\FloatBarrier
+\section{Introduction and Formal Treap Definition}
+\label{sec:treap-definition-and-foundations-en}
+
+\subsection{Motivation and Core Concept}
+In classical binary search trees (BST), the efficiency of search, insert, and delete operations is strictly governed by the tree height $h$:
+\begin{equation}
+  \operatorname{Cost}(\textsc{Operation}) = \mathcal{O}(h).
+\end{equation}
+In the best case, a perfectly balanced tree guarantees $h = \lfloor \log_2 n \rfloor$. However, adversarial or sorted insertion sequences degrade the topology into a degenerate linked list, yielding worst-case height $h = \mathcal{O}(n)$.
+
+Deterministic balanced trees (such as AVL trees~\cite{knuth1997} and Red-Black trees) restore logarithmic balance by enforcing rigid structural invariants:
+\begin{itemize}
+    \item They require auxiliary memory per node (balance factors or color bits);
+    \item They introduce complex single and double rotation case analyses during updates;
+    \item They cause severe synchronization bottlenecks in concurrent multi-threaded environments, where rebalancing cascades can propagate up to the root, requiring extensive lock acquisitions.
+\end{itemize}
+
+The \textbf{Treap} resolves this challenge by cleanly decoupling the logical data domain (governed by \textbf{keys}) from the structural layout (governed by \textbf{priorities}).
+
+\begin{definition}[Treap Node]
+Each node $u$ in a Treap stores an ordered pair:
+\begin{equation}
+  u = \langle k(u), p(u) \rangle,
+\end{equation}
+where:
+\begin{itemize}
+    \item $k(u) \in \mathcal{U}$ is the \textbf{key} drawn from a totally ordered universe (horizontal ordering);
+    \item $p(u) \in \mathbb{R}$ is the \textbf{priority} drawn from a continuous totally ordered numeric domain (vertical ordering).
+\end{itemize}
+\end{definition}
+
+\subsection{Fundamental Structural Invariants}
+A binary tree $T$ is a valid Treap if and only if it simultaneously satisfies two orthogonal invariants for every node $u \in T$:
+
+\begin{enumerate}
+    \item \textbf{Binary Search Tree (BST) Property on Keys:}\\
+    The horizontal layout reflects key order:
+    \begin{align}
+      \forall v \in \operatorname{left}(u)  &\implies k(v) < k(u), \\
+      \forall w \in \operatorname{right}(u) &\implies k(w) > k(u).
+    \end{align}
+    An in-order traversal yields the keys in strictly increasing order.
+
+    \item \textbf{Max-Heap Property on Priorities:}\\
+    The vertical hierarchy reflects priority order:
+    \begin{equation}
+      \forall v \in \{\operatorname{left}(u), \operatorname{right}(u)\}, \quad v \neq \text{NIL} \implies p(u) \ge p(v).
+    \end{equation}
+    The root of the tree holds the maximum priority in the entire Treap.
+\end{enumerate}
+
+\subsection{Structural Uniqueness Theorem}
+A central theorem establishes that the tree shape depends only on the set of pairs, not on their insertion history.
+
+\begin{theorem}[Treap Topological Uniqueness]
+\label{thm:treap-uniqueness-en}
+Let $S$ be a set of $n$ pairs $S = \{ \langle x_1, p_1 \rangle, \dots, \langle x_n, p_n \rangle \}$ with distinct keys ($x_i \neq x_j$) and distinct priorities ($p_i \neq p_j$). Then there exists \textbf{one and only one} Treap $T$ storing $S$.
+\end{theorem}
+
+\begin{proof}
+By mathematical induction on $n = |S|$.
+\begin{itemize}
+    \item \textbf{Base case ($n = 0$ or $n = 1$):}\\
+    For $n = 0$, the unique tree is empty (NIL). For $n = 1$, the only valid tree is a single isolated node containing $\langle x_1, p_1 \rangle$. Both cases are uniquely determined.
+
+    \item \textbf{Inductive step ($n > 1$):}\\
+    Assume the theorem holds for all sets of cardinality strictly less than $n$. Consider set $S$ with $|S| = n$.
+    
+    Since all priorities $\{p_1, \dots, p_n\}$ are distinct, there is a unique index $r \in \{1, \dots, n\}$ such that:
+    \begin{equation}
+      p_r = \max_{1 \le i \le n} \{ p_i \}.
+    \end{equation}
+    To satisfy the Max-Heap invariant globally, the root of $T$ must be $\langle x_r, p_r \rangle$. No other node can serve as root.
+
+    With the root fixed at $\langle x_r, p_r \rangle$, the BST property deterministically partitions the remaining $n - 1$ elements:
+    \begin{align}
+      S_L &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i < x_r \}, \\
+      S_R &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i > x_r \}.
+    \end{align}
+    Because keys are distinct, this partition is unique.
+    
+    Moreover, $|S_L| < n$ and $|S_R| < n$. By induction, there exists a unique valid Treap $T_L$ for $S_L$ and a unique valid Treap $T_R$ for $S_R$. Setting $T_L$ as the left child and $T_R$ as the right child produces the unique binary tree satisfying both BST and Heap properties. The topology is therefore unique for all $n \ge 0$.
+\end{itemize}
+\end{proof}
+
+\begin{corollary}[Equivalence to Random BST]
+When priorities $p_i$ are drawn i.i.d.\ from a continuous uniform distribution $\mathcal{U}[0, 1]$, descending priority order induces a uniform random permutation $\pi \in \mathcal{S}_n$ on keys. Hence, the resulting Treap is \textbf{topologically identical to a BST constructed by inserting keys in the order of $\pi$}.
+\end{corollary}
+
+\FloatBarrier
+\section{Elementary Operations: Tree Rotations}
+\label{sec:tree-rotations-en}
+
+\subsection{Right and Left Rotations}
+To restore the Max-Heap invariant following insertions or deletions without disturbing the in-order key sequence, the Treap uses \textbf{tree rotations}. A rotation swaps the parent-child relationship between two adjacent nodes while preserving the in-order key traversal:
+
+\begin{itemize}
+    \item \textbf{Right Rotation ($\textsc{Rotate-Right}(v)$):}\\
+    Applied when $u$ is the left child of $v$. Node $u$ ascends to replace $v$, $v$ becomes the right child of $u$, and the right subtree of $u$ ($B$) becomes the left subtree of $v$.
+    
+    \item \textbf{Left Rotation ($\textsc{Rotate-Left}(u)$):}\\
+    Symmetric dual of right rotation. Applied when $v$ is the right child of $u$. Node $v$ ascends to replace $u$, $u$ becomes the left child of $v$, and the left subtree of $v$ ($B$) becomes the right subtree of $u$.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    treenode/.style={circle, draw=navy!80, fill=navy!10, minimum size=0.9cm, font=\small\bfseries},
+    subtree/.style={isosceles triangle, draw=navy!60, fill=navy!4, shape border rotate=90, minimum width=1.1cm, minimum height=1.0cm, font=\scriptsize, align=center},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth},
+    rotarrow/.style={very thick, color=red!75!black, ->, >=Stealth}
+]
+    % Left Configuration
+    \node[treenode] (v1) at (-3.2, 2.0) {$v$};
+    \node[treenode] (u1) at (-4.4, 0.8) {$u$};
+    \node[subtree]  (A1) at (-5.4, -0.6) {$A$};
+    \node[subtree]  (B1) at (-3.4, -0.6) {$B$};
+    \node[subtree]  (C1) at (-2.0, 0.6)  {$C$};
+
+    \draw[pointer] (v1) -- (u1);
+    \draw[pointer] (v1) -- (C1);
+    \draw[pointer] (u1) -- (A1);
+    \draw[pointer] (u1) -- (B1);
+
+    % Central rotation arrows
+    \draw[rotarrow] (-1.0, 1.3) -- (1.0, 1.3) node[midway, above=2pt, font=\scriptsize\bfseries, color=red!75!black] {$\textsc{Rotate-Right}(v)$};
+    \draw[rotarrow] (1.0, 0.5) -- (-1.0, 0.5) node[midway, below=2pt, font=\scriptsize\bfseries, color=red!75!black] {$\textsc{Rotate-Left}(u)$};
+
+    % Right Configuration
+    \node[treenode] (u2) at (3.2, 2.0) {$u$};
+    \node[treenode] (v2) at (4.4, 0.8) {$v$};
+    \node[subtree]  (A2) at (2.0, 0.6)  {$A$};
+    \node[subtree]  (B2) at (3.4, -0.6) {$B$};
+    \node[subtree]  (C2) at (5.4, -0.6) {$C$};
+
+    \draw[pointer] (u2) -- (A2);
+    \draw[pointer] (u2) -- (v2);
+    \draw[pointer] (v2) -- (B2);
+    \draw[pointer] (v2) -- (C2);
+\end{tikzpicture}%
+}
+\caption{Algebraic mechanics of tree rotations. In both configurations, the in-order key traversal remains strictly invariant: $A < u < B < v < C$.}
+\label{fig:treap-rotations-diagram-en}
+\end{figure}
+
+\subsection{Rigorous Invariant Preservation}
+\begin{property}[BST Ordering Invariance]
+Before right rotation:
+\begin{equation}
+  \forall a \in A, \; b \in B, \; c \in C \implies k(a) < k(u) < k(b) < k(v) < k(c).
+\end{equation}
+After right rotation:
+\begin{itemize}
+    \item $A$ is left child of $u \implies \forall a \in A, \, k(a) < k(u)$;
+    \item $v$ is right child of $u \implies k(u) < k(v)$;
+    \item $B$ is left child of $v \implies \forall b \in B, \, k(u) < k(b) < k(v)$;
+    \item $C$ is right child of $v \implies \forall c \in C, \, k(v) < k(c)$.
+\end{itemize}
+The BST property is unconditionally preserved. Since each rotation updates only 3 pointer fields, its running time is strictly $\mathcal{O}(1)$.
+\end{property}
+
+\FloatBarrier
+\section{Fundamental Dynamic Algorithms}
+\label{sec:treap-dynamic-algorithms-en}
+
+\subsection{Search (\textsc{Search})}
+Search relies purely on keys and mirrors standard BST lookup:
+
+\begin{algorithm}[H]
+\caption{Key Lookup in a Treap ($\textsc{Search}(u, k)$)}
+\label{alg:treap-search-en}
+\KwIn{Current root $u$, search key $k \in \mathcal{U}$}
+\KwOut{Pointer to node containing $k$, or NIL}
+\BlankLine
+\If{$u = \mathrm{NIL}$ \textbf{or} $k = k(u)$}{
+    \Return $u$\;
+}
+\If{$k < k(u)$}{
+    \Return $\textsc{Search}(\operatorname{left}(u), k)$\;
+}
+\Else{
+    \Return $\textsc{Search}(\operatorname{right}(u), k)$\;
+}
+\end{algorithm}
+
+The runtime is $\mathcal{O}(h)$, which evaluates to expected $\mathcal{O}(\log n)$ as established in Section~\ref{sec:probabilistic-analysis-en}.
+
+\subsection{Insertion (\textsc{Insert}) via Bubble-Up}
+Inserting key $k$ follows two steps:
+\begin{enumerate}
+    \item \textbf{Leaf Insertion:} Sample $p \sim \mathcal{U}[0, 1]$, traverse down via standard BST search to locate the appropriate leaf slot, and allocate $z = \langle k, p \rangle$.
+    \item \textbf{Bubble-Up:} While $z \neq \text{root}$ and $p(z) > p(\operatorname{parent}(z))$, rotate $z$ upward:
+    \begin{itemize}
+        \item If $z$ is left child of parent, perform $\textsc{Rotate-Right}(\operatorname{parent}(z))$;
+        \item If $z$ is right child of parent, perform $\textsc{Rotate-Left}(\operatorname{parent}(z))$.
+    \end{itemize}
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Treap Insertion ($\textsc{Insert}(T, k)$)}
+\label{alg:treap-insert-en}
+\KwIn{Treap root $T$, key $k$}
+\KwOut{Updated root containing $k$}
+\BlankLine
+$p \leftarrow \textsc{RandomUniform}(0, 1)$\;
+$z \leftarrow \textsc{CreateNode}(k, p)$\;
+\Return $\textsc{InsertNode}(T, z)$\;
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Recursive Insertion with Bubble-Up Rotations ($\textsc{InsertNode}(u, z)$)}
+\label{alg:treap-insert-node-en}
+\KwIn{Current subtree root $u$, new node $z$}
+\KwOut{Updated subtree root}
+\BlankLine
+\If{$u = \mathrm{NIL}$}{
+    \Return $z$\;
+}
+\If{$k(z) < k(u)$}{
+    $\operatorname{left}(u) \leftarrow \textsc{InsertNode}(\operatorname{left}(u), z)$\;
+    \If{$p(\operatorname{left}(u)) > p(u)$}{
+        $u \leftarrow \textsc{Rotate-Right}(u)$\;
+    }
+}
+\ElseIf{$k(z) > k(u)$}{
+    $\operatorname{right}(u) \leftarrow \textsc{InsertNode}(\operatorname{right}(u), z)$\;
+    \If{$p(\operatorname{right}(u)) > p(u)$}{
+        $u \leftarrow \textsc{Rotate-Left}(u)$\;
+    }
+}
+\Return $u$\;
+\end{algorithm}
+
+\subsubsection{Step-by-Step Trace: Insertion with Bubble-Up}
+To trace the insertion mechanics, consider the lecture Treap storing the key set $\{ (G, 3), (H, 8), (I, 6), (M, 9), (P, 2), (R, 5), (T, 7) \}$ and suppose we insert the new pair:
+\begin{equation}
+  z = \langle K, 7.5 \rangle.
+\end{equation}
+
+Execution proceeds in two sequential phases:
+\begin{enumerate}
+    \item \textbf{Phase 1 (Standard BST Leaf Placement):}
+    \begin{itemize}
+        \item Compare with root $M$: since $K < M$, descend left to $H$.
+        \item Compare with $H$: since $K > H$, descend right to $I$.
+        \item Compare with $I$: since $K > I$ and the right pointer of $I$ is $\mathrm{NIL}$, node $z = \langle K, 7.5 \rangle$ is attached as the right child of $I$.
+    \end{itemize}
+    In this intermediate state (Figure~\ref{fig:treap-insert-trace-en}(a)), the BST horizontal key ordering is preserved, but a local Max-Heap violation occurs between parent $I$ and child $K$:
+    \begin{equation}
+      p(K) = 7.5 > p(I) = 6.
+    \end{equation}
+    
+    \item \textbf{Phase 2 (Bubble-Up via Left Rotation on $I$):}
+    Since $K$ is the right child of $I$, the heap invariant is restored by invoking $\textsc{Rotate-Left}(I)$:
+    \begin{itemize}
+        \item Node $K$ is promoted to take $I$'s place as the right child of $H$.
+        \item Node $I$ moves down to become the left child of $K$.
+        \item Any left subtree of $K$ (empty here) would become the right child of $I$.
+    \end{itemize}
+    \item \textbf{Termination Check at Parent Level:}
+    The new parent of $K$ is $H$. We check the heap condition:
+    \begin{equation}
+      p(H) = 8 \ge p(K) = 7.5.
+    \end{equation}
+    Since the parent's priority dominates the child's, the Max-Heap invariant is satisfied across all ancestor levels. The insertion terminates successfully (Figure~\ref{fig:treap-insert-trace-en}(b)).
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=navy!8, font=\small\bfseries, minimum size=0.85cm, align=center},
+    inserted/.style={circle, draw=orange!90!black, fill=orange!20, font=\small\bfseries, minimum size=0.85cm, align=center, thick},
+    edge/.style={thick, color=navy!70}
+]
+    % (a) Leaf insertion
+    \node[font=\small\bfseries] at (-5.5, 3.2) {\textbf{(a) BST Leaf Placement ($p(K) > p(I)$)}};
+
+    \node[tnode] (mA) at (-5.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (hA) at (-8.3, 0.6) {H\\{\tiny $8$}};
+    \node[tnode] (tA) at (-1.7, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (gA) at (-9.5, -0.7) {G\\{\tiny $3$}};
+    \node[tnode] (iA) at (-7.1, -0.7) {I\\{\tiny $6$}};
+    \node[tnode] (rA) at (-2.8, -0.7) {R\\{\tiny $5$}};
+    \node[inserted] (kA) at (-6.0, -2.0) {K\\{\tiny $7.5$}};
+    \node[tnode] (pA) at (-3.9, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mA) -- (hA);
+    \draw[edge] (mA) -- (tA);
+    \draw[edge] (hA) -- (gA);
+    \draw[edge] (hA) -- (iA);
+    \draw[edge] (tA) -- (rA);
+    \draw[very thick, color=red!80!black, dashed, ->, >=Stealth] (iA) -- (kA);
+    \node[font=\scriptsize\bfseries, color=red!80!black, anchor=west] at (-5.4, -1.15) {Violation!};
+    \draw[edge] (rA) -- (pA);
+
+    % Transition arrow
+    \draw[very thick, ->, >=Stealth, color=navy!80] (-0.5, 0.6) -- (1.5, 0.6)
+        node[midway, above=3pt, font=\scriptsize\bfseries, color=navy] {$\textsc{Rotate-Left}(I)$};
+
+    % (b) Final Treap
+    \node[font=\small\bfseries] at (6.0, 3.2) {\textbf{(b) Final Treap after $\textsc{Rotate-Left}(I)$}};
+
+    \node[tnode] (mB) at (6.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (hB) at (2.9, 0.6) {H\\{\tiny $8$}};
+    \node[tnode] (tB) at (9.3, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (gB) at (1.7, -0.7) {G\\{\tiny $3$}};
+    \node[inserted] (kB) at (4.7, -0.7) {K\\{\tiny $7.5$}};
+    \node[tnode] (rB) at (8.2, -0.7) {R\\{\tiny $5$}};
+    \node[tnode] (iB) at (3.8, -2.0) {I\\{\tiny $6$}};
+    \node[tnode] (pB) at (7.1, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mB) -- (hB);
+    \draw[edge] (mB) -- (tB);
+    \draw[edge] (hB) -- (gB);
+    \draw[edge] (hB) -- (kB);
+    \draw[edge] (tB) -- (rB);
+    \draw[edge] (kB) -- (iB);
+    \draw[edge] (rB) -- (pB);
+\end{tikzpicture}%
+}
+\caption{Trace of inserting $\langle K, 7.5 \rangle$: (a) initial placement as a BST leaf violating heap priority at $I(6)$; (b) final valid configuration after left rotation on $I$.}
+\label{fig:treap-insert-trace-en}
+\end{figure}
+
+\FloatBarrier
+\subsection{Deletion (\textsc{Delete}) via Trickle-Down}
+To delete key $k$ without violating Treap invariants, the target node is rotated downward until it reaches a leaf:
+\begin{enumerate}
+    \item Locate node $u$ with $k(u) = k$ using BST descent.
+    \item While $u$ is not a leaf, select the child with \textbf{maximum priority}:
+    \begin{itemize}
+        \item If $p(\operatorname{left}(u)) > p(\operatorname{right}(u))$, execute $\textsc{Rotate-Right}(u)$;
+        \item Otherwise, execute $\textsc{Rotate-Left}(u)$.
+    \end{itemize}
+    This rotation preserves the Max-Heap property above and demotes $u$ by one level.
+    \item Once $u$ becomes a leaf (both children NIL), deallocate it in $\mathcal{O}(1)$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Treap Deletion ($\textsc{Delete}(u, k)$)}
+\label{alg:treap-delete-en}
+\KwIn{Subtree root $u$, key $k$ to remove}
+\KwOut{Updated subtree root without $k$}
+\BlankLine
+\If{$u = \mathrm{NIL}$}{
+    \Return $\mathrm{NIL}$\;
+}
+\If{$k < k(u)$}{
+    $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
+}
+\ElseIf{$k > k(u)$}{
+    $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
+}
+\Else{
+    \If{$\operatorname{left}(u) = \mathrm{NIL}$ \textbf{and} $\operatorname{right}(u) = \mathrm{NIL}$}{
+        $\textsc{Deallocate}(u)$\;
+        \Return $\mathrm{NIL}$\;
+    }
+    \ElseIf{$\operatorname{left}(u) \neq \mathrm{NIL}$ \textbf{and} $(\operatorname{right}(u) = \mathrm{NIL}$ \textbf{or} $p(\operatorname{left}(u)) > p(\operatorname{right}(u)))$}{
+        $u \leftarrow \textsc{Rotate-Right}(u)$\;
+        $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
+    }
+    \Else{
+        $u \leftarrow \textsc{Rotate-Left}(u)$\;
+        $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
+    }
+}
+\Return $u$\;
+\end{algorithm}
+
+\subsubsection{Step-by-Step Trace: Deletion via Trickle-Down}
+Suppose we now remove internal node $H$ from the Treap obtained after inserting $K$:
+\begin{equation}
+  \textsc{Delete}(T, H).
+\end{equation}
+
+Instead of swapping values with the in-order predecessor or successor, the Treap tricks $H$ down into a leaf via priority-guided rotations:
+\begin{enumerate}
+    \item \textbf{Initial State of $H$:}
+    Node $H$ has two children: $G$ on the left ($p(G) = 3$), and $K$ on the right ($p(K) = 7.5$).
+    The algorithm compares their priorities:
+    \begin{equation}
+      \max(p(G), p(K)) = \max(3, 7.5) = p(K) = 7.5.
+    \end{equation}
+    Since the higher priority child is on the right ($K$), the algorithm executes $\textsc{Rotate-Left}(H)$:
+    \begin{itemize}
+        \item $K$ is promoted to become the new left child of root $M$.
+        \item $H$ demotes to become the left child of $K$.
+        \item The former left subtree of $K$ ($I(6)$) becomes the new right child of $H$.
+    \end{itemize}
+    The children of $H$ are now $G(3)$ (left) and $I(6)$ (right).
+    
+    \item \textbf{Second Trickle-Down Step:}
+    Node $H$ still has two children. Comparing priorities:
+    \begin{equation}
+      \max(p(G), p(I)) = \max(3, 6) = p(I) = 6.
+    \end{equation}
+    Since the child with higher priority is on the right ($I$), we apply a second left rotation $\textsc{Rotate-Left}(H)$:
+    \begin{itemize}
+        \item $I$ is promoted to become the left child of $K$.
+        \item $H$ demotes to become the left child of $I$.
+        \item The former left child of $I$ ($\mathrm{NIL}$) becomes the right child of $H$.
+    \end{itemize}
+    Now $H$ has only left child $G(3)$ and no right child.
+    
+    \item \textbf{Third Trickle-Down Step (Right Rotation):}
+    With only left child $G$, execute $\textsc{Rotate-Right}(H)$:
+    \begin{itemize}
+        \item $G$ rises to become the left child of $I$.
+        \item $H$ demotes to become the right child of $G$.
+    \end{itemize}
+    Now both child pointers of $H$ are $\mathrm{NIL}$: $H$ is a \textbf{leaf}!
+    
+    \item \textbf{Final Deallocation $\mathcal{O}(1)$:}
+    Parent $G$'s right child pointer is set to $\mathrm{NIL}$, and $H$ is freed. The resulting tree (Figure~\ref{fig:treap-delete-trace-en}) satisfies all Treap invariants.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=navy!8, font=\small\bfseries, minimum size=0.85cm, align=center},
+    deleted/.style={circle, draw=red!80!black, fill=red!18, font=\small\bfseries, minimum size=0.85cm, align=center, thick},
+    edge/.style={thick, color=navy!70}
+]
+    % (a) Step 0: Initial Treap with H to delete
+    \node[font=\small\bfseries] at (-5.5, 3.2) {\textbf{(a) Step 0: Initial Treap ($H$ marked for deletion)}};
+
+    \node[tnode]   (mA) at (-5.0, 1.9) {M\\{\tiny $9$}};
+    \node[deleted] (hA) at (-8.1, 0.6) {H\\{\tiny $8$}};
+    \node[tnode]   (tA) at (-1.7, 0.6) {T\\{\tiny $7$}};
+    \node[tnode]   (gA) at (-9.3, -0.7) {G\\{\tiny $3$}};
+    \node[tnode]   (kA) at (-6.3, -0.7) {K\\{\tiny $7.5$}};
+    \node[tnode]   (rA) at (-2.8, -0.7) {R\\{\tiny $5$}};
+    \node[tnode]   (iA) at (-7.2, -2.0) {I\\{\tiny $6$}};
+    \node[tnode]   (pA) at (-3.9, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mA) -- (hA);
+    \draw[edge] (mA) -- (tA);
+    \draw[edge] (hA) -- (gA);
+    \draw[edge] (hA) -- (kA);
+    \draw[edge] (kA) -- (iA);
+    \draw[edge] (tA) -- (rA);
+    \draw[edge] (rA) -- (pA);
+
+    % Transition arrow
+    \draw[very thick, ->, >=Stealth, color=navy!80] (-0.5, 0.6) -- (1.5, 0.6)
+        node[midway, above=3pt, font=\scriptsize\bfseries, color=navy] {Trickle-down};
+
+    % (b) Final Treap after deallocation of H
+    \node[font=\small\bfseries] at (6.0, 3.2) {\textbf{(b) Final Treap without $H$}};
+
+    \node[tnode] (mB) at (6.0, 1.9) {M\\{\tiny $9$}};
+    \node[tnode] (kB) at (4.2, 0.6) {K\\{\tiny $7.5$}};
+    \node[tnode] (tB) at (9.3, 0.6) {T\\{\tiny $7$}};
+    \node[tnode] (iB) at (3.0, -0.7) {I\\{\tiny $6$}};
+    \node[tnode] (rB) at (8.2, -0.7) {R\\{\tiny $5$}};
+    \node[tnode] (gB) at (1.8, -2.0) {G\\{\tiny $3$}};
+    \node[tnode] (pB) at (7.1, -2.0) {P\\{\tiny $2$}};
+
+    \draw[edge] (mB) -- (kB);
+    \draw[edge] (mB) -- (tB);
+    \draw[edge] (kB) -- (iB);
+    \draw[edge] (iB) -- (gB);
+    \draw[edge] (tB) -- (rB);
+    \draw[edge] (rB) -- (pB);
+\end{tikzpicture}%
+}
+\caption{Trace of deleting node $H$: (a) initial configuration (Step 0) with target node $H$ highlighted; (b) final valid Treap after trickle-down rotations and $\mathcal{O}(1)$ deallocation of leaf $H$.}
+\label{fig:treap-delete-trace-en}
+\end{figure}
+
+\FloatBarrier
+\subsection{Advanced Operations: \textsc{Split} and \textsc{Merge}}
+\begin{itemize}
+    \item \textbf{Split ($\textsc{Split}(T, k)$):}\\
+    Partitions $T$ into $T_1$ ($\le k$) and $T_2$ ($> k$) in $\mathcal{O}(\log n)$ time by inserting dummy key $\langle k, +\infty \rangle$. Because its priority is $+\infty$, bubble-up brings it to the root. Its left subtree is $T_1$ and right subtree is $T_2$. Removing the dummy root yields the two partitioned trees (Figure~\ref{fig:treap-split-merge-concept-en}(a)).
+    
+    \item \textbf{Merge ($\textsc{Merge}(T_1, T_2)$):}\\
+    Given $\max(T_1) < \min(T_2)$, creates a dummy root $\langle k^*, -\infty \rangle$ with left child $T_1$ and right child $T_2$, then removes it via trickle-down in $\mathcal{O}(\log n)$ time (Figure~\ref{fig:treap-split-merge-concept-en}(b)).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    sentinelnode/.style={circle, draw=purple!80!black, fill=purple!15, minimum size=1.0cm, font=\small\bfseries, thick},
+    pointer/.style={thick, color=navy!80, ->, >=Stealth}
+]
+    % (a) Split via +inf
+    \node[font=\small\bfseries] at (-3.5, 2.7) {\textbf{(a) $\textsc{Split}(T, k)$}};
+    \node[sentinelnode] (splitRoot) at (-3.5, 1.5) {$\langle k, +\infty \rangle$};
+
+    % Subtree T1: triangle with apex at (-4.8, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (-6.0, -1.2) -- (-3.6, -1.2) -- (-4.8, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (-4.8, -0.5) {$T_1$};
+    \node[font=\tiny] at (-4.8, -0.85) {$\{x \mid k(x) \le k\}$};
+
+    % Subtree T2: triangle with apex at (-2.2, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (-3.4, -1.2) -- (-1.0, -1.2) -- (-2.2, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (-2.2, -0.5) {$T_2$};
+    \node[font=\tiny] at (-2.2, -0.85) {$\{y \mid k(y) > k\}$};
+
+    \draw[pointer] (splitRoot) -- (-4.8, 0.45);
+    \draw[pointer] (splitRoot) -- (-2.2, 0.45);
+
+    % Divider
+    \draw[dashed, color=gray!50, thick] (0.0, 3.0) -- (0.0, -1.4);
+
+    % (b) Merge via -inf
+    \node[font=\small\bfseries] at (4.2, 2.7) {\textbf{(b) $\textsc{Merge}(T_1, T_2)$}};
+    \node[sentinelnode] (mergeRoot) at (4.2, 1.5) {$\langle k^*, -\infty \rangle$};
+
+    % Subtree T1m: triangle with apex at (2.5, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (1.3, -1.2) -- (3.7, -1.2) -- (2.5, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (2.5, -0.5) {$T_1$};
+    \node[font=\tiny] at (2.5, -0.85) {$\max(T_1) < k^*$};
+
+    % Subtree T2m: triangle with apex at (5.9, 0.4)
+    \filldraw[thick, draw=navy!70, fill=navy!5] (4.7, -1.2) -- (7.1, -1.2) -- (5.9, 0.4) -- cycle;
+    \node[font=\small\bfseries] at (5.9, -0.5) {$T_2$};
+    \node[font=\tiny] at (5.9, -0.85) {$k^* < \min(T_2)$};
+
+    \draw[pointer] (mergeRoot) -- (2.5, 0.45);
+    \draw[pointer] (mergeRoot) -- (5.9, 0.45);
+
+    % Trickle-down annotation between triangles
+    \draw[thick, ->, >=Stealth, color=purple!80!black] (4.2, 0.0) -- (4.2, -0.6);
+    \node[font=\scriptsize\bfseries, color=purple!85!black, align=center] at (4.2, 0.2) {Trickle-down};
+    \node[font=\tiny, color=purple!75!black, align=center] at (4.2, -0.85) {to leaf};
+\end{tikzpicture}%
+}
+\caption{Constructive mechanics of $\textsc{Split}$ and $\textsc{Merge}$: assigning extreme sentinel priorities ($+\infty$ and $-\infty$) leverages native Treap rotations to partition or join sorted sets in $\mathcal{O}(\log n)$ time.}
+\label{fig:treap-split-merge-concept-en}
+\end{figure}
+
+\FloatBarrier
+\section[Probabilistic Analysis]{Probabilistic Analysis (Seidel and Aragon)}
+\label{sec:probabilistic-analysis-en}
+
+\subsection{Probability Space and Indicator Variables}
+Let $S = \{x_1, \dots, x_n\}$ be sorted keys: $x_1 < \dots < x_n$, with i.i.d.\ priorities $p_i \sim \mathcal{U}[0, 1]$.
+Define the indicator variable:
+\begin{equation}
+  A_{i, j} = \begin{cases}
+    1 & \text{if $x_i$ is an ancestor of $x_j$ in $T$,} \\
+    0 & \text{otherwise.}
+  \end{cases}
+\end{equation}
+
+\subsection{Ancestor Condition Theorem}
+
+\begin{theorem}[Ancestor Condition]
+Node $x_i$ is an ancestor of $x_j$ if and only if $p_i$ is the maximum priority in the range between $x_i$ and $x_j$:
+\begin{equation}
+  A_{i, j} = 1 \iff p_i = \max \left\{ p_k \mid k \in [\min(i, j), \max(i, j)] \right\}.
+\end{equation}
+\end{theorem}
+
+\begin{lemma}[Ancestor Probability]
+\begin{equation}
+  \mathbb{P}(A_{i, j} = 1) = \frac{1}{|j - i| + 1}.
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+Among the $|j - i| + 1$ keys in $[\min(i, j), \max(i, j)]$, each element has equal probability $1/(|j - i| + 1)$ of attaining the maximum priority.
+\end{proof}
+
+\subsection{Expected Depth of a Key}
+
+\begin{theorem}[Expected Node Depth]
+For any key $x_i$:
+\begin{equation}
+  \mathbb{E}[\operatorname{Depth}(x_i)] = H_i + H_{n - i + 1} - 2 = \mathcal{O}(\log n),
+\end{equation}
+where $H_k = \sum_{m=1}^k \frac{1}{m}$ is the $k$-th harmonic number.
+\end{theorem}
+
+\begin{proof}
+By linearity of expectation:
+\begin{align}
+  \mathbb{E}[\operatorname{Depth}(x_i)] &= \sum_{j \neq i} \mathbb{P}(A_{j, i} = 1) \nonumber \\
+  &= \sum_{j=1}^{i-1} \frac{1}{i - j + 1} + \sum_{j=i+1}^n \frac{1}{j - i + 1} \nonumber \\
+  &= (H_i - 1) + (H_{n - i + 1} - 1) \nonumber \\
+  &= H_i + H_{n - i + 1} - 2 \le 2 \ln n = \mathcal{O}(\log n).
+\end{align}
+\end{proof}
+
+\subsection{Expected Rotations per Update: $\mathcal{O}(1)$}
+\begin{theorem}[Expected Rebalancing Rotations]
+The expected number of rotations per insertion or deletion is strictly bounded by a constant:
+\begin{equation}
+  \mathbb{E}[\# \text{rotations}] \le 2.
+\end{equation}
+\end{theorem}
+
+\FloatBarrier
+\section[Geometric Isomorphism and Applications]{Geometric Isomorphism and Multidimensional Applications}
+\label{sec:geometric-applications-en}
+
+By associating the key $x$ with the abscissa and the priority $y$ with the ordinate of a 2D point, the Treap exhibits a direct isomorphism with \textbf{Cartesian Trees}~\cite{vuillemin1980} and \textbf{Priority Search Trees}~\cite{mccreight1985}. This geometric perspective enables linear-time $\mathcal{O}(n)$ deterministic construction, $\mathcal{O}(1)$ Range Minimum Queries (RMQ), and optimal $\mathcal{O}(\log n + k)$ 3-sided orthogonal range searching.
+
+\subsection{Cartesian Trees and 2D Point Mapping}
+\begin{definition}[Cartesian Tree Isomorphism]
+Given a set of $n$ points $P = \{(x_1, y_1), \dots, (x_n, y_n)\} \subset \mathbb{R}^2$ with distinct coordinates, the Cartesian tree associated with $P$ is the unique binary tree in which:
+\begin{itemize}
+    \item The abscissae $x_i$ serve as \textbf{BST keys} (horizontal ordering);
+    \item The ordinates $y_i$ serve as \textbf{Max-Heap priorities} (vertical ordering).
+\end{itemize}
+\end{definition}
+
+The point with maximum $y$-coordinate serves as the root; its $x$-coordinate partitions the plane into the left and right subtrees (Figure~\ref{fig:cartesian-tree-geometric-plane-en}).
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.9,
+    treepoint/.style={circle, draw=navy!80, fill=navy!20, inner sep=2.5pt, font=\scriptsize\bfseries},
+    conn/.style={thick, color=navy!70}
+]
+    % Cartesian axes
+    \draw[thick, color=gray!60, ->, >=Stealth] (0, 0) -- (9.5, 0) node[right, font=\small\bfseries, color=navy] {Key $x$};
+    \draw[thick, color=gray!60, ->, >=Stealth] (0, 0) -- (0, 7.5) node[above, font=\small\bfseries, color=navy] {Priority $y$};
+
+    \node[treepoint, label={above:\small $B(3, 6.5)$}] (B) at (3.0, 6.5) {};
+    \node[treepoint, label={left:\small $A(1.5, 3)$}]   (A) at (1.5, 3.0) {};
+    \node[treepoint, label={above:\small $D(6.5, 5)$}] (D) at (6.5, 5.0) {};
+    \node[treepoint, label={below:\small $C(4.5, 2)$}] (C) at (4.5, 2.0) {};
+    \node[treepoint, label={right:\small $E(8.5, 4)$}] (E) at (8.5, 4.0) {};
+
+    \draw[conn] (B) -- (A);
+    \draw[conn] (B) -- (D);
+    \draw[conn] (D) -- (C);
+    \draw[conn] (D) -- (E);
+
+    \draw[dashed, color=gray!40] (1.5, 0) -- (A);
+    \draw[dashed, color=gray!40] (3.0, 0) -- (B);
+    \draw[dashed, color=gray!40] (4.5, 0) -- (C);
+    \draw[dashed, color=gray!40] (6.5, 0) -- (D);
+    \draw[dashed, color=gray!40] (8.5, 0) -- (E);
+\end{tikzpicture}%
+}
+\caption{Geometric isomorphism of the Cartesian tree: $B$ has maximum $y$ and serves as root. Left subtree is $A$; right subtree contains $\{C, D, E\}$ rooted at local maximum $D$.}
+\label{fig:cartesian-tree-geometric-plane-en}
+\end{figure}
+
+\subsection{Linear-Time $\mathcal{O}(n)$ Construction via Monotonic Stack}
+When points are sorted by $x$-coordinate ($x_1 < x_2 < \dots < x_n$), the Cartesian tree can be constructed in strictly linear deterministic time $\mathcal{O}(n)$ using an incremental \textbf{monotonic stack} algorithm (Algorithm~\ref{alg:cartesian-build-en}):
+
+\begin{algorithm}[H]
+\caption{Linear Cartesian Tree Construction ($\textsc{Build-Cartesian}(A[1 \dots n])$)}
+\label{alg:cartesian-build-en}
+\KwIn{Array $A[1 \dots n]$ pre-sorted by $x$-coordinate}
+\KwOut{Root of Cartesian tree}
+\BlankLine
+Initialize empty stack $S$\;
+\For{$i \leftarrow 1$ \KwTo $n$}{
+    $last \leftarrow \mathrm{NIL}$\;
+    \While{$S \neq \emptyset$ \textbf{and} $y(S.\textsc{Top}()) < y(A[i])$}{
+        $last \leftarrow S.\textsc{Pop}()$\;
+    }
+    $\operatorname{left}(A[i]) \leftarrow last$\;
+    \If{$S \neq \emptyset$}{
+        $\operatorname{right}(S.\textsc{Top}()) \leftarrow A[i]$\;
+    }
+    $S.\textsc{Push}(A[i])$\;
+}
+\Return bottom element of stack (the global root)\;
+\end{algorithm}
+
+\paragraph{Amortized Complexity Analysis:}
+The algorithm maintains the right spine of the current tree on the stack. At each step, point $A[i]$ pops all nodes with lower $y$-coordinates; the last popped node becomes its left child, while $A[i]$ becomes the right child of the new stack top. Because each of the $n$ nodes is pushed onto the stack exactly once and popped at most once, the total number of stack operations is bounded by $2n$. The construction time is therefore strictly deterministic and linear: $\mathcal{O}(n)$.
+
+\subsection{Range Minimum Query (RMQ) in $\mathcal{O}(1)$}
+The Cartesian tree provides the foundational reduction linking range minimum searches on arrays to lowest common ancestor queries on trees:
+\begin{equation}
+  \textsc{RMQ}_A(i, j) = \arg\min_{i \le k \le j} A[k].
+\end{equation}
+
+By constructing a Cartesian tree (in Min-Heap form) over pairs $(k, A[k])$:
+\begin{equation}
+  \textsc{RMQ}_A(i, j) = \textsc{LCA}_{\text{CartesianTree}}(A[i], A[j]),
+\end{equation}
+where $\textsc{LCA}$ denotes the \textit{Lowest Common Ancestor}. Because static LCA queries can be answered in $\mathcal{O}(1)$ time following $\mathcal{O}(n)$ preprocessing (via the Bender and Farach-Colton algorithm~\cite{bender2000}), the Cartesian tree allows answering RMQ in optimal $\mathcal{O}(1)$ time.
+
+\subsection{3-Sided Range Queries}
+In geospatial applications, temporal databases, and computational geometry, a fundamental class of multidimensional queries is given by \textbf{3-sided range queries} (semi-infinite orthogonal rectangles):
+\begin{equation}
+  Q = [x_{\min}, x_{\max}] \times [y_{\min}, +\infty).
+\end{equation}
+Such queries seek all points $p = (x, y)$ satisfying simultaneously:
+\begin{equation}
+  x_{\min} \le x \le x_{\max} \quad \land \quad y \ge y_{\min}.
+\end{equation}
+
+In the context of Treaps, the horizontal axis represents the alphabetical or lexicographical ordering of keys (defining the query as a letter interval $[x_{\min}, x_{\max}]$), while the vertical axis measures numeric priorities (expressing the vertical constraint as a priority interval $[y_{\min}, +\infty)$), as illustrated in Figure~\ref{fig:3-sided-query-plane-ch10-en}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.95,
+    pt_in/.style={circle, draw=green!60!black, fill=green!25, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, very thick, text=green!30!black},
+    pt_out/.style={circle, draw=navy!85, fill=navy!15, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, thick, text=navy!80!black},
+    pt_pruned/.style={circle, draw=orange!85!black, fill=orange!20, minimum size=0.68cm, inner sep=0pt, font=\small\bfseries, thick, text=orange!85!black},
+    tree_edge/.style={thick, dashed, color=navy!40}
+]
+    % Background Cartesian grid
+    \draw[thin, color=gray!18, step=1.0] (0, 0) grid (12.0, 10.8);
+
+    % Main Cartesian axes
+    \draw[thick, color=gray!75, ->, >=Stealth] (0, 0) -- (12.3, 0);
+    \draw[thick, color=gray!75, ->, >=Stealth] (0, 0) -- (0, 11.2) node[above=3pt, font=\small\bfseries, color=navy] {Priority $y$};
+    \node[below=25pt, font=\small\bfseries, color=navy] at (6.0, 0) {Key $x$ (Alphabetical order)};
+
+    % Alphabetical ticks on X axis
+    \foreach \x/\letter in {1/G, 2/H, 3/I, 5/M, 6/O, 7/P, 9/R, 10/S, 11/T} {
+        \draw[color=gray!50] (\x, 0.08) -- (\x, -0.08) node[below=2pt, font=\small\bfseries, color=navy!80!black] {\letter};
+    }
+    % Alphabetical query bounds on X (interval [L, Q])
+    \draw[line width=1.3pt, color=red!75!black] (4, 0.12) -- (4, -0.12) node[below=2pt, font=\small\bfseries, color=red!80!black] {$L$};
+    \node[below=14pt, font=\scriptsize\bfseries, color=red!80!black] at (4, 0) {($x_{\min}$)};
+
+    \draw[line width=1.3pt, color=red!75!black] (8, 0.12) -- (8, -0.12) node[below=2pt, font=\small\bfseries, color=red!80!black] {$Q$};
+    \node[below=14pt, font=\scriptsize\bfseries, color=red!80!black] at (8, 0) {($x_{\max}$)};
+
+    % Numeric priority ticks on Y axis
+    \foreach \y in {1, 2, 3, 4, 5, 7, 8, 9, 10} {
+        \draw[color=gray!50] (0.08, \y) -- (-0.08, \y) node[left=2pt, font=\scriptsize, color=gray!70] {\y};
+    }
+    % Minimum priority threshold (interval [6, +inf))
+    \draw[line width=1.3pt, color=red!75!black] (0.12, 6) -- (-0.12, 6) node[left=3pt, font=\small\bfseries, color=red!80!black] {$y_{\min} = 6$};
+
+    % Semi-infinite 3-sided region: [L, Q] x [6, +inf)
+    \fill[red!8] (4.0, 6.0) rectangle (8.0, 10.8);
+    \draw[line width=1.4pt, color=red!75!black] (4.0, 10.8) -- (4.0, 6.0) -- (8.0, 6.0) -- (8.0, 10.8);
+    \draw[line width=1.4pt, dashed, ->, >=Stealth, color=red!75!black] (4.0, 10.8) -- (4.0, 11.2) node[above=1pt, font=\scriptsize\bfseries, color=red!75!black] {$+\infty$};
+    \draw[line width=1.4pt, dashed, ->, >=Stealth, color=red!75!black] (8.0, 10.8) -- (8.0, 11.2) node[above=1pt, font=\scriptsize\bfseries, color=red!75!black] {$+\infty$};
+
+    % Projection dashed lines to axes
+    \draw[thick, dashed, color=red!70!black] (4.0, 6.0) -- (4.0, 0);
+    \draw[thick, dashed, color=red!70!black] (8.0, 6.0) -- (8.0, 0);
+    \draw[thick, dashed, color=red!70!black] (4.0, 6.0) -- (0, 6.0);
+
+    % Underlying Treap / Cartesian tree edges
+    \draw[tree_edge] (5, 10) -- (2, 8);
+    \draw[tree_edge] (2, 8) -- (1, 3);
+    \draw[tree_edge] (2, 8) -- (3, 4);
+    \draw[tree_edge] (5, 10) -- (7, 9);
+    \draw[tree_edge] (7, 9) -- (6, 4);
+    \draw[tree_edge] (7, 9) -- (10, 8);
+    \draw[tree_edge] (10, 8) -- (9, 5);
+    \draw[tree_edge] (10, 8) -- (11, 7);
+
+    % Points in Cartesian plane:
+    % M(5, 10) in Q
+    \node[pt_in] (M) at (5, 10) {$M$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=green!40!black] at (M.north) {$M(10) \in Q$};
+
+    % P(7, 9) in Q
+    \node[pt_in] (P) at (7, 9) {$P$};
+    \node[above right=1pt and 3pt, font=\scriptsize\bfseries, text=green!40!black] at (P.north east) {$P(9) \in Q$};
+
+    % O(6, 4) excluded from Q by priority (y < 6)
+    \node[pt_pruned] (O) at (6, 4) {$O$};
+    \node[below=3pt, font=\scriptsize\bfseries, text=orange!85!black, align=center] at (O.south) {$O(4) \notin Q$\\[-1pt]{\tiny ($y < 6$)}};
+
+    % H(2, 8) excluded from Q by key (H < L)
+    \node[pt_out] (H) at (2, 8) {$H$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (H.north) {$H(8) \notin Q$\ \tiny ($H < L$)};
+
+    % G(1, 3)
+    \node[pt_out] (G) at (1, 3) {$G$};
+    \node[left=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (G.west) {$G(3)$};
+
+    % I(3, 4)
+    \node[pt_out] (I) at (3, 4) {$I$};
+    \node[right=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (I.east) {$I(4)$};
+
+    % S(10, 8) excluded from Q by key (S > Q)
+    \node[pt_out] (S) at (10, 8) {$S$};
+    \node[above=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (S.north) {$S(8) \notin Q$\ \tiny ($S > Q$)};
+
+    % R(9, 5)
+    \node[pt_out] (R) at (9, 5) {$R$};
+    \node[left=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (R.west) {$R(5)$};
+
+    % T(11, 7)
+    \node[pt_out] (T) at (11, 7) {$T$};
+    \node[right=3pt, font=\scriptsize\bfseries, text=navy!80!black] at (T.east) {$T(7)$};
+
+    % =========================================================================
+    % EXPLANATORY BOX PLACED OUTSIDE CARTESIAN AXES (ON THE RIGHT)
+    % =========================================================================
+
+    % Query Definition
+    \node[draw=red!70!black, fill=red!4, rounded corners=4pt, inner sep=7pt, align=left, text width=5.2cm] at (16.2, 5.5) {
+        \textbf{\textcolor{red!80!black}{\large 3-Sided Range Query ($Q$)}}\\[6pt]
+        $\bullet$ \textbf{Letter Interval (Keys $x$):}\\
+        \hspace*{8pt}$x \in [L, Q] \iff L \le x \le Q$\\[5pt]
+        $\bullet$ \textbf{Priority Interval (Ordinates $y$):}\\
+        \hspace*{8pt}$y \in [6, +\infty) \iff y \ge 6$\\[6pt]
+        \noindent\rule{5.2cm}{0.4pt}\\[6pt]
+        $\mathbf{Q = [L, Q] \times [6, +\infty)}$
+    };
+\end{tikzpicture}%
+}
+\caption{3-Sided range query $Q = [L, Q] \times [6, +\infty)$ in the Cartesian plane: the $x$-axis follows alphabetical key order and the $y$-axis priorities. Points within the region are $M$ and $P$. Points $G, H, I$ and $R, S, T$ fall outside the letter range, while $O$ violates the minimum priority ($y < 6$). Dashed lines show the Treap structure.}
+\label{fig:3-sided-query-plane-ch10-en}
+\end{figure}
+
+\paragraph{The Instantaneous Pruning Principle ($\mathcal{O}(1)$ Pruning):}
+Combining horizontal binary search ordering with vertical Max-Heap ordering provides an unbeatable pruning mechanism for filtering out out-of-range points (Figure~\ref{fig:3-sided-query-plane-ch10-en}):
+\begin{itemize}
+    \item \textbf{Horizontal filter (BST on keys $x$):} bounds search to paths and subtrees intersecting $[x_{\min}, x_{\max}]$, branching down from the Lowest Common Ancestor (LCA) of $x_{\min}$ and $x_{\max}$.
+    \item \textbf{Vertical filter (Max-Heap on priorities $y$):} for any node $u$, if its priority falls below the query threshold ($p(u) < y_{\min}$), then by the Max-Heap property \textbf{no descendant of $u$ can have priority $\ge y_{\min}$}. Exploration of the entire subtree rooted at $u$ halts immediately in $\mathcal{O}(1)$ time.
+\end{itemize}
+
+\paragraph{Two Algorithmic Paradigms:}
+In algorithm engineering, 3-sided queries can be solved using two complementary approaches:
+\begin{enumerate}
+    \item \textbf{Direct guided traversal:} search paths for $x_{\min}$ and $x_{\max}$ are traversed, visiting intermediate candidate subtrees and pruning any branch whose local root has $y < y_{\min}$.
+    \item \textbf{Sentinel split isolation:} two \textsc{Split} operations with sentinel nodes of priority $+\infty$ at $x_{\min}$ and $x_{\max}$ cleanly isolate a candidate subtree containing exactly the nodes with $x \in [x_{\min}, x_{\max}]$. Traversal on this candidate tree simplifies to a pure heap-guided filter governed by $y_{\min}$.
+\end{enumerate}
+
+\begin{theorem}[Output-Sensitive Complexity of 3-Sided Queries]
+Executing a 3-sided range query on a Treap of $n$ elements returning $k_{\text{out}}$ points takes expected time:
+\begin{equation}
+  T(n, k_{\text{out}}) = \mathcal{O}(\log n + k_{\text{out}}).
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Visited nodes partition into two disjoint classes:
+\begin{enumerate}
+    \item \textbf{Boundary nodes:} nodes traversed along search paths bounding $x_{\min}$ and $x_{\max}$. Since expected Treap height is $\mathcal{O}(\log n)$, the expected number of boundary nodes is $\mathcal{O}(\log n)$. In the sentinel-split paradigm, the two bubble-up rotations similarly take $\mathcal{O}(\log n)$ time.
+    \item \textbf{Internal candidate nodes and pruned leaves:} each visited node satisfying $p(u) \ge y_{\min}$ belongs to the solution set and is emitted, contributing $+k_{\text{out}}$. Unproductive branches are cut off at the very first node with priority $< y_{\min}$; thus, the number of visited non-output nodes is at most the number of pruned leaf positions, bounded by $2 k_{\text{out}} + 2 = \mathcal{O}(k_{\text{out}})$.
+\end{enumerate}
+The total runtime is therefore optimal and output-sensitive: $\mathcal{O}(\log n + k_{\text{out}})$.
+\end{proof}
+
+\subsection{Step-by-Step Example: Solving a 3-Sided Query via Split and Pruning}
+\label{sec:treap-3sided-example-en}
+
+To illustrate the concrete mechanics of the structure, we walk through the complete execution of a 3-sided query using sentinel-based range isolation followed by priority pruning.
+
+\paragraph{Query Instance Definition:}
+Consider the 2D range query:
+\begin{equation}
+  Q = [x_1, x_2] \times [y_1, +\infty) = [L, Q] \times [6, +\infty),
+\end{equation}
+governed by:
+\begin{itemize}
+    \item \textbf{Horizontal range:} alphabetic keys $x \in [L, Q]$, namely $L \le x \le Q$ in lexicographic order;
+    \item \textbf{Vertical threshold:} numeric priorities $y \ge 6$.
+\end{itemize}
+
+\paragraph{Initial Treap Topology (INIT):}
+Nodes store pairs $\frac{\text{Key}}{\text{Priority}} = \frac{x}{y}$, ordered alphabetically ($G < H < I < L < M < O < P < Q < R < S < T$) and constrained by the Max-Heap property on coordinates $y$. The initial tree contains $9$ elements (Figure~\ref{fig:3-sided-step-by-step-example-en}(a)):
+\begin{itemize}
+    \item Global root: $M / 10$;
+    \item Left subtree: $H / 8$, with children $G / 3$ (left) and $I / 4$ (right);
+    \item Right subtree: $P / 9$, with left child $O / 4$ and right child $S / 8$ (parent of $R / 5$ left and $T / 7$ right).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{!}{0.80\textheight}{%
+\begin{tikzpicture}[
+    tnode/.style={circle, draw=navy!80, fill=white, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center},
+    snode/.style={circle, draw=red!80!black, fill=red!15, minimum size=0.75cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, very thick, text=red!80!black},
+    outnode/.style={circle, draw=green!60!black, fill=green!20, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, thick, text=green!40!black},
+    prunednode/.style={circle, draw=orange!80!black, fill=orange!15, minimum size=0.72cm, inner sep=0pt, font=\scriptsize\bfseries, align=center, thick, text=orange!80!black},
+    edge/.style={thick, color=navy!70},
+    prunededge/.style={thick, dashed, color=orange!80!black},
+    tarrow/.style={->, >=Stealth, very thick, color=navy!60}
+]
+    % =============================================================
+    % STATE 1: INIT
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, 0) {\textbf{(a) Initial State (INIT)}};
+    
+    \node[tnode] (M1) at (0, -1.0) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (H1) at (-1.5, -2.0) {$H$\\[-1pt]{\tiny 8}};
+    \node[tnode] (P1) at (1.5, -2.0) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (G1) at (-2.2, -3.0) {$G$\\[-1pt]{\tiny 3}};
+    \node[tnode] (I1) at (-0.8, -3.0) {$I$\\[-1pt]{\tiny 4}};
+    \node[tnode] (O1) at (0.8, -3.0) {$O$\\[-1pt]{\tiny 4}};
+    \node[tnode] (S1) at (2.2, -3.0) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R1) at (1.6, -4.0) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T1) at (2.8, -4.0) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (M1) -- (H1);
+    \draw[edge] (M1) -- (P1);
+    \draw[edge] (H1) -- (G1);
+    \draw[edge] (H1) -- (I1);
+    \draw[edge] (P1) -- (O1);
+    \draw[edge] (P1) -- (S1);
+    \draw[edge] (S1) -- (R1);
+    \draw[edge] (S1) -- (T1);
+
+    % Transition to Step 1
+    \draw[tarrow] (0, -4.3) -- (0, -5.2) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {Sentinel \textsc{Split} on $L$ ($p = +\infty$)};
+
+    % =============================================================
+    % STATE 2: 1ST STEP (Left cut x < L)
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -5.6) {\textbf{(b) 1st Step: Left Cut $x < L$}};
+
+    % DROP box for x < L
+    \fill[red!8, rounded corners=4pt] (-3.1, -8.7) rectangle (-0.6, -6.8);
+    \draw[red!60, dashed, thick, rounded corners=4pt] (-3.1, -8.7) rectangle (-0.6, -6.8);
+    \node[font=\tiny\bfseries, text=red!75!black] at (-1.85, -8.9) {\textsc{Drop} ($x < L$)};
+
+    \node[snode] (L2) at (0, -6.6) {$L$\\[-1pt]{\tiny $+\infty$}};
+    \node[right=5pt, font=\tiny\bfseries, text=red!75!black] at (L2.east) {\textsc{Delete} (sentinel)};
+
+    \node[tnode] (H2) at (-1.8, -7.4) {$H$\\[-1pt]{\tiny 8}};
+    \node[tnode] (G2) at (-2.5, -8.3) {$G$\\[-1pt]{\tiny 3}};
+    \node[tnode] (I2) at (-1.1, -8.3) {$I$\\[-1pt]{\tiny 4}};
+
+    \node[tnode] (M2) at (1.5, -7.4) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (O2) at (0.8, -8.3) {$O$\\[-1pt]{\tiny 4}};
+    \node[tnode] (P2) at (2.2, -8.3) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (S2) at (2.8, -9.2) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R2) at (2.2, -10.1) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T2) at (3.4, -10.1) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (L2) -- (H2);
+    \draw[edge] (L2) -- (M2);
+    \draw[edge] (H2) -- (G2);
+    \draw[edge] (H2) -- (I2);
+    \draw[edge] (M2) -- (O2);
+    \draw[edge] (M2) -- (P2);
+    \draw[edge] (P2) -- (S2);
+    \draw[edge] (S2) -- (R2);
+    \draw[edge] (S2) -- (T2);
+
+    % Transition to Step 2
+    \draw[tarrow] (0, -10.4) -- (0, -11.3) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {Sentinel \textsc{Split} on $Q$ ($p = +\infty$)};
+
+    % =============================================================
+    % STATE 3: 2ND STEP (Right cut x > Q)
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -11.8) {\textbf{(c) 2nd Step: Right Cut $x > Q$}};
+
+    % Candidates box [L, Q]
+    \fill[green!8, rounded corners=4pt] (-2.6, -16.1) rectangle (-0.3, -12.95);
+    \draw[green!60!black, thick, rounded corners=4pt] (-2.6, -16.1) rectangle (-0.3, -12.95);
+    \node[below=3pt, font=\tiny\bfseries, text=green!60!black] at (-1.45, -16.1) {Candidates $[L, Q]$};
+
+    % DROP box for x > Q
+    \fill[red!8, rounded corners=4pt] (0.4, -16.1) rectangle (3.2, -12.95);
+    \draw[red!60, dashed, thick, rounded corners=4pt] (0.4, -16.1) rectangle (3.2, -12.95);
+    \node[below=3pt, font=\tiny\bfseries, text=red!75!black] at (1.8, -16.1) {\textsc{Drop} ($x > Q$)};
+
+    \node[snode] (Q3) at (0, -12.5) {$Q$\\[-1pt]{\tiny $+\infty$}};
+    \node[right=5pt, font=\tiny\bfseries, text=red!75!black] at (Q3.east) {\textsc{Delete} (sentinel)};
+    
+    \node[tnode] (M3) at (-1.8, -13.5) {$M$\\[-1pt]{\tiny 10}};
+    \node[tnode] (P3) at (-0.9, -14.4) {$P$\\[-1pt]{\tiny 9}};
+    \node[tnode] (O3) at (-1.7, -15.3) {$O$\\[-1pt]{\tiny 4}};
+
+    \node[tnode] (S3) at (1.8, -13.5) {$S$\\[-1pt]{\tiny 8}};
+    \node[tnode] (R3) at (1.1, -14.4) {$R$\\[-1pt]{\tiny 5}};
+    \node[tnode] (T3) at (2.5, -14.4) {$T$\\[-1pt]{\tiny 7}};
+
+    \draw[edge] (Q3) -- (M3);
+    \draw[edge] (Q3) -- (S3);
+    \draw[edge] (M3) -- (P3);
+    \draw[edge] (P3) -- (O3);
+    \draw[edge] (S3) -- (R3);
+    \draw[edge] (S3) -- (T3);
+
+    % Transition to Step 4
+    \draw[tarrow] (0, -16.8) -- (0, -17.7) 
+        node[midway, right=4pt, font=\scriptsize\bfseries, text=navy] {Priority filter $y \ge y_{\min} = 6$};
+
+    % =============================================================
+    % STATE 4: FILTER y >= 6 AND PRUNING
+    % =============================================================
+    \node[font=\small\bfseries, text=navy] at (0, -18.1) {\textbf{(d) Filter $y \ge 6$ and Traversal Outcome}};
+
+    \node[outnode] (M4) at (-0.6, -19.0) {$M$\\[-1pt]{\tiny 10}};
+    \node[outnode] (P4) at (0.6, -20.0) {$P$\\[-1pt]{\tiny 9}};
+    \node[prunednode] (O4) at (-0.4, -21.0) {$O$\\[-1pt]{\tiny 4}};
+
+    \draw[edge] (M4) -- (P4);
+    \draw[prunededge] (P4) -- (O4) node[midway, left=2pt, font=\tiny\bfseries, text=orange!80!black] {$4 < 6$};
+
+    \node[right=4pt, font=\tiny\bfseries, text=green!50!black] at (M4.east) {Taken ($10 \ge 6$)};
+    \node[right=4pt, font=\tiny\bfseries, text=green!50!black] at (P4.east) {Taken ($9 \ge 6$)};
+    
+    \node[below=3pt, draw=orange!70, fill=orange!8, rounded corners=2pt, font=\tiny\bfseries, text=orange!90!black, inner sep=2pt] 
+        at (O4.south) {Pruning $\mathcal{O}(1)$ (priority $< 6$)};
+
+    \node[draw=green!60!black, fill=green!10, rounded corners=3pt, font=\scriptsize\bfseries, text=green!40!black, inner sep=3pt] 
+        at (0, -22.3) {Final Output: $\left\{ \frac{M}{10}, \, \frac{P}{9} \right\}$};
+
+\end{tikzpicture}%
+}
+\caption{Step-by-step execution of the 3-sided range query $[L, Q] \times [6, +\infty)$ on a Treap, displayed vertically: (a) Initial state; (b) 1st Step: Left cut with sentinel $(L, +\infty)$ and DROP of $\{G, H, I\}$ ($x < L$); (c) 2nd Step: Right cut with sentinel $(Q, +\infty)$ and DROP of $\{R, S, T\}$ ($x > Q$), isolating candidate subtree for $[L, Q]$; (d) Guided traversal on candidate subtree with priority filter $y \ge 6$ and immediate $\mathcal{O}(1)$ pruning of $(O / 4)$.}
+\label{fig:3-sided-step-by-step-example-en}
+\end{figure}
+
+\paragraph{Phase 1: Lower Bound Isolation ($x < L$):}
+To discard all keys strictly smaller than $L$, sentinel $(L, +\infty)$ is inserted:
+\begin{itemize}
+    \item \textbf{Bubble-up to root:} Sentinel $(L, +\infty)$ enters as a leaf (right child of $I / 4$). Its infinite priority triggers rotations promoting it to the tree root in $\mathcal{O}(\log n)$ expected time (Figure~\ref{fig:3-sided-step-by-step-example-en}(b)).
+    \item \textbf{Left subtree drop (DROP):} By the BST property, the left subtree of $L$ holds $\{G, H, I\}$. Because each key satisfies $x < L$, all fall outside $[L, Q]$ and are discarded in $\mathcal{O}(1)$ time.
+    \item \textbf{Sentinel deletion:} Dummy node $(L, +\infty)$ is removed, leaving the right subtree $\{M, O, P, R, S, T\}$ as the active set for the next step.
+\end{itemize}
+
+\paragraph{Phase 2: Upper Bound Isolation ($x > Q$):}
+On the remaining subtree, the upper bound is isolated by inserting sentinel $(Q, +\infty)$:
+\begin{itemize}
+    \item \textbf{Bubble-up of $Q$ to root:} Maximum priority rotates $Q$ to the root of the remaining subtree in $\mathcal{O}(\log n)$ expected time (Figure~\ref{fig:3-sided-step-by-step-example-en}(c)).
+    \item \textbf{Right subtree drop (DROP):} The right subtree of $Q$ contains $\{R, S, T\}$. Since $x > Q$, all violate the horizontal upper bound and are discarded in $\mathcal{O}(1)$ time.
+    \item \textbf{Candidate subtree:} Removing dummy node $(Q, +\infty)$ leaves the left subtree containing exactly the candidate nodes with $x \in [L, Q]$:
+    \begin{equation}
+      \text{Candidates } [L, Q] = \left\{ \frac{M}{10}, \, \frac{P}{9}, \, \frac{O}{4} \right\}.
+    \end{equation}
+    This candidate subtree preserves the Max-Heap property on coordinates $y$.
+\end{itemize}
+
+\paragraph{Phase 3: Guided Traversal and Immediate Pruning ($y \ge 6$):}
+Extracting solution points proceeds by recursive traversal from candidate root $(M / 10)$ applying threshold filter $y \ge 6$ (Figure~\ref{fig:3-sided-step-by-step-example-en}(d)):
+\begin{enumerate}
+    \item \textbf{Node $(M / 10)$:} Priority $y = 10 \ge 6$. Condition satisfied; emitted as output. Traversal continues to children (right child $P / 9$).
+    \item \textbf{Node $(P / 9)$:} Priority $y = 9 \ge 6$. Emitted as output. Traversal continues to children (left child $O / 4$).
+    \item \textbf{Node $(O / 4)$:} Priority $y = 4 < 6$. Violates minimum threshold.
+    \begin{itemize}
+        \item \textbf{$\mathcal{O}(1)$ Pruning:} By the Max-Heap property, no descendant of $(O / 4)$ can have priority greater than $4$, so none can satisfy $y \ge 6$. Traversal on this branch halts immediately in $\mathcal{O}(1)$ time.
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{Computational Outcome and Cost Breakdown:}
+The resulting solution set is:
+\begin{equation}
+  \text{Output} = \left\{ \frac{M}{10}, \, \frac{P}{9} \right\}.
+\end{equation}
+The entire procedure breaks down into:
+\begin{itemize}
+    \item \textbf{Split / Isolation Phase:} two sentinel insertions rotating to root, taking $\mathcal{O}(\log n)$ expected time;
+    \item \textbf{Traversal and Emission Phase:} visiting only output nodes ($M$ and $P$) plus a single pruned leaf ($O$), taking time proportional to output size: $\mathcal{O}(k)$ with $k = 2$;
+    \item \textbf{Total Runtime:}
+    \begin{equation}
+      T(n) = \mathcal{O}(\log n + k),
+    \end{equation}
+    demonstrating the optimal output-sensitive efficiency achieved by marrying binary search trees with heaps.
+\end{itemize}
+
+
