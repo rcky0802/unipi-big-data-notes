@@ -1,0 +1,689 @@
+\chapter{Posting Lists Intersection Algorithms in Information Retrieval}
+\label{chap:posting-lists-intersection-en}
+
+\begin{center}
+  \textbf{Lecture 11}\\
+  \emph{Posting Lists Intersection Algorithms: Search Engine Architecture, Two-Pointer Merge-Based Scan, Binary Search, Mutual Partition with Information-Theoretic Lower Bound, Doubling Search with Jensen's Inequality, and Block Partitioning with Skip Pointers}\\[0.5em]
+  Date: October 14, 2026
+\end{center}
+
+In previous lectures, we investigated advanced associative data structures and probabilistic paradigms such as Skip Lists and Treaps, examining how ordered key maintenance enables logarithmic search and range query operations. In real-world systems handling massive unstructured data collections, and specifically in web-scale \textbf{Information Retrieval} (IR), the dominant computational bottleneck does not stem from dynamic insertions of individual keys, but from the lightning-fast evaluation of \textbf{conjunctive queries} (boolean \texttt{AND} operations) executed over massive sorted arrays of document identifiers.
+
+In this chapter, we address the fundamental algorithmic problem of \textbf{Set Intersection} (intersection of ordered sets) applied to \textbf{Posting Lists} (inverted lists) within a web search engine~\cite{manning2008,moffat1996}. We formally analyze the architecture of modern search engines and develop a systematic algorithmic hierarchy:
+\begin{enumerate}
+  \item From elementary strategies of \textbf{two-pointer linear scanning} (\textit{merge-based}) and \textbf{binary search}, deriving the analytical breakeven threshold determined by the imbalance in list sizes.
+  \item To the balanced decomposition algorithm \textbf{Mutual Partition} based on the \textit{Divide and Conquer} paradigm, proving its asymptotic optimality against the decision tree lower bound (\textit{Information-Theoretic Comparison Lower Bound})~\cite{baezayates2004,demaine2000}.
+  \item To the iterative, non-recursive \textbf{Doubling Search} (also known as \textit{Exponential Search} or \textit{Galloping Search}~\cite{bentley1976}), formalizing the step-by-step mathematical derivation of its optimal complexity via the application of \textbf{Jensen's Inequality} on concave telescoping series.
+  \item To the engineering foundation for hierarchical memory and disk storage: \textbf{Block Partitioning} with \textbf{Skip Pointers}, establishing through analytical optimization the optimal block size $L^* = \sqrt{n/m}$ and the resulting sublinear complexity $\mathcal{O}(\sqrt{n \cdot m})$ with cache-friendly sequential access.
+\end{enumerate}
+
+\FloatBarrier
+\section{Search Engine Architecture and Problem Formulation}
+\label{sec:search-engine-architecture-en}
+
+\subsection{Core Modules of a Web Search Engine}
+A modern web search engine processes collections comprising tens of billions of heterogeneous text documents, answering complex user queries with latency below a few tens of milliseconds. To achieve this, the retrieval infrastructure is organized into five coordinated macro-modules, illustrated in \autoref{fig:search-engine-pipeline-en}:
+
+\begin{enumerate}
+  \item \textbf{Web Crawler (24/7):} An autonomous, continuously active daemon navigating the World Wide Web hyperlink graph. It discovers new URLs, downloads updated HTML web pages, and stores raw content into a distributed local repository.
+  \item \textbf{Parser \& Indexer:} Processes raw downloaded text streams. It performs markup stripping, tokenization, linguistic normalization (case folding, punctuation removal), high-frequency uninformative word removal (\textit{stop-words elimination}), and morphological reduction (\textit{stemming} or \textit{lemmatization}). Upon completing textual analysis, it builds the core retrieval structure: the \textbf{Inverted Index}.
+  \item \textbf{Inverted Index:} The primary data structure for text indexing. It consists of two interconnected components:
+  \begin{itemize}
+    \item \textbf{Dictionary (Vocabulary):} Maintains the ordered collection of unique terms $\mathcal{V} = \{t_1, t_2, \dots, t_{|\mathcal{V}|}\}$ extracted across the corpus. For each term, it stores global metadata such as document frequency ($\text{df}_t$) and a pointer/offset to its corresponding posting list. The dictionary typically resides entirely in main RAM (using hash tables, tries, or B-Trees).
+    \item \textbf{Posting Lists (Inversion Lists):} For each term $t \in \mathcal{V}$, a strictly increasing ordered sequence of unique integer document identifiers (\texttt{DocID}) where the term appears at least once.
+  \end{itemize}
+  \item \textbf{Retriever:} Receives submitted user queries (in the simplest case, conjunctive boolean queries such as $t_1 \land t_2$). It queries the dictionary, retrieves the posting lists associated with the search terms, and executes \textbf{set intersection} to identify the candidate set of documents containing all queried terms.
+  \item \textbf{Ranker:} Receives the candidate document set from the Retriever. It computes a numerical relevance score for each candidate using statistical retrieval models (e.g., TF-IDF, Okapi BM25) or modern machine learning frameworks (\textit{Learning to Rank}). It sorts results descending by score and returns the Top-$k$ results to the user.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    box/.style={
+        draw=black!75, thick, rounded corners=4pt,
+        fill=blue!3,
+        minimum height=1.25cm, minimum width=3.0cm,
+        align=center, font=\small
+    },
+    user/.style={
+        draw=purple!80!black, thick, ellipse,
+        fill=red!4,
+        minimum height=1.25cm, minimum width=2.6cm,
+        align=center, font=\small
+    },
+    db/.style={
+        draw=teal!70!black, thick, cylinder, shape border rotate=90, aspect=0.22,
+        fill=teal!6,
+        minimum height=1.35cm, minimum width=2.8cm,
+        align=center, font=\small
+    },
+    lbl/.style={font=\scriptsize, align=center, fill=white, inner sep=2pt},
+    arr/.style={->, thick, draw=black!75}
+]
+
+  % ========================================================
+  % COORDINATED LEVELS: Y = 4.8 (Top), 2.4 (Mid), 0.0 (Bot)
+  % ========================================================
+
+  % --- Left Column (Off-line) ---
+  \node[box] (crawler) at (0, 4.8) {\textbf{Web Crawler}\\\scriptsize(24/7 Crawling)};
+  \node[box] (parser)  at (0, 2.4) {\textbf{Parser \& Indexer}\\\scriptsize(Token Extraction)};
+  \node[db]  (index)   at (0, -0.79) {\textbf{Inverted Index}\\\scriptsize(Dict + Postings)};
+
+  \draw[arr] (crawler) -- node[lbl] {Web Pages} (parser);
+  \draw[arr] (parser)  -- node[lbl] {Tokens / DocIDs} (index);
+
+  % --- Right Column (On-line) ---
+  \node[user] (user)      at (5.8, 4.8) {\textbf{User}\\\scriptsize(Query $Q$)};
+  \node[box]  (retriever) at (5.8, 2.38) {\textbf{Retriever}\\\scriptsize(Set Intersection)};
+  \node[box]  (ranker)    at (5.8, -1.49) {\textbf{Ranker}\\\scriptsize(BM25 / Top-$k$)};
+
+  \draw[arr] (user)      -- node[lbl] {$t_1 \text{ AND } t_2$} (retriever);
+  \draw[arr] (retriever) -- node[lbl] {Candidates $A \cap B$} (ranker);
+
+  % Return Ranker -> User
+  \draw[arr] (ranker.east) to[out=0, in=0, looseness=0.85] 
+      node[lbl, midway, right=4pt] {Ranked Top-$k$\strut\\Results} (user.east);
+
+  % Connection Index -> Retriever
+  \draw[arr] (index.east) to[out=20, in=200] 
+      node[lbl, midway, sloped, above] {Posting Lists $A, B$} (retriever.west);
+
+  % ========================================================
+  % BACKGROUND CONTAINERS (Dashed)
+  % ========================================================
+  \begin{scope}[on background layer]
+    % Off-line Container
+    \node[draw=gray!80, dashed, thick, rounded corners=6pt,
+          fit=(crawler) (parser) (index),
+          inner xsep=14pt, inner ysep=26pt] (box_offline) {};
+    \node[font=\footnotesize\bfseries, text=gray!40!black, fill=white, inner sep=3pt] 
+          at (box_offline.north) 
+          {Asynchronous Off-line Process};
+
+    % On-line Container
+    \node[draw=blue!70!black, dashed, thick, rounded corners=6pt,
+          fit=(user) (retriever) (ranker),
+          inner xsep=14pt, inner ysep=26pt] (box_online) {};
+    \node[font=\footnotesize\bfseries, text=blue!85!black, fill=white, inner sep=3pt] 
+          at (box_online.north) 
+          {Synchronous On-line Process};
+  \end{scope}
+
+\end{tikzpicture}
+\caption{Modular architecture of a web search engine: asynchronous offline crawling and indexing pipeline vs synchronous online retrieval and ranking pipeline.}
+\label{fig:search-engine-pipeline-en}
+\end{figure}
+
+\subsection{Formal Problem Formulation (Set Intersection)}
+Given a conjunctive user query:
+\begin{equation}
+  Q = t_1 \;\land\; t_2,
+\end{equation}
+the Retriever queries the inverted index and extracts the corresponding posting lists $A$ and $B$:
+\begin{align}
+  A &= [a_1, a_2, \dots, a_n], \quad |A| = n, \\
+  B &= [b_1, b_2, \dots, b_m], \quad |B| = m.
+\end{align}
+
+\begin{property}[Properties of Inversion Lists]
+The two identifier lists satisfy the following structural axioms:
+\begin{enumerate}
+  \item \textbf{Strict Monotonic Ordering:} Elements within each list are positive integers strictly increasing, representing document identifiers assigned during corpus ingestion:
+  \begin{equation}
+    a_1 < a_2 < \dots < a_n \quad \text{and} \quad b_1 < b_2 < \dots < b_m.
+  \end{equation}
+  \item \textbf{Asymmetry Assumption (W.L.O.G.):} we assume list $B$ is the shorter sequence:
+  \begin{equation}
+    m \le n.
+  \end{equation}
+  In practical search workloads, the imbalance ratio $n/m$ can span multiple orders of magnitude (e.g., when $t_1$ is a frequent term such as ``computer'' with $n \approx 10^7$ and $t_2$ is a specialized keyword such as ``quicksort'' with $m \approx 10^3$).
+\end{enumerate}
+\end{property}
+
+\textbf{Algorithmic Goal:} Compute the set intersection:
+\begin{equation}
+  A \cap B = \{x \in \mathbb{N} \mid x \in A \land x \in B\}
+\end{equation}
+in minimum computational time, minimizing comparisons while maximizing cache and memory hierarchy efficiency.
+
+\FloatBarrier
+\section{Fundamental Algorithms and Comparative Analysis}
+\label{sec:fundamental-intersection-algorithms-en}
+
+\subsection{Brute Force Approach}
+The naive method ignores the sorted property of the lists:
+\begin{itemize}
+  \item For each of the $m$ elements $b_j \in B$, scan linearly through array $A$ from index $1$ to $n$, stopping when reaching a match $a_i == b_j$ or an element $a_i > b_j$.
+  \item In the worst case, every element of $B$ requires inspecting all $n$ elements of $A$.
+  \item \textbf{Time Complexity:} $\mathcal{O}(n \cdot m)$.
+  \item \textbf{Engineering Evaluation:} Unusable on real-world indices: with $n = 10^7$ and $m = 10^4$, this requires up to $10^{11}$ operations for a single query.
+\end{itemize}
+
+\subsection{Merge-Based: Two-Pointer Linear Scanning}
+The \textbf{Merge-based} algorithm systematically exploits the strictly ascending order of both sequences. Maintaining two cursors $i$ (for $A$) and $j$ (for $B$) initialized at the head of each list, it mirrors the merge step of MergeSort (\autoref{algo:merge-intersection-en}):
+
+\begin{algorithm}[htbp]
+\SetAlgoLined
+\KwInput{Two sorted lists $A = [a_1, \dots, a_n]$ and $B = [b_1, \dots, b_m]$ with $m \le n$}
+\KwOutput{Sorted list of common document identifiers $C = A \cap B$}
+$i \leftarrow 1$; $j \leftarrow 1$\;
+$C \leftarrow \emptyset$\;
+\While{$i \le n$ \textbf{and} $j \le m$}{
+    \If{$A[i] == B[j]$}{
+        $C.\textsc{Append}(A[i])$\;
+        $i \leftarrow i + 1$\;
+        $j \leftarrow j + 1$\;
+    }
+    \ElseIf{$A[i] < B[j]$}{
+        $i \leftarrow i + 1$\;
+    }
+    \Else{
+        \tcp{$A[i] > B[j]$}
+        $j \leftarrow j + 1$\;
+    }
+}
+\Return{$C$}\;
+\caption{Two-Pointer Merge-Based Set Intersection}
+\label{algo:merge-intersection-en}
+\end{algorithm}
+
+\begin{theorem}[Complexity of Merge-Based Scanning]
+The two-pointer intersection algorithm performs at most $n + m - 1$ comparisons and runs in time:
+\begin{equation}
+  T_{\text{merge}}(n, m) = \mathcal{O}(n + m).
+\end{equation}
+\end{theorem}
+\begin{proof}
+In each iteration of the \textbf{while} loop, at least one comparison between $A[i]$ and $B[j]$ takes place. Regardless of the comparison outcome ($<, =, >$), at least one cursor ($i$ or $j$) is incremented by exactly 1. Because execution terminates as soon as $i > n$ or $j > m$, the total number of iterations cannot exceed $(n + m - 1)$.
+\end{proof}
+
+\paragraph{Strengths and Limitations of Linear Scanning.}
+\begin{itemize}
+  \item \textbf{Strengths:} The algorithm reads elements in strictly \textbf{sequential} order. This pattern maximizes CPU cache spatial locality, takes full advantage of hardware prefetchers, and enables pipelined streaming directly from secondary storage without random seeks.
+  \item \textbf{Weaknesses:} When $m \ll n$, linear scanning incurs significant wasted work: it inspects every single element of the long list $A$, unable to skip over large swathes of non-matching documents.
+\end{itemize}
+
+\subsection{Binary Search Intersection}
+To overcome the overhead of linear scanning when list $B$ is much shorter than $A$, binary search is employed:
+\begin{itemize}
+  \item Iterate through the $m$ elements of the short list $B$.
+  \item For each $b_j \in B$, perform standard binary search (\textsc{BinarySearch}) across the entire array $A$.
+  \item Because binary search over an array of size $n$ requires at most $\lfloor \log_2 n \rfloor + 1$ comparisons:
+  \begin{equation}
+    T_{\text{binary}}(n, m) = \mathcal{O}(m \log n).
+  \end{equation}
+\end{itemize}
+
+\subsection{Analytical Trade-Off: Merge-Based vs Binary Search}
+We determine the breakeven point by comparing the two complexity bounds:
+\begin{equation}
+  T_{\text{binary}}(n, m) < T_{\text{merge}}(n, m) \iff m \log n < n + m.
+\end{equation}
+
+Solving for the cardinality $m$:
+\begin{align}
+  m \log n - m &< n \nonumber \\
+  m (\log n - 1) &< n \nonumber \\
+  m &< \frac{n}{\log n - 1} \approx \frac{n}{\log n}.
+  \label{eq:breakeven-tradeoff-en}
+\end{align}
+
+\begin{corollary}[Asymptotic Efficiency Regimes]
+From relation~\eqref{eq:breakeven-tradeoff-en}, two operational regimes emerge:
+\begin{enumerate}
+  \item \textbf{Sparse Regime ($m < \frac{n}{\log n}$):} List $B$ is sufficiently sparse relative to $A$. Binary search is asymptotically faster than linear scanning, as the total cost of logarithmic lookups remains strictly sublinear with respect to $n$.
+  \item \textbf{Dense Regime ($m \ge \frac{n}{\log n}$):} List $B$ has density comparable to $A$. Two-pointer linear scanning is asymptotically and practically superior, since the small constant factors of sequential cache reads easily outperform non-local bisection jumps.
+\end{enumerate}
+\end{corollary}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.82, every node/.style={transform shape}]
+    % Coordinate axes
+    \draw[thick, ->, >=Stealth] (0, 0) -- (8.8, 0) node[right=4pt, font=\small\bfseries] {Cardinality $m$};
+    \draw[thick, ->, >=Stealth] (0, 0) -- (0, 4.4) node[above=3pt, font=\small\bfseries] {Time $T$};
+
+    % Computational breakeven point (exact intersection of the two lines)
+    % Merge line: y = 1.8 + 0.18*x. At x = 3.6: y = 2.448
+    % Binary line: y = 0.68*x.      At x = 3.6: y = 2.448
+    \coordinate (breakeven) at (3.6, 2.448);
+
+    % Cost Curves
+    \draw[very thick, blue!85!black] (0, 1.8) -- (7.5, 3.15) 
+        node[right=2pt, font=\footnotesize\bfseries, color=blue!85!black] {Merge-Based: $\mathcal{O}(n + m)$};
+    \draw[very thick, red!80!black] (0, 0) -- (5.2, 3.536) 
+        node[above=2pt, font=\footnotesize\bfseries, color=red!80!black] {Binary Search: $\mathcal{O}(m \log n)$};
+
+    % Baseline O(n) scan cost tick
+    \draw[thick, gray!70] (-0.08, 1.8) -- (0.08, 1.8);
+    \node[left=3pt, font=\footnotesize, color=blue!80!black] at (0, 1.8) {$\mathcal{O}(n)$};
+
+    % Dashed lines to axes from breakeven point
+    \filldraw[black] (breakeven) circle (2.2pt);
+    \draw[dashed, gray!70!black, thick] (3.6, 0) -- (breakeven);
+    \draw[dashed, gray!50] (0, 2.448) -- (breakeven);
+    \node[left=3pt, font=\footnotesize, color=gray!40!black] at (0, 2.448) {$T^*$};
+    \node[below=4pt, font=\small\bfseries] at (3.6, 0) {$m^* \approx \frac{n}{\log n}$};
+
+    % Efficiency Zone callout boxes (positioned in open areas away from axes and lines)
+    \node[fill=red!8, draw=red!45, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt, anchor=west] at (0.5, 3.4) 
+        {\textbf{Zone 1: Binary Search}\\[1pt]$T_{\text{bin}} < T_{\text{merge}}$};
+    \node[fill=blue!8, draw=blue!45, rounded corners=3pt, font=\scriptsize, align=center, inner sep=3pt, anchor=west] at (4.5, 1.25) 
+        {\textbf{Zone 2: Linear Scan}\\[1pt]$T_{\text{merge}} < T_{\text{bin}}$};
+\end{tikzpicture}
+\caption{Qualitative performance and computational breakeven point $m^* \approx \frac{n}{\log n}$ between two-pointer linear scanning and binary search as short list cardinality $m$ increases (with long list size $n$ fixed).}
+\label{fig:breakeven-point-en}
+\end{figure}
+
+\FloatBarrier
+\section{Mutual Partition (Divide and Conquer)}
+\label{sec:mutual-partition-en}
+
+\subsection{Algorithmic Mechanism}
+The \textbf{Mutual Partition} algorithm overcomes the rigidity of independent binary searches by applying balanced simultaneous bisection via the \textbf{Divide and Conquer} paradigm~\cite{baezayates2004}:
+
+\begin{enumerate}
+  \item \textbf{Median Pivot Selection on $A$:} Select the median element of the long list $A$:
+  \begin{equation}
+    pivot = A\left[\left\lfloor \frac{n}{2} \right\rfloor\right].
+  \end{equation}
+  \item \textbf{Pivot Localization on $B$:} Using a single binary search on the short list $B$, locate the position where $pivot$ falls (or would fall) in $B$.
+  \item \textbf{Decomposition into Disjoint Subproblems:} The $pivot$ element naturally divides both sorted sets into two partitions:
+  \begin{align}
+    A &= A_1 \cup \{pivot\} \cup A_2, \quad \text{with } A_1 < pivot \text{ and } A_2 > pivot, \\
+    B &= B_1 \cup (\{pivot\} \cap B) \cup B_2, \quad \text{with } B_1 < pivot \text{ and } B_2 > pivot.
+  \end{align}
+  If binary search finds $pivot$ in $B$ at position $p_B$ ($B[p_B] = pivot$), it belongs to the intersection ($pivot \in A \cap B$) and is immediately emitted to the result set $C$. Otherwise ($pivot \notin B$), $p_B$ marks the split point such that $B[p_B-1] < pivot < B[p_B]$.
+  \item \textbf{Distributive Property:} Because all elements in $A_1$ and $B_1$ are strictly $< pivot$, and all elements in $A_2$ and $B_2$ are strictly $> pivot$, no element of $A_1$ can intersect $B_2$, and vice versa. Global intersection decomposes into the disjoint union of two independent intersections:
+  \begin{equation}
+    A \cap B = (A_1 \cap B_1) \cup (\{pivot\} \cap B) \cup (A_2 \cap B_2).
+  \end{equation}
+  The two disjoint sub-instances $(A_1, B_1)$ and $(A_2, B_2)$ are solved recursively in parallel without re-inserting the pivot into either subproblem.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    boxA/.style={rectangle, draw=blue!80!black, fill=blue!8, minimum height=0.65cm, font=\small\bfseries, align=center},
+    boxB/.style={rectangle, draw=teal!80!black, fill=teal!10, minimum height=0.65cm, font=\small\bfseries, align=center},
+    pivotnode/.style={rectangle, draw=red!80!black, fill=red!15, minimum height=0.7cm, font=\small\bfseries, align=center}
+]
+    % ================= Column 1: Left Subproblem =================
+    \node[anchor=east, font=\small\bfseries, color=blue!80!black] at (-0.2, 2.0) {List $A$:};
+    \node[boxA, minimum width=3.6cm] (a1) at (2.0, 2.0) {$A_1$ ($< pivot$)};
+
+    \node[anchor=east, font=\small\bfseries, color=teal!80!black] at (-0.2, 0.0) {List $B$:};
+    \node[boxB, minimum width=3.6cm] (b1) at (2.0, 0.0) {$B_1$ ($< pivot$)};
+
+    \draw[thick, dotted, purple!80!black, rounded corners=3pt] (0.0, -0.5) rectangle (4.0, 2.5);
+    \node[above=3pt, font=\scriptsize\bfseries, purple!80!black] at (2.0, 2.5) {Left Subproblem: $A_1 \cap B_1$};
+
+    % ================= Column 2: Pivot, Binary Search and Match =================
+    \node[pivotnode, minimum width=1.3cm] (pA) at (5.1, 2.0) {$pivot$};
+    \node[pivotnode, minimum width=1.3cm] (pB) at (5.1, 0.0) {$B[p_B]$};
+
+    \draw[thick, dashed, red!75!black, ->, >=Stealth] (pA.south) -- (pB.north)
+        node[midway, fill=white, inner sep=2pt, font=\scriptsize\bfseries, text=red!75!black] {Binary Search in $B$};
+
+    \node[below=6pt, font=\scriptsize\bfseries, text=red!75!black, align=center] at (5.1, -0.5) 
+        {If $B[p_B] = pivot \implies pivot \in A \cap B$ (emitted to output)};
+
+    % ================= Column 3: Right Subproblem =================
+    \node[boxA, minimum width=3.6cm] (a2) at (8.2, 2.0) {$A_2$ ($> pivot$)};
+    \node[boxB, minimum width=3.6cm] (b2) at (8.2, 0.0) {$B_2$ ($> pivot$)};
+
+    \draw[thick, dotted, orange!80!black, rounded corners=3pt] (6.2, -0.5) rectangle (10.2, 2.5);
+    \node[above=3pt, font=\scriptsize\bfseries, orange!80!black] at (8.2, 2.5) {Right Subproblem: $A_2 \cap B_2$};
+\end{tikzpicture}
+\caption{Conceptual schema of Mutual Partition: median element $pivot = A[n/2]$ is searched in $B$ via binary search; if found at position $p_B$, it is emitted to the output intersection. Both sets decompose into disjoint independent subproblems $A_1 \cap B_1$ and $A_2 \cap B_2$ solved recursively in parallel.}
+\label{fig:mutual-partition-en}
+\end{figure}
+
+\subsection{Complexity and Decision Tree Lower Bound}
+
+\begin{theorem}[Complexity of Mutual Partition]
+Mutual Partition computes the intersection of list $A$ of size $n$ and list $B$ of size $m$ ($m \le n$) in time:
+\begin{equation}
+  T(n, m) = \Theta\left(m \left(1 + \log \frac{n}{m}\right)\right).
+  \label{eq:mutual-partition-complexity-en}
+\end{equation}
+\end{theorem}
+
+\paragraph{Verification of Boundary Cases.}
+Formula~\eqref{eq:mutual-partition-complexity-en} gracefully interpolates the entire spectrum of relative list lengths:
+\begin{itemize}
+  \item \textbf{Balanced Case ($n = m$):}
+  \begin{equation}
+    T(m, m) = \Theta\left(m \left(1 + \log \frac{m}{m}\right)\right) = \Theta(m (1 + 0)) = \mathcal{O}(m) = \mathcal{O}(n + m).
+  \end{equation}
+  The complexity simplifies to optimal linear merge scanning.
+  \item \textbf{Severely Asymmetric Case ($m = \mathcal{O}(1)$):}
+  \begin{equation}
+    T(n, 1) = \Theta\left(1 \cdot \left(1 + \log \frac{n}{1}\right)\right) = \mathcal{O}(\log n).
+  \end{equation}
+  The complexity matches a single binary search.
+\end{itemize}
+
+\subsection{Information-Theoretic Lower Bound}
+We prove that the bound achieved by Mutual Partition is asymptotically unbeatable by any comparison-based algorithm.
+
+\begin{theorem}[Information-Theoretic Lower Bound for Set Intersection]
+Any comparison-based algorithm computing the intersection of two sorted sequences of sizes $n$ and $m$ ($m \le n$) requires in the worst case:
+\begin{equation}
+  \#\text{CMP} \ge \Omega\left(m \log \frac{n}{m}\right) \quad \text{comparisons}.
+\end{equation}
+\end{theorem}
+\begin{proof}
+Consider the problem of determining the relative interleaving of $m$ sorted elements of $B$ within the $n$ sorted slots of $A$. The number of possible distinct interleavings is given by the binomial coefficient:
+\begin{equation}
+  \#\text{Possible Configurations} = \binom{n}{m} = \frac{n!}{m! \, (n - m)!}.
+\end{equation}
+
+In a ternary decision tree model where each internal node represents a comparison $<, =, >$ and each leaf corresponds to a consistent output configuration, the minimum tree height $h$ required to distinguish all valid leaves satisfies:
+\begin{equation}
+  \#\text{CMP} \ge \log_2(\#\text{Configurations}) \ge \log_2 \binom{n}{m}.
+\end{equation}
+
+Using the combinatorial lower bound for binomial coefficients:
+\begin{equation}
+  \binom{n}{m} \ge \left(\frac{n}{m}\right)^m,
+\end{equation}
+taking the base-2 logarithm on both sides yields:
+\begin{equation}
+  \log_2 \binom{n}{m} \ge \log_2 \left(\left(\frac{n}{m}\right)^m\right) = m \log_2 \left(\frac{n}{m}\right).
+\end{equation}
+
+Therefore, no comparison-based algorithm can have asymptotic complexity lower than $\Omega\left(m \log \frac{n}{m}\right)$. Mutual Partition achieves this theoretical bound, proving it is asymptotically optimal.
+\end{proof}
+
+\subsection{Practical Bottleneck of Mutual Partition}
+Despite its theoretical optimality, Mutual Partition exhibits a critical drawback in practical systems engineering:
+\begin{center}
+  \fbox{\parbox{0.9\textwidth}{\centering \textbf{``This is good, but it is recursive!''}}}
+\end{center}
+Its recursive nature incurs substantial stack frame overhead. Furthermore, non-local median jumping leads to erratic memory access patterns, destroying CPU cache line locality on large arrays.
+
+\FloatBarrier
+\section{Doubling Search (Exponential Search / Galloping Search)}
+\label{sec:doubling-search-en}
+
+\subsection{Motivation and Intuition of Exponential Jumps}
+\textbf{Doubling Search} (known in classical literature as \textbf{Exponential Search} or \textbf{Galloping Search}, formalized by Bentley and Yao~\cite{bentley1976}) was designed to achieve the same optimal complexity $\mathcal{O}(m \log \frac{n}{m})$ as Mutual Partition while remaining \textbf{purely iterative and non-recursive}.
+
+The core intuition exploits spatial correlation between consecutive elements of $B$. Suppose we just located element $b_{j-1} \in B$ at index $i_{j-1}$ in array $A$:
+\begin{itemize}
+  \item To find the subsequent element $b_j \in B$, we neither restart from index $1$ nor bisect the entire remaining suffix of $A$.
+  \item Because $B$ is sorted ($b_j > b_{j-1}$), the matching index $i_j$ must satisfy $i_j \ge i_{j-1}$.
+  \item Rather than advancing by single steps or halving the remaining array, we step forward from $i_{j-1}$ with \textbf{exponentially increasing powers of 2}:
+  \begin{equation}
+    +2^0, \; +2^1, \; +2^2, \; +2^3, \; \dots, \; +2^k.
+  \end{equation}
+  \item As soon as we find the smallest exponent $k$ such that $A[i_{j-1} + 2^k] \ge b_j$, we restrict binary search strictly to the bounded local window between the last two jumps:
+  \begin{equation}
+    \text{Binary Search Window} = \left[i_{j-1} + 2^{k-1}, \; i_{j-1} + 2^k\right].
+  \end{equation}
+\end{itemize}
+
+\begin{example}[Execution Trace of Doubling Search]
+Let $A$ be the stored posting list. Suppose the previous match for $b_{j-1} = 12$ occurred at index $i_{j-1}$. We now search for $b_j = 41$:
+\begin{itemize}
+  \item Probe indices by powers of 2:
+  \begin{align*}
+    A[i_{j-1} + 1] &= 14 < 41, \\
+    A[i_{j-1} + 2] &= 16 < 41, \\
+    A[i_{j-1} + 4] &= 20 < 41, \\
+    A[i_{j-1} + 8] &= 34 < 41, \\
+    A[i_{j-1} + 16] &= 60 \ge 41.
+  \end{align*}
+  \item Since $34 < 41 \le 60$, value $41$ must lie inside $[i_{j-1} + 8, \; i_{j-1} + 16]$.
+  \item Perform standard binary search on this local window of width $16 - 8 = 8$, locating $41$ in very few comparisons.
+\end{itemize}
+\end{example}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.9,
+    every node/.style={transform shape},
+    idxnode/.style={rectangle, draw=gray!70, fill=gray!8, minimum width=0.9cm, minimum height=0.55cm, font=\scriptsize, align=center},
+    valnode/.style={rectangle, draw=navy!85, fill=navy!8, minimum width=0.9cm, minimum height=0.65cm, font=\small\bfseries, align=center},
+    jump/.style={thick, color=red!80!black, ->, >=Stealth}
+]
+    % Array nodes
+    \node[valnode] (n0) at (0, 0) {$12$};
+    \node[idxnode, above=2pt of n0] {$i_{j-1}$};
+
+    \node[valnode] (n1) at (1.4, 0) {$14$};
+    \node[idxnode, above=2pt of n1] {$+2^0$};
+
+    \node[valnode] (n2) at (2.8, 0) {$16$};
+    \node[idxnode, above=2pt of n2] {$+2^1$};
+
+    \node[valnode] (n3) at (4.4, 0) {$20$};
+    \node[idxnode, above=2pt of n3] {$+2^2$};
+
+    \node[valnode] (n4) at (6.4, 0) {$34$};
+    \node[idxnode, above=2pt of n4] {$+2^{k-1}$};
+
+    \node[valnode] (n5) at (9.2, 0) {$60$};
+    \node[idxnode, above=2pt of n5] {$+2^k$};
+
+    % Jumps
+    \draw[jump] (n0.south) to[bend right=28] node[below=1pt, font=\tiny\bfseries] {$+1$} (n1.south);
+    \draw[jump] (n1.south) to[bend right=28] node[below=1pt, font=\tiny\bfseries] {$+2$} (n2.south);
+    \draw[jump] (n2.south) to[bend right=28] node[below=1pt, font=\tiny\bfseries] {$+4$} (n3.south);
+    \draw[jump] (n3.south) to[bend right=28] node[below=1pt, font=\tiny\bfseries] {$+8$} (n4.south);
+    \draw[jump] (n4.south) to[bend right=28] node[below=1pt, font=\tiny\bfseries] {$+16$} (n5.south);
+
+    % Brace with adequate clearance
+    \draw[thick, decoration={brace, mirror, raise=30pt}, decorate, purple!85!black] 
+        (n4.west) -- (n5.east) node[midway, below=34pt, font=\small\bfseries, color=purple!85!black] {Local Binary Search Bracket: $[34, 60]$};
+\end{tikzpicture}
+\caption{Progression of exponential jumps in Doubling Search (Galloping): doubling stride until bracketing the target, followed by local binary search.}
+\label{fig:doubling-search-en}
+\end{figure}
+
+\subsection{Step-by-Step Mathematical Derivation}
+We formalize the complexity analysis of Doubling Search across four rigorous steps.
+
+\paragraph{Step 1: Determining the Number of Jumps $k$.}
+Let $i_j$ be the matching position of $b_j$ in $A$. The distance traveled between consecutive matches is $(i_j - i_{j-1})$.
+Exponential stepping stops as soon as the stride overshoots this distance:
+\begin{equation}
+  2^{k-1} < i_j - i_{j-1} \le 2^k.
+  \label{eq:doubling-bracket-en}
+\end{equation}
+
+Examining the bounds separately:
+\begin{enumerate}
+  \item From the lower bound:
+  \begin{equation}
+    2^{k-1} < i_j - i_{j-1} \implies k - 1 < \log_2(i_j - i_{j-1}) \implies k_1 = \mathcal{O}(\log_2(i_j - i_{j-1})).
+  \end{equation}
+  \item From the upper bound:
+  \begin{equation}
+    i_j - i_{j-1} \le 2^k \implies 2^k \ge i_j - i_{j-1} \implies k_2 = \Omega(\log_2(i_j - i_{j-1})).
+  \end{equation}
+\end{enumerate}
+Hence, the number of jumping probes is proportional to the logarithm of the distance:
+\begin{equation}
+  k = k_1 + k_2 = \Theta(\log_2(i_j - i_{j-1})).
+\end{equation}
+
+\paragraph{Step 2: Local Binary Search Cost.}
+Binary search is then performed in $[i_{j-1} + 2^{k-1}, \; i_{j-1} + 2^k]$. The window width is:
+\begin{equation}
+  \Delta = 2^k - 2^{k-1} = 2^{k-1}.
+\end{equation}
+The computational cost for binary search over an interval of size $2^{k-1}$ is:
+\begin{equation}
+  T_{\text{local-BS}} = \mathcal{O}(\log_2(2^{k-1})) = \mathcal{O}(k - 1) = \mathcal{O}(k) = \mathcal{O}(\log_2(i_j - i_{j-1})).
+\end{equation}
+The local binary search cost asymptotically matches the galloping phase cost.
+
+\paragraph{Step 3: Total Cost Across All $m$ Elements.}
+Summing jump cost and local binary search cost for element $b_j \in B$:
+\begin{equation}
+  T_j = \mathcal{O}(k) + \mathcal{O}(k) = \mathcal{O}(\log_2(i_j - i_{j-1})).
+\end{equation}
+Aggregating across all $m$ elements of $B$:
+\begin{equation}
+  T_{\text{total}} = \sum_{j=1}^m T_j = \mathcal{O}\left(\sum_{j=1}^m \log_2(i_j - i_{j-1})\right).
+  \label{eq:sum-log-distances-en}
+\end{equation}
+
+\paragraph{Step 4: Application of Jensen's Inequality.}
+To maximize summation~\eqref{eq:sum-log-distances-en} and establish the worst-case bound, observe that $f(x) = \log_2 x$ is \textbf{strictly concave} on $\mathbb{R}^+$:
+\begin{equation}
+  f'(x) = \frac{1}{x \ln 2}, \qquad f''(x) = -\frac{1}{x^2 \ln 2} < 0 \quad \forall x > 0.
+\end{equation}
+
+\begin{theorem}[Jensen's Inequality for Concave Functions]
+For a concave function $f: \mathbb{R}^+ \to \mathbb{R}$ and $m$ points $x_1, \dots, x_m$:
+\begin{equation}
+  \frac{1}{m} \sum_{j=1}^m f(x_j) \le f\left(\frac{1}{m} \sum_{j=1}^m x_j\right).
+\end{equation}
+\end{theorem}
+
+Setting $f(x) = \log_2 x$ and $x_j = i_j - i_{j-1}$:
+\begin{equation}
+  \sum_{j=1}^m \log_2(i_j - i_{j-1}) \le m \cdot \log_2\left(\frac{1}{m} \sum_{j=1}^m (i_j - i_{j-1})\right).
+  \label{eq:jensen-application-en}
+\end{equation}
+
+The inner sum constitutes a \textbf{telescoping series}:
+\begin{equation}
+  \sum_{j=1}^m (i_j - i_{j-1}) = (i_1 - i_0) + (i_2 - i_1) + \dots + (i_m - i_{m-1}) = i_m - i_0 \le n.
+\end{equation}
+
+Substituting this upper bound into Jensen's inequality~\eqref{eq:jensen-application-en}:
+\begin{equation}
+  \sum_{j=1}^m \log_2(i_j - i_{j-1}) \le m \log_2\left(\frac{n}{m}\right).
+\end{equation}
+
+Therefore, the overall complexity is:
+\begin{equation}
+  T_{\text{Doubling}}(n, m) = \mathcal{O}\left(m \log_2 \frac{n}{m}\right).
+\end{equation}
+
+Doubling Search matches the theoretical optimum of Mutual Partition while executing as a strictly forward iterative procedure.
+
+\subsection{Hardware Limitations of Doubling Search}
+Despite its optimal complexity, Doubling Search is rarely applied directly in its basic form on storage-backed systems:
+\begin{itemize}
+  \item Exponential stepping causes non-contiguous memory access patterns.
+  \item On magnetic disks, random seek latency (5--10 ms per seek) dwarfs the cost of sequential block reads.
+  \item Even on RAM and solid-state drives, random probing triggers cache misses and TLB churn.
+\end{itemize}
+
+\FloatBarrier
+\section{Block Partitioning / Skip Pointers (Practical Block Approach)}
+\label{sec:block-partitioning-en}
+
+\subsection{Block Index Architecture and Skip Pointers}
+To combine the asymptotic skipping advantages with the peak sequential throughput of physical memory and storage, production search systems (including Apache Lucene and Elasticsearch) deploy \textbf{Block Partitioning} with \textbf{Skip Pointers}~\cite{moffat1996,manning2008}.
+
+\begin{definition}[Block Partitioning of a Posting List]
+Let $A$ be a posting list of size $n$. Given a fixed integer block size $L \ge 1$:
+\begin{enumerate}
+  \item Sequence $A$ is partitioned into $\frac{n}{L}$ contiguous blocks $A_1, A_2, \dots, A_{n/L}$, each holding $L$ elements:
+  \begin{equation}
+    A_k = [a_{(k-1)L + 1}, \; a_{(k-1)L + 2}, \; \dots, \; a_{kL}].
+  \end{equation}
+  \item A compact auxiliary sentinel list $A'$ of size $\frac{n}{L}$ is constructed, known as the \textbf{Skip List of Maximums}:
+  \begin{equation}
+    A' = \left[\max(A_1), \; \max(A_2), \; \dots, \; \max(A_{n/L})\right] = \left[a_L, \; a_{2L}, \; \dots, \; a_n\right].
+  \end{equation}
+  Each entry in $A'$ stores the block's maximum value and an offset pointer to the start of the block (\textit{skip pointer}).
+\end{enumerate}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    blocknode/.style={rectangle, draw=navy!85, fill=navy!6, minimum width=2.2cm, minimum height=1.05cm, rounded corners=2pt, font=\small, align=center},
+    auxnode/.style={rectangle, draw=teal!85!black, fill=teal!12, minimum width=1.1cm, minimum height=0.7cm, font=\small\bfseries, align=center},
+    pointer/.style={thick, color=teal!85!black, ->, >=Stealth, dashed}
+]
+    % Left side titles
+    \node[anchor=east, font=\small\bfseries, color=teal!80!black] at (-0.6, 1.9) {Auxiliary List $A'$:};
+    \node[anchor=east, font=\small\bfseries, color=navy!80] at (-0.6, 0) {Posting List $A$:};
+
+    % Sentinel nodes in A'
+    \node[auxnode] (s1) at (0.6, 1.9) {$9$};
+    \node[auxnode] (s2) at (3.6, 1.9) {$13$};
+    \node[auxnode] (s3) at (6.6, 1.9) {$20$};
+    \node[auxnode] (s4) at (9.8, 1.9) {$40$};
+
+    \draw[thick, color=teal!80!black] (s1) -- (s2) -- (s3);
+    \draw[loosely dotted, thick, color=teal!80!black] (s3) -- (s4);
+
+    % Blocks of List A
+    \node[blocknode] (b1) at (0.6, 0) {\textbf{Block} $A_1$\\$L$ elements\\\textbf{Max: 9}};
+    \node[blocknode] (b2) at (3.6, 0) {\textbf{Block} $A_2$\\$L$ elements\\\textbf{Max: 13}};
+    \node[blocknode] (b3) at (6.6, 0) {\textbf{Block} $A_3$\\$L$ elements\\\textbf{Max: 20}};
+    \node[font=\bfseries\Large, color=navy!80] at (8.2, 0) {$\cdots$};
+    \node[blocknode] (b4) at (9.8, 0) {\textbf{Block} $A_{n/L}$\\$L$ elements\\\textbf{Max: 40}};
+
+    % Vertical skip pointers
+    \draw[pointer] (s1.south) -- (b1.north);
+    \draw[pointer] (s2.south) -- (b2.north);
+    \draw[pointer] (s3.south) -- (b3.north);
+    \draw[pointer] (s4.south) -- (b4.north);
+
+    % Brace under block 1
+    \draw[thick, decoration={brace, mirror, raise=4pt}, decorate, navy!80] 
+        (-0.5, -0.75) -- (1.7, -0.75) node[midway, below=8pt, font=\scriptsize\bfseries] {Fixed size $L$};
+\end{tikzpicture}
+\caption{Organization of Block Partitioning with Skip Pointers: auxiliary list $A'$ stores block maximums and enables jumping over unneeded blocks.}
+\label{fig:block-partitioning-en}
+\end{figure}
+
+\subsection{Algorithmic Procedure and Cost Analysis}
+Intersecting short list $B$ with block-partitioned list $A$ proceeds in two sequential stages:
+
+\paragraph{Stage 1: Routing Elements of $B$ into Blocks.}
+Linearly merge list $B$ (size $m$) and auxiliary maximums list $A'$ (size $\frac{n}{L}$). Since both lists are sorted, a two-pointer merge routes each element $b \in B$ into its candidate block:
+\begin{itemize}
+  \item Element $b$ maps to block $A_k$ if and only if $\max(A_{k-1}) < b \le \max(A_k)$.
+  \item List $B$ is partitioned into disjoint subsets:
+  \begin{equation}
+    B = B_1 \cup B_2 \cup \dots \cup B_{n/L}, \quad \text{where } B_k = \{b \in B \mid b \in \text{range}(A_k)\}.
+  \end{equation}
+  \item Time complexity of Stage 1:
+  \begin{equation}
+    T_{\text{stage 1}} = \mathcal{O}\left(m + \frac{n}{L}\right).
+  \end{equation}
+\end{itemize}
+
+\paragraph{Stage 2: Local Intersection on Active Blocks.}
+Iterate over the blocks of $A$:
+\begin{itemize}
+  \item If $B_k = \emptyset$, block $A_k$ is \textbf{skipped entirely} without fetching or decoding.
+  \item If $B_k \neq \emptyset$ (active block), perform linear merge intersection between $A_k$ (size $L$) and $B_k$ (size $|B_k|$):
+  \begin{equation}
+    T_{\text{block } k} = \mathcal{O}(|A_k| + |B_k|) = \mathcal{O}(L + |B_k|).
+  \end{equation}
+  \item At most $m$ blocks can be active ($|\{k \mid B_k \neq \emptyset\}| \le m$).
+  \item Summing across all active blocks:
+  \begin{equation}
+    T_{\text{stage 2}} = \sum_{k: B_k \neq \emptyset} (L + |B_k|) \le L \cdot m + m.
+  \end{equation}
+\end{itemize}
+
+\paragraph{Overall Computational Cost.}
+Combining the execution times of both stages, the total time complexity of Block Partitioning as a function of block size $L$ is:
+\begin{align}
+  T_{\text{total}}(L) &= T_{\text{stage 1}} + T_{\text{stage 2}} \nonumber \\
+  &= \mathcal{O}\left(m + \frac{n}{L}\right) + \mathcal{O}(L \cdot m + m) \nonumber \\
+  &= \mathcal{O}\left(\frac{n}{L} + m \cdot L\right),
+  \label{eq:block-cost-function-en}
+\end{align}
+where the term $\mathcal{O}(m)$ is absorbed since $m \le m \cdot L$ for any integer block parameter $L \ge 1$.
+
