@@ -1,0 +1,721 @@
+\chapter[Univariate Optimization: Interpolation, Newton's Method, and Branch-and-Bound]{Univariate Optimization:\\Interpolation, Newton's Method, and Spatial Branch-and-Bound}
+\label{chap:univariate-optimization-models-newton-branch-and-bound-en}
+
+This chapter investigates the theoretical and computational transition from blind search methods to derivative-driven analytical models in univariate optimization ($n = 1$). We address the initialization of the interval of uncertainty via exponential bracketing procedures, examining the coercivity condition and formally proving how periodic non-coercive functions can trigger infinite expansion loops. We then introduce the functional osculating model paradigm: we algebraically derive the quadratic interpolation formula (the secant / false position formula for derivatives), prove that the resulting iterate constitutes a convex combination of the bracket endpoints, and address the pathology of skewed parabolas by formalizing the safeguard stabilization mechanism ($\sigma$-safeguard).
+
+In the second part of the chapter, we examine the asymptotic convergence theory of quadratic interpolation (superlinear order equal to the Golden Ratio $p \approx 1.618$) and cubic interpolation ($p = 2$). We formulate \textbf{Newton's Method} through its dual interpretation (root of the linear derivative model versus stationary point of the second-order Taylor expansion), analytically dissecting its numerical failure modes (distant starts, zero-division at inflection points, convergence to local maxima) and providing the complete mathematical proof of local quadratic convergence ($p = 2$) via Taylor expansions with Lagrange remainders. The chapter concludes by bridging the gap between local and global optimization: we highlight the fundamental role of convexity and formalize the \textbf{Spatial Branch-and-Bound} algorithm based on convex underestimators, lower/upper bounding, pruning, and McCormick envelopes.
+
+\FloatBarrier
+\section{Foundations and Limitations of Blind Search}
+\label{sec:univariate-blind-search-limits-en}
+
+\subsection{From Global Intractability to Local Efficiency}
+In computational mathematics, minimizing an arbitrary scalar function $f: \R \to \R$ presents a fundamental dichotomy between global and local optimality:
+\begin{itemize}
+    \item \textbf{Global intractability:} Solving a general non-convex global optimization problem exactly, or even isolating an $\varepsilon$-approximate solution over a compact interval, is inherently intractable. Without strong structural assumptions, any algorithm must resort to an exhaustive scan of the search space requiring a computationally prohibitive number of oracle queries.
+    \item \textbf{Local efficiency:} Conversely, as soon as derivative information is available (a first-order oracle $f'$ or second-order oracle $f''$), locating a \textbf{local minimum} becomes computationally fast, scalable, and efficient.
+\end{itemize}
+
+The central theme of this lecture lies in understanding how to accelerate the search for a local minimum by maximizing the information extracted from the oracle, identifying the numerical pathologies tied to simplified models, and introducing the safeguard criteria required to guarantee convergence toward robust local minima.
+
+\subsection{Review and Shortcomings of Standard Dichotomic Search}
+Classical dichotomic search (DS) for localizing a stationary point $f'(x) = 0$ operates on a bracket interval $[x_-, x_+]$ satisfying the sign-change condition:
+\begin{equation}
+    f'(x_-) \le -\varepsilon \quad \land \quad f'(x_+) \ge \varepsilon.
+    \label{eq:bracket-invariance-en}
+\end{equation}
+By the Intermediate Value Theorem applied to $f' \in C^0([x_-, x_+])$, condition~\eqref{eq:bracket-invariance-en} guarantees the existence of at least one stationary point $x^* \in [x_-, x_+]$ such that $f'(x^*) = 0$.
+
+At each iteration, dichotomic search samples the function at the exact midpoint of the interval:
+\begin{equation}
+    x_m = \frac{x_- + x_+}{2}.
+\end{equation}
+The length of the bracket $D_k = x_+^{(k)} - x_-^{(k)}$ contracts geometrically with a constant reduction factor $r = 0.5$:
+\begin{equation}
+    D_k = \frac{D_0}{2^k} \le \delta \iff k \ge \log_2\left(\frac{D_0}{\delta}\right) \approx 3.32 \log_{10}\left(\frac{D_0}{\delta}\right).
+\end{equation}
+If, in addition, the first derivative is $L$-Lipschitz continuous ($f$ is $L$-smooth), the maximum number of iterations required to guarantee $|f'(x)| \le \varepsilon$ satisfies:
+\begin{equation}
+    k \le 3.32 \log_{10}\left(\frac{L D_0}{2\varepsilon}\right).
+\end{equation}
+
+\begin{alertblock}{Conceptual Critique: The Blind Midpoint Choice}
+Although dichotomic search is unconditionally robust and immune to curvature anomalies, it exhibits a major computational inefficiency:
+\begin{enumerate}
+    \item At each iteration, the oracle evaluates the quantitative magnitude of $f'(x_m)$ in 64-bit floating-point arithmetic (IEEE 754 double precision, roughly 16 decimal digits of accuracy).
+    \item The algorithm extracts \textbf{only the algebraic sign} $\operatorname{sign}(f'(x_m))$ to decide whether to update $x_-$ or $x_+$, \textbf{discarding the entire numerical magnitude} of the derivative.
+    \item Choosing the midpoint $x_m = (x_- + x_+)/2$ is completely ``blind'': whether $f'(x_m) = -10^{-6}$ (indicating that the stationary point is infinitesimally close) or $f'(x_m) = -10^6$ (indicating a steep slope far from stationarity), the next evaluation point is placed exactly in the middle of the remaining interval.
+\end{enumerate}
+\end{alertblock}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=1.0]
+    % Abscissa axis
+    \draw[->, >=Stealth, color=gray!60, line width=0.8pt] (-1, 0) -- (11, 0) node[right, font=\small, color=black] {$x$};
+    
+    % Bracketing interval [x_-, x_+]
+    \draw[line width=2pt, color=navy!80] (0, 0) -- (10, 0);
+    
+    % Left endpoint x_-
+    \node[circle, draw=navy!90, fill=navy!20, inner sep=2.5pt] (Xm) at (0, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=navy] at (0, 0) {$x_-$};
+    \node[below=20pt, font=\scriptsize, color=navy!90] at (0, 0) {$f'(x_-) < 0$};
+    
+    % Right endpoint x_+
+    \node[circle, draw=navy!90, fill=navy!20, inner sep=2.5pt] (Xp) at (10, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=navy] at (10, 0) {$x_+$};
+    \node[below=20pt, font=\scriptsize, color=navy!90] at (10, 0) {$f'(x_+) > 0$};
+    
+    % True local minimizer x^* (near x_-)
+    \draw[dashed, color=green!60!black, line width=1.1pt] (1.8, 0.1) -- (1.8, 1.3);
+    \node[circle, draw=green!70!black, fill=green!40, inner sep=2.5pt] (Xstar) at (1.8, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=green!50!black] at (1.8, 0) {$x^*$};
+    \node[above, font=\scriptsize\bfseries, color=green!50!black, fill=green!8, draw=green!60!black, rounded corners=3pt, inner sep=3pt] at (1.8, 1.35) {True local minimizer ($f'(x^*) = 0$)};
+    
+    % Blind midpoint choice x_m
+    \node[circle, draw=red!80!black, fill=red!40, inner sep=2.8pt] (Mid) at (5, 0) {};
+    \node[above=6pt, font=\small\bfseries, color=red!80!black, fill=red!8, draw=red!70!black, rounded corners=3pt, inner sep=3.5pt] at (5, 0.35) {$x_m = \frac{x_- + x_+}{2}$};
+    
+    % Arrow and caption beneath midpoint
+    \draw[->, >=Stealth, thick, color=red!80!black] (5, -1.1) -- (5, -0.2);
+    \node[below, font=\scriptsize\bfseries, color=red!80!black, align=center] at (5, -1.15) {Fixed sampling at midpoint\\{\normalfont\scriptsize(discards magnitude of $f'$ and proximity to $x^*$)}};
+\end{tikzpicture}
+\caption{Inefficiency of dichotomic search: the algorithm blindly samples the midpoint $x_m$, ignoring that a nearly vanishing derivative near $x_-$ indicates immediate proximity to the minimizer.}
+\label{fig:dichotomic-blind-search-en}
+\end{figure}
+
+\subsection{Bracket Initialization: The Bracketing Algorithm}
+\label{subsec:bracketing-algorithm-en}
+In practical settings, a bracket $[x_-, x_+]$ satisfying condition~\eqref{eq:bracket-invariance-en} is rarely known beforehand. Determining this initial interval constitutes the \textbf{bracketing} phase (exponential root search).
+
+\paragraph{Exponential Expansion Procedure:}
+Given an arbitrary starting point $x_0 \in \R$ with computed derivative $f'(x_0)$:
+\begin{enumerate}
+    \item If $f'(x_0) < -\varepsilon$, set $x_- = x_0$; a point $x_+$ to the right must be located such that $f'(x_+) \ge \varepsilon$.
+    \item Set an initial step size $\Delta x > 0$ (e.g., $\Delta x = 1$).
+    \item As long as the derivative remains negative ($f'(x_0 + \Delta x) \le -\varepsilon$), expand the endpoint by doubling the step size at each step:
+    \begin{equation}
+        x_+ \leftarrow x_- + \Delta x, \quad \Delta x \leftarrow 2 \Delta x \quad (\text{geometric progression: } 1, 2, 4, 8, 16, \dots).
+        \label{eq:exponential-bracketing-step-en}
+    \end{equation}
+    \item As soon as an evaluated point yields $f'(x_+) \ge \varepsilon$, the procedure halts successfully.
+\end{enumerate}
+
+\paragraph{Theoretical Properties and Coercivity:}
+The mathematical guarantee that exponential bracketing terminates in finite steps relies on \textbf{coercivity}:
+\begin{definition}[Coercive Function]
+A function $f: \R \to \R$ is coercive if its values diverge positively away from the origin:
+\begin{equation}
+    \lim_{|x| \to \infty} f(x) = +\infty.
+\end{equation}
+\end{definition}
+For a coercive $C^1$ function, the existence of positive slopes for sufficiently large $x$ is guaranteed by the Mean Value Theorem, ensuring that exponential expansion will eventually encounter a positive derivative.
+
+\paragraph{Formal Counterexample: Failure on Non-Coercive Periodic Functions:}
+If the function is non-coercive, doubling the step size can fail indefinitely, even when infinitely many local minima exist.
+\begin{example}[Periodic Counterexample]
+Consider the oscillating periodic function:
+\begin{equation}
+    f(x) = \sin\left(\pi x + \frac{3\pi}{4}\right) \implies f'(x) = \pi \cos\left(\pi x + \frac{3\pi}{4}\right).
+    \label{eq:counterexample-periodic-function-en}
+\end{equation}
+Initializing bracketing with $x_0 = 0$ and step $\Delta x = 1$:
+\begin{itemize}
+    \item At $x_0 = 0$:
+    \begin{equation}
+        f'(0) = \pi \cos\left(\frac{3\pi}{4}\right) = -\frac{\pi \sqrt{2}}{2} \approx -2.2214 < 0 \implies x_- = 0.
+    \end{equation}
+    \item The sequence of sampled points under repeated doubling is $x_+^{(i)} = 2^{i-1}$ for each iteration $i \ge 1$ ($x_+ \in \{1, 2, 4, 8, 16, \dots\}$).
+    \item Because $2^k$ is an even integer for all $k \ge 1$, cosine periodicity yields:
+    \begin{equation}
+        f'(2^k) = \pi \cos\left(\pi 2^k + \frac{3\pi}{4}\right) = \pi \cos\left(2\pi \cdot 2^{k-1} + \frac{3\pi}{4}\right) = \pi \cos\left(\frac{3\pi}{4}\right) = -\frac{\pi \sqrt{2}}{2} < 0.
+    \end{equation}
+\end{itemize}
+The derivative evaluated by the oracle remains \textbf{strictly constant and negative} at every single sampled point: the algorithm expands indefinitely $x_+ \to +\infty$ without ever terminating, despite traversing infinitely many stationary points.
+\end{example}
+
+\FloatBarrier
+\section{Enhancing Dichotomy via Quadratic Interpolation}
+\label{sec:univariate-quadratic-interpolation-en}
+
+\subsection{The Functional Model Paradigm}
+To move beyond blind midpoint selection, algorithm engineering adopts a foundational principle: \textbf{build a local osculating model $m(x)$ of the true function $f(x)$ and minimize the model analytically}.
+
+Because linear models $m_1(x) = ax + b$ lack curvature and possess no finite minimizers over open domains, the simplest polynomial class possessing a minimum consists of quadratic parabolas:
+\begin{equation}
+    m(x) = a x^2 + b x + c, \quad \text{with } a > 0.
+    \label{eq:quadratic-model-parabola-en}
+\end{equation}
+
+\subsection{Algebraic Derivation of the False Position Formula}
+Given the bracket $[x_-, x_+]$, four pieces of information are available: function values $f(x_-), f(x_+)$ and first derivatives $f'(x_-), f'(x_+)$.
+A quadratic model possesses only three free parameters ($a, b, c$). Enforcing all four conditions produces an overdetermined linear system with no exact solution:
+\begin{equation}
+    \begin{cases}
+        a x_-^2 + b x_- + c = f(x_-) \\
+        a x_+^2 + b x_+ + c = f(x_+) \\
+        2 a x_- + b = f'(x_-) \\
+        2 a x_+ + b = f'(x_+)
+    \end{cases}
+\end{equation}
+
+\paragraph{Elimination of the Vertical Constant $c$:}
+The parameter $c$ merely shifts the graph vertically along the ordinate axis. It does not alter the horizontal coordinate of the minimizer, which is determined solely by the first-order stationarity of the model:
+\begin{equation}
+    m'(x) = 2 a x + b = 0 \iff x^* = -\frac{b}{2a}.
+    \label{eq:stationary-point-quadratic-model-en}
+\end{equation}
+Therefore, we discard $f(x_-)$ and $f(x_+)$ and isolate the $2 \times 2$ linear system in $(a, b)$ given by the derivative conditions:
+\begin{equation}
+    \begin{cases}
+        2 a x_+ + b = f'(x_+) & \text{(Eq.~1)} \\
+        2 a x_- + b = f'(x_-) & \text{(Eq.~2)}
+    \end{cases}
+    \label{eq:linear-system-quadratic-derivatives-en}
+\end{equation}
+
+\paragraph{Solving for $a$ and $b$:}
+Subtracting Equation~2 from Equation~1:
+\begin{equation}
+    2 a (x_+ - x_-) = f'(x_+) - f'(x_-) \iff a = \frac{f'(x_+) - f'(x_-)}{2 (x_+ - x_-)}.
+    \label{eq:quadratic-coeff-a-en}
+\end{equation}
+\begin{property}[Guaranteed Model Convexity]
+Since by the bracketing hypothesis $x_+ > x_-$ and $f'(x_+) > 0 > f'(x_-)$, the numerator satisfies $f'(x_+) - f'(x_-) > 0$ and the denominator satisfies $2(x_+ - x_-) > 0$. Consequently:
+\begin{equation}
+    a > 0.
+\end{equation}
+The parabola is strictly convex with upward curvature, guaranteeing that the computed stationary point is a \textbf{local minimum}.
+\end{property}
+
+Multiplying Equation~1 by $x_-$ and Equation~2 by $x_+$:
+\begin{equation}
+    \begin{cases}
+        2 a x_+ x_- + b x_- = x_- f'(x_+) \\
+        2 a x_- x_+ + b x_+ = x_+ f'(x_-)
+    \end{cases}
+\end{equation}
+Subtracting the first equation from the second:
+\begin{equation}
+    b (x_+ - x_-) = x_+ f'(x_-) - x_- f'(x_+) \iff b = \frac{x_+ f'(x_-) - x_- f'(x_+)}{x_+ - x_-}.
+    \label{eq:quadratic-coeff-b-en}
+\end{equation}
+
+\paragraph{Secant / False Position Formula:}
+Substituting the expressions for $a$ and $b$ into $x = -b / (2a)$:
+\begin{equation}
+    x = -\frac{\frac{x_+ f'(x_-) - x_- f'(x_+)}{x_+ - x_-}}{2 \cdot \frac{f'(x_+) - f'(x_-)}{2(x_+ - x_-)}} = -\frac{x_+ f'(x_-) - x_- f'(x_+)}{f'(x_+) - f'(x_-)}.
+\end{equation}
+Distributing the negative sign in the numerator yields the classic \textbf{False Position Formula} (\textit{Regula Falsi} applied to derivatives):
+\begin{equation}
+    x = \frac{x_- f'(x_+) - x_+ f'(x_-)}{f'(x_+) - f'(x_-)}.
+    \label{eq:false-position-formula-en}
+\end{equation}
+
+\subsection{Proof of Interval Inclusion}
+We must verify that the point computed by Equation~\eqref{eq:false-position-formula-en} always falls strictly inside $[x_-, x_+]$.
+
+\begin{theorem}[Convex Inclusion of Interpolated Point]
+Let $x_-, x_+ \in \R$ with $x_- < x_+$, such that $f'(x_-) \le 0$ and $f'(x_+) \ge 0$, with at least one strict inequality. Then the point $x$ given by Equation~\eqref{eq:false-position-formula-en} belongs to $[x_-, x_+]$.
+\end{theorem}
+
+\begin{proof}
+Rewrite the numerator of Equation~\eqref{eq:false-position-formula-en} by adding and subtracting $x_- f'(x_-)$:
+\begin{align}
+    x_- f'(x_+) - x_+ f'(x_-) &= x_- f'(x_+) - x_+ f'(x_-) + x_- f'(x_-) - x_- f'(x_-) \nonumber \\
+    &= x_- \left( f'(x_+) - f'(x_-) \right) - f'(x_-) (x_+ - x_-).
+\end{align}
+Dividing by the common denominator $f'(x_+) - f'(x_-)$:
+\begin{equation}
+    x = x_- + \alpha (x_+ - x_-), \quad \text{with } \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)}.
+    \label{eq:convex-combination-alpha-en}
+\end{equation}
+Examining the signs of $\alpha$:
+\begin{enumerate}
+    \item Since $f'(x_-) \le 0$, the numerator satisfies $-f'(x_-) \ge 0$.
+    \item Since $f'(x_+) \ge 0$, the denominator satisfies $f'(x_+) - f'(x_-) \ge -f'(x_-) \ge 0$.
+\end{enumerate}
+Consequently, $\alpha$ is bounded in the unit interval:
+\begin{equation}
+    0 \le \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)} \le \frac{f'(x_+) - f'(x_-)}{f'(x_+) - f'(x_-)} = 1.
+\end{equation}
+Because $\alpha \in [0, 1]$, the expression $x = x_- + \alpha (x_+ - x_-)$ represents a \textbf{convex combination} of $x_-$ and $x_+$, proving formally that:
+\begin{equation}
+    x_- \le x \le x_+, \quad \forall f'(x_-) \le 0, \; f'(x_+) \ge 0.
+\end{equation}
+\end{proof}
+
+\subsection{Stabilization via Safeguard}
+\label{subsec:safeguard-technique-en}
+Despite its analytical appeal, the local quadratic model is an approximation (reflecting the principle: \textit{``the map is not the territory''}). In particular, the parabola can become highly \textbf{skewed}:
+\begin{itemize}
+    \item If $|f'(x_+)| \gg |f'(x_-)|$, the derivative on the right is extremely steep while that on the left is nearly flat:
+    \begin{equation}
+        \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)} \approx 0 \implies x \approx x_-.
+    \end{equation}
+    \item The interval is contracted by an infinitesimal amount, degrading performance into sublinear convergence and numerical stalling.
+\end{itemize}
+
+\paragraph{The Safeguard Parameter $\sigma$:}
+To ensure a guaranteed minimum bracket contraction at each step, we introduce a safeguard parameter $\sigma \in (0, 0.5]$ defining protected boundaries:
+\begin{equation}
+    \operatorname{sfx}_- = x_- + \sigma (x_+ - x_-), \quad \operatorname{sfx}_+ = x_+ - \sigma (x_+ - x_-).
+    \label{eq:safeguard-bounds-en}
+\end{equation}
+The updated iterate is obtained by projecting the interpolated point onto the safe sub-interval:
+\begin{equation}
+    x_{\text{new}} = \max\left( \operatorname{sfx}_-, \, \min(\operatorname{sfx}_+, \, x) \right).
+    \label{eq:safeguard-projection-en}
+\end{equation}
+\begin{property}[Convergence Guarantee of Safeguarded Model]
+In the worst case (pathological or degenerate parabola), the algorithm guarantees a linear contraction factor $r = 1 - \sigma$. In favorable settings where the quadratic model is accurate, superlinear/quadratic acceleration proceeds unhindered.
+\end{property}
+
+\begin{algorithm}[htbp]
+\caption{Safeguarded Dichotomic Quadratic Interpolation ($\sigma$-DIS)}
+\label{alg:safeguarded-dichotomic-interpolation-en}
+\KwInput{Function $f$, bracket $[x_-, x_+]$ with $f'(x_-) \le 0 \le f'(x_+)$, tolerances $\varepsilon, \delta > 0$, parameter $\sigma \in (0, 0.5]$}
+\KwOutput{$\varepsilon$-optimal stationary point $x^*$}
+\BlankLine
+\While{$(x_+ - x_- > \delta)$ \textbf{and} $(\min(|f'(x_-)|, |f'(x_+)|) > \varepsilon)$}{
+    $x_{\text{quad}} \leftarrow \frac{x_- f'(x_+) - x_+ f'(x_-)}{f'(x_+) - f'(x_-)}$ \tcp*{Osculating parabola minimum}
+    $\operatorname{sfx}_- \leftarrow x_- + \sigma (x_+ - x_-)$\;
+    $\operatorname{sfx}_+ \leftarrow x_+ - \sigma (x_+ - x_-)$\;
+    $x \leftarrow \max(\operatorname{sfx}_-, \min(\operatorname{sfx}_+, x_{\text{quad}}))$ \tcp*{Safeguard projection}
+    \If{$|f'(x)| \le \varepsilon$}{
+        \Return $x$\;
+    }
+    \eIf{$f'(x) < 0$}{
+        $x_- \leftarrow x$\;
+    }{
+        $x_+ \leftarrow x$\;
+    }
+}
+\Return $\argmin_{z \in \{x_-, x_+\}} |f'(z)|$\;
+\end{algorithm}
+
+\subsection{Numerical Experiments on a 10th-Degree Polynomial}
+Algorithm~\ref{alg:safeguarded-dichotomic-interpolation-en} (\texttt{DIS.m}) was benchmarked on the test 10th-degree polynomial:
+\begin{equation}
+    f(x) = \frac{91}{30} x^2 - \frac{19}{6} x^3 - \frac{54}{25} x^4 + \frac{23}{93} x^5 - \frac{36}{23} x^6 - \frac{93}{121} x^7 + \frac{91}{72} x^8 - \frac{74}{13} x^9 + \frac{640}{9} x^{10},
+    \label{eq:tenth-degree-polynomial-en}
+\end{equation}
+over $[-0.5, 3]$ with global minimum $x^* = 0$ ($f(0) = 0$).
+
+\begin{itemize}
+    \item \textbf{Minimal safeguard experiment ($\sigma = 0.001$):} During the first 10 iterations, strong asymmetry causes the parabola to place its minimum right next to $x_-$, slowly eroding the bracket ($9.8, 9.4, 9.27, 9.11, \dots$). However, once the bracket enters the parabolic basin of $x^* = 0$, convergence accelerates dramatically: the optimality gap plunges by over 8 orders of magnitude in a single step (from $10^{-10}$ to $10^{-18}$), terminating in 18 iterations (versus 26 for pure dichotomy).
+    \item \textbf{Experiments with $\sigma = 0.20$ and $\sigma = 0.40$:} With $\sigma = 0.20$, microscopic step sizes are prevented and the method converges in 17 iterations. With $\sigma = 0.40$, large bracket reductions early on reduce uncertainty quickly, terminating in just 15 iterations.
+\end{itemize}
+
+\FloatBarrier
+\section{Convergence Theory and Higher-Order Interpolation}
+\label{sec:univariate-convergence-theory-en}
+
+\subsection{Semilogarithmic Convergence Profiles}
+In semilogarithmic convergence plots (iterations on the horizontal axis, $\log_{10} \frac{f_{\text{best}} - f^*}{\max(|f^*|, 1)}$ on the vertical axis), interpolation exhibits two distinct regimes (Figure~\ref{fig:semilog-convergence-profile-en}):
+\begin{enumerate}
+    \item \textbf{Transient phase (linear):} While the bracket is wide and the quadratic model is skewed, progress is governed by the safeguard $\sigma$, displaying a constant downward slope characteristic of linear convergence.
+    \item \textbf{Asymptotic phase (superlinear):} Once iterates enter the local neighborhood where the second-order Taylor approximation becomes accurate, the curve bends sharply downward, dropping to machine precision within a few steps.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Background bands for the two convergence phases
+    \fill[gray!8, rounded corners=2pt] (0, 0) rectangle (3.0, 6.0);
+    \fill[green!7, rounded corners=2pt] (3.0, 0) rectangle (6.5, 6.0);
+    
+    % Horizontal reference grid (powers of 10)
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 6.0) -- (10.0, 6.0);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 4.5) -- (10.0, 4.5);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 3.0) -- (10.0, 3.0);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 1.5) -- (10.0, 1.5);
+    
+    % Coordinate axes
+    \draw[thick, ->, >=Stealth] (0, 0) -- (10.6, 0) node[right, font=\small] {Iterations $k$};
+    \draw[thick, ->, >=Stealth] (0, 0) -- (0, 6.7) node[above left, font=\small] {Gap $e_k$ (log scale)};
+    
+    % Discrete X axis ticks (integer iterations k = 0, 1, ..., 10)
+    \foreach \k in {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10} {
+        \draw (\k, 0.1) -- (\k, -0.1) node[below=2pt, font=\scriptsize] {$\k$};
+    }
+    
+    % Y axis ticks (logarithmic scale)
+    \draw (0.1, 6.0) -- (-0.1, 6.0) node[left, font=\scriptsize] {$10^0$};
+    \draw (0.1, 4.5) -- (-0.1, 4.5) node[left, font=\scriptsize] {$10^{-4}$};
+    \draw (0.1, 3.0) -- (-0.1, 3.0) node[left, font=\scriptsize] {$10^{-8}$};
+    \draw (0.1, 1.5) -- (-0.1, 1.5) node[left, font=\scriptsize] {$10^{-12}$};
+    \draw (0.1, 0.0) -- (-0.1, 0.0) node[left, font=\scriptsize] {$10^{-16}$};
+    
+    % Pure Dichotomy reference line (uniform linear, p=1, slope m = -0.75, from k=0 to k=8)
+    \draw[line width=1.3pt, color=navy!60, dashed] (0, 6.00) -- (8.0, 0.00);
+    \node[above right, font=\scriptsize\bfseries, color=navy!70] at (5.5, 2.0) {Dichotomy ($p=1$)};
+    
+    % Quadratic Interpolation with Safeguard curve:
+    % Segment 1 (Linear Phase, k in [0, 3]): exact straight line with slope m = -0.75 matching dichotomy
+    \draw[line width=1.5pt, color=red!80!black] (0.0, 6.00) -- (3.0, 3.75);
+    
+    % Segment 2 (Superlinear Phase, k in [3, 6]): downward concave acceleration with continuous C^1 matching at k = 3
+    \draw[line width=1.5pt, color=red!80!black] 
+        plot[domain=3.0:6.0, samples=60] (\x, {3.75 - 0.75*(\x - 3.0) - 0.1067*(\x - 3.0)^2 - 0.02*(\x - 3.0)^3});
+        
+    % Discrete iteration marks (integer k: 0, 1, 2, 3 in linear phase; 4, 5, 6 in superlinear phase)
+    \foreach \pt in {(0.0, 6.00), (1.0, 5.25), (2.0, 4.50), (3.0, 3.75), (4.0, 2.87), (5.0, 1.66), (6.0, 0.05)} {
+        \fill[red!80!black] \pt circle (2.2pt);
+        \fill[white] \pt circle (1.1pt);
+    }
+    
+    \node[right, font=\scriptsize\bfseries, color=red!80!black] at (6.1, 0.5) {$\sigma$-Interpolation};
+    
+    % Phase banners
+    \draw[<->, thick, color=gray!70] (0.1, 6.4) -- (2.9, 6.4);
+    \node[above=2pt, align=center, font=\scriptsize\bfseries, color=gray!70!black] at (1.5, 6.4) {Linear Phase\\{\normalfont\tiny($\sigma$-dominated)}};
+    
+    \draw[<->, thick, color=green!60!black] (3.1, 6.4) -- (6.4, 6.4);
+    \node[above=2pt, align=center, font=\scriptsize\bfseries, color=green!50!black] at (4.75, 6.4) {Superlinear Phase\\{\normalfont\tiny($p \approx 1.618$)}};
+\end{tikzpicture}
+\caption{Semilogarithmic optimality gap profile: a rigorous trajectory with discrete integer iterations $k = 0, 1, \dots$ highlighting the transition from transient linear contraction (governed by $\sigma$-safeguard, matching the dichotomy line for the first four iterates $k=0,1,2,3$) to rapid superlinear acceleration once inside the local basin of attraction.}
+\label{fig:semilog-convergence-profile-en}
+\end{figure}
+
+\subsection{Golden Ratio Superlinear Convergence Theorem ($p \approx 1.618$)}
+\begin{theorem}[Superlinear Order of Quadratic Interpolation]
+\label{thm:quadratic-interpolation-superlinear-en}
+Let $f: \R \to \R$ be a $C^3$ function in a neighborhood of stationary point $x^*$, with:
+\begin{equation}
+    f'(x^*) = 0 \quad \text{and} \quad f''(x^*) \ne 0.
+\end{equation}
+Then there exists a radius $\delta > 0$ such that, if the initial bracket endpoints belong to $[x^* - \delta, x^* + \delta]$, the sequence $\{x_k\}$ generated by quadratic interpolation converges to $x^*$ with superlinear convergence order equal to the \textbf{Golden Ratio}:
+\begin{equation}
+    p = \frac{1 + \sqrt{5}}{2} \approx 1.618,
+\end{equation}
+namely:
+\begin{equation}
+    \lim_{k \to \infty} \frac{|x_{k+1} - x^*|}{|x_k - x^*|^p} = C < \infty.
+\end{equation}
+\end{theorem}
+
+\subsection{Remarks on Cubic Interpolation ($p = 2$)}
+If instead of discarding function values $f(x_-)$ and $f(x_+)$ one uses all four available pieces of information ($f(x_-), f(x_+), f'(x_-), f'(x_+)$), the four coefficients of a cubic polynomial can be uniquely determined:
+\begin{equation}
+    m_3(x) = a x^3 + b x^2 + c x + d.
+\end{equation}
+The derivative of the cubic model is quadratic:
+\begin{equation}
+    m_3'(x) = 3 a x^2 + 2 b x + c = 0,
+\end{equation}
+which admits two roots computed via the closed-form quadratic formula. Selecting the root satisfying $m_3''(x) > 0$ yields the local minimizer of the model.
+\begin{itemize}
+    \item \textbf{Theoretical advantage:} Cubic interpolation achieves strictly \textbf{quadratic} convergence ($p = 2$).
+    \item \textbf{Practical drawback:} The algebra required to determine coefficients and discriminate the correct root is significantly more involved and prone to numerical cancellation compared to quadratic interpolation.
+\end{itemize}
+
+\FloatBarrier
+\section{Univariate Newton's Method}
+\label{sec:univariate-newton-method-en}
+
+\subsection{Philosophy and Dual Theoretical Interpretation}
+While interpolation methods require two sampled points ($x_-$ and $x_+$) to estimate slope and curvature, \textbf{Newton's Method} operates from a \textbf{single current point} $x_k$, utilizing the analytical second derivative $f''(x_k)$ to quantify local curvature.
+
+The method admits two equivalent conceptual interpretations:
+\begin{enumerate}
+    \item \textbf{Linearization of first derivative $f'$:}
+    Finding a local minimum corresponds to solving $f'(x) = 0$. Expanding $f'$ to first order via Taylor's formula around $x_k$:
+    \begin{equation}
+        f'(x) \approx L'_k(x) \equiv f'(x_k) + f''(x_k) (x - x_k).
+    \end{equation}
+    Setting the linear model to zero $L'_k(x) = 0$:
+    \begin{equation}
+        f'(x_k) + f''(x_k) (x - x_k) = 0 \iff x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}.
+        \label{eq:newton-step-formula-en}
+    \end{equation}
+    \item \textbf{Minimization of second-order Taylor model of $f$:}
+    Approximating the objective function $f$ directly with its quadratic Taylor polynomial centered at $x_k$:
+    \begin{equation}
+        Q_k(x) = f(x_k) + f'(x_k) (x - x_k) + \frac{1}{2} f''(x_k) (x - x_k)^2.
+    \end{equation}
+    Finding the stationary point of this quadratic model by differentiating:
+    \begin{equation}
+        Q'_k(x) = f'(x_k) + f''(x_k) (x - x_k) = 0 \iff x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}.
+    \end{equation}
+\end{enumerate}
+
+\begin{algorithm}[htbp]
+\caption{Pure Univariate Newton's Method (\texttt{UNM})}
+\label{alg:pure-univariate-newton-en}
+\KwInput{Function $f \in C^2$, initial point $x_0$, tolerance $\varepsilon > 0$, maximum iterations $k_{\max}$}
+\KwOutput{Stationary point $x^*$}
+\BlankLine
+$k \leftarrow 0$\;
+\While{$|f'(x_k)| > \varepsilon$ \textbf{and} $k < k_{\max}$}{
+    \If{$f''(x_k) == 0$}{
+        \textbf{error} ``Vanishing denominator: degenerate curvature at inflection point''\;
+    }
+    $x_{k+1} \leftarrow x_k - \frac{f'(x_k)}{f''(x_k)}$\;
+    $k \leftarrow k + 1$\;
+}
+\Return $x_k$\;
+\end{algorithm}
+
+\subsection{Case Studies and Numerical Failure Modes of Newton}
+Evaluating Algorithm~\ref{alg:pure-univariate-newton-en} (\texttt{UNM.m}) on the 10th-degree polynomial highlights four key behaviors:
+\begin{enumerate}
+    \item \textbf{Distant start ($x_0 = -0.5$):} The local second derivative $f''(-0.5)$ is modest relative to the slope, yielding an excessively large step $-f'/f''$. The iterate overshoots far from the global minimum, converging to $x \approx 2.52$: a legitimate local minimum, but vastly inferior to $x^* = 0$.
+    \item \textbf{Start in basin of attraction ($x_0 = -0.2$):} The method demonstrates pure quadratic convergence. The error evolves as:
+    \begin{equation}
+        \text{Iter 1: } 10^{-1} \longrightarrow \text{Iter 2: } 10^{-4} \longrightarrow \text{Iter 3: } 10^{-7} \longrightarrow \text{Iter 4: } 10^{-13} \longrightarrow \text{Iter 5: } 10^{-26}.
+    \end{equation}
+    The number of correct decimal digits \textbf{doubles at each step}, reaching machine precision in just 5 iterations.
+    \item \textbf{Start near inflection point ($x_0 = 1.0$):} The polynomial features a saddle region with $f''(1.0) \approx 0$. The ratio $-f'/f''$ explodes: the iterate is hurled to $x \approx -200$ with $f(x) \approx 10^{21}$, halting due to numerical divergence.
+    \item \textbf{Start on the right ($x_0 = 2.0$):} The method converges in 4 steps to a stationary point with $|f'| \le 10^{-10}$, but where $f''(x) < 0$. The method has terminated at a \textbf{local maximum}. Newton is blind to the nature of the stationary point: it solves $f'(x) = 0$ algebraically without any inherent descent direction mechanism.
+\end{enumerate}
+
+\FloatBarrier
+\section{Rigorous Proof of Newton's Quadratic Convergence}
+\label{sec:univariate-newton-proof-en}
+
+\begin{theorem}[Local Quadratic Convergence of Newton's Method]
+\label{thm:newton-quadratic-convergence-proof-en}
+Let $f: \R \to \R$ be a $C^3$ function on an open interval containing $x^*$, such that:
+\begin{enumerate}
+    \item $f'(x^*) = 0$ (stationary point);
+    \item $f''(x^*) \ne 0$ (non-degenerate curvature).
+\end{enumerate}
+Then there exist positive constants $\delta > 0$ and $M > 0$ such that, for any initial iterate $x_0 \in [x^* - \delta, x^* + \delta]$, the sequence generated by Newton's method:
+\begin{equation}
+    x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}
+\end{equation}
+converges to $x^*$ with quadratic convergence order ($p = 2$):
+\begin{equation}
+    |x_{k+1} - x^*| \le M |x_k - x^*|^2, \quad \forall k \ge 0.
+    \label{eq:newton-quadratic-bound-en}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+The proof proceeds in five logical steps:
+
+\paragraph{Step 1: Formulating the error at step $k+1$.}
+Consider the distance between iterate $x_{k+1}$ and the root $x^*$:
+\begin{equation}
+    x_{k+1} - x^* = x_k - x^* - \frac{f'(x_k)}{f''(x_k)}.
+\end{equation}
+Since $f'(x^*) = 0$, we add this term to the numerator without altering the expression:
+\begin{equation}
+    x_{k+1} - x^* = (x_k - x^*) + \frac{f'(x^*) - f'(x_k)}{f''(x_k)} = \frac{f''(x_k)(x_k - x^*) + f'(x^*) - f'(x_k)}{f''(x_k)}.
+\end{equation}
+Regrouping terms in the numerator in terms of $(x^* - x_k)$:
+\begin{equation}
+    x_{k+1} - x^* = \frac{f'(x^*) - f'(x_k) - f''(x_k)(x^* - x_k)}{f''(x_k)}.
+    \label{eq:proof-step1-error-identity-en}
+\end{equation}
+
+\paragraph{Step 2: Taylor expansion of $f'$ with Lagrange remainder.}
+Since $f \in C^3$, the first derivative $f'$ is twice continuously differentiable ($f' \in C^2$). Expanding $f'$ to first order centered at $x_k$ and evaluated at $x^*$, with a second-order Lagrange remainder:
+\begin{equation}
+    f'(x^*) = f'(x_k) + f''(x_k)(x^* - x_k) + \frac{1}{2} f'''(w_k) (x^* - x_k)^2,
+\end{equation}
+for some intermediate point $w_k \in ( \min(x_k, x^*), \max(x_k, x^*) )$.
+Subtracting the first two terms from both sides:
+\begin{equation}
+    f'(x^*) - f'(x_k) - f''(x_k)(x^* - x_k) = \frac{1}{2} f'''(w_k) (x^* - x_k)^2.
+    \label{eq:proof-step2-taylor-remainder-en}
+\end{equation}
+
+\paragraph{Step 3: Substitution into the error identity.}
+Substituting identity~\eqref{eq:proof-step2-taylor-remainder-en} into the numerator of Equation~\eqref{eq:proof-step1-error-identity-en}:
+\begin{equation}
+    x_{k+1} - x^* = \frac{\frac{1}{2} f'''(w_k) (x^* - x_k)^2}{f''(x_k)} = \left[ \frac{f'''(w_k)}{2 f''(x_k)} \right] (x_k - x^*)^2.
+    \label{eq:proof-step3-bracketed-relation-en}
+\end{equation}
+
+\paragraph{Step 4: Uniform bounds on a compact neighborhood $I_\delta$.}
+To establish Equation~\eqref{eq:proof-step3-bracketed-relation-en} rigorously, we bound the numerator and denominator over an interval $I_\delta = [x^* - \delta, x^* + \delta]$:
+\begin{itemize}
+    \item \textbf{Lower bounding the denominator:} Since $f''(x^*) \ne 0$ and $f'' \in C^1$ is continuous, the sign-permanence theorem guarantees a radius $\delta_1 > 0$ such that:
+    \begin{equation}
+        |f''(x)| \ge k_2 \equiv \frac{1}{2} |f''(x^*)| > 0, \quad \forall x \in [x^* - \delta_1, x^* + \delta_1].
+    \end{equation}
+    \item \textbf{Upper bounding the numerator:} Since $f'''$ is continuous on the compact interval $I_{\delta_1}$, the Extreme Value Theorem implies:
+    \begin{equation}
+        k_1 \equiv \max_{x \in I_{\delta_1}} |f'''(x)| < \infty \implies |f'''(w_k)| \le k_1, \quad \forall w_k \in I_{\delta_1}.
+    \end{equation}
+\end{itemize}
+
+\paragraph{Step 5: Concluding quadratic convergence.}
+Taking absolute values on both sides of Equation~\eqref{eq:proof-step3-bracketed-relation-en}:
+\begin{equation}
+    |x_{k+1} - x^*| = \frac{|f'''(w_k)|}{2 |f''(x_k)|} |x_k - x^*|^2 \le \left( \frac{k_1}{2 k_2} \right) |x_k - x^*|^2.
+\end{equation}
+Defining the finite constant $M \equiv \frac{k_1}{2 k_2} > 0$:
+\begin{equation}
+    |x_{k+1} - x^*| \le M |x_k - x^*|^2.
+\end{equation}
+Selecting the final radius $\delta = \min(\delta_1, \frac{\rho}{M})$ with $\rho \in (0, 1)$, if the initial error satisfies $|x_0 - x^*| \le \delta$, by induction:
+\begin{equation}
+    |x_1 - x^*| \le M |x_0 - x^*|^2 \le (M \delta) |x_0 - x^*| \le \rho |x_0 - x^*| < |x_0 - x^*|.
+\end{equation}
+The sequence converges to $x^*$, and the limit of the error ratio confirms the quadratic order ($p = 2$):
+\begin{equation}
+    \lim_{k \to \infty} \frac{|x_{k+1} - x^*|}{|x_k - x^*|^2} \le M < \infty.
+\end{equation}
+\end{proof}
+
+\FloatBarrier
+\section{Global Optimization, Convexity, and Spatial Branch-and-Bound}
+\label{sec:univariate-global-branch-and-bound-en}
+
+\subsection{Shortcomings of Local Criteria for Global Optimization}
+Local optimality conditions ($f'(x^*) = 0$ and $f''(x^*) \ge 0$) are myopic: they certify that $x^*$ is the lowest point within an infinitesimal neighborhood, but reveal nothing about the depth of the basin compared to other minima elsewhere.
+In real-world non-convex landscapes, pure local optimization cannot escape whichever basin captures the initial iterate.
+
+\subsection{Convexity as the Fundamental Bridge}
+The sole geometric property that equates local optimization to global optimization is \textbf{convexity}.
+\begin{definition}[$C^2$ Convex Function]
+A twice-differentiable function $f: \R \to \R$ is convex if and only if its second derivative is everywhere non-negative:
+\begin{equation}
+    f''(x) \ge 0, \quad \forall x \in \R.
+\end{equation}
+\end{definition}
+For a convex function:
+\begin{itemize}
+    \item Every local minimum is automatically a \textbf{global minimum}.
+    \item The set of global minimizers is a connected convex interval (if $f''(x) > 0$ everywhere, $f$ is strictly convex and the global minimizer is unique).
+    \item Local methods (Newton, bisection, gradient descent) converge reliably to the global optimum.
+\end{itemize}
+
+\subsection{The Spatial Branch-and-Bound Method}
+When non-convexity is unavoidable and certified global minimization is required, one must employ \textbf{Spatial Branch-and-Bound} (sBB).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Coordinate axes
+    \draw[thick, ->, >=Stealth] (0, 0) -- (10.5, 0) node[right, font=\small] {$x$};
+    \draw[thick, ->, >=Stealth] (0, 0) -- (0, 5.5) node[above, font=\small] {$y$};
+    
+    % Domain X = [x_-, x_+]
+    \draw[line width=1.5pt, color=navy!80] (1.5, 0) -- (9.0, 0);
+    \draw[line width=1.2pt, color=navy!80] (1.5, 0.12) -- (1.5, -0.12) node[below=3pt, font=\small\bfseries, color=navy!80] {$x_-$};
+    \draw[line width=1.2pt, color=navy!80] (9.0, 0.12) -- (9.0, -0.12) node[below=3pt, font=\small\bfseries, color=navy!80] {$x_+$};
+    
+    % True non-convex function f(x) (exact analytical formula with deg())
+    \draw[line width=1.5pt, color=navy] 
+        plot[domain=1.5:9.0, samples=100] (\x, {2.5 + 1.05*cos(deg(1.7*(\x - 4.9))) - 0.18*(\x - 4.9) + 0.05*(\x - 4.9)^2});
+    
+    % Convex underestimator \underline{f}(x) (exact analytical parabola with mathematical minimum at x = 5.5)
+    \draw[line width=1.4pt, color=red!75!black, dashed] 
+        plot[domain=1.5:9.0, samples=100] (\x, {0.60 + 0.11*(\x - 5.5)^2});
+        
+    % Isolated top legend
+    \node[font=\scriptsize, align=center, fill=white, draw=gray!30, rounded corners=3pt, inner sep=3.5pt] at (5.0, 4.8) {
+        \textcolor{navy}{\rule[0.5ex]{12pt}{1.5pt}\ \textbf{$f(x)$}} (non-convex) \qquad
+        \textcolor{red!75!black}{\textbf{- - $\underline{f}(x)$}} (convex underestimator)
+    };
+    
+    % Vertical projection from candidate point \bar{x}
+    \draw[dotted, line width=1pt, color=gray!60] (5.5, 2.96) -- (5.5, 0);
+    
+    % Exact point on \underline{f}: (5.5, 0.60)
+    \node[circle, draw=red!80!black, fill=red!40, inner sep=2.2pt] at (5.5, 0.60) {};
+    
+    % Exact point on f: (5.5, 2.96) lying EXACTLY on the curve f(x)
+    \node[circle, draw=navy, fill=navy!40, inner sep=2.2pt] at (5.5, 2.96) {};
+    
+    % \bar{x} label on x-axis
+    \node[below=3pt, font=\small\bfseries, color=red!75!black] at (5.5, 0) {$\bar{x}$};
+    \node[below=15pt, font=\scriptsize, color=red!75!black] at (5.5, 0) {$\argmin \underline{f}$};
+    
+    % Horizontal projections to y-axis for Lower and Upper Bound
+    \draw[dotted, line width=0.9pt, color=red!70!black] (5.5, 0.60) -- (0, 0.60);
+    \node[left=3pt, font=\scriptsize\bfseries, color=red!75!black] at (0, 0.60) {$\text{LB} = \underline{f}(\bar{x})$};
+    
+    \draw[dotted, line width=0.9pt, color=navy] (5.5, 2.96) -- (0, 2.96);
+    \node[left=3pt, font=\scriptsize\bfseries, color=navy] at (0, 2.96) {$\text{UB} = f(\bar{x})$};
+    
+    % Optimality gap: placed in clear central region
+    \draw[<->, line width=1.1pt, color=purple!80!black] (5.1, 0.68) -- (5.1, 2.88);
+    \node[left=2pt, font=\scriptsize\bfseries, color=purple!80!black, align=center] at (5.05, 1.8) {$\text{Gap}$\\{\tiny$\text{UB} - \text{LB}$}};
+\end{tikzpicture}
+\caption{Bounding principle in Spatial Branch-and-Bound: the convex underestimator $\underline{f}(x)$ provides a rigorous lower bound ($\text{LB} \le f^*$), while the point evaluation $f(\bar{x})$ lies exactly on curve $f(x)$ providing an admissible upper bound ($\text{UB} \ge f^*$).}
+\label{fig:spatial-branch-and-bound-bounding-en}
+\end{figure}
+
+\paragraph{1. Bounding Phase (Convex Underestimators):}
+Given an interval $X = [x_-, x_+]$, construct a convex function $\underline{f}: X \to \R$ that uniformly underestimates the objective:
+\begin{equation}
+    \underline{f}(x) \le f(x), \quad \forall x \in X.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Lower Bound (LB):} Because $\underline{f}$ is convex, its global minimizer over $X$ is computed quickly and uniquely via local optimization:
+    \begin{equation}
+        \bar{x} = \argmin_{x \in X} \underline{f}(x) \implies \text{LB} \equiv \underline{f}(\bar{x}) \le f^*.
+    \end{equation}
+    \item \textbf{Upper Bound (UB):} Evaluating the true function $f$ at $\bar{x}$ gives an admissible value that serves as a valid upper bound on the unknown global optimum:
+    \begin{equation}
+        f^* \le \text{UB} \equiv f(\bar{x}).
+    \end{equation}
+    \item \textbf{Sandwiching and Stopping Criterion:}
+    \begin{equation}
+        \underline{f}(\bar{x}) \le f^* \le f(\bar{x}) \implies \text{Gap} = f(\bar{x}) - \underline{f}(\bar{x}).
+    \end{equation}
+    If $\text{Gap} \le \varepsilon$, the algorithm halts certifying that $\bar{x}$ is an $\varepsilon$-optimal global solution.
+\end{itemize}
+
+\paragraph{2. Branching Phase (Partitioning):}
+If the gap exceeds tolerance $\varepsilon$, interval $X$ is partitioned into two sub-intervals (for example, splitting at $\bar{x}$):
+\begin{equation}
+    X_1 = [x_-, \bar{x}], \quad X_2 = [\bar{x}, x_+].
+\end{equation}
+By shrinking the domain, local convex underestimators $\underline{f}$ become substantially tighter, driving local lower bounds upward.
+
+\paragraph{3. Pruning Phase (Eliminating Sub-intervals):}
+Let $f_{\text{best}}$ be the best admissible objective value found so far across the search space.
+If in any sub-interval $X_k$ the convex lower bound satisfies:
+\begin{equation}
+    \underline{f}(\bar{x}_k) \ge f_{\text{best}},
+    \label{eq:pruning-condition-sbb-en}
+\end{equation}
+then \textbf{the entire sub-interval $X_k$ is permanently discarded} (\textit{partition pruned}). Since $\underline{f}$ is a lower bound, no point in $X_k$ can ever improve upon $f_{\text{best}}$.
+
+\paragraph{Complexity and McCormick Envelopes:}
+In the worst case, the algorithm exhibits exponential complexity $\BigO{1/\varepsilon}$, corresponding to exhaustive space subdivision.
+In general non-convex nonlinear programming (MINLP), modern solvers construct convex underestimators $\underline{f}$ by parsing the computational graph into elementary operations and substituting each with its respective \textbf{McCormick convex and concave relaxation envelopes}.
+
+\FloatBarrier
+\section{Summary Comparison of Investigated Algorithms}
+\label{sec:univariate-summary-comparison-en}
+
+\begin{table}[htbp]
+\centering
+\caption{Comparative synoptic summary of univariate optimization algorithms.}
+\label{tab:univariate-optimization-comparison-en}
+\vspace{4pt}
+\renewcommand{\arraystretch}{1.3}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{} l c c c p{6.5cm} @{}}
+\toprule
+\textbf{Algorithm} & \textbf{Oracle} & \textbf{Order and Convergence} & \textbf{Guarantee} & \textbf{Key Limitations} \\
+\midrule
+\textbf{Dichotomy (DS)}     & $f'$                       & $p = 1$ ($r = 0.5$)               & Coercive            & Discards magnitude $|f'|$; slow linear contraction. \\
+\textbf{Quadratic Interp.}  & $f'(x_1), f'(x_2)$         & $p \approx 1.618$ ($\varphi$)     & With $\sigma$        & Skewed parabolas; requires a valid initial bracket. \\
+\textbf{Cubic Interp.}      & $f, f'$ ($2$ pts)          & $p = 2$ (quadratic)              & With $\sigma$        & Heavy algebra; root discrimination between roots. \\
+\textbf{Newton (UNM)}       & $f', f''$                  & $p = 2$ ($|e_{k+1}| \le M|e_k|^2$) & Local ($I_\delta$)  & Diverges if $f'' \approx 0$; sensitive to initial $x_0$. \\
+\textbf{Spatial B\&B}       & Underest.~$\underline{f}$ & Global ($\BigO{1/\varepsilon}$)   & Exact global        & Worst-case exponential in general non-convex MINLP. \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\section{Chapter Summary and Conclusions}
+\label{sec:univariate-chapter-summary-en}
+
+The analysis of univariate optimization presented in this lecture highlights four key methodological takeaways:
+\begin{enumerate}
+    \item \textbf{Hierarchy of regularity:} As the available differentiability increases ($C^0 \to C^1 \to C^2$), local search efficiency experiences qualitative asymptotic leaps: from linear contraction ($p = 1$) in blind dichotomy, to superlinear convergence ($p \approx 1.618$) in quadratic interpolation, up to quadratic convergence ($p = 2$) in Newton's method.
+    \item \textbf{The map is not the territory:} Osculating mathematical models (parabolas, cubics, tangent lines) are imperfect local approximations. Without explicit stabilization and safeguards ($\sigma$-safeguards, curvature checks), model-guided optimization can degrade into sublinear stalls or catastrophic numerical divergence.
+    \item \textbf{Convexity as the cornerstone:} In local optimization, non-convexity exposes algorithms to saddle points and maxima, making it impossible to gauge the global quality of local basins. In convex optimization, local and global optimality coincide.
+    \item \textbf{Certified global search:} When non-convexity cannot be avoided, Spatial Branch-and-Bound provides a rigorous and principled framework replacing brute-force grids with convex underestimators and systematic branch pruning.
+\end{enumerate}

@@ -1,0 +1,721 @@
+\chapter[Ottimizzazione Univariata: Interpolazione, Metodo di Newton e Branch-and-Bound]{Ottimizzazione Univariata:\\Interpolazione, Metodo di Newton e Spatial Branch-and-Bound}
+\label{chap:ottimizzazione-univariata-modelli-newton-branch-and-bound}
+
+Il presente capitolo approfondisce la transizione teorica e computazionale dai metodi di ricerca cieca ai modelli analitici guidati dall'informazione derivativa nell'ottimizzazione univariata ($n = 1$). Si affronta il problema dell'inizializzazione dell'intervallo di incertezza mediante procedure di \textit{bracketing} esponenziale, analizzando la condizione di coercivit\`a e dimostrando formalmente come le funzioni periodiche non coercive possano determinare cicli infiniti di espansione. Viene quindi introdotto il paradigma del modello funzionale osculatore: si deriva algebricamente la formula di interpolazione quadratica (formula della falsa posizione / secante), dimostrando che l'iterato risultante costituisce una combinazione convessa degli estremi del \textit{bracket}, e si affronta il fenomeno delle parabole distorte (\textit{skewed}) formalizzando il meccanismo di stabilizzazione mediante salvaguardia ($\sigma$-\textit{safeguard}). 
+
+Nella seconda parte del capitolo si esamina la teoria asintotica di convergenza dell'interpolazione quadratica (ordine pari alla Sezione Aurea $p \approx 1.618$) e cubica ($p = 2$). Si formula il \textbf{Metodo di Newton} attraverso la sua duplice interpretazione (zero del modello lineare della derivata e punto stazionario dell'approssimazione quadratica di Taylor), analizzandone analiticamente le patologie numeriche (partenza lontana, divisione per zero in punti di flesso, convergenza a massimi locali) e fornendo la dimostrazione matematica integrale della convergenza quadratica locale ($p = 2$) mediante espansione di Taylor con resto di Lagrange. Il capitolo si conclude affrontando il divario tra ottimi locali e globali: si evidenzia il ruolo cardine della convessit\`a e si formalizza l'algoritmo di \textbf{Spatial Branch-and-Bound} basato su sottostimatori convessi, calcolo di \textit{lower/upper bound}, potatura (\textit{pruning}) e inviluppi di McCormick.
+
+\FloatBarrier
+\section{Inquadramento Generale e Limiti della Ricerca Cieca}
+\label{sec:univariata-inquadramento-cieca}
+
+\subsection{Dall'Intrattabilit\`a Globale all'Efficienza Locale}
+Nel panorama della matematica computazionale, la minimizzazione di una funzione scalare arbitraria $f: \R \to \R$ pone una dicotomia fondamentale tra ottimalit\`a globale e ottimalit\`a locale:
+\begin{itemize}
+    \item \textbf{Intrattabilit\`a globale:} Risolvere un problema di ottimizzazione globale non convesso in modo esatto, o anche solo isolare una soluzione $\varepsilon$-approssimata su un intervallo compatto, \`e intrinsecamente intrattabile nel caso generale. In assenza di ipotesi strutturali forti sulla funzione obiettivo, qualunque algoritmo necessita di una scansione esaustiva dello spazio che richiede un numero di valutazioni dell'oracolo computazionalmente proibitivo.
+    \item \textbf{Trattabilit\`a locale:} Al contrario, non appena si assume la disponibilit\`a delle informazioni derivative (oracolo di ordine uno $f'$ o di ordine due $f''$), la ricerca di un \textbf{minimo locale} diviene estremamente rapida, scalabile ed efficiente.
+\end{itemize}
+
+L'obiettivo cardine della lezione consiste nel comprendere come accelerare sistematicamente la localizzazione del minimo locale sfruttando al meglio la quantit\`a di informazione fornita dall'oracolo, identificando le patologie numeriche connesse all'uso di modelli semplificati e introducendo i criteri di salvaguardia necessari per garantire la convergenza globale verso minimi locali affidabili.
+
+\subsection{Richiamo e Limiti della Ricerca Dicotomica Standard}
+La ricerca dicotomica classica (\textit{Dichotomic Search}, DS) per la localizzazione di una radice della derivata prima $f'(x) = 0$ opera su un intervallo di confidenza (\textit{bracket}) $[x_-, x_+]$ in cui \`e verificata la condizione di cambiamento di segno:
+\begin{equation}
+    f'(x_-) \le -\varepsilon \quad \land \quad f'(x_+) \ge \varepsilon.
+    \label{eq:bracket-invariance}
+\end{equation}
+Per il Teorema dei Valori Intermedi applicato alla funzione continua $f' \in C^0([x_-, x_+])$, la condizione~\eqref{eq:bracket-invariance} garantisce l'esistenza di almeno un punto stazionario $x^* \in [x_-, x_+]$ tale che $f'(x^*) = 0$.
+
+Ad ogni iterazione, la ricerca dicotomica campiona la funzione esattamente nella coordinata mediana dell'intervallo:
+\begin{equation}
+    x_m = \frac{x_- + x_+}{2}.
+\end{equation}
+La lunghezza del \textit{bracket} corrente $D_k = x_+^{(k)} - x_-^{(k)}$ si contrae secondo una legge geometrica rigorosamente deterministica con fattore di riduzione $r = 0.5$:
+\begin{equation}
+    D_k = \frac{D_0}{2^k} \le \delta \iff k \ge \log_2\left(\frac{D_0}{\delta}\right) \approx 3.32 \log_{10}\left(\frac{D_0}{\delta}\right).
+\end{equation}
+Se inoltre la derivata prima \`e $L$-Lipschitziana con costante di Lipschitz $L$ ($f$ \`e $L$-smooth), il numero massimo di iterazioni necessarie a garantire $|f'(x)| \le \varepsilon$ soddisfa:
+\begin{equation}
+    k \le 3.32 \log_{10}\left(\frac{L D_0}{2\varepsilon}\right).
+\end{equation}
+
+\begin{alertblock}{Critica Concettuale: La Scelta Cieca della Mediana}
+Sebbene la ricerca dicotomica sia incondizionatamente robusta e insensibile a perturbazioni o anomalie di curvatura, essa manifesta una profonda inefficienza computazionale:
+\begin{enumerate}
+    \item Ad ogni iterazione, l'oracolo calcola il valore quantitativo esatto di $f'(x_m)$ in aritmetica \textit{floating-point} a 64 bit (IEEE 754 a doppia precisione, equivalente a circa 16 cifre decimali di accuratezza).
+    \item L'algoritmo estrae da tale valore \textbf{esclusivamente il segno algebrico} $\operatorname{sign}(f'(x_m))$ per decidere se aggiornare $x_-$ o $x_+$, \textbf{scartando all'istante l'intera grandezza numerica} della derivata.
+    \item La selezione della mediana $x_m = (x_- + x_+)/2$ \`e una scelta completamente ``cieca'': che $f'(x_m)$ valga $-10^{-6}$ (indicando che lo zero si trova a distanza infinitesima) oppure $-10^6$ (indicando una pendenza ripidissima lontana dallo stazionario), il punto di test successivo viene posizionato sempre esattamente al centro dell'intervallo residuo.
+\end{enumerate}
+\end{alertblock}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=1.0]
+    % Asse delle ascisse
+    \draw[->, >=Stealth, color=gray!60, line width=0.8pt] (-1, 0) -- (11, 0) node[right, font=\small, color=black] {$x$};
+    
+    % Intervallo di bracketing [x_-, x_+]
+    \draw[line width=2pt, color=navy!80] (0, 0) -- (10, 0);
+    
+    % Estremo sinistro x_-
+    \node[circle, draw=navy!90, fill=navy!20, inner sep=2.5pt] (Xm) at (0, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=navy] at (0, 0) {$x_-$};
+    \node[below=20pt, font=\scriptsize, color=navy!90] at (0, 0) {$f'(x_-) < 0$};
+    
+    % Estremo destro x_+
+    \node[circle, draw=navy!90, fill=navy!20, inner sep=2.5pt] (Xp) at (10, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=navy] at (10, 0) {$x_+$};
+    \node[below=20pt, font=\scriptsize, color=navy!90] at (10, 0) {$f'(x_+) > 0$};
+    
+    % Vero minimo locale x^* (in prossimità di x_-)
+    \draw[dashed, color=green!60!black, line width=1.1pt] (1.8, 0.1) -- (1.8, 1.3);
+    \node[circle, draw=green!70!black, fill=green!40, inner sep=2.5pt] (Xstar) at (1.8, 0) {};
+    \node[below=6pt, font=\small\bfseries, color=green!50!black] at (1.8, 0) {$x^*$};
+    \node[above, font=\scriptsize\bfseries, color=green!50!black, fill=green!8, draw=green!60!black, rounded corners=3pt, inner sep=3pt] at (1.8, 1.35) {Minimo locale reale ($f'(x^*) = 0$)};
+    
+    % Scelta cieca del punto medio x_m
+    \node[circle, draw=red!80!black, fill=red!40, inner sep=2.8pt] (Mid) at (5, 0) {};
+    \node[above=6pt, font=\small\bfseries, color=red!80!black, fill=red!8, draw=red!70!black, rounded corners=3pt, inner sep=3.5pt] at (5, 0.35) {$x_m = \frac{x_- + x_+}{2}$};
+    
+    % Freccia e didascalia sotto il punto medio
+    \draw[->, >=Stealth, thick, color=red!80!black] (5, -1.1) -- (5, -0.2);
+    \node[below, font=\scriptsize\bfseries, color=red!80!black, align=center] at (5, -1.15) {Campionamento fisso a met\`a strada\\{\normalfont\scriptsize(scarta l'entit\`a di $f'$ e la prossimit\`a a $x^*$)}};
+\end{tikzpicture}
+\caption{Inefficienza della ricerca dicotomica: l'algoritmo campiona sistematicamente la mediana $x_m$, ignorando che la derivata quasi nulla a ridosso di $x_-$ suggerisce la prossimit\`a immediata del punto di minimo.}
+\label{fig:dichotomic-blind-search}
+\end{figure}
+
+\subsection{Il Problema dell'Inizializzazione: L'Algoritmo di Bracketing}
+\label{subsec:bracketing-algorithm}
+In una situazione operativa reale non si dispone quasi mai a priori di un intervallo $[x_-, x_+]$ che soddisfi la condizione~\eqref{eq:bracket-invariance}. La determinazione di tale intervallo iniziale costituisce la fase preliminare di \textbf{bracketing} (ricerca esponenziale della radice).
+
+\paragraph{Procedura di Espansione Esponenziale:}
+Fissato un punto di partenza arbitrario $x_0 \in \R$ e calcolata la derivata $f'(x_0)$:
+\begin{enumerate}
+    \item Se $f'(x_0) < -\varepsilon$, si pone $x_- = x_0$ e si deve localizzare un estremo $x_+$ a destra in cui la pendenza divenga positiva ($f'(x_+) \ge \varepsilon$).
+    \item Si definisce un passo iniziale $\Delta x > 0$ (es. $\Delta x = 1$).
+    \item Finch\'e la derivata rimane negativa ($f'(x_0 + \Delta x) \le -\varepsilon$), si espande l'estremo raddoppiando iterativamente la dimensione del passo:
+    \begin{equation}
+        x_+ \leftarrow x_- + \Delta x, \quad \Delta x \leftarrow 2 \Delta x \quad (\text{progressione geometrica: } 1, 2, 4, 8, 16, \dots).
+        \label{eq:exponential-bracketing-step}
+    \end{equation}
+    \item Non appena si campiona un punto con $f'(x_+) \ge \varepsilon$, l'algoritmo si arresta con successo avendo isolato il \textit{bracket} cercato.
+\end{enumerate}
+
+\paragraph{Propriet\`a Teoriche e Condizione di Coercivit\`a:}
+La garanzia matematica che la procedura di bracketing esponenziale termini in un numero finito di passi risiede nella propriet\`a di \textbf{coercivit\`a}:
+\begin{definition}[Funzione Coerciva]
+Una funzione $f: \R \to \R$ \`e detta coerciva se i suoi valori divergono positivamente allontanandosi dall'origine:
+\begin{equation}
+    \lim_{|x| \to \infty} f(x) = +\infty.
+\end{equation}
+\end{definition}
+Per una funzione $C^1$ coerciva, l'esistenza di pendenze positive per $x$ sufficientemente grande \`e garantita dal teorema del valor medio, assicurando che l'espansione esponenziale intercetti un punto con derivata positiva.
+
+\paragraph{Controesempio Formale: Fallimento del Bracketing su Funzione Periodica Non Coerciva:}
+Qualora la funzione non sia coerciva, la procedura di raddoppio del passo pu\`o fallire miseramente, oscillando all'infinito pur in presenza di infiniti minimi locali.
+\begin{example}[Controesempio Periodico]
+Si consideri la funzione periodica oscillante:
+\begin{equation}
+    f(x) = \sin\left(\pi x + \frac{3\pi}{4}\right) \implies f'(x) = \pi \cos\left(\pi x + \frac{3\pi}{4}\right).
+    \label{eq:counterexample-periodic-function}
+\end{equation}
+Inizializzando il bracketing con $x_0 = 0$ e passo $\Delta x = 1$:
+\begin{itemize}
+    \item Nel punto iniziale $x_0 = 0$:
+    \begin{equation}
+        f'(0) = \pi \cos\left(\frac{3\pi}{4}\right) = -\frac{\pi \sqrt{2}}{2} \approx -2.2214 < 0 \implies x_- = 0.
+    \end{equation}
+    \item La successione dei punti campionati con passo raddoppiato \`e data da $x_+^{(i)} = 2^{i-1}$ per ogni iterazione $i \ge 1$ (ovvero $x_+ \in \{1, 2, 4, 8, 16, \dots\}$).
+    \item Poich\'e $2^k$ \`e un numero intero pari per ogni $k \ge 1$, per la periodicit\`a del coseno si ha:
+    \begin{equation}
+        f'(2^k) = \pi \cos\left(\pi 2^k + \frac{3\pi}{4}\right) = \pi \cos\left(2\pi \cdot 2^{k-1} + \frac{3\pi}{4}\right) = \pi \cos\left(\frac{3\pi}{4}\right) = -\frac{\pi \sqrt{2}}{2} < 0.
+    \end{equation}
+\end{itemize}
+La derivata calcolata dall'oracolo rimane rigorosamente \textbf{costante e negativa} su ogni singolo punto campionato: l'algoritmo espande indefinitamente $x_+ \to +\infty$ senza mai arrestarsi, pur attraversando infiniti punti stazionari e minimi locali.
+\end{example}
+
+\FloatBarrier
+\section{Migliorare la Dicotomia tramite Interpolazione Quadratica}
+\label{sec:univariata-interpolazione-quadratica}
+
+\subsection{Il Paradigma del Modello Funzionale}
+Per superare la cecit\`a della scelta mediana, l'ingegneria algoritmica adotta un principio fondamentale: \textbf{costruire un modello locale osculatore $m(x)$ della funzione reale $f(x)$ e minimizzare analiticamente il modello}.
+
+Poich\'e le funzioni lineari $m_1(x) = ax + b$ sono prive di curvatura e non ammettono minimi finiti su domini aperti, la classe polinomiale pi\`u semplice dotata di minimo \`e costituita dalle parabole quadratiche:
+\begin{equation}
+    m(x) = a x^2 + b x + c, \quad \text{con } a > 0.
+    \label{eq:quadratic-model-parabola}
+\end{equation}
+
+\subsection{Derivazione Algebrica della Formula di Falsa Posizione}
+Disponendo del \textit{bracket} $[x_-, x_+]$, le informazioni fornite dall'oracolo sono quattro: due valori di funzione $f(x_-), f(x_+)$ e due derivate prime $f'(x_-), f'(x_+)$.
+Il modello quadratico possiede tuttavia solo tre gradi di libert\`a ($a, b, c$). L'imposizione simultanea delle quattro condizioni genererebbe un sistema sovradeterminato privo di soluzione esatta:
+\begin{equation}
+    \begin{cases}
+        a x_-^2 + b x_- + c = f(x_-) \\
+        a x_+^2 + b x_+ + c = f(x_+) \\
+        2 a x_- + b = f'(x_-) \\
+        2 a x_+ + b = f'(x_+)
+    \end{cases}
+\end{equation}
+
+\paragraph{Eliminazione della Costante di Traslazione $c$:}
+Il parametro $c$ rappresenta unicamente una traslazione verticale del grafico lungo l'asse delle ordinate. Esso non modifica in alcun modo la posizione orizzontale dell'argomento di minimo, che \`e determinato esclusivamente dalla condizione di derivata prima nulla del modello:
+\begin{equation}
+    m'(x) = 2 a x + b = 0 \iff x^* = -\frac{b}{2a}.
+    \label{eq:stationary-point-quadratic-model}
+\end{equation}
+Pertanto, si scartano i valori di funzione $f(x_-)$ e $f(x_+)$ e si isola il sistema lineare $2 \times 2$ nelle sole incognite $(a, b)$ relative alle derivate prime agli estremi:
+\begin{equation}
+    \begin{cases}
+        2 a x_+ + b = f'(x_+) & \text{(Eq.~1)} \\
+        2 a x_- + b = f'(x_-) & \text{(Eq.~2)}
+    \end{cases}
+    \label{eq:linear-system-quadratic-derivatives}
+\end{equation}
+
+\paragraph{Risoluzione del Sistema per $a$ e $b$:}
+Sottraendo membro a membro l'Equazione~2 dall'Equazione~1:
+\begin{equation}
+    2 a (x_+ - x_-) = f'(x_+) - f'(x_-) \iff a = \frac{f'(x_+) - f'(x_-)}{2 (x_+ - x_-)}.
+    \label{eq:quadratic-coeff-a}
+\end{equation}
+\begin{property}[Convessit\`a Garantita del Modello]
+Poich\'e per ipotesi di bracketing si ha $x_+ > x_-$ e $f'(x_+) > 0 > f'(x_-)$, il numeratore soddisfa $f'(x_+) - f'(x_-) > 0$ e il denominatore soddisfa $2(x_+ - x_-) > 0$. Ne consegue che:
+\begin{equation}
+    a > 0.
+\end{equation}
+La parabola possiede concavit\`a rigorosamente rivolta verso l'alto, garantendo che il punto stazionario calcolato sia un \textbf{minimo locale} e mai un massimo.
+\end{property}
+
+Moltiplicando l'Equazione~1 per $x_-$ e l'Equazione~2 per $x_+$:
+\begin{equation}
+    \begin{cases}
+        2 a x_+ x_- + b x_- = x_- f'(x_+) \\
+        2 a x_- x_+ + b x_+ = x_+ f'(x_-)
+    \end{cases}
+\end{equation}
+Sottraendo la prima equazione dalla seconda:
+\begin{equation}
+    b (x_+ - x_-) = x_+ f'(x_-) - x_- f'(x_+) \iff b = \frac{x_+ f'(x_-) - x_- f'(x_+)}{x_+ - x_-}.
+    \label{eq:quadratic-coeff-b}
+\end{equation}
+
+\paragraph{Formula della Secante / Falsa Posizione:}
+Sostituendo le espressioni ricavate per $a$ e $b$ nella formula del punto di minimo $x = -b / (2a)$:
+\begin{equation}
+    x = -\frac{\frac{x_+ f'(x_-) - x_- f'(x_+)}{x_+ - x_-}}{2 \cdot \frac{f'(x_+) - f'(x_-)}{2(x_+ - x_-)}} = -\frac{x_+ f'(x_-) - x_- f'(x_+)}{f'(x_+) - f'(x_-)}.
+\end{equation}
+Distribuendo il segno negativo al numeratore, si ottiene la classica \textbf{Formula della Falsa Posizione} (\textit{Regula Falsi} per le derivate):
+\begin{equation}
+    x = \frac{x_- f'(x_+) - x_+ f'(x_-)}{f'(x_+) - f'(x_-)}.
+    \label{eq:false-position-formula}
+\end{equation}
+
+\subsection{Dimostrazione dell'Inclusione nell'Intervallo}
+\`E fondamentale verificare che il punto calcolato tramite l'Equazione~\eqref{eq:false-position-formula} cada rigorosamente all'interno dell'intervallo $[x_-, x_+]$.
+
+\begin{theorem}[Inclusione Convessa del Punto Interpolato]
+Siano $x_-, x_+ \in \R$ con $x_- < x_+$, tali che $f'(x_-) \le 0$ e $f'(x_+) \ge 0$, con almeno una delle due disuguaglianze stretta. Allora il punto $x$ dato dall'Equazione~\eqref{eq:false-position-formula} appartiene all'intervallo $[x_-, x_+]$.
+\end{theorem}
+
+\begin{proof}
+Riscriviamo il numeratore dell'Equazione~\eqref{eq:false-position-formula} sommando e sottraendo la quantit\`a $x_- f'(x_-)$:
+\begin{align}
+    x_- f'(x_+) - x_+ f'(x_-) &= x_- f'(x_+) - x_+ f'(x_-) + x_- f'(x_-) - x_- f'(x_-) \nonumber \\
+    &= x_- \left( f'(x_+) - f'(x_-) \right) - f'(x_-) (x_+ - x_-).
+\end{align}
+Dividendo per il denominatore comune $f'(x_+) - f'(x_-)$:
+\begin{equation}
+    x = x_- + \alpha (x_+ - x_-), \quad \text{con } \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)}.
+    \label{eq:convex-combination-alpha}
+\end{equation}
+Analizziamo i segni del coefficiente $\alpha$:
+\begin{enumerate}
+    \item Poich\'e $f'(x_-) \le 0$, il numeratore soddisfa $-f'(x_-) \ge 0$.
+    \item Poich\'e $f'(x_+) \ge 0$, il denominatore soddisfa $f'(x_+) - f'(x_-) \ge -f'(x_-) \ge 0$.
+\end{enumerate}
+Ne consegue che il rapporto $\alpha$ \`e vincolato nell'intervallo unitario:
+\begin{equation}
+    0 \le \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)} \le \frac{f'(x_+) - f'(x_-)}{f'(x_+) - f'(x_-)} = 1.
+\end{equation}
+Essendo $\alpha \in [0, 1]$, l'espressione $x = x_- + \alpha (x_+ - x_-)$ rappresenta una \textbf{combinazione convessa} tra $x_-$ e $x_+$, dimostrando formalmente che:
+\begin{equation}
+    x_- \le x \le x_+, \quad \forall f'(x_-) \le 0, \; f'(x_+) \ge 0.
+\end{equation}
+\end{proof}
+
+\subsection{La Stabilizzazione con Salvaguardia (Safeguard)}
+\label{subsec:safeguard-technique}
+Nonostante l'eleganza analitica, il modello quadratico locale \`e un'approssimazione imperfetta della realt\`a (sintetizzata dal celebre principio: \textit{``la mappa non \`e il territorio''}). In particolare, la parabola pu\`o risultare fortemente \textbf{distorta} (\textit{skewed}):
+\begin{itemize}
+    \item Se $|f'(x_+)| \gg |f'(x_-)|$, la derivata a destra \`e ripidissima mentre quella a sinistra \`e quasi piatta:
+    \begin{equation}
+        \alpha = \frac{-f'(x_-)}{f'(x_+) - f'(x_-)} \approx 0 \implies x \approx x_-.
+    \end{equation}
+    \item L'intervallo viene contratto di una frazione microscopica, riducendosi essenzialmente a una contrazione sublineare che porta a stalli numerici.
+\end{itemize}
+
+\paragraph{Il Parametro di Salvaguardia $\sigma$:}
+Per garantire che ad ogni passo l'intervallo si riduca di una quantit\`a minima garantita, si introduce un parametro di salvaguardia $\sigma \in (0, 0.5]$ definendo i confini protetti:
+\begin{equation}
+    \operatorname{sfx}_- = x_- + \sigma (x_+ - x_-), \quad \operatorname{sfx}_+ = x_+ - \sigma (x_+ - x_-).
+    \label{eq:safeguard-bounds}
+\end{equation}
+L'iterato effettivo viene calcolato proiettando il punto interpolato all'interno del sotto-intervallo sicuro:
+\begin{equation}
+    x_{\text{new}} = \max\left( \operatorname{sfx}_-, \, \min(\operatorname{sfx}_+, \, x) \right).
+    \label{eq:safeguard-projection}
+\end{equation}
+\begin{property}[Garanzia di Convergenza del Modello Salvaguardato]
+Nel caso peggiore (parabola patologica o degenere), l'algoritmo garantisce una velocit\`a di contrazione lineare con fattore $r = 1 - \sigma$. Nel caso favorevole in cui la funzione sia ben approssimata dal modello quadratico, l'aggiornamento superlineare/quadratico opera inalterato.
+\end{property}
+
+\begin{algorithm}[htbp]
+\caption{Ricerca Dicotomica con Interpolazione Quadratica e Salvaguardia ($\sigma$-DIS)}
+\label{alg:safeguarded-dichotomic-interpolation}
+\KwInput{Funzione $f$, estremi di bracket $[x_-, x_+]$ con $f'(x_-) \le 0 \le f'(x_+)$, tolleranze $\varepsilon, \delta > 0$, parametro $\sigma \in (0, 0.5]$}
+\KwOutput{Punto stazionario $\varepsilon$-ottimo $x^*$}
+\BlankLine
+\While{$(x_+ - x_- > \delta)$ \textbf{and} $(\min(|f'(x_-)|, |f'(x_+)|) > \varepsilon)$}{
+    $x_{\text{quad}} \leftarrow \frac{x_- f'(x_+) - x_+ f'(x_-)}{f'(x_+) - f'(x_-)}$ \tcp*{Minimo della parabola osculatrice}
+    $\operatorname{sfx}_- \leftarrow x_- + \sigma (x_+ - x_-)$\;
+    $\operatorname{sfx}_+ \leftarrow x_+ - \sigma (x_+ - x_-)$\;
+    $x \leftarrow \max(\operatorname{sfx}_-, \min(\operatorname{sfx}_+, x_{\text{quad}}))$ \tcp*{Proiezione di salvaguardia}
+    \If{$|f'(x)| \le \varepsilon$}{
+        \Return $x$\;
+    }
+    \eIf{$f'(x) < 0$}{
+        $x_- \leftarrow x$\;
+    }{
+        $x_+ \leftarrow x$\;
+    }
+}
+\Return $\argmin_{z \in \{x_-, x_+\}} |f'(z)|$\;
+\end{algorithm}
+
+\subsection{Evidenza Sperimentale su Polinomio di Decimo Grado}
+Nelle sessioni pratiche di laboratorio, il comportamento dell'Algoritmo~\ref{alg:safeguarded-dichotomic-interpolation} (\texttt{DIS.m}) viene valutato sul polinomio test di 10° grado:
+\begin{equation}
+    f(x) = \frac{91}{30} x^2 - \frac{19}{6} x^3 - \frac{54}{25} x^4 + \frac{23}{93} x^5 - \frac{36}{23} x^6 - \frac{93}{121} x^7 + \frac{91}{72} x^8 - \frac{74}{13} x^9 + \frac{640}{9} x^{10},
+    \label{eq:tenth-degree-polynomial}
+\end{equation}
+con intervallo iniziale $[-0.5, 3]$ e minimo globale $x^* = 0$ ($f(0) = 0$).
+
+\begin{itemize}
+    \item \textbf{Esperimento con salvaguardia debolissima ($\sigma = 0.001$):} Nelle prime 10 iterazioni la forte asimmetria della funzione porta la parabola a posizionare il minimo vicinissimo a $x_-$, erodendo l'intervallo con estrema lentezza ($9.8, 9.4, 9.27, 9.11, \dots$). Tuttavia, non appena l'intervallo entra nel bacino di attrazione parabolico di $x^* = 0$, la convergenza accelera bruscamente: il gap di ottimalit\`a crolla di oltre 8 ordini di grandezza in una singola iterazione (da $10^{-10}$ a $10^{-18}$), terminando in 18 passi (rispetto ai 26 richiesti dalla dicotomia pura).
+    \item \textbf{Esperimento con $\sigma = 0.20$ e $\sigma = 0.40$:} Con $\sigma = 0.20$, l'algoritmo impedisce le contrazioni microscopiche iniziali e converge in 17 iterazioni. Con $\sigma = 0.40$, la contrazione minima forzata riduce drasticamente l'incertezza nelle prime fasi, terminando in sole 15 iterazioni.
+\end{itemize}
+
+\FloatBarrier
+\section{Teoria della Convergenza e Interpolazione di Ordine Superiore}
+\label{sec:univariata-teoria-convergenza}
+
+\subsection{Analisi dei Profili di Convergenza Semilogaritmici}
+Nei grafici di convergenza in scala semilogaritmica (aventi sulle ascisse il numero di iterazioni e sulle ordinate il logaritmo del gap relativo $\log_{10} \frac{f_{\text{best}} - f^*}{\max(|f^*|, 1)}$), il comportamento dell'interpolazione presenta due regimi nettamente distinti (Figura~\ref{fig:semilog-convergence-profile}):
+\begin{enumerate}
+    \item \textbf{Fase transiente (lineare):} Fin quando il \textit{bracket} \`e ampio e il modello quadratico risulta fortemente distorto rispetto alla funzione reale, l'algoritmo viene governato dalla salvaguardia $\sigma$, manifestando una pendenza decrescente costante tipica della convergenza lineare.
+    \item \textbf{Fase asintotica (superlineare):} Quando gli iterati penetrano nell'intorno locale in cui il polinomio di Taylor di secondo ordine diventa accurato, la pendenza piega bruscamente verso il basso, con una precipitosa caduta verticale del gap fino alla precisione di macchina.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Sfondo per le due fasi di convergenza
+    \fill[gray!8, rounded corners=2pt] (0, 0) rectangle (3.0, 6.0);
+    \fill[green!7, rounded corners=2pt] (3.0, 0) rectangle (6.5, 6.0);
+    
+    % Griglia orizzontale di riferimento (potenze di 10)
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 6.0) -- (10.0, 6.0);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 4.5) -- (10.0, 4.5);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 3.0) -- (10.0, 3.0);
+    \draw[dashed, color=gray!30, line width=0.5pt] (0, 1.5) -- (10.0, 1.5);
+    
+    % Assi cartesiani
+    \draw[thick, ->, >=Stealth] (0, 0) -- (10.6, 0) node[right, font=\small] {Iterazioni $k$};
+    \draw[thick, ->, >=Stealth] (0, 0) -- (0, 6.7) node[above left, font=\small] {Divario $e_k$ (scala log)};
+    
+    % Ticks discreti asse X (iterazioni intere k = 0, 1, ..., 10)
+    \foreach \k in {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10} {
+        \draw (\k, 0.1) -- (\k, -0.1) node[below=2pt, font=\scriptsize] {$\k$};
+    }
+    
+    % Ticks asse Y (valori in scala logaritmica)
+    \draw (0.1, 6.0) -- (-0.1, 6.0) node[left, font=\scriptsize] {$10^0$};
+    \draw (0.1, 4.5) -- (-0.1, 4.5) node[left, font=\scriptsize] {$10^{-4}$};
+    \draw (0.1, 3.0) -- (-0.1, 3.0) node[left, font=\scriptsize] {$10^{-8}$};
+    \draw (0.1, 1.5) -- (-0.1, 1.5) node[left, font=\scriptsize] {$10^{-12}$};
+    \draw (0.1, 0.0) -- (-0.1, 0.0) node[left, font=\scriptsize] {$10^{-16}$};
+    
+    % Retta Dicotomia di riferimento (p=1, pendenza costante m = -0.75, da k=0 a k=8)
+    \draw[line width=1.3pt, color=navy!60, dashed] (0, 6.00) -- (8.0, 0.00);
+    \node[above right, font=\scriptsize\bfseries, color=navy!70] at (5.5, 2.0) {Dicotomia ($p=1$)};
+    
+    % Curva Interpolazione Quadratica con Salvaguardia:
+    % Tratto 1 (Fase Lineare, k in [0, 3]): giace ESATTAMENTE sulla retta di riferimento con pendenza m = -0.75
+    \draw[line width=1.5pt, color=red!80!black] (0.0, 6.00) -- (3.0, 3.75);
+    
+    % Tratto 2 (Fase Superlineare, k in [3, 6]): accelerazione concava verso il basso con raccordo C^1 continuo in k = 3
+    \draw[line width=1.5pt, color=red!80!black] 
+        plot[domain=3.0:6.0, samples=60] (\x, {3.75 - 0.75*(\x - 3.0) - 0.1067*(\x - 3.0)^2 - 0.02*(\x - 3.0)^3});
+        
+    % Punti discreti delle iterazioni (k intero: 0, 1, 2, 3 nella fase lineare; 4, 5, 6 nella fase superlineare)
+    \foreach \pt in {(0.0, 6.00), (1.0, 5.25), (2.0, 4.50), (3.0, 3.75), (4.0, 2.87), (5.0, 1.66), (6.0, 0.05)} {
+        \fill[red!80!black] \pt circle (2.2pt);
+        \fill[white] \pt circle (1.1pt);
+    }
+    
+    \node[right, font=\scriptsize\bfseries, color=red!80!black] at (6.1, 0.5) {$\sigma$-Interpolazione};
+    
+    % Intestazioni delle Fasi (strutturate su due righe per evitare sovrapposizioni)
+    \draw[<->, thick, color=gray!70] (0.1, 6.4) -- (2.9, 6.4);
+    \node[above=2pt, align=center, font=\scriptsize\bfseries, color=gray!70!black] at (1.5, 6.4) {Fase Lineare\\{\normalfont\tiny(dominata da $\sigma$)}};
+    
+    \draw[<->, thick, color=green!60!black] (3.1, 6.4) -- (6.4, 6.4);
+    \node[above=2pt, align=center, font=\scriptsize\bfseries, color=green!50!black] at (4.75, 6.4) {Fase Superlineare\\{\normalfont\tiny($p \approx 1.618$)}};
+\end{tikzpicture}
+\caption{Profilo semilogaritmico del divario di ottimalit\`a: andamento rigoroso a iterazioni intere discrete $k = 0, 1, \dots$ che evidenzia la transizione dalla contrazione lineare transiente (governata dalla salvaguardia $\sigma$, con decremento costante coincidente con la retta della dicotomia per i primi 4 iterati $k=0,1,2,3$) alla repentina accelerazione superlineare una volta raggiunto il bacino di attrazione locale.}
+\label{fig:semilog-convergence-profile}
+\end{figure}
+
+\subsection{Teorema di Convergenza della Sezione Aurea ($p \approx 1.618$)}
+\begin{theorem}[Ordine Superlineare dell'Interpolazione Quadratica]
+\label{thm:quadratic-interpolation-superlinear}
+Sia $f: \R \to \R$ una funzione di classe $C^3$ in un intorno del punto stazionario $x^*$, con:
+\begin{equation}
+    f'(x^*) = 0 \quad \text{e} \quad f''(x^*) \ne 0.
+\end{equation}
+Allora esiste un raggio $\delta > 0$ tale che, se gli estremi iniziali appartengono a $[x^* - \delta, x^* + \delta]$, la successione $\{x_k\}$ generata dall'interpolazione quadratica converge a $x^*$ con ordine di convergenza superlineare pari alla \textbf{Sezione Aurea}:
+\begin{equation}
+    p = \frac{1 + \sqrt{5}}{2} \approx 1.618,
+\end{equation}
+ovvero:
+\begin{equation}
+    \lim_{k \to \infty} \frac{|x_{k+1} - x^*|}{|x_k - x^*|^p} = C < \infty.
+\end{equation}
+\end{theorem}
+
+\subsection{Cenni all'Interpolazione Cubica ($p = 2$)}
+Se invece di scartare i valori di funzione $f(x_-)$ e $f(x_+)$ si utilizzano simultaneamente tutte e quattro le informazioni disponibili ($f(x_-), f(x_+), f'(x_-), f'(x_+)$), \`e possibile determinare in modo univoco i 4 coefficienti di un polinomio cubico:
+\begin{equation}
+    m_3(x) = a x^3 + b x^2 + c x + d.
+\end{equation}
+La derivata prima del modello cubico \`e una funzione quadratica:
+\begin{equation}
+    m_3'(x) = 3 a x^2 + 2 b x + c = 0,
+\end{equation}
+la quale ammette due radici reali calcolabili analiticamente mediante formula risolutiva chiusa. Selezionando la radice che verifica la condizione di convessit\`a locale $m_3''(x) > 0$, si ottiene il punto di minimo del modello.
+\begin{itemize}
+    \item \textbf{Vantaggio teorico:} L'interpolazione cubica raggiunge un ordine di convergenza rigorosamente \textbf{quadratico} ($p = 2$).
+    \item \textbf{Svantaggio ingegneristico:} L'algebra necessaria per determinare i coefficienti e discriminare la radice corretta \`e notevolmente pi\`u complessa e vulnerabile a cancellazioni numeriche rispetto all'interpolazione quadratica.
+\end{itemize}
+
+\FloatBarrier
+\section{Il Metodo di Newton Univariato}
+\label{sec:univariata-metodo-newton}
+
+\subsection{Filosofia e Duplice Interpretazione Teorica}
+Mentre i metodi di interpolazione richiedono due punti di campionamento ($x_-$ e $x_+$) per stimare la pendenza e la concavit\`a, il \textbf{Metodo di Newton} opera a partire da un \textbf{singolo punto corrente} $x_k$, sfruttando la derivata seconda analitica $f''(x_k)$ per quantificare la curvatura locale.
+
+Il metodo ammette due interpretazioni teoriche perfettamente equivalenti:
+\begin{enumerate}
+    \item \textbf{Linearizzazione della derivata prima $f'$:}
+    Il problema di trovare un minimo locale equivale a risolvere l'equazione non lineare $f'(x) = 0$. Sviluppando $f'$ al primo ordine mediante formula di Taylor attorno al punto $x_k$:
+    \begin{equation}
+        f'(x) \approx L'_k(x) \equiv f'(x_k) + f''(x_k) (x - x_k).
+    \end{equation}
+    Imponendo l'annullamento del modello lineare $L'_k(x) = 0$:
+    \begin{equation}
+        f'(x_k) + f''(x_k) (x - x_k) = 0 \iff x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}.
+        \label{eq:newton-step-formula}
+    \end{equation}
+    \item \textbf{Minimizzazione del modello quadratico di Taylor di $f$:}
+    Approssimando direttamente la funzione obiettivo $f$ con il suo polinomio di Taylor di secondo ordine centrato in $x_k$:
+    \begin{equation}
+        Q_k(x) = f(x_k) + f'(x_k) (x - x_k) + \frac{1}{2} f''(x_k) (x - x_k)^2.
+    \end{equation}
+    Annullando la derivata del modello quadratico per trovarne il punto stazionario:
+    \begin{equation}
+        Q'_k(x) = f'(x_k) + f''(x_k) (x - x_k) = 0 \iff x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}.
+    \end{equation}
+\end{enumerate}
+
+\begin{algorithm}[htbp]
+\caption{Metodo di Newton Univariato Puro (\texttt{UNM})}
+\label{alg:pure-univariate-newton}
+\KwInput{Funzione $f \in C^2$, punto iniziale $x_0$, tolleranza $\varepsilon > 0$, iterazioni massime $k_{\max}$}
+\KwOutput{Punto stazionario $x^*$}
+\BlankLine
+$k \leftarrow 0$\;
+\While{$|f'(x_k)| > \varepsilon$ \textbf{and} $k < k_{\max}$}{
+    \If{$f''(x_k) == 0$}{
+        \textbf{error} ``Denominatore nullo: curvatura degenere in punto di flesso''\;
+    }
+    $x_{k+1} \leftarrow x_k - \frac{f'(x_k)}{f''(x_k)}$\;
+    $k \leftarrow k + 1$\;
+}
+\Return $x_k$\;
+\end{algorithm}
+
+\subsection{Casi Studio e Patologie Numeriche di Newton}
+L'esecuzione dell'Algoritmo~\ref{alg:pure-univariate-newton} (\texttt{UNM.m}) sul polinomio di 10° grado evidenzia quattro comportamenti empirici fondamentali:
+\begin{enumerate}
+    \item \textbf{Partenza lontana ($x_0 = -0.5$):} La derivata seconda locale $f''(-0.5)$ \`e modesta rispetto alla pendenza, producendo un passo $-f'/f''$ sproporzionatamente grande. L'iterato compie un salto macroscopico allontanandosi dal minimo globale e convergendo in $x \approx 2.52$: un minimo locale \textit{bona fide}, ma ampiamente subottimale rispetto a $x^* = 0$.
+    \item \textbf{Partenza nel bacino di attrazione ($x_0 = -0.2$):} Il metodo manifesta la sua straordinaria convergenza quadratica. L'errore si evolve come:
+    \begin{equation}
+        \text{Iter 1: } 10^{-1} \longrightarrow \text{Iter 2: } 10^{-4} \longrightarrow \text{Iter 3: } 10^{-7} \longrightarrow \text{Iter 4: } 10^{-13} \longrightarrow \text{Iter 5: } 10^{-26}.
+    \end{equation}
+    Il numero di cifre decimali esatte \textbf{raddoppia sistematicamente ad ogni singolo passo}, raggiungendo la precisione limite di macchina in appena 5 iterazioni.
+    \item \textbf{Partenza in prossimit\`a di un flesso ($x_0 = 1.0$):} Il polinomio presenta una sella con $f''(1.0) \approx 0$. Il rapporto $-f'/f''$ subisce un'esplosione numerica: l'iterato viene proiettato a $x \approx -200$ con un valore funzionale $f(x) \approx 10^{21}$, determinando il blocco per divergenza.
+    \item \textbf{Partenza a destra ($x_0 = 2.0$):} Il metodo converge in 4 passi a un punto stazionario con $|f'| \le 10^{-10}$, ma in cui $f''(x) < 0$. Il metodo \`e terminato su un \textbf{massimo locale}. Newton \`e cieco rispetto alla natura del punto stazionario: risolve algebricamente $f'(x) = 0$ senza alcuna nozione intrinseca di discesa.
+\end{enumerate}
+
+\FloatBarrier
+\section{Dimostrazione Rigorosa della Convergenza Quadratica di Newton}
+\label{sec:univariata-dimostrazione-newton}
+
+\begin{theorem}[Convergenza Quadratica Locale del Metodo di Newton]
+\label{thm:newton-quadratic-convergence-proof}
+Sia $f: \R \to \R$ una funzione di classe $C^3$ su un intervallo aperto contenente il punto $x^*$, tale che:
+\begin{enumerate}
+    \item $f'(x^*) = 0$ (punto stazionario);
+    \item $f''(x^*) \ne 0$ (condizione di non degenerazione della curvatura).
+\end{enumerate}
+Allora esistono due costanti positive $\delta > 0$ ed $M > 0$ tali che, per ogni iterato iniziale $x_0 \in [x^* - \delta, x^* + \delta]$, la successione generata dal metodo di Newton:
+\begin{equation}
+    x_{k+1} = x_k - \frac{f'(x_k)}{f''(x_k)}
+\end{equation}
+converge a $x^*$ con velocit\`a di convergenza quadratica ($p = 2$):
+\begin{equation}
+    |x_{k+1} - x^*| \le M |x_k - x^*|^2, \quad \forall k \ge 0.
+    \label{eq:newton-quadratic-bound}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+La dimostrazione si articola in cinque passaggi logici:
+
+\paragraph{Passo 1: Formulazione dell'errore al passo $k+1$.}
+Consideriamo la distanza dell'iterato $x_{k+1}$ dalla radice $x^*$:
+\begin{equation}
+    x_{k+1} - x^* = x_k - x^* - \frac{f'(x_k)}{f''(x_k)}.
+\end{equation}
+Poich\'e per ipotesi $f'(x^*) = 0$, possiamo sommare tale termine a numeratore senza alterare l'espressione:
+\begin{equation}
+    x_{k+1} - x^* = (x_k - x^*) + \frac{f'(x^*) - f'(x_k)}{f''(x_k)} = \frac{f''(x_k)(x_k - x^*) + f'(x^*) - f'(x_k)}{f''(x_k)}.
+\end{equation}
+Raccogliendo i termini al numeratore in funzione della differenza $(x^* - x_k)$:
+\begin{equation}
+    x_{k+1} - x^* = \frac{f'(x^*) - f'(x_k) - f''(x_k)(x^* - x_k)}{f''(x_k)}.
+    \label{eq:proof-step1-error-identity}
+\end{equation}
+
+\paragraph{Passo 2: Espansione di Taylor di $f'$ con resto di Lagrange.}
+Poich\'e $f \in C^3$, la derivata prima $f'$ \`e derivabile due volte con continuit\`a ($f' \in C^2$). Sviluppiamo $f'$ con formula di Taylor di primo ordine centrata in $x_k$ e valutata in $x^*$, con resto di Lagrange di secondo ordine:
+\begin{equation}
+    f'(x^*) = f'(x_k) + f''(x_k)(x^* - x_k) + \frac{1}{2} f'''(w_k) (x^* - x_k)^2,
+\end{equation}
+per qualche punto intermedio $w_k \in ( \min(x_k, x^*), \max(x_k, x^*) )$.
+Sottraendo i primi due termini da ambo i membri, si ottiene:
+\begin{equation}
+    f'(x^*) - f'(x_k) - f''(x_k)(x^* - x_k) = \frac{1}{2} f'''(w_k) (x^* - x_k)^2.
+    \label{eq:proof-step2-taylor-remainder}
+\end{equation}
+
+\paragraph{Passo 3: Sostituzione nella relazione dell'errore.}
+Sostituendo l'identit\`a~\eqref{eq:proof-step2-taylor-remainder} nel numeratore dell'Equazione~\eqref{eq:proof-step1-error-identity}:
+\begin{equation}
+    x_{k+1} - x^* = \frac{\frac{1}{2} f'''(w_k) (x^* - x_k)^2}{f''(x_k)} = \left[ \frac{f'''(w_k)}{2 f''(x_k)} \right] (x_k - x^*)^2.
+    \label{eq:proof-step3-bracketed-relation}
+\end{equation}
+
+\paragraph{Passo 4: Delimitazione uniforme su un intorno compatto $I_\delta$.}
+Per rendere rigorosa la disuguaglianza~\eqref{eq:proof-step3-bracketed-relation}, dobbiamo maggiorare il numeratore e minorare il denominatore in un opportuno intorno $I_\delta = [x^* - \delta, x^* + \delta]$:
+\begin{itemize}
+    \item \textbf{Minorazione del denominatore:} Poich\'e $f''(x^*) \ne 0$ e $f'' \in C^1$ \`e continua, per il teorema della permanenza del segno esiste un raggio $\delta_1 > 0$ tale che:
+    \begin{equation}
+        |f''(x)| \ge k_2 \equiv \frac{1}{2} |f''(x^*)| > 0, \quad \forall x \in [x^* - \delta_1, x^* + \delta_1].
+    \end{equation}
+    \item \textbf{Maggiorazione del numeratore:} Poich\'e $f'''$ \`e continua sull'intervallo chiuso e limitato $I_{\delta_1}$, per il Teorema di Weierstrass essa \`e limitata superiormente:
+    \begin{equation}
+        k_1 \equiv \max_{x \in I_{\delta_1}} |f'''(x)| < \infty \implies |f'''(w_k)| \le k_1, \quad \forall w_k \in I_{\delta_1}.
+    \end{equation}
+\end{itemize}
+
+\paragraph{Passo 5: Conclusione della convergenza quadratica.}
+Prendendo il valore assoluto su entrambi i membri dell'Equazione~\eqref{eq:proof-step3-bracketed-relation}:
+\begin{equation}
+    |x_{k+1} - x^*| = \frac{|f'''(w_k)|}{2 |f''(x_k)|} |x_k - x^*|^2 \le \left( \frac{k_1}{2 k_2} \right) |x_k - x^*|^2.
+\end{equation}
+Definendo la costante finita $M \equiv \frac{k_1}{2 k_2} > 0$:
+\begin{equation}
+    |x_{k+1} - x^*| \le M |x_k - x^*|^2.
+\end{equation}
+Scegliendo il raggio finale $\delta = \min(\delta_1, \frac{\rho}{M})$ con $\rho \in (0, 1)$, se l'errore iniziale soddisfa $|x_0 - x^*| \le \delta$, si ha per induzione:
+\begin{equation}
+    |x_1 - x^*| \le M |x_0 - x^*|^2 \le (M \delta) |x_0 - x^*| \le \rho |x_0 - x^*| < |x_0 - x^*|.
+\end{equation}
+La successione converge rigorosamente a $x^*$ e il limite del rapporto degli errori conferma l'ordine quadratico ($p = 2$):
+\begin{equation}
+    \lim_{k \to \infty} \frac{|x_{k+1} - x^*|}{|x_k - x^*|^2} \le M < \infty.
+\end{equation}
+\end{proof}
+
+\FloatBarrier
+\section{Ottimizzazione Globale, Convessit\`a e Spatial Branch-and-Bound}
+\label{sec:univariata-global-branch-and-bound}
+
+\subsection{L'Inefficacia dei Criteri Locali per l'Ottimizzazione Globale}
+Le condizioni di ottimalit\`a locale del primo e del secondo ordine ($f'(x^*) = 0$ e $f''(x^*) \ge 0$) sono per loro natura intrinsecamente \textbf{miopi}: certificano che $x^*$ \`e il punto pi\`u basso all'interno di un intorno infinitesimo, ma non forniscono alcuna informazione sulla profondit\`a del bacino rispetto ad altri minimi sparsi nel dominio.
+Nelle applicazioni reali (dall'addestramento di reti neurali alla modellazione molecolare), le funzioni presentano molteplici bacini di attrazione. L'ottimizzazione locale pura \`e incapace di evadere dal bacino in cui cade l'iterato iniziale.
+
+\subsection{La Convessit\`a come Ponte Fondamentale}
+L'unica propriet\`a geometrica che consente di equiparare l'ottimizzazione locale a quella globale \`e la \textbf{convessit\`a}.
+\begin{definition}[Funzione Convessa $C^2$]
+Una funzione due volte derivabile $f: \R \to \R$ \`e convessa se e solo se la sua derivata seconda \`e ovunque non negativa:
+\begin{equation}
+    f''(x) \ge 0, \quad \forall x \in \R.
+\end{equation}
+\end{definition}
+In una funzione convessa:
+\begin{itemize}
+    \item Ogni minimo locale \`e automaticamente un \textbf{minimo globale}.
+    \item L'insieme dei minimi globali \`e un intervallo convesso connesso (se $f''(x) > 0$ ovunque, la funzione \`e strettamente convessa e il minimo globale \`e unico).
+    \item I metodi locali (Newton, bisezione, gradiente) convergono infallibilmente all'ottimo globale.
+\end{itemize}
+
+\subsection{Il Metodo dello Spatial Branch-and-Bound}
+Quando una funzione non \`e convessa e non \`e possibile riformularla analiticamente, la ricerca certificata del minimo globale richiede l'impiego dell'algoritmo di \textbf{Spatial Branch-and-Bound} (sBB).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.95]
+    % Assi cartesiani
+    \draw[thick, ->, >=Stealth] (0, 0) -- (10.5, 0) node[right, font=\small] {$x$};
+    \draw[thick, ->, >=Stealth] (0, 0) -- (0, 5.5) node[above, font=\small] {$y$};
+    
+    % Dominio X = [x_-, x_+]
+    \draw[line width=1.5pt, color=navy!80] (1.5, 0) -- (9.0, 0);
+    \draw[line width=1.2pt, color=navy!80] (1.5, 0.12) -- (1.5, -0.12) node[below=3pt, font=\small\bfseries, color=navy!80] {$x_-$};
+    \draw[line width=1.2pt, color=navy!80] (9.0, 0.12) -- (9.0, -0.12) node[below=3pt, font=\small\bfseries, color=navy!80] {$x_+$};
+    
+    % Vera funzione non convessa f(x) (tracciato analitico esatto con deg())
+    \draw[line width=1.5pt, color=navy] 
+        plot[domain=1.5:9.0, samples=100] (\x, {2.5 + 1.05*cos(deg(1.7*(\x - 4.9))) - 0.18*(\x - 4.9) + 0.05*(\x - 4.9)^2});
+    
+    % Sottostimatore convesso \underline{f}(x) (parabola analitica esatta con minimo matematico in x = 5.5)
+    \draw[line width=1.4pt, color=red!75!black, dashed] 
+        plot[domain=1.5:9.0, samples=100] (\x, {0.60 + 0.11*(\x - 5.5)^2});
+        
+    % Legenda in alto (nessuna interferenza con i tracciati)
+    \node[font=\scriptsize, align=center, fill=white, draw=gray!30, rounded corners=3pt, inner sep=3.5pt] at (5.0, 4.8) {
+        \textcolor{navy}{\rule[0.5ex]{12pt}{1.5pt}\ \textbf{$f(x)$}} (non convessa) \qquad
+        \textcolor{red!75!black}{\textbf{- - $\underline{f}(x)$}} (sottostimatore convesso)
+    };
+    
+    % Proiezione verticale dal punto candidato \bar{x}
+    \draw[dotted, line width=1pt, color=gray!60] (5.5, 2.96) -- (5.5, 0);
+    
+    % Punto esatto su \underline{f}: (5.5, 0.60)
+    \node[circle, draw=red!80!black, fill=red!40, inner sep=2.2pt] at (5.5, 0.60) {};
+    
+    % Punto esatto su f: (5.5, 2.96) giacente ESATTAMENTE sulla curva f(x)
+    \node[circle, draw=navy, fill=navy!40, inner sep=2.2pt] at (5.5, 2.96) {};
+    
+    % Etichetta \bar{x} sull'asse x
+    \node[below=3pt, font=\small\bfseries, color=red!75!black] at (5.5, 0) {$\bar{x}$};
+    \node[below=15pt, font=\scriptsize, color=red!75!black] at (5.5, 0) {$\argmin \underline{f}$};
+    
+    % Proiezioni orizzontali verso l'asse y per Lower e Upper Bound
+    \draw[dotted, line width=0.9pt, color=red!70!black] (5.5, 0.60) -- (0, 0.60);
+    \node[left=3pt, font=\scriptsize\bfseries, color=red!75!black] at (0, 0.60) {$\text{LB} = \underline{f}(\bar{x})$};
+    
+    \draw[dotted, line width=0.9pt, color=navy] (5.5, 2.96) -- (0, 2.96);
+    \node[left=3pt, font=\scriptsize\bfseries, color=navy] at (0, 2.96) {$\text{UB} = f(\bar{x})$};
+    
+    % Divario di ottimalità (Gap): posizionato nella zona centrale libera
+    \draw[<->, line width=1.1pt, color=purple!80!black] (5.1, 0.68) -- (5.1, 2.88);
+    \node[left=2pt, font=\scriptsize\bfseries, color=purple!80!black, align=center] at (5.05, 1.8) {$\text{Gap}$\\{\tiny$\text{UB} - \text{LB}$}};
+\end{tikzpicture}
+\caption{Principio del Bounding nello Spatial Branch-and-Bound: la funzione convessa inferiore $\underline{f}(x)$ fornisce un limite inferiore rigoroso ($\text{LB} \le f^*$), mentre la valutazione puntuale $f(\bar{x})$ giace esattamente sulla curva $f(x)$ fornendo un limite superiore ammissibile ($\text{UB} \ge f^*$).}
+\label{fig:spatial-branch-and-bound-bounding}
+\end{figure}
+
+\paragraph{1. La Fase di Bounding (Sottostimatori Convessi):}
+Dato un intervallo $X = [x_-, x_+]$, si costruisce una funzione convessa $\underline{f}: X \to \R$ che sottostima uniformemente la funzione obiettivo:
+\begin{equation}
+    \underline{f}(x) \le f(x), \quad \forall x \in X.
+\end{equation}
+\begin{itemize}
+    \item \textbf{Calcolo del Lower Bound (LB):} Poich\'e $\underline{f}$ \`e convessa, il suo minimo globale su $X$ pu\`o essere calcolato rapidamente e in modo univoco tramite ottimizzazione locale:
+    \begin{equation}
+        \bar{x} = \argmin_{x \in X} \underline{f}(x) \implies \text{LB} \equiv \underline{f}(\bar{x}) \le f^*.
+    \end{equation}
+    \item \textbf{Calcolo dell'Upper Bound (UB):} Valutando la vera funzione $f$ nel punto $\bar{x}$, si ottiene un valore ammissibile che costituisce un limite superiore valido sull'ottimo globale incognito:
+    \begin{equation}
+        f^* \le \text{UB} \equiv f(\bar{x}).
+    \end{equation}
+    \item \textbf{Incastro (Sandwich) e Criterio di Arresto:}
+    \begin{equation}
+        \underline{f}(\bar{x}) \le f^* \le f(\bar{x}) \implies \text{Gap} = f(\bar{x}) - \underline{f}(\bar{x}).
+    \end{equation}
+    Se $\text{Gap} \le \varepsilon$, l'algoritmo termina certificando che $\bar{x}$ \`e una soluzione $\varepsilon$-ottima globale.
+\end{itemize}
+
+\paragraph{2. La Fase di Branching (Partizionamento):}
+Se il gap eccede la tolleranza $\varepsilon$, l'intervallo $X$ viene partizionato in due sotto-intervalli (ad esempio tagliando in corrispondenza del punto $\bar{x}$):
+\begin{equation}
+    X_1 = [x_-, \bar{x}], \quad X_2 = [\bar{x}, x_+].
+\end{equation}
+Restringendo il dominio a sotto-intervalli pi\`u piccoli, i sottostimatori convessi $\underline{f}$ diventano notevolmente pi\`u aderenti alla funzione originale, provocando un rapido innalzamento dei lower bound locali.
+
+\paragraph{3. La Fase di Pruning (Potatura dei Rami):}
+Sia $f_{\text{best}}$ il miglior valore ammissibile della funzione $f$ campionato finora nell'intero spazio.
+Se in un determinato sotto-intervallo $X_k$ il limite inferiore convesso soddisfa:
+\begin{equation}
+    \underline{f}(\bar{x}_k) \ge f_{\text{best}},
+    \label{eq:pruning-condition-sbb}
+\end{equation}
+allora \textbf{l'intero sotto-intervallo $X_k$ viene eliminato per sempre dall'esplorazione} (\textit{partition pruned}). Poich\'e $\underline{f}$ \`e un limite inferiore, nessun punto interno a $X_k$ potr\`a mai avere un valore inferiore a $\underline{f}(\bar{x}_k)$, e quindi nessuno potr\`a mai migliorare $f_{\text{best}}$.
+
+\paragraph{Complessit\`a e Inviluppi di McCormick:}
+Nel caso peggiore, l'algoritmo manifesta una complessit\`a esponenziale $\BigO{1/\varepsilon}$, corrispondente al frazionamento esaustivo dello spazio continuo.
+Nei problemi non lineari non convessi generali (MINLP), la costruzione automatica dei sottostimatori convessi $\underline{f}$ viene effettuata dai solutori moderni decomponendo la funzione in un grafo computazionale di operazioni elementari e sostituendo ciascun operatore con i rispettivi \textbf{inviluppi convessi e concavi di McCormick}.
+
+\FloatBarrier
+\section{Quadro Sinottico Comparativo degli Algoritmi Trattati}
+\label{sec:univariata-quadro-sinottico}
+
+\begin{table}[htbp]
+\centering
+\caption{Quadro sinottico comparativo degli algoritmi di ottimizzazione univariata.}
+\label{tab:univariate-optimization-comparison}
+\vspace{4pt}
+\renewcommand{\arraystretch}{1.3}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{} l c c c p{6.5cm} @{}}
+\toprule
+\textbf{Algoritmo} & \textbf{Oracolo} & \textbf{Ordine e Convergenza} & \textbf{Garanzia} & \textbf{Limitazioni Principali} \\
+\midrule
+\textbf{Dicotomia (DS)}     & $f'$                       & $p = 1$ ($r = 0.5$)               & Coerciva            & Scarta l'entit\`a $|f'|$; contrazione puramente lineare lenta. \\
+\textbf{Interp.~Quadratica} & $f'(x_1), f'(x_2)$         & $p \approx 1.618$ ($\varphi$)     & Con $\sigma$        & Parabola distorta (\textit{skewed}); richiede bracket valido. \\
+\textbf{Interp.~Cubica}     & $f, f'$ ($2$ pt)           & $p = 2$ (quadratico)              & Con $\sigma$        & Algebra onerosa; selezione necessaria tra due radici. \\
+\textbf{Metodo di Newton}   & $f', f''$                  & $p = 2$ ($|e_{k+1}| \le M|e_k|^2$) & Locale ($I_\delta$) & Diverge se $f'' \approx 0$; pu\`o terminare su massimi locali. \\
+\textbf{Spatial B\&B}       & Sottostim.~$\underline{f}$ & Globale ($\BigO{1/\varepsilon}$)  & Globale             & Complessit\`a esponenziale nel caso pessimo generale. \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\section{Riepilogo e Conclusioni della Lezione}
+\label{sec:univariata-riepilogo-conclusioni}
+
+L'analisi dell'ottimizzazione univariata sviluppata nella lezione evidenzia quattro lezioni metodologiche cardine:
+\begin{enumerate}
+    \item \textbf{La gerarchia della regolarit\`a:} All'aumentare dell'ordine di derivabilit\`a sfruttabile dall'oracolo ($C^0 \to C^1 \to C^2$), l'efficienza della ricerca locale compie balzi asintotici qualitativi: dalla contrazione lineare ($p = 1$) della dicotomia cieca, alla convergenza superlineare ($p \approx 1.618$) dell'interpolazione quadratica, fino alla spettacolare convergenza quadratica ($p = 2$) del metodo di Newton.
+    \item \textbf{La mappa non \`e il territorio:} I modelli matematici osculatori (parabole, cubiche, rette tangenti) sono approssimazioni locali imperfette. Senza meccanismi espliciti di stabilizzazione e salvaguardia ($\sigma$-\textit{safeguard}, controlli di curvatura), l'ottimizzazione guidata dai modelli pu\`o degradare in stalli sublineari o divergenze numeriche catastrofiche.
+    \item \textbf{La convessit\`a come pietra angolare:} Nell'ottimizzazione locale, la non convessit\`a espone al rischio di convergenza verso massimi o selle e rende impossibile distinguere la qualit\`a dei bacini di attrazione. Nella convessit\`a, locale e globale coincidono.
+    \item \textbf{La ricerca globale certificata:} Quando la non convessit\`a \`e ineliminabile, lo Spatial Branch-and-Bound fornisce un quadro rigoroso ed elegante che sostituisce la scansione esaustiva cieca con una ricerca guidata da sottostimatori convessi e potature sistematiche.
+\end{enumerate}
