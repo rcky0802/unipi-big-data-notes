@@ -72,28 +72,29 @@ The preview is updated after each successful compilation.
 Algorithm-Engineering/
 ├── .vscode/
 │   └── tasks.json              # Ctrl+Shift+B build task
-├── assets/                     # Images and graphical resources
-├── chapters/                   # Notes chapters
-│   └── 01-algorithm-design-and-memory-hierarchy.tex
+├── assets/                     # Immagini e grafici
+├── chapters/                   # Capitoli della dispensa
+│   └── it/                     # Capitoli in italiano (.tex)
 ├── config/
-│   └── preamble.tex            # Packages and shared configuration
-├── .gitignore                  # Unversioned artifacts
-├── main.tex                    # Entry point
-├── references.bib              # Bibliographic sources
-└── README.md                   # This guide
+│   └── preamble_it.tex         # Pacchetti e configurazione condivisa
+├── .gitignore                  # File esclusi da Git
+├── main.tex                    # Entry point rapido
+├── main_it.tex                 # Entry point principale della dispensa
+├── references.bib              # Fonti bibliografiche
+└── README.md                   # Guida della dispensa
 ```
 
-## Adding a Chapter
+## Aggiunta di un Capitolo
 
-1. Create a new file in `chapters/`, for example `02-data-structures.tex`.
-2. Write its content using `\chapter{...}`.
-3. Add it to `main.tex`:
+1. Crea un nuovo file in `chapters/it/`, ad esempio `12-nuovo-capitolo.tex`.
+2. Scrivi il contenuto usando `\chapter{...}`.
+3. Includilo in `main_it.tex`:
 
    ```latex
-   \include{chapters/02-data-structures}
+   \include{chapters/it/12-nuovo-capitolo}
    ```
 
-Common packages and environments should be added to [config/preamble.tex](config/preamble.tex), not to individual chapters.
+I pacchetti comuni e gli ambienti devono essere definiti in [config/preamble_it.tex](config/preamble_it.tex), non nei singoli capitoli.
 
 ### Figures and Graphs
 

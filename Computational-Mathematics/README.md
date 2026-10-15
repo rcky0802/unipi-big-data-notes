@@ -2,7 +2,7 @@
 
 > 📍 *Parte dell'hub documentale unificato degli appunti universitari: [Visualizza Hub Principale](../README.md)*
 
-Appunti universitari in LaTeX per il corso di **Computational Mathematics for Learning and Data Analysis** (Anno Accademico 2026/2027), strutturati in capitoli bilingue modulari e compilabili sia tramite Docker sia in ambiente locale.
+Appunti universitari in LaTeX per il corso di **Computational Mathematics for Learning and Data Analysis** (Anno Accademico 2026/2027), strutturati in capitoli modulari e compilabili sia tramite Docker sia in ambiente locale.
 
 ## Prerequisiti
 
@@ -16,21 +16,14 @@ Per la compilazione locale sono consigliati:
 Dalla radice del repository è possibile compilare la dispensa con lo script unificato PowerShell:
 
 ```powershell
-# Compila entrambe le edizioni (Italiano e Inglese)
+# Compila la dispensa in italiano
 .\scripts\build.ps1 -Subject "Computational-Mathematics"
-
-# Compila solo l'edizione Italiana
-.\scripts\build.ps1 -Subject "Computational-Mathematics" -Lang IT
-
-# Compila solo l'edizione Inglese
-.\scripts\build.ps1 -Subject "Computational-Mathematics" -Lang EN
 ```
 
 Oppure direttamente all'interno della cartella `Computational-Mathematics` con `latexmk`:
 
 ```powershell
 latexmk -pdf -interaction=nonstopmode main_it.tex
-latexmk -pdf -interaction=nonstopmode main_en.tex
 ```
 
 ## Struttura della Cartella e Indice dei Capitoli
@@ -58,13 +51,10 @@ latexmk -pdf -interaction=nonstopmode main_en.tex
 Computational-Mathematics/
 ├── assets/                 # Figure, grafici vettoriali e schemi
 ├── chapters/
-│   ├── it/                 # Capitoli in italiano (.tex)
-│   └── en/                 # Capitoli in inglese speculari (.tex)
-├── config/                 # Preamboli bilingue
-│   ├── preamble_it.tex
-│   └── preamble_en.tex
+│   └── it/                 # Capitoli in italiano (.tex)
+├── config/
+│   └── preamble_it.tex     # Preambolo e configurazione pacchetti
 ├── main_it.tex             # Entry point compilazione italiano
-├── main_en.tex             # Entry point compilazione inglese
 ├── main.tex                # Entry point per editor VS Code
 ├── references.bib          # Bibliografia
 └── README.md               # Scheda descrittiva

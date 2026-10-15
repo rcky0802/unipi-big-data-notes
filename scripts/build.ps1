@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-    Sistema di compilazione intelligente e multilingua (IT/EN) per appunti universitari.
+    Sistema di compilazione intelligente per appunti universitari in italiano.
 .DESCRIPTION
-    Compila le dispense LaTeX in italiano e in inglese.
-    Rileva automaticamente le modifiche per lingua e materia, supporta
-    la selezione interattiva, la scelta della lingua e la sincronizzazione
+    Compila le dispense LaTeX in lingua italiana.
+    Rileva automaticamente le modifiche per materia, supporta
+    la selezione interattiva e la sincronizzazione
     dei PDF nella cartella 'pdf/'.
 .PARAMETER Subject
     Specifica il nome di una o più materie (es. "Algorithm-Engineering", "Data-Mining").
 .PARAMETER Lang
-    Specifica la lingua da compilare: "IT", "EN" o "ALL" (default: "ALL").
+    Specifica la lingua da compilare: "IT" (default: "IT").
 .PARAMETER All
-    Forza la compilazione di tutte le materie e lingue.
+    Forza la compilazione di tutte le materie.
 .PARAMETER Force
     Forza la ricompilazione anche se non sono rilevate modifiche.
 .PARAMETER Interactive
@@ -24,8 +24,8 @@ param(
     [Parameter(ParameterSetName = "Specific", Position = 0)]
     [string[]]$Subject,
 
-    [ValidateSet("IT", "EN", "ALL")]
-    [string]$Lang = "ALL",
+    [ValidateSet("IT")]
+    [string]$Lang = "IT",
 
     [Parameter(ParameterSetName = "All")]
     [switch]$All,
@@ -50,8 +50,7 @@ if ($DistributeToPdfFolder -and -not (Test-Path $pdfOutDir)) {
 # Rileva tutte le cartelle materia
 $availableSubjects = Get-ChildItem -Path $rootDir -Directory | Where-Object {
     (Test-Path (Join-Path $_.FullName "main.tex")) -or
-    (Test-Path (Join-Path $_.FullName "main_it.tex")) -or
-    (Test-Path (Join-Path $_.FullName "main_en.tex"))
+    (Test-Path (Join-Path $_.FullName "main_it.tex"))
 }
 
 if ($availableSubjects.Count -eq 0) {
@@ -144,7 +143,7 @@ function Test-TargetModified {
 
 # Costruzione lista target (Materia + Lingua)
 $targetsToProcess = @()
-$languagesToBuild = if ($Lang -eq "ALL") { @("IT", "EN") } else { @($Lang) }
+$languagesToBuild = @("IT")
 
 # Selezione materie
 $selectedDirs = $availableSubjects
@@ -162,7 +161,7 @@ if ($Subject -and $Subject.Count -gt 0) {
 # Gestione modalità interattiva
 if ($Interactive) {
     Write-Host "`n==================================================" -ForegroundColor Cyan
-    Write-Host "     SELEZIONE COMPILAZIONE APPUNTI (IT / EN)" -ForegroundColor Cyan
+    Write-Host "     SELEZIONE COMPILAZIONE APPUNTI (ITALIANO)" -ForegroundColor Cyan
     Write-Host "==================================================" -ForegroundColor Cyan
     Write-Host "Materie rilevate:" -ForegroundColor Yellow
     for ($i = 0; $i -lt $availableSubjects.Count; $i++) {
@@ -179,17 +178,6 @@ if ($Interactive) {
         if ($idx -ge 0 -and $idx -lt $availableSubjects.Count) {
             $selectedDirs = @($availableSubjects[$idx])
         }
-    }
-
-    Write-Host "`nLingua:" -ForegroundColor Yellow
-    Write-Host "  [1] Italiano (IT)"
-    Write-Host "  [2] Inglese (EN)"
-    Write-Host "  [3] Entrambe (IT + EN)"
-    $langChoice = Read-Host "Scegli lingua (1, 2, 3)"
-    switch ($langChoice) {
-        "1" { $languagesToBuild = @("IT") }
-        "2" { $languagesToBuild = @("EN") }
-        default { $languagesToBuild = @("IT", "EN") }
     }
 }
 
@@ -219,7 +207,7 @@ foreach ($dir in $selectedDirs) {
 }
 
 Write-Host "`n==================================================" -ForegroundColor Cyan
-Write-Host "   PIANO DI COMPILAZIONE MULTILINGUA" -ForegroundColor Cyan
+Write-Host "         PIANO DI COMPILAZIONE DISPENSE" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 if ($skippedPlan.Count -gt 0) {

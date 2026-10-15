@@ -30,7 +30,7 @@ During the first compilation, allow MiKTeX to install missing packages automatic
    code C:\path\to\Note\Information-Retrieval
    ```
 
-4. Open [main.tex](main.tex) (or [main_it.tex](main_it.tex) / [main_en.tex](main_en.tex)), the entry point for the notes.
+4. Open [main.tex](main.tex) (or [main_it.tex](main_it.tex)), the entry point for the notes.
 
 ## Compilation
 
@@ -40,23 +40,10 @@ You can compile using the repository unified build script from PowerShell:
 .\scripts\build.ps1 -Subject "Information-Retrieval"
 ```
 
-To compile only the Italian version:
-
-```powershell
-.\scripts\build.ps1 -Subject "Information-Retrieval" -Lang IT
-```
-
-To compile only the English version:
-
-```powershell
-.\scripts\build.ps1 -Subject "Information-Retrieval" -Lang EN
-```
-
 Or from within the `Information-Retrieval` folder with `latexmk`:
 
 ```powershell
 latexmk -pdf -interaction=nonstopmode main_it.tex
-latexmk -pdf -interaction=nonstopmode main_en.tex
 ```
 
 To remove generated auxiliary artifacts:
@@ -87,7 +74,7 @@ latexmk -c
   - Unranked evaluation (contingency table, Precision, Recall, $F_1$-score harmonic mean, weighted $F_\beta$).
   - Ranked evaluation (Precision@k, Recall@k, Average Precision, MAP macro-averaging, MRR for known-item search).
 
-- **Chapter 2: Efficiency on Modern CPU Architectures** *(Italian only)*
+- **Chapter 2: Efficiency on Modern CPU Architectures**
   - Memory hierarchy (L1/L2/L3/RAM), cache lines, spatial/temporal locality, hardware prefetchers.
   - Sequential scan vs. pointer-chasing benchmark (Rust) and cache-line-aware jumping.
   - 5-stage pipelining, latency vs. throughput, superscalar execution and execution ports.
@@ -136,3 +123,4 @@ latexmk -c
   - Query models and extensions: phrase queries via positional indexing ($2\times\text{--}3\times$ storage overhead), query expansion, semantic drift pathology ("Babbo Francesco" case study), and lexical stemming vs. runtime query expansion.
   - Query processing algorithmic formalization: Term-at-a-Time (TAAT, horizontal sequential scan, memory accumulator overhead) vs. Document-at-a-Time (DAAT, vertical synchronous pointer merge, minimal top-$k$ heap footprint, native dynamic early pruning via WAND).
   - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration, and dedicated vector search engines (Qdrant).
+

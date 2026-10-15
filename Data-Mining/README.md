@@ -73,21 +73,22 @@ Data-Mining/
 ├── .vscode/
 │   └── tasks.json              # Ctrl+Shift+B build task
 ├── assets/                     # Images and graphical resources
-├── chapters/                   # Notes chapters (bilingual: it / en)
-│   ├── en/
-│   │   ├── 01-introduction-to-data-mining.tex
-│   │   ├── 02-data-understanding-types-statistics.tex
-│   │   ├── 03-data-understanding-multivariate-outliers.tex
-│   │   ├── 04-data-preparation-cleaning.tex
-│   │   └── 05-python-lab-du-dp.tex
+├── chapters/                   # Capitoli della dispensa
 │   └── it/
 │       ├── 01-introduction-to-data-mining.tex
 │       ├── 02-data-understanding-types-statistics.tex
 │       ├── 03-data-understanding-multivariate-outliers.tex
 │       ├── 04-data-preparation-cleaning.tex
-│       └── 05-python-lab-du-dp.tex
+│       ├── 05-python-lab-du-dp.tex
+│       ├── 06-similarity-clustering-foundations.tex
+│       ├── 07-clustering-kmeans-hierarchical.tex
+│       ├── 08-clustering-density-dbscan.tex
+│       ├── 09-kmeans-variants-bic-em.tex
+│       ├── 10-cluster-validity.tex
+│       ├── 11-association-analysis.tex
+│       └── 12-sequential-pattern-mining.tex
 ├── config/
-│   └── preamble.tex            # Packages and shared configuration
+│   └── preamble_it.tex         # Pacchetti e configurazione condivisa
 ├── datasets/                   # Sample datasets
 ├── notebooks/                  # Interactive Jupyter notebooks & figure scripts
 │   ├── README.md               # Guide to notebooks environment
