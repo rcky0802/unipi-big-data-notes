@@ -1,4 +1,4 @@
-# Computational Mathematics for Learning and Data Analysis Notes
+# Appunti di Computational Mathematics for Learning and Data Analysis
 
 > 📍 *Parte dell'hub documentale unificato degli appunti universitari: [Visualizza Hub Principale](../README.md)*
 
@@ -24,6 +24,12 @@ Oppure direttamente all'interno della cartella `Computational-Mathematics` con `
 
 ```powershell
 latexmk -pdf -interaction=nonstopmode main_it.tex
+```
+
+Per rimuovere i file ausiliari di compilazione:
+
+```powershell
+latexmk -c
 ```
 
 ## Struttura della Cartella e Indice dei Capitoli
@@ -54,8 +60,15 @@ Computational-Mathematics/
 │   └── it/                 # Capitoli in italiano (.tex)
 ├── config/
 │   └── preamble_it.tex     # Preambolo e configurazione pacchetti
-├── main_it.tex             # Entry point compilazione italiano
+├── main_it.tex             # Entry point principale per la compilazione
 ├── main.tex                # Entry point per editor VS Code
 ├── references.bib          # Bibliografia
-└── README.md               # Scheda descrittiva
+└── README.md               # Scheda descrittiva del corso
 ```
+
+## Linee Guida per i Capitoli e le Figure
+
+1. Ogni capitolo è un file autonomo incluso in `main_it.tex` tramite `\include{chapters/it/...}`.
+2. Figure ed equazioni devono avere `\caption` descrittive e `\label` per la navigazione interna, richiamate nel testo con `\autoref{...}`.
+3. Configurazioni globali, pacchetti e macro matematiche vanno collocati esclusivamente in `config/preamble_it.tex`.
+

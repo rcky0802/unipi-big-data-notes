@@ -1,141 +1,77 @@
-# Data Mining Notes
+# Appunti di Data Mining
 
 > 📍 *Parte dell'hub documentale unificato degli appunti universitari: [Visualizza Hub Principale](../README.md)*
 
-University notes in LaTeX, organized into separate chapters and compiled directly from Visual Studio Code (Academic Year 2026/2027).
+Appunti universitari in LaTeX per il corso di **Data Mining** (Anno Accademico 2026/2027), strutturati in capitoli modulari e compilabili sia tramite Docker sia in ambiente locale.
 
-## Prerequisites
+## Prerequisiti
 
-Install the following tools:
+Per la compilazione locale sono consigliati:
+1. [Visual Studio Code](https://code.visualstudio.com/) con estensione [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+2. Una distribuzione LaTeX (es. [MiKTeX](https://miktex.org/download) su Windows con `latexmk`)
+3. Oppure semplicemente [Docker Desktop](https://www.docker.com/products/docker-desktop) sfruttando il container unificato del repository.
 
-1. [Visual Studio Code](https://code.visualstudio.com/)
-2. A LaTeX distribution, preferably [MiKTeX](https://miktex.org/download)
-3. `latexmk`, usually included with MiKTeX
-4. The VS Code extension [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+## Compilazione
 
-During the first compilation, allow MiKTeX to install missing packages automatically. Alternatively, open **MiKTeX Console**, run the updates, and verify that automatic package installation is enabled.
-
-## Opening the Project
-
-1. Clone or download the repository.
-2. Open the `Data-Mining` folder in VS Code, not just the `main.tex` file:
-
-   ```powershell
-   code C:\percorso\Data-Mining
-   ```
-
-3. Open [main.tex](main.tex), the entry point for the notes.
-
-## Compilation
-
-The build task is defined in [.vscode/tasks.json](.vscode/tasks.json) and is the default VS Code build task.
-
-Press:
-
-```text
-Ctrl+Shift+B
-```
-
-The task runs:
+Dalla radice del repository è possibile compilare la dispensa con lo script unificato PowerShell:
 
 ```powershell
-latexmk -pdf -interaction=nonstopmode main.tex
+# Compila la dispensa in italiano
+.\scripts\build.ps1 -Subject "Data-Mining"
 ```
 
-The PDF is generated in the repository root as `main.pdf`, together with the LaTeX auxiliary files. These files are useful for local preview but are excluded from Git by [.gitignore](.gitignore).
-
-You can also compile from the integrated terminal:
+Oppure direttamente all'interno della cartella `Data-Mining` con `latexmk`:
 
 ```powershell
-latexmk -pdf -interaction=nonstopmode main.tex
+latexmk -pdf -interaction=nonstopmode main_it.tex
 ```
 
-To remove generated artifacts:
+Per rimuovere i file ausiliari di compilazione:
 
 ```powershell
 latexmk -c
 ```
 
-## PDF Preview
+## Struttura della Cartella e Indice dei Capitoli
 
-With LaTeX Workshop:
-
-1. Open `main.tex`.
-2. Press `Ctrl+Shift+B` to compile.
-3. Open the **TEX** panel in the sidebar and choose the PDF viewer, or run **LaTeX Workshop: View LaTeX PDF** from the Command Palette (`Ctrl+Shift+P`).
-
-The preview is updated after each successful compilation.
-
-## Project Structure
+- **Capitolo 1:** Introduzione al Data Mining e il Processo KDD (`01`)
+- **Capitolo 2:** Data Understanding I: Tipologie di Dati, Attributi e Statistica Descrittiva (`02`)
+- **Capitolo 3:** Data Understanding II: Analisi Multivariata, Correlazione e Rilevamento Outliers (`03`)
+- **Capitolo 4:** Data Preparation & Cleaning: Riduzione, Discretizzazione e Trasformazione (`04`)
+- **Capitolo 5:** Laboratorio Python: Data Understanding e Data Preparation (`05`)
+- **Capitolo 6:** Misure di Prossimità, Teoria dell'Informazione e Cluster Analysis (`06`)
+- **Capitolo 7:** Cluster Analysis: Algoritmi K-Means e Clustering Gerarchico (`07`)
+- **Capitolo 8:** Cluster Analysis: Clustering Basato su Densità (DBSCAN) (`08`)
+- **Capitolo 9:** Varianti di K-Means, Criterio BIC, Modelli Mistura ed EM (`09`)
+- **Capitolo 10:** Validazione del Clustering: Misure, Teoria e Metodologie (`10`)
+- **Capitolo 11:** Analisi delle Associazioni: Concetti di Base e Algoritmi (`11`)
+- **Capitolo 12:** Sequential Pattern Mining: Modelli, Definizioni ed Esercizi (`12`)
 
 ```text
 Data-Mining/
-├── .vscode/
-│   └── tasks.json              # Ctrl+Shift+B build task
-├── assets/                     # Images and graphical resources
-├── chapters/                   # Capitoli della dispensa
-│   └── it/
-│       ├── 01-introduction-to-data-mining.tex
-│       ├── 02-data-understanding-types-statistics.tex
-│       ├── 03-data-understanding-multivariate-outliers.tex
-│       ├── 04-data-preparation-cleaning.tex
-│       ├── 05-python-lab-du-dp.tex
-│       ├── 06-similarity-clustering-foundations.tex
-│       ├── 07-clustering-kmeans-hierarchical.tex
-│       ├── 08-clustering-density-dbscan.tex
-│       ├── 09-kmeans-variants-bic-em.tex
-│       ├── 10-cluster-validity.tex
-│       ├── 11-association-analysis.tex
-│       └── 12-sequential-pattern-mining.tex
+├── assets/                 # Immagini, figure e schemi grafici
+├── chapters/
+│   └── it/                 # Capitoli in italiano (.tex)
 ├── config/
-│   └── preamble_it.tex         # Pacchetti e configurazione condivisa
-├── datasets/                   # Sample datasets
-├── notebooks/                  # Interactive Jupyter notebooks & figure scripts
-│   ├── README.md               # Guide to notebooks environment
-│   ├── requirements.txt        # Python dependencies
-│   ├── generate_dispensa_figures.py # Script for dispensa figures
-│   └── *.ipynb                 # Interactive Jupyter notebooks
-├── .gitignore                  # Unversioned artifacts
-├── main.tex                    # Entry point
-├── references.bib              # Bibliographic sources
-└── README.md                   # This guide
+│   └── preamble_it.tex     # Preambolo e configurazione pacchetti
+├── datasets/               # Dataset di esempio per le esercitazioni
+├── notebooks/              # Jupyter notebook interattivi e script figure
+│   ├── README.md           # Guida all'ambiente dei notebook
+│   ├── requirements.txt    # Dipendenze Python
+│   ├── generate_dispensa_figures.py # Script generazione figure
+│   └── *.ipynb             # Notebook interattivi
+├── main_it.tex             # Entry point principale per la compilazione
+├── main.tex                # Entry point per editor VS Code
+├── references.bib          # Bibliografia
+└── README.md               # Scheda descrittiva del corso
 ```
 
-## Python & Jupyter Notebooks
+## Ambiente Python & Jupyter Notebooks
 
-A dedicated environment is available in [notebooks/](notebooks/README.md) containing the interactive Jupyter lab notebooks for data understanding, EDA, feature engineering, and dimensionality reduction, as well as the vector figure generator for the lecture notes.
+All'interno della cartella [notebooks/](notebooks/README.md) è disponibile l'ambiente dedicato contenente i Jupyter notebook per il data understanding, l'analisi esplorativa (EDA), la preparazione dati e gli algoritmi di clustering, oltre agli script di generazione per le figure vettoriali incluse nella dispensa.
 
-## Adding a Chapter
+## Linee Guida per i Capitoli e le Figure
 
-1. Create a new file in `chapters/`, for example `02-data-preprocessing.tex`.
-2. Write its content using `\chapter{...}`.
-3. Add it to `main.tex`:
-
-   ```latex
-   \include{chapters/02-data-preprocessing}
-   ```
-
-Common packages and environments should be added to [config/preamble.tex](config/preamble.tex), not to individual chapters.
-
-### Figures and Graphs
-
-Every image or graph must include:
-
-1. A descriptive `\caption`.
-2. A `\label` for internal navigation.
-3. A sentence in the surrounding text that refers to the resource with
-   `\autoref{...}`.
-
-## Common Problems
-
-### `latexmk` is not found
-
-Close and reopen VS Code after installing MiKTeX. If the problem persists, verify that MiKTeX's `bin` directory is in the Windows `PATH`, then restart the integrated terminal.
-
-### Missing LaTeX package
-
-Open MiKTeX Console, run **Check for updates** and **Update now**, then try compiling again. Also check that automatic package installation is enabled.
-
-### The PDF is not updated
-
-Save the `.tex` file, run `Ctrl+Shift+B` again, and check the **OUTPUT** panel in LaTeX Workshop. Compilation errors are also reported in the integrated terminal.
+1. Ogni capitolo è un file autonomo incluso in `main_it.tex` tramite `\include{chapters/it/...}`.
+2. Figure ed equazioni devono avere `\caption` descrittive e `\label` per la navigazione interna, richiamate nel testo con `\autoref{...}`.
+3. Configurazioni globali, pacchetti e macro matematiche vanno collocati esclusivamente in `config/preamble_it.tex`.

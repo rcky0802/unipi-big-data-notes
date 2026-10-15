@@ -1,138 +1,134 @@
-# Information Retrieval Notes
+# Appunti di Information Retrieval
 
 > 📍 *Parte dell'hub documentale unificato degli appunti universitari: [Visualizza Hub Principale](../README.md)*
 
-University notes in LaTeX, organized into separate chapters and compiled directly from Visual Studio Code (Academic Year 2026/2027).
+Appunti universitari in LaTeX per il corso di **Information Retrieval** (Anno Accademico 2026/2027), strutturati in capitoli modulari e compilabili sia tramite Docker sia in ambiente locale.
 
-## Prerequisites
+## Prerequisiti
 
-Install the following tools:
+Per la compilazione locale sono consigliati:
+1. [Visual Studio Code](https://code.visualstudio.com/) con estensione [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+2. Una distribuzione LaTeX (es. [MiKTeX](https://miktex.org/download) su Windows con `latexmk`)
+3. Oppure semplicemente [Docker Desktop](https://www.docker.com/products/docker-desktop) sfruttando il container unificato del repository.
 
-1. [Visual Studio Code](https://code.visualstudio.com/)
-2. A LaTeX distribution, preferably [MiKTeX](https://miktex.org/download)
-3. `latexmk`, usually included with MiKTeX
-4. The VS Code extension [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+## Compilazione
 
-During the first compilation, allow MiKTeX to install missing packages automatically. Alternatively, open **MiKTeX Console**, run the updates, and verify that automatic package installation is enabled.
-
-## Opening the Project
-
-1. Clone or download the repository.
-2. Open the repository root folder in VS Code:
-
-   ```powershell
-   code C:\path\to\Note
-   ```
-
-3. Or open `Information-Retrieval` directly:
-
-   ```powershell
-   code C:\path\to\Note\Information-Retrieval
-   ```
-
-4. Open [main.tex](main.tex) (or [main_it.tex](main_it.tex)), the entry point for the notes.
-
-## Compilation
-
-You can compile using the repository unified build script from PowerShell:
+Dalla radice del repository è possibile compilare la dispensa con lo script unificato PowerShell:
 
 ```powershell
+# Compila la dispensa in italiano
 .\scripts\build.ps1 -Subject "Information-Retrieval"
 ```
 
-Or from within the `Information-Retrieval` folder with `latexmk`:
+Oppure direttamente all'interno della cartella `Information-Retrieval` con `latexmk`:
 
 ```powershell
 latexmk -pdf -interaction=nonstopmode main_it.tex
 ```
 
-To remove generated auxiliary artifacts:
+Per rimuovere i file ausiliari di compilazione:
 
 ```powershell
 latexmk -c
 ```
 
-## Chapters Overview
+## Struttura della Cartella e Indice dei Capitoli
 
-- **Chapter 0: Introduction and Architecture of Information Retrieval**
-  - IR definitions, motivations, IR vs. Data Retrieval (SQL/DBMS).
-  - The two fundamental goals: Effectiveness vs. Efficiency (pipelining, hazards, memory hierarchy, SIMD, parallel computing).
-  - Language properties (Zipf's law, Heaps' law), text preprocessing pipeline.
-  - Inverted Index structure, dictionary + posting lists, Merge Intersection algorithm.
-  - Index compression: Binary Interpolative Coding (recursive median range partitioning), LZ77 dictionary coding.
-  - Neural Information Retrieval: Interaction-based (Cross-Encoders) vs. Representation-based (Bi-Encoders).
-  - Embedding families: Dense single-vector, Dense multi-vector (ColBERT late interaction / MaxSim), Sparse single-vector (SPLADE).
-  - $k$-Approximate Nearest Neighbor Search ($k$-ANN, MIPS, TusKANNy).
+- **Capitolo 0: Introduzione e Architettura dell'Information Retrieval** (`00`)
+  - Definizioni e motivazioni dell'IR, confronto IR vs. Data Retrieval (SQL/DBMS).
+  - I due obiettivi fondamentali: Efficacia (*Effectiveness*) vs. Efficienza (*Efficiency*) (pipelining, hazard, gerarchia di memoria, SIMD, calcolo parallelo).
+  - Proprietà del linguaggio naturale (legge di Zipf, legge di Heaps), pipeline di text preprocessing.
+  - Struttura dell'Inverted Index: dizionario + posting list, algoritmo di Merge Intersection.
+  - Compressione dell'indice: Binary Interpolative Coding (partizionamento ricorsivo con mediana), codifica a dizionario LZ77.
+  - Neural Information Retrieval: Interaction-based (Cross-Encoder) vs. Representation-based (Bi-Encoder).
+  - Famiglie di embedding: Dense single-vector, Dense multi-vector (ColBERT late interaction / MaxSim), Sparse single-vector (SPLADE).
+  - Ricerca approssimata dei primi $k$ vicini ($k$-ANN, MIPS, TusKANNy).
 
-- **Chapter 1: Evaluation of Information Retrieval Systems**
-  - Evaluating search quality: efficiency, side services, intrinsic effectiveness.
-  - Measuring User Happiness: CTR, zero-click searches, conversions, retention, Dwell Time, paradigm shifts with LLMs.
-  - The Cranfield Paradigm (Cyril Cleverdon), benchmark test collections (corpus, queries, qrels).
-  - Combinatorial scale challenges, crowdsourcing trade-offs, TREC infrastructure.
-  - The Pooling technique, unjudged document assumptions, and pooling bias.
-  - Information need vs. surface query.
-  - Unranked evaluation (contingency table, Precision, Recall, $F_1$-score harmonic mean, weighted $F_\beta$).
-  - Ranked evaluation (Precision@k, Recall@k, Average Precision, MAP macro-averaging, MRR for known-item search).
+- **Capitolo 1: Valutazione dei Sistemi di Information Retrieval** (`01`)
+  - Valutazione della qualità di ricerca: efficienza, servizi accessori ed efficacia intrinseca.
+  - Misurare la soddisfazione dell'utente: CTR, ricerche a zero clic, conversioni, fidelizzazione, Dwell Time e impatto degli LLM.
+  - Il Paradigma di Cranfield (Cyril Cleverdon), collezioni di test benchmark (corpus, query, qrel).
+  - Sfide di scala combinatoria, trade-off del crowdsourcing, infrastruttura TREC.
+  - La tecnica di Pooling, assunzioni sui documenti non giudicati e pooling bias.
+  - Bisogno informativo (*information need*) vs. query superficiale.
+  - Valutazione non ordinata (tabelle di contingenza, Precisione, Richiamo, media armonica $F_1$, $F_\beta$ pesata).
+  - Valutazione ordinata (Precision@k, Recall@k, Average Precision, macro-averaging MAP, MRR per ricerche known-item).
 
-- **Chapter 2: Efficiency on Modern CPU Architectures**
-  - Memory hierarchy (L1/L2/L3/RAM), cache lines, spatial/temporal locality, hardware prefetchers.
-  - Sequential scan vs. pointer-chasing benchmark (Rust) and cache-line-aware jumping.
-  - 5-stage pipelining, latency vs. throughput, superscalar execution and execution ports.
-  - Structural hazards, RAW data hazards and dependency-chain interleaving.
-  - Control hazards, speculative execution, branch misprediction cost and branchless techniques.
+- **Capitolo 2: Efficienza su Architetture CPU Moderne** (`02`)
+  - Gerarchia di memoria (L1/L2/L3/RAM), linee di cache, località spaziale/temporale, prefetcher hardware.
+  - Scansione sequenziale vs. pointer-chasing: benchmark in Rust e salti allineati alle cache line.
+  - Pipeline a 5 stadi, latenza vs. throughput, esecuzione superscalare e porte di esecuzione.
+  - Hazard strutturali, data hazard RAW e interleaving di catene di dipendenza.
+  - Control hazard, esecuzione speculativa, costo del branch misprediction e tecniche branchless.
 
-- **Chapter 3: Natural Language Processing and Text Preprocessing**
-  - Graded relevance evaluation recap (CG, DCG, and query-dependent NDCG normalization rationale).
-  - Characteristics of natural language (ambiguity, world knowledge, temporal drift) and Zipf's law (least effort principle, hapax legomena, stop word trade-offs).
-  - Web data scraping pipeline with `urllib` and HTML stripping with `BeautifulSoup`.
-  - Text preprocessing pipeline: tokenization and sentence boundary disambiguation (`sent_tokenize`).
-  - Morphological normalization: heuristic Stemming (Porter) vs. syntax-aware Lemmatization (WordNet).
-  - Bag of Words (BoW) representations and the semantic collapse under compositional language.
-  - Subword and sequence enrichment: word $n$-grams (local syntax order) and character $n$-grams (typo tolerance).
+- **Capitolo 3: Natural Language Processing e Preprocessing del Testo** (`03`)
+  - Riepilogo della valutazione con rilevanza graduata (CG, DCG e normalizzazione query-dipendente NDCG).
+  - Caratteristiche del linguaggio naturale (ambiguità, conoscenza del mondo, deriva temporale) e legge di Zipf (principio del minimo sforzo, hapax legomena, trade-off sulle stop word).
+  - Pipeline di web scraping con `urllib` e rimozione dei tag HTML con `BeautifulSoup`.
+  - Pipeline di text preprocessing: tokenizzazione e disambiguazione dei confini di frase (`sent_tokenize`).
+  - Normalizzazione morfologica: Stemming euristico (Porter) vs. Lemmatizzazione basata su sintassi (WordNet).
+  - Rappresentazione Bag of Words (BoW) e perdita della semantica composizionale.
+  - Arricchimento a livello subword e sequenziale: $n$-grammi di parole (ordine sintattico locale) e $n$-grammi di caratteri (tolleranza agli errori di battitura).
 
-- **Chapter 4: Retrieval Models, Scoring, and TF-IDF Weighting**
-  - Text preprocessing recap and evolutionary timeline of IR (Statistical era, Link analysis/PageRank era, Neural/ML era).
-  - Exact Boolean retrieval model, specialist niches, and the "feast or famine" pathology.
-  - Ranked Retrieval foundations and free-text queries.
-  - Jaccard similarity coefficient, the "Ides of March" failure paradox, and its three structural limitations in IR.
-  - Term--document matrix representations (binary incidence vs. count matrix) and the syntactic inversion limit in Bag of Words.
-  - Sublinear logarithmic Term Frequency ($1 + \log_{10}(\text{tf})$), continuity offset, and damping curves.
-  - Document Frequency ($df_t$) vs. Collection Frequency ($cf_t$), term informativeness, and Inverse Document Frequency ($\text{idf}_t$).
-  - Effect of IDF on single-term vs. multi-term queries.
-  - Composite TF-IDF weighting and full chalkboard worked trace (Chiara, $N=806\,791$, raw vs. log-TF rebalancing).
-  - Real-valued TF-IDF weight matrix in $\mathbb{R}^{|V|}$.
+- **Capitolo 4: Modelli di Retrieval, Scoring e Ponderazione TF-IDF** (`04`)
+  - Ricapitolazione del preprocessing ed evoluzione storica dell'IR (era statistica, era link analysis/PageRank, era neurale/ML).
+  - Modello di retrieval booleano esatto, ambiti specialistici e patologia "feast or famine".
+  - Fondamenti di Ranked Retrieval e query a testo libero.
+  - Coefficiente di similarità di Jaccard, il paradosso di "Ides of March" e i tre limiti strutturali in IR.
+  - Matrice termine-documento (incidenza binaria vs. frequenze assolute) e limiti dell'inversione sintattica nel Bag of Words.
+  - Term Frequency sublineare logaritmica ($1 + \log_{10}(\text{tf})$), offset di continuità e curve di smorzamento.
+  - Document Frequency ($df_t$) vs. Collection Frequency ($cf_t$), informativa dei termini e Inverse Document Frequency ($\text{idf}_t$).
+  - Impatto dell'IDF su query a singolo termine vs. multi-termine.
+  - Ponderazione composita TF-IDF e traccia dettagliata su lavagna ($N=806\,791$, ribilanciamento raw vs. log-TF).
+  - Matrice di peso TF-IDF a valori reali in $\mathbb{R}^{|V|}$.
 
-- **Chapter 5: The Vector Space Model (VSM), SMART Notation, and Okapi BM25**
-  - Vector Space Model (VSM) geometric foundations and extreme vector sparsity.
-  - Why Euclidean distance fails in IR: the concatenated duplicate document experiment ($d' = d \circ d$) and direction vs. magnitude.
-  - Direction vs. magnitude, Cosine Similarity derivation, and $L_2$ length normalization onto the unit hypersphere.
-  - Offline/online decoupled computational architecture in production search engines.
-  - Full worked comparative case study across three classic novels (Jane Austen's *Sense and Sensibility* / *Pride and Prejudice* vs. Emily Brontë's *Wuthering Heights*).
-  - Standardized SMART notation taxonomy (`ddd.qqq`), the asymmetric `lnc.ltc` protocol, and full worked execution trace ($N=1\,000\,000$).
-  - Best Match 25 (Okapi BM25) probabilistic scoring: asymptotic term frequency saturation ($k_1$) and document length normalization ($b$).
-  - Integrated conceptual flowchart connecting text preprocessing, VSM, SMART notation, and Okapi BM25.
-  - Key review questions and transition to system architecture.
+- **Capitolo 5: Vector Space Model (VSM), Notazione SMART e Okapi BM25** (`05`)
+  - Fondamenti geometrici del Vector Space Model (VSM) ed estrema sparsità vettoriale.
+  - Inadeguatezza della distanza euclidea in IR: esperimento dei documenti concatenati duplicati ($d' = d \circ d$) e direzione vs. magnitudine.
+  - Cosine Similarity e normalizzazione vettoriale della lunghezza $L_2$ sull'ipersfera unitaria.
+  - Architettura computazionale disaccoppiata offline/online nei motori di ricerca in produzione.
+  - Caso di studio comparativo completo su romanzi classici (Jane Austen vs. Emily Brontë).
+  - Tassonomia standard della notazione SMART (`ddd.qqq`), protocollo asimmetrico `lnc.ltc` e traccia d'esecuzione completa ($N=1\,000\,000$).
+  - Scoring probabilistico Best Match 25 (Okapi BM25): saturazione asintotica della term frequency ($k_1$) e normalizzazione della lunghezza del documento ($b$).
+  - Diagramma di flusso concettuale integrato: preprocessing, VSM, notazione SMART e BM25.
 
-- **Chapter 6: Search Engine Architecture and Indexing**
-  - System architecture: offline ingestion/indexing pipeline vs. online latency-bounded query processing ($< 50\text{--}100\text{ ms}$).
-  - Two-Stage Retrieval Paradigm: first-stage high-throughput candidate extraction (BM25 over inverted lists) followed by second-stage complex machine-learned re-ranking (Learning-to-Rank / Transformer cross-encoders).
-  - Dot product formulation bridging classical lexical retrieval and dense neural retrieval.
-  - Term-document matrix sparsity ($> 99.99\%$ empty cells) and structural comparison: Forward Index (document-oriented) vs. Inverted Index (term-oriented static pruning).
-  - Inverted index physical layout: memory-resident lexicon, physical decoupling of strictly monotonic DocID streams ($d$-gaps integer compression) and unordered term frequency streams.
-  - Systems trade-off: compressed integers vs. precomputed floats under memory-bound architectural constraints.
-  - Query models and extensions: phrase queries via positional indexing ($2\times\text{--}3\times$ storage overhead), query expansion, semantic drift pathology ("Babbo Francesco" case study), and lexical stemming vs. runtime query expansion.
+- **Capitolo 6: Architettura del Motore di Ricerca e Indicizzazione** (`06`)
+  - Architettura di sistema: pipeline di ingestione/indicizzazione offline vs. elaborazione delle query online a bassa latenza ($< 50\text{--}100\text{ ms}$).
+  - Paradigma Two-Stage Retrieval: estrazione candidati ad alto throughput (BM25 su posting list) seguito da re-ranking neurale (Learning-to-Rank / Transformer cross-encoder).
+  - Formulazione del prodotto scalare come ponte tra retrieval lessicale classico e retrieval neurale denso.
+  - Sparsità della matrice termine-documento ($> 99.99\%$ celle vuote) e confronto strutturale: Forward Index (orientato ai documenti) vs. Inverted Index (potatura statica orientata ai termini).
+  - Layout fisico dell'indice invertito: dizionario residente in RAM, disaccoppiamento fisico tra stream monotoni di DocID (compressione $d$-gaps) e stream non ordinati di frequenze.
+  - Trade-off ingegneristici: interi compressi vs. float precalcolati sotto vincoli di memoria.
+  - Modelli ed estensioni di query: query di frase con indici posizionali, espansione di query, deriva semantica e stemming lessicale vs. espansione a runtime.
 
-- **Chapter 7: Query Processing: Traversal Algorithms and Skipping Efficiency**
-  - Inverted index statistical hierarchy: RAM-resident dictionary ($df_t$, $F_t$) and secondary-storage posting lists ($\langle \text{docID}, \text{tf} \rangle$).
-  - Systems trade-offs: why BM25 scores are not precomputed as floats (lossless integer compression, single-pass IDF locality in RAM, agile runtime ranking).
-  - Traversal paradigms: formal theory of Term-at-a-Time (TAAT horizontal scan) vs. Document-at-a-Time (DAAT vertical synchronous pointer merge) with Min-Heap top-$k$ queue and architectural TikZ schema.
-  - TAAT operational deep dive: step-by-step execution trace, accumulator data structures (DAT from gigabytes vs. Hash Table), hardware cache misses, and lack of skipping capability.
-  - DAAT for disjunctive queries (OR) with MergeSort-like multi-pointer merge ($\Theta(\sum |L_i|)$ computational cost) and DAAT for conjunctive queries (AND) base algorithm with unit-stepping bottleneck.
-  - Cursor interface on posting lists: 5 primitives (`first_t`, `next_t`, `nextGEQ_t`, `docId_t`, `position_t`).
-  - Why Galloping / Exponential search fails on compressed integer bitstreams ($d$-gaps).
-  - Industrial block partitioning ($k=64/128$) and skip pointers: skipping compressed blocks without decompression, Elias-Fano quasi-succinct encoding.
-  - Advanced algorithms with `nextGEQ`: optimized DAAT AND skipping (8-stage trace) and optimized TAAT AND with Shortest-to-Longest ordering heuristic (formal theorem and proof of monotonic cardinality reduction).
-  - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration (GPUs), and dedicated vector search engines (Qdrant).
-  - Final comparative synthesis table summarizing computational complexity, RAM footprint, and skipping capabilities.
+- **Capitolo 7: Elaborazione delle Query: Algoritmi di Scansione ed Efficienza con Skipping** (`07`)
+  - Gerarchia statistica dell'indice invertito: dizionario residente in RAM ($df_t$, $F_t$) e posting list su memoria secondaria ($\langle \text{docID}, \text{tf} \rangle$).
+  - Trade-off di sistema: motivazioni per cui i punteggi BM25 non sono precalcolati come float (compressione senza perdita, località dell'IDF in RAM, ranking agile a runtime).
+  - Paradigmi di scansione: teoria formale di Term-at-a-Time (TAAT) vs. Document-at-a-Time (DAAT) con coda Min-Heap per i top-$k$ e schema architetturale TikZ.
+  - Approfondimento operativo su TAAT: traccia d'esecuzione passo-passo, strutture accumulatori (DAT vs. Hash Table), cache miss hardware e impossibilità di skipping.
+  - DAAT per query disgiuntive (OR) con fusione multi-puntatore in stile MergeSort ($\Theta(\sum |L_i|)$) e DAAT base per query congiuntive (AND).
+  - Interfaccia a cursori sulle posting list: 5 primitive (`first_t`, `next_t`, `nextGEQ_t`, `docId_t`, `position_t`).
+  - Limiti della ricerca esponenziale (Galloping Search) su flussi di bit compressi ($d$-gaps).
+  - Partizionamento a blocchi industriali ($k=64/128$) e skip pointer: salto di blocchi compressi senza decompressione, codifica quasi-succinta Elias-Fano.
+  - Algoritmi avanzati con `nextGEQ`: DAAT AND con skipping ottimizzato (traccia a 8 stadi) e TAAT AND ottimizzato con euristica Shortest-to-Longest (teorema e dimostrazione di riduzione monotona della cardinalità).
+  - Applicazioni moderne nel retrieval neurale sparso (SPLADE), accelerazione hardware su GPU e vector search engine dedicati (Qdrant).
+  - Tabella comparativa di sintesi finale: complessità computazionale, ingombro in RAM e capacità di skipping.
 
+```text
+Information-Retrieval/
+├── assets/                 # Figure, grafici vettoriali e schemi TikZ
+├── chapters/
+│   └── it/                 # Capitoli in italiano (.tex)
+├── config/
+│   └── preamble_it.tex     # Preambolo e configurazione pacchetti
+├── main_it.tex             # Entry point principale per la compilazione
+├── main.tex                # Entry point per editor VS Code
+├── references.bib          # Bibliografia
+└── README.md               # Scheda descrittiva del corso
+```
 
+## Linee Guida per i Capitoli e le Figure
+
+1. Ogni capitolo è un file autonomo incluso in `main_it.tex` tramite `\include{chapters/it/...}`.
+2. Figure ed equazioni devono avere `\caption` descrittive e `\label` per la navigazione interna, richiamate nel testo con `\autoref{...}`.
+3. Configurazioni globali, pacchetti e macro matematiche vanno collocati esclusivamente in `config/preamble_it.tex`.

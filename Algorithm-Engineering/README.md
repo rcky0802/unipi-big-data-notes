@@ -1,120 +1,66 @@
-# Algorithm Engineering Notes
+# Appunti di Algorithm Engineering
 
 > 📍 *Parte dell'hub documentale unificato degli appunti universitari: [Visualizza Hub Principale](../README.md)*
 
-University notes in LaTeX, organized into separate chapters and compiled directly from Visual Studio Code (Academic Year 2026/2027).
+Appunti universitari in LaTeX per il corso di **Algorithm Engineering** (Anno Accademico 2026/2027), strutturati in capitoli modulari e compilabili sia tramite Docker sia in ambiente locale.
 
-## Prerequisites
+## Prerequisiti
 
-Install the following tools:
+Per la compilazione locale sono consigliati:
+1. [Visual Studio Code](https://code.visualstudio.com/) con estensione [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+2. Una distribuzione LaTeX (es. [MiKTeX](https://miktex.org/download) su Windows con `latexmk`)
+3. Oppure semplicemente [Docker Desktop](https://www.docker.com/products/docker-desktop) sfruttando il container unificato del repository.
 
-1. [Visual Studio Code](https://code.visualstudio.com/)
-2. A LaTeX distribution, preferably [MiKTeX](https://miktex.org/download)
-3. `latexmk`, usually included with MiKTeX
-4. The VS Code extension [LaTeX Workshop](https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop)
+## Compilazione
 
-During the first compilation, allow MiKTeX to install missing packages automatically. Alternatively, open **MiKTeX Console**, run the updates, and verify that automatic package installation is enabled.
-
-## Opening the Project
-
-1. Clone or download the repository.
-2. Open the `Algorithm-Engineering` folder in VS Code, not just the `main.tex` file:
-
-   ```powershell
-   code C:\percorso\Algorithm-Engineering
-   ```
-
-3. Open [main.tex](main.tex), the entry point for the notes.
-
-## Compilation
-
-The build task is defined in [.vscode/tasks.json](.vscode/tasks.json) and is the default VS Code build task.
-
-Press:
-
-```text
-Ctrl+Shift+B
-```
-
-The task runs:
+Dalla radice del repository è possibile compilare la dispensa con lo script unificato PowerShell:
 
 ```powershell
-latexmk -pdf -interaction=nonstopmode main.tex
+# Compila la dispensa in italiano
+.\scripts\build.ps1 -Subject "Algorithm-Engineering"
 ```
 
-The PDF is generated in the repository root as `main.pdf`, together with the LaTeX auxiliary files. These files are useful for local preview but are excluded from Git by [.gitignore](.gitignore).
-
-You can also compile from the integrated terminal:
+Oppure direttamente all'interno della cartella `Algorithm-Engineering` con `latexmk`:
 
 ```powershell
-latexmk -pdf -interaction=nonstopmode main.tex
+latexmk -pdf -interaction=nonstopmode main_it.tex
 ```
 
-To remove generated artifacts:
+Per rimuovere i file ausiliari di compilazione:
 
 ```powershell
 latexmk -c
 ```
 
-## PDF Preview
+## Struttura della Cartella e Indice dei Capitoli
 
-With LaTeX Workshop:
-
-1. Open `main.tex`.
-2. Press `Ctrl+Shift+B` to compile.
-3. Open the **TEX** panel in the sidebar and choose the PDF viewer, or run **LaTeX Workshop: View LaTeX PDF** from the Command Palette (`Ctrl+Shift+P`).
-
-The preview is updated after each successful compilation.
-
-## Project Structure
+- **Capitolo 1:** Progettazione di Algoritmi, Modelli Computazionali e Gerarchia di Memoria (`01`)
+- **Capitolo 2:** Accesso a Passi, B-Tree e Impatto della Paginazione Virtuale (`02`)
+- **Capitolo 3:** Permutazione, Ordinamento e Binary Merge Sort in Memoria Esterna (`03`)
+- **Capitolo 4:** Multiway Merge Sort, Snow Plow e Disk Striping (`04`)
+- **Capitolo 5:** Limiti Inferiori per l'Ordinamento, Quicksort Dual-Pivot e Bounded Quicksort (`05`)
+- **Capitolo 6:** Statistiche d'Ordine, Trade-off Multi-Pivot e Analisi Formale del Caso Medio di Quicksort (`06`)
+- **Capitolo 7:** Ordinamento Esterno (Distribution Sort), Over-Sampling e Fondamenti di Random Sampling (`07`)
+- **Capitolo 8:** Algoritmi di Random Sampling su Data Stream (`08`)
+- **Capitolo 9:** Strutture Dati Randomizzate: Il Problema del Dizionario e Skip List (`09`)
+- **Capitolo 10:** Alberi di Ricerca Randomizzati: Treap, Operazioni Dinamiche e Applicazioni Geometriche (`10`)
+- **Capitolo 11:** Algoritmi di Intersezione per Posting Lists nell'Information Retrieval (`11`)
 
 ```text
 Algorithm-Engineering/
-├── .vscode/
-│   └── tasks.json              # Ctrl+Shift+B build task
-├── assets/                     # Immagini e grafici
-├── chapters/                   # Capitoli della dispensa
-│   └── it/                     # Capitoli in italiano (.tex)
+├── assets/                 # Figure, grafici vettoriali e schemi TikZ
+├── chapters/
+│   └── it/                 # Capitoli in italiano (.tex)
 ├── config/
-│   └── preamble_it.tex         # Pacchetti e configurazione condivisa
-├── .gitignore                  # File esclusi da Git
-├── main.tex                    # Entry point rapido
-├── main_it.tex                 # Entry point principale della dispensa
-├── references.bib              # Fonti bibliografiche
-└── README.md                   # Guida della dispensa
+│   └── preamble_it.tex     # Preambolo e configurazione pacchetti
+├── main_it.tex             # Entry point principale per la compilazione
+├── main.tex                # Entry point per editor VS Code
+├── references.bib          # Bibliografia
+└── README.md               # Scheda descrittiva del corso
 ```
 
-## Aggiunta di un Capitolo
+## Linee Guida per i Capitoli e le Figure
 
-1. Crea un nuovo file in `chapters/it/`, ad esempio `12-nuovo-capitolo.tex`.
-2. Scrivi il contenuto usando `\chapter{...}`.
-3. Includilo in `main_it.tex`:
-
-   ```latex
-   \include{chapters/it/12-nuovo-capitolo}
-   ```
-
-I pacchetti comuni e gli ambienti devono essere definiti in [config/preamble_it.tex](config/preamble_it.tex), non nei singoli capitoli.
-
-### Figures and Graphs
-
-Every image or graph must include:
-
-1. A descriptive `\caption`.
-2. A `\label` for internal navigation.
-3. A sentence in the surrounding text that refers to the resource with
-   `\autoref{...}`.
-
-## Common Problems
-
-### `latexmk` is not found
-
-Close and reopen VS Code after installing MiKTeX. If the problem persists, verify that MiKTeX's `bin` directory is in the Windows `PATH`, then restart the integrated terminal.
-
-### Missing LaTeX package
-
-Open MiKTeX Console, run **Check for updates** and **Update now**, then try compiling again. Also check that automatic package installation is enabled.
-
-### The PDF is not updated
-
-Save the `.tex` file, run `Ctrl+Shift+B` again, and check the **OUTPUT** panel in LaTeX Workshop. Compilation errors are also reported in the integrated terminal.
+1. Ogni capitolo è un file autonomo incluso in `main_it.tex` tramite `\include{chapters/it/...}`.
+2. Figure ed equazioni devono avere `\caption` descrittive e `\label` per la navigazione interna, richiamate nel testo con `\autoref{...}`.
+3. Configurazioni globali, pacchetti e macro matematiche vanno collocati esclusivamente in `config/preamble_it.tex`.
