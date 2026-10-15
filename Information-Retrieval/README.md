@@ -113,7 +113,7 @@ latexmk -c
   - Integrated conceptual flowchart connecting text preprocessing, VSM, SMART notation, and Okapi BM25.
   - Key review questions and transition to system architecture.
 
-- **Chapter 6: Search Engine Architecture: Indexing and Query Processing**
+- **Chapter 6: Search Engine Architecture and Indexing**
   - System architecture: offline ingestion/indexing pipeline vs. online latency-bounded query processing ($< 50\text{--}100\text{ ms}$).
   - Two-Stage Retrieval Paradigm: first-stage high-throughput candidate extraction (BM25 over inverted lists) followed by second-stage complex machine-learned re-ranking (Learning-to-Rank / Transformer cross-encoders).
   - Dot product formulation bridging classical lexical retrieval and dense neural retrieval.
@@ -121,6 +121,18 @@ latexmk -c
   - Inverted index physical layout: memory-resident lexicon, physical decoupling of strictly monotonic DocID streams ($d$-gaps integer compression) and unordered term frequency streams.
   - Systems trade-off: compressed integers vs. precomputed floats under memory-bound architectural constraints.
   - Query models and extensions: phrase queries via positional indexing ($2\times\text{--}3\times$ storage overhead), query expansion, semantic drift pathology ("Babbo Francesco" case study), and lexical stemming vs. runtime query expansion.
-  - Query processing algorithmic formalization: Term-at-a-Time (TAAT, horizontal sequential scan, memory accumulator overhead) vs. Document-at-a-Time (DAAT, vertical synchronous pointer merge, minimal top-$k$ heap footprint, native dynamic early pruning via WAND).
-  - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration, and dedicated vector search engines (Qdrant).
+
+- **Chapter 7: Query Processing: Traversal Algorithms and Skipping Efficiency**
+  - Inverted index statistical hierarchy: RAM-resident dictionary ($df_t$, $F_t$) and secondary-storage posting lists ($\langle \text{docID}, \text{tf} \rangle$).
+  - Systems trade-offs: why BM25 scores are not precomputed as floats (lossless integer compression, single-pass IDF locality in RAM, agile runtime ranking).
+  - Traversal paradigms: formal theory of Term-at-a-Time (TAAT horizontal scan) vs. Document-at-a-Time (DAAT vertical synchronous pointer merge) with Min-Heap top-$k$ queue and architectural TikZ schema.
+  - TAAT operational deep dive: step-by-step execution trace, accumulator data structures (DAT from gigabytes vs. Hash Table), hardware cache misses, and lack of skipping capability.
+  - DAAT for disjunctive queries (OR) with MergeSort-like multi-pointer merge ($\Theta(\sum |L_i|)$ computational cost) and DAAT for conjunctive queries (AND) base algorithm with unit-stepping bottleneck.
+  - Cursor interface on posting lists: 5 primitives (`first_t`, `next_t`, `nextGEQ_t`, `docId_t`, `position_t`).
+  - Why Galloping / Exponential search fails on compressed integer bitstreams ($d$-gaps).
+  - Industrial block partitioning ($k=64/128$) and skip pointers: skipping compressed blocks without decompression, Elias-Fano quasi-succinct encoding.
+  - Advanced algorithms with `nextGEQ`: optimized DAAT AND skipping (8-stage trace) and optimized TAAT AND with Shortest-to-Longest ordering heuristic (formal theorem and proof of monotonic cardinality reduction).
+  - Modern applications in sparse neural retrieval (SPLADE), hardware tensor acceleration (GPUs), and dedicated vector search engines (Qdrant).
+  - Final comparative synthesis table summarizing computational complexity, RAM footprint, and skipping capabilities.
+
 

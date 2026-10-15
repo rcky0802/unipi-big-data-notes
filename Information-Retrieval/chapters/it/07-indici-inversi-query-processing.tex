@@ -1,0 +1,860 @@
+\chapter{Query Processing: Algoritmi di Scansione ed Efficienza di Salto}
+\label{chap:indici-inversi-query-processing}
+
+Nel Capitolo~\ref{chap:indicizzazione-query-processing} sono stati formalizzati i principi architetturali dei moderni motori di ricerca su larga scala: il paradigma di retrieval a due stadi, la risoluzione dell'estrema sparsit\`a della matrice termini--documenti tramite l'\textbf{Indice Inverso} (\textit{Inverted Index}) e il disaccoppiamento fisico tra stream monotoni dei DocID e stream statistici delle frequenze.
+
+In questo capitolo, seguendo la trattazione didattica e algoritmica del Prof. Rossano Venturini, l'attenzione trasla interamente sull'\textbf{esecuzione algoritmica online delle query}. Si approfondiscono:
+\begin{enumerate}
+    \item L'arricchimento statistico del dizionario e delle posting list ($df_t$ vs. $F_t$) e la motivazione fisica del payload compresso.
+    \item I due paradigmi cardine di attraversamento delle liste: \textbf{Term-at-a-Time (TAAT)} e \textbf{Document-at-a-Time (DAAT)}, corredati dai rispettivi schemi architetturali e pseudocodici formali con coda con priorit\`a (Min-Heap).
+    \item L'esecuzione dettagliata di TAAT (tracciamento passo-passo, strutture DAT vs. Hash Table e l'impatto critico dei \textit{cache misses} a livello hardware).
+    \item L'elaborazione DAAT per query disgiuntive (OR, modellate come unione sincronizzata in stile MergeSort con costo $\Theta(\sum |L_i|)$) e query congiuntive (AND base), evidenziando il collo di bottiglia del passo unitario.
+    \item L'\textbf{interfaccia a cursore} a 5 primitive, il fallimento della ricerca esponenziale su stream compressi ($d$-gaps) e l'architettura industriale di \textbf{skipping a blocchi} con Skip Pointers ed Elias-Fano.
+    \item Gli algoritmi avanzati con $\text{nextGEQ}$: l'intersezione DAAT AND a salti sincroni e l'intersezione TAAT AND con l'euristica \textbf{Shortest-to-Longest}, unita al teorema formale di monotonia decrescente della cardinalit\`a intermedia.
+    \item L'impatto sui sistemi moderni: \textbf{Sparse Neural Retrieval (SPLADE)}, acceleratori GPU e Vector Search Engines dedicati (Qdrant).
+    \item Il quadro sinottico comparativo finale che sintetizza complessit\`a temporali, impronta di memoria e capacit\`a di salto.
+\end{enumerate}
+
+\FloatBarrier
+\section{Anatomia Statistica dell'Indice Inverso: Dizionario e Posting Lists}
+\label{sec:modelli-indice-inverso}
+
+\subsection{Definizione e Componenti Architetturali}
+Come introdotto nella Sezione~\ref{sec:anatomia-compressione-indice}, l'\textbf{Indice Inverso} \`e la struttura dati associativa centrale per l'Information Retrieval: mappa ciascun termine del lessico all'insieme ordinato delle sue occorrenze nell'intera collezione. Si compone di due elementi fisici distinti:
+\begin{enumerate}
+    \item \textbf{Dizionario (Dictionary o Lexicon):} Memorizza l'elenco ordinato di tutti i termini distinti $\mathcal{V}$ della collezione assieme a metadati globali di frequenza e offset di puntamento alla memoria secondaria.
+    \item \textbf{Posting Lists (Liste delle Occorrenze):} Per ciascun termine $t \in \mathcal{V}$, una sequenza ordinata di record (detti \textit{postings}) che identificano i documenti in cui $t$ compare.
+\end{enumerate}
+
+\begin{example}[Costruzione dell'Indice Inverso Booleano]
+Si consideri una collezione elementare di $N = 3$ documenti testuali:
+\begin{itemize}
+    \item $d_1$: ``\textit{An inverted index is an index storing a mapping from terms to their occurrences in a set of documents.}''
+    \item $d_2$: ``\textit{The inverted index data structure is a central component of a typical search engine indexing algorithm.}''
+    \item $d_3$: ``\textit{The goal is to optimize the speed of the query: find the documents where a set of words occur.}''
+\end{itemize}
+Assegnati gli identificatori interi $d_1 \to 1$, $d_2 \to 2$, $d_3 \to 3$, le posting list per alcuni termini del vocabolario risultano:
+\begin{align*}
+\mathcal{L}(\text{\texttt{"a"}}) &= [1, 2, 3] \quad \text{\scriptsize (stopword ad altissima frequenza, tocca tutti i documenti)}, \\
+\mathcal{L}(\text{\texttt{"an"}}) &= [1], \\
+\mathcal{L}(\text{\texttt{"index"}}) &= [1, 2], \\
+\mathcal{L}(\text{\texttt{"inverted"}}) &= [1, 2], \\
+\mathcal{L}(\text{\texttt{"query"}}) &= [3].
+\end{align*}
+\end{example}
+
+\subsection{L'Invariante Fondamentale di Ordinamento dei docID}
+All'interno di ciascuna posting list, i docID sono \textbf{rigorosamente ordinati in senso strettamente crescente}:
+\begin{equation}
+\forall i < j, \quad \text{docID}_i < \text{docID}_j.
+\label{eq:ordinamento-invariante}
+\end{equation}
+Questa propriet\`a strutturale costituisce la precondizione algebrica indispensabile per eseguire l'unione (OR) e l'intersezione (AND) tra liste in tempo lineare o sublineare, evitando scansioni combinatorie esaustive.
+
+\subsection{Estensione per Modelli di Ranking: Statistiche di Dizionario e Posting}
+Nel recupero pesato (es. Okapi BM25 o TF-IDF), la semplice presenza binaria del termine non \`e sufficiente per calcolare la rilevanza. L'indice inverso memorizza statistiche strutturate su due livelli gerarchici:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    headerbox/.style={rectangle, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=3pt, minimum height=0.9cm},
+    colheader/.style={font=\scriptsize\bfseries, text=gray!80!black, align=center},
+    dictcell/.style={rectangle, draw=blue!70!black, fill=blue!5, minimum height=0.62cm, minimum width=2.1cm, text width=1.95cm, align=center, inner sep=1pt},
+    dfcell/.style={rectangle, draw=blue!70!black, fill=blue!5, minimum height=0.62cm, minimum width=0.85cm, align=center, inner sep=1pt},
+    ftcell/.style={rectangle, draw=blue!70!black, fill=blue!5, minimum height=0.62cm, minimum width=0.85cm, align=center, inner sep=1pt},
+    ptrcell/.style={rectangle, draw=blue!70!black, fill=blue!12, minimum height=0.62cm, minimum width=1.2cm, align=center, inner sep=0pt},
+    postcell/.style={rectangle, draw=teal!70!black, fill=teal!8, minimum height=0.62cm, minimum width=1.45cm, font=\small, align=center, inner sep=2pt},
+    arr/.style={-Stealth, thick, blue!80!black}
+]
+    % ==========================================
+    % COLONNA SINISTRA: DIZIONARIO (IN RAM)
+    % ==========================================
+    % Intestazione Macro-blocco RAM (due righe naturali senza sillabazione, centrata a x=2.95)
+    \node[headerbox, draw=blue!80!black, fill=blue!12, text=blue!90!black, text width=5.2cm] at (2.95, 4.05) {%
+        DIZIONARIO\\[2pt]%
+        {\footnotesize\normalfont\bfseries(Lessico $\mathcal{V}$ in RAM)}%
+    };
+    
+    % Intestazioni Colonne Dizionario (spaziature ampie e confortevoli)
+    \node[colheader] at (0.95, 3.0) {Termine $t$};
+    \node[colheader] at (2.40, 3.0) {$df_t$};
+    \node[colheader] at (3.35, 3.0) {$F_t$};
+    \node[colheader] at (4.70, 3.0) {Offset / Ptr};
+
+    % Riga 1: 'a'
+    \node[dictcell] (d1_term) at (0.95, 2.3) {\textbf{`a'}};
+    \node[dfcell]   (d1_df)   at (2.40, 2.3) {$3$};
+    \node[ftcell]   (d1_ft)   at (3.35, 2.3) {$4$};
+    \node[ptrcell]  (d1_ptr)  at (4.70, 2.3) {\raisebox{-0.5pt}{\scalebox{1.2}{$\bullet$}}};
+
+    % Riga 2: 'an'
+    \node[dictcell] (d2_term) at (0.95, 1.45) {\textbf{`an'}};
+    \node[dfcell]   (d2_df)   at (2.40, 1.45) {$1$};
+    \node[ftcell]   (d2_ft)   at (3.35, 1.45) {$2$};
+    \node[ptrcell]  (d2_ptr)  at (4.70, 1.45) {\raisebox{-0.5pt}{\scalebox{1.2}{$\bullet$}}};
+
+    % Riga 3: 'index'
+    \node[dictcell] (d3_term) at (0.95, 0.6) {\textbf{`index'}};
+    \node[dfcell]   (d3_df)   at (2.40, 0.6) {$2$};
+    \node[ftcell]   (d3_ft)   at (3.35, 0.6) {$3$};
+    \node[ptrcell]  (d3_ptr)  at (4.70, 0.6) {\raisebox{-0.5pt}{\scalebox{1.2}{$\bullet$}}};
+
+    % Riga 4: 'inverted'
+    \node[dictcell] (d4_term) at (0.95, -0.25) {\textbf{`inverted'}};
+    \node[dfcell]   (d4_df)   at (2.40, -0.25) {$2$};
+    \node[ftcell]   (d4_ft)   at (3.35, -0.25) {$2$};
+    \node[ptrcell]  (d4_ptr)  at (4.70, -0.25) {\raisebox{-0.5pt}{\scalebox{1.2}{$\bullet$}}};
+
+    % Riga 5: 'query'
+    \node[dictcell] (d5_term) at (0.95, -1.1) {\textbf{`query'}};
+    \node[dfcell]   (d5_df)   at (2.40, -1.1) {$1$};
+    \node[ftcell]   (d5_ft)   at (3.35, -1.1) {$1$};
+    \node[ptrcell]  (d5_ptr)  at (4.70, -1.1) {\raisebox{-0.5pt}{\scalebox{1.2}{$\bullet$}}};
+
+    % Riquadro tratteggiato RAM (6.5cm x 5.0cm, da y=3.35 a y=-1.65; ampio margine destro di 8mm)
+    \draw[blue!60!black, dashed, rounded corners=4pt, line width=0.7pt] (-0.3, 3.35) rectangle (6.2, -1.65);
+
+    % ==========================================
+    % COLONNA DESTRA: POSTING LISTS (SU DISCO)
+    % ==========================================
+    % Intestazione Macro-blocco Memoria Secondaria (due righe simmetriche, centrata a x=11.2)
+    \node[headerbox, draw=teal!80!black, fill=teal!12, text=teal!90!black, text width=5.2cm] at (11.2, 4.05) {%
+        POSTING LISTS\\[2pt]%
+        {\footnotesize\normalfont\bfseries(Memoria Secondaria)}%
+    };
+    
+    % Sottotitolo / Spiegazione formato tuple
+    \node[font=\scriptsize, text=gray!80!black] at (11.2, 3.0) {Segmenti di byte contigui: tuple $\langle \text{docID}, \text{tf} \rangle$};
+
+    % Array Lista 1 ('a'): 3 celle contigue
+    \node[postcell, anchor=west] (p1_1) at (8.6, 2.3) {$\langle 1, 1 \rangle$};
+    \node[postcell, anchor=west] (p1_2) at (p1_1.east) {$\langle 2, 2 \rangle$};
+    \node[postcell, anchor=west] (p1_3) at (p1_2.east) {$\langle 3, 1 \rangle$};
+
+    % Array Lista 2 ('an'): 1 cella
+    \node[postcell, anchor=west] (p2_1) at (8.6, 1.45) {$\langle 1, 2 \rangle$};
+
+    % Array Lista 3 ('index'): 2 celle contigue
+    \node[postcell, anchor=west] (p3_1) at (8.6, 0.6) {$\langle 1, 2 \rangle$};
+    \node[postcell, anchor=west] (p3_2) at (p3_1.east) {$\langle 2, 1 \rangle$};
+
+    % Array Lista 4 ('inverted'): 2 celle contigue
+    \node[postcell, anchor=west] (p4_1) at (8.6, -0.25) {$\langle 1, 1 \rangle$};
+    \node[postcell, anchor=west] (p4_2) at (p4_1.east) {$\langle 2, 1 \rangle$};
+
+    % Array Lista 5 ('query'): 1 cella
+    \node[postcell, anchor=west] (p5_1) at (8.6, -1.1) {$\langle 3, 1 \rangle$};
+
+    % Riquadro tratteggiato Memoria Secondaria (5.8cm x 5.0cm, coordinate verticali identiche da y=3.35 a y=-1.65)
+    \draw[teal!60!black, dashed, rounded corners=4pt, line width=0.7pt] (8.3, 3.35) rectangle (14.1, -1.65);
+
+    % ==========================================
+    % FRECCE DI PUNTAMENTO (OFFSET DA RAM A DISCO)
+    % ==========================================
+    \draw[arr] (d1_ptr.east) -- (p1_1.west);
+    \draw[arr] (d2_ptr.east) -- (p2_1.west);
+    \draw[arr] (d3_ptr.east) -- (p3_1.west);
+    \draw[arr] (d4_ptr.east) -- (p4_1.west);
+    \draw[arr] (d5_ptr.east) -- (p5_1.west);
+\end{tikzpicture}%
+}
+\caption{Organizzazione gerarchica dell'indice inverso per modelli pesati. A sinistra: il dizionario residente in RAM, ordinato lessicograficamente con statistiche aggregate ($df_t, F_t$) e campo offset/puntatore d'inizio lista. A destra: le posting list su memoria secondaria, strutturate come array contigui di byte (tuple $\langle \text{docID}, \text{tf} \rangle$) privi di puntatori di concatenazione interna.}
+\label{fig:struttura-indice-bm25}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Statistiche a livello di Dizionario (per ciascun termine $t$):}
+    \begin{itemize}
+        \item \textbf{Document Frequency ($df_t$):} il numero di documenti distinti contenenti almeno un'occorrenza di $t$. Corrisponde esattamente alla lunghezza (cardinalit\`a) della posting list $|\mathcal{L}(t)|$.
+        \item \textbf{Collection Frequency ($F_t$):} il numero complessivo di occorrenze del termine $t$ calcolato sull'intera collezione:
+        \begin{equation}
+        F_t = \sum_{d \in \mathcal{L}(t)} \text{tf}_{t,d}.
+        \end{equation}
+        Ad esempio, per il termine \texttt{"a"} si ha $df_{\text{"a"}} = 3$ e $F_{\text{"a"}} = 1 + 2 + 1 = 4$. Vale sempre la relazione d'ordine fondamentale:
+        \begin{equation}
+        F_t \ge df_t.
+        \end{equation}
+        L'uguaglianza $F_t = df_t$ si verifica se e solo se ciascun documento rilevante contiene il termine esattamente una volta ($\text{tf}_{t,d} = 1$).
+        \item \textbf{Puntatore / Offset d'Inizio ($\text{ptr}_t$):} l'indirizzo di memoria o l'offset in byte che indica il punto d'inizio della posting list del termine $t$ all'interno del file compresso su memoria secondaria.
+    \end{itemize}
+    \item \textbf{Statistiche a livello di Posting List (per ciascun documento $d$):}
+    \begin{itemize}
+        \item Viene memorizzata la \textbf{Term Frequency} locale $\text{tf}_{t,d}$, quantificando quante volte il termine compare nello specifico testo di $d$.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Trade-Off Architetturale: Perch\'e NON Memorizzare lo Score Precalcolato?}
+Come approfondito nell'analisi di sistema della Sezione~\ref{sec:anatomia-compressione-indice}, ci si potrebbe domandare: \textit{perch\'e memorizzare la frequenza intera $\text{tf}_{t,d}$ anzich\'e il punteggio finale gi\`a precalcolato (ad esempio lo score BM25 come float a 32 bit)?}
+
+La prassi industriale esclude la memorizzazione di punteggi float precomputati per tre ragioni fisiche e progettuali:
+\begin{enumerate}
+    \item \textbf{Comprimibilit\`a dei Tipi di Dato:} La frequenza locale $\text{tf}_{t,d}$ \`e un intero positivo strettamente delimitato, concentrato statisticamente su valori minimi ($1, 2, 3$). Gli interi piccoli si prestano a rapporti di compressione lossless eccezionali (scendendo a pochi bit per posting). Al contrario, un numero float a virgola mobile possiede una mantissa ad alta entropia, pressoch\'e incomprimibile.
+    \item \textbf{Localit\`a dell'IDF e Costo del Logaritmo:} Il calcolo dell'Inverse Document Frequency:
+    \begin{equation}
+    \text{IDF}(t) = \log \left( \frac{N - df_t + 0.5}{df_t + 0.5} \right)
+    \end{equation}
+    dipende unicamente dalla frequenza di documento $df_t$ e dalla taglia $N$ della collezione: esso \`e \textbf{costante per l'intero termine} e completamente indipendente dal documento $d$. \`E computazionalmente vantaggioso calcolare l'IDF \textbf{una sola volta online} all'arrivo della query leggendo $df_t$ dal dizionario (residente in RAM), anzich\'e duplicarlo o fonderlo in ciascuno dei milioni di posting su memoria secondaria.
+    \item \textbf{Flessibilit\`a e Modularit\`a del Ranking:} Congelare lo score finale nell'indice vincolerebbe il sistema ai parametri specifici adottati a build-time (ad es. $k_1 = 1.2, b = 0.75$). Modificare i parametri o testare nuove varianti richiederebbe la reindicizzazione integrale del Web. Memorizzare dati grezzi ($\text{tf}$ e lunghezze dei documenti) consente di variare liberamente la funzione di scoring a runtime.
+\end{enumerate}
+
+\FloatBarrier
+\section{Paradigmi di Scansione: TAAT vs. DAAT}
+\label{sec:taat-vs-daat}
+
+Individuate le posting list associate ai termini di query $q = \{t_1, t_2, \dots, t_m\}$, il motore deve scansionare i dati ed estrarre i primi $k$ documenti con punteggio pi\`u elevato per popolare una coda con priorit\`a (min-heap di dimensione fissa $k$). Esistono due paradigmi algoritmici fondamentali: \textbf{Term-at-a-Time (TAAT)} e \textbf{Document-at-a-Time (DAAT)}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    headerbox/.style={rectangle, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=4pt, minimum height=0.85cm},
+    pnode/.style={rectangle, draw=gray!70!black, fill=white, minimum height=0.62cm, minimum width=0.88cm, font=\footnotesize\bfseries, align=center, inner sep=3.5pt},
+    pnode_hi/.style={rectangle, draw=orange!90!black, fill=orange!22, minimum height=0.62cm, minimum width=0.88cm, font=\footnotesize\bfseries, align=center, inner sep=3.5pt},
+    accnode/.style={rectangle, draw=blue!70!black, fill=blue!6, minimum height=0.58cm, minimum width=0.88cm, align=center, inner sep=2pt},
+    heapnode/.style={rectangle, draw=teal!70!black, fill=teal!8, minimum height=0.58cm, minimum width=1.75cm, font=\scriptsize\bfseries, align=center, inner sep=2.5pt},
+    stepbadge/.style={circle, draw=blue!80!black, fill=blue!15, font=\tiny\bfseries, inner sep=1.5pt}
+]
+    % ========================================================
+    % MACRO-CARD SINISTRA: TERM-AT-A-TIME (TAAT)
+    % ========================================================
+    % Header Card TAAT
+    \node[headerbox, draw=blue!80!black, fill=blue!10, text=blue!90!black, minimum width=7.0cm, anchor=south] at (3.30, 4.40) {%
+        \textbf{Term-at-a-Time (TAAT)}\\[2pt]%
+        {\footnotesize\normalfont\bfseries(Scansione per Termine)}%
+    };
+
+    % Posting Lists TAAT (Allineate orizzontalmente)
+    % Riga 1: L(t_1)
+    \node[font=\footnotesize\bfseries, text=blue!90!black, anchor=east] at (0.90, 3.25) {$\mathcal{L}(t_1)$:};
+    \node[pnode] (t1_1) at (1.75, 3.25) {$[1]$};
+    \node[pnode] (t1_2) at (3.30, 3.25) {$[4]$};
+    \node[pnode] (t1_3) at (4.85, 3.25) {$[9]$};
+    \draw[-Stealth, gray!80!black, thick] (t1_1) -- (t1_2);
+    \draw[-Stealth, gray!80!black, thick] (t1_2) -- (t1_3);
+    \node[stepbadge] at (5.95, 3.25) {1$^\circ$};
+
+    % Riga 2: L(t_2)
+    \node[font=\footnotesize\bfseries, text=blue!90!black, anchor=east] at (0.90, 2.40) {$\mathcal{L}(t_2)$:};
+    \node[pnode] (t2_1) at (1.75, 2.40) {$[2]$};
+    \node[pnode] (t2_2) at (3.30, 2.40) {$[4]$};
+    \node[pnode] (t2_3) at (4.85, 2.40) {$[7]$};
+    \draw[-Stealth, gray!80!black, thick] (t2_1) -- (t2_2);
+    \draw[-Stealth, gray!80!black, thick] (t2_2) -- (t2_3);
+    \node[stepbadge] at (5.95, 2.40) {2$^\circ$};
+
+    % Riga 3: L(t_3)
+    \node[font=\footnotesize\bfseries, text=blue!90!black, anchor=east] at (0.90, 1.55) {$\mathcal{L}(t_3)$:};
+    \node[pnode] (t3_1) at (1.75, 1.55) {$[1]$};
+    \node[pnode] (t3_2) at (3.30, 1.55) {$[3]$};
+    \node[pnode] (t3_3) at (4.85, 1.55) {$[9]$};
+    \draw[-Stealth, gray!80!black, thick] (t3_1) -- (t3_2);
+    \draw[-Stealth, gray!80!black, thick] (t3_2) -- (t3_3);
+    \node[stepbadge] at (5.95, 1.55) {3$^\circ$};
+
+    % Frecce di passaggio sequenziale tra le liste
+    \draw[-Stealth, blue!70!black, dashed, thick] (5.95, 3.00) -- (5.95, 2.65);
+    \draw[-Stealth, blue!70!black, dashed, thick] (5.95, 2.15) -- (5.95, 1.80);
+
+    % Freccia di accumulo verso il basso con didascalia a lato (ampio respiro verticale)
+    \draw[-Stealth, blue!80!black, very thick] (3.30, 1.20) -- (3.30, 0.35);
+    \node[font=\tiny\bfseries, text=blue!80!black, anchor=west] at (3.55, 0.78) {Somma contributi};
+
+    % Titolo Struttura Accumulatori ben distanziato
+    \node[font=\footnotesize\bfseries, text=blue!90!black] at (3.30, 0.05) {Array di Accumulatori in RAM $A[\text{docID}]$};
+
+    % Celle Accumulatori (allineate a y=-0.75)
+    \node[accnode] at (0.80, -0.75) {\tiny Doc 1\\[1pt]\scriptsize $w_1$};
+    \node[accnode] at (1.80, -0.75) {\tiny Doc 2\\[1pt]\scriptsize $w_2$};
+    \node[accnode] at (2.80, -0.75) {\tiny Doc 3\\[1pt]\scriptsize $w_3$};
+    \node[accnode] at (3.80, -0.75) {\tiny Doc 4\\[1pt]\scriptsize $w_4$};
+    \node[accnode] at (4.80, -0.75) {\tiny Doc 7\\[1pt]\scriptsize $w_7$};
+    \node[accnode] at (5.80, -0.75) {\tiny Doc 9\\[1pt]\scriptsize $w_9$};
+
+    % Box Caratteristiche TAAT (altezza fissa 2.5cm per simmetria perfetta)
+    \node[draw=blue!50!black, fill=white, rounded corners=3pt, font=\scriptsize\raggedright, inner sep=6pt, text width=6.4cm, minimum height=2.5cm, anchor=north] at (3.30, -1.65) {%
+        \textbf{Propriet\`a del paradigma TAAT:}\\[3pt]%
+        $\bullet$ \textbf{Overhead RAM:} $\mathcal{O}(N)$ o $\mathcal{O}(|D_{\text{cand}}|)$ in memoria centrale\\%
+        $\bullet$ \textbf{Localit\`a I/O:} sequenziale per lista, sparsa in RAM\\%
+        $\bullet$ \textbf{Punteggio:} incompleto fino all'ultima posting list\\%
+        $\bullet$ \textbf{Top-$k$:} estrazione differita a fine query tramite Heap%
+    };
+
+    % ========================================================
+    % MACRO-CARD DESTRA: DOCUMENT-AT-A-TIME (DAAT)
+    % ========================================================
+    % Header Card DAAT
+    \node[headerbox, draw=teal!80!black, fill=teal!10, text=teal!90!black, minimum width=7.0cm, anchor=south] at (12.10, 4.40) {%
+        \mbox{\textbf{Document-at-a-Time (DAAT)}}\\[2pt]%
+        {\footnotesize\normalfont\bfseries(Scansione per Documento)}%
+    };
+
+    % Fascia sincronizzata verticale per d_min = 1
+    \draw[orange!90!black, thick, dashed, fill=orange!20, fill opacity=0.35, rounded corners=3pt] (10.00, 1.15) rectangle (11.10, 3.65);
+    \node[font=\scriptsize\bfseries, text=orange!90!black] at (10.55, 4.00) {$d_{\min} = 1$};
+
+    % Etichette L(t_i) spostate a sinistra (x=8.20) per netto respiro prima dei cursori
+    \node[font=\footnotesize\bfseries, text=teal!90!black, anchor=east] at (8.20, 3.25) {$\mathcal{L}(t_1)$:};
+    \node[font=\footnotesize\bfseries, text=teal!90!black, anchor=east] at (8.20, 2.40) {$\mathcal{L}(t_2)$:};
+    \node[font=\footnotesize\bfseries, text=teal!90!black, anchor=east] at (8.20, 1.55) {$\mathcal{L}(t_3)$:};
+
+    % Cursori attivi p_1, p_2, p_3 allineati sulla verticale x=9.75 con spazio pulito prima del box
+    \node[font=\scriptsize\bfseries, text=teal!90!black, anchor=east] at (9.75, 3.25) {$p_1 \to$};
+    \node[font=\scriptsize\bfseries, text=gray!70!black,  anchor=east] at (9.75, 2.40) {$p_2 \to$};
+    \node[font=\scriptsize\bfseries, text=teal!90!black, anchor=east] at (9.75, 1.55) {$p_3 \to$};
+
+    % Posting Lists DAAT (Stesse tuple ingrandite)
+    % Riga 1: L(t_1)
+    \node[pnode_hi] (d1_1) at (10.55, 3.25) {$[1]$};
+    \node[pnode]    (d1_2) at (12.10, 3.25) {$[4]$};
+    \node[pnode]    (d1_3) at (13.65, 3.25) {$[9]$};
+    \draw[-Stealth, gray!80!black, thick] (d1_1) -- (d1_2);
+    \draw[-Stealth, gray!80!black, thick] (d1_2) -- (d1_3);
+
+    % Riga 2: L(t_2)
+    \node[pnode] (d2_1) at (10.55, 2.40) {$[2]$};
+    \node[pnode] (d2_2) at (12.10, 2.40) {$[4]$};
+    \node[pnode] (d2_3) at (13.65, 2.40) {$[7]$};
+    \draw[-Stealth, gray!80!black, thick] (d2_1) -- (d2_2);
+    \draw[-Stealth, gray!80!black, thick] (d2_2) -- (d2_3);
+
+    % Riga 3: L(t_3)
+    \node[pnode_hi] (d3_1) at (10.55, 1.55) {$[1]$};
+    \node[pnode]    (d3_2) at (12.10, 1.55) {$[3]$};
+    \node[pnode]    (d3_3) at (13.65, 1.55) {$[9]$};
+    \draw[-Stealth, gray!80!black, thick] (d3_1) -- (d3_2);
+    \draw[-Stealth, gray!80!black, thick] (d3_2) -- (d3_3);
+
+    % Calcolo immediato dello score finale per d_min = 1 (freccia allungata e formula abbassata)
+    \draw[-Stealth, orange!90!black, very thick] (10.55, 1.15) -- (10.55, 0.65);
+    \node[font=\scriptsize\bfseries, text=orange!90!black, align=center] at (12.10, 0.45) {Score per $d_{\min}=1$: $\text{Score}(1, q) = w_{t_1, 1} + w_{t_3, 1}$};
+
+    % Freccia verso il Min-Heap con ampio respiro e didascalia a lato
+    \draw[-Stealth, teal!80!black, very thick] (12.10, 0.28) -- (12.10, -0.15);
+    \node[font=\tiny\bfseries, text=teal!80!black, anchor=west] at (12.25, 0.07) {push / inserimento};
+
+    % Titolo Min-Heap centrato con margine rispetto alle celle
+    \node[font=\footnotesize\bfseries, text=teal!90!black] at (12.10, -0.35) {Min-Heap Top-$k$ (dimensione fissa $k$)};
+
+    % Rappresentazione Min-Heap Top-k (distanziata dal titolo, cella 1 con riempimento arancione)
+    \node[heapnode, draw=orange!90!black, fill=orange!22] (h1) at (10.20, -0.90) {$\langle \text{Doc } 1, 4.2 \rangle$};
+    \node[heapnode] (h2) at (12.10, -0.90) {$\langle \text{Doc } 4, 3.8 \rangle$};
+    \node[heapnode] (h3) at (14.00, -0.90) {$\langle \text{Doc } 9, 2.1 \rangle$};
+
+    % Box Caratteristiche DAAT (altezza fissa 2.5cm per simmetria perfetta con TAAT)
+    \node[draw=teal!50!black, fill=white, rounded corners=3pt, font=\scriptsize\raggedright, inner sep=6pt, text width=6.4cm, minimum height=2.5cm, anchor=north] at (12.10, -1.65) {%
+        \textbf{Propriet\`a del paradigma DAAT:}\\[3pt]%
+        $\bullet$ \textbf{Overhead RAM:} $\mathcal{O}(k)$ fisso (decine di byte, $\ll N$)\\%
+        $\bullet$ \textbf{Localit\`a I/O:} multi-cursore sincrono, alta localit\`a RAM\\%
+        $\bullet$ \textbf{Punteggio:} calcolato e concluso subito su $d_{\min}$\\%
+        $\bullet$ \textbf{Top-$k$:} estrazione immediata e dynamic pruning (WAND)%
+    };
+\end{tikzpicture}%
+}
+\caption{Confronto visivo tra i paradigmi di scansione: Term-at-a-Time (scansione orizzontale termine per termine con accumulo parziale $\mathcal{O}(N)$ in RAM) vs. Document-at-a-Time (scansione verticale sincrona per documento $d_{\min}$ con calcolo immediato dello score finale e memorizzazione ristretta al Min-Heap Top-$k$ $\mathcal{O}(k)$).}
+\label{fig:taat-vs-daat}
+\end{figure}
+
+\subsection{La Strategia Term-at-a-Time (TAAT)}
+Nell'approccio TAAT, le posting list vengono elaborate in modo \textbf{sequenziale, una alla volta}:
+\begin{enumerate}
+    \item Viene allocata una struttura di \textbf{accumulatori} $A[\text{DocID}] \in \mathbb{R}$ (tabella hash o array denso indicizzato per $\text{DocID}$).
+    \item Il motore apre la posting list del primo termine $\mathcal{L}(t_1)$ e itera su tutti i suoi posting, calcolando il punteggio parziale e incrementando l'accumulatore corrispondente.
+    \item Conclusa $\mathcal{L}(t_1)$, si passa a $\mathcal{L}(t_2)$ sommando i nuovi contributi, procedendo fino all'ultima lista $\mathcal{L}(t_m)$.
+    \item Al termine, si estraggono i top-$k$ documenti scansionando la struttura degli accumulatori tramite un min-heap.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Term-at-a-Time (TAAT)}
+\label{alg:taat}
+\KwInput{Query $q = \{t_1, t_2, \dots, t_m\}$, Indice Invertito, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti per punteggio}
+
+$A \gets \text{InizializzaTabellaAccumulatori}()$ \tcp*{Mappa DocID $\to$ Score Parziale}
+
+\ForEach{termine $t_i \in q$}{
+    $\mathcal{L}_i \gets \text{RecuperaPostingList}(t_i)$\;
+    $\text{idf}_i \gets \text{CalcolaIDF}(t_i)$\;
+    \ForEach{$\langle d, \text{tf} \rangle \in \mathcal{L}_i$}{
+        $s_{\text{parz}} \gets \text{CalcolaContributo}(\text{tf}, \text{idf}_i)$\;
+        \eIf{$d \in A$}{
+            $A[d] \gets A[d] + s_{\text{parz}}$\;
+        }{
+            $A[d] \gets s_{\text{parz}}$\;
+        }
+    }
+}
+
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+\ForEach{coppia $(d, \text{score}) \in A$}{
+    \eIf{$H.\text{Dimensione}() < k$}{
+        $H.\text{Inserisci}(d, \text{score})$\;
+    }{
+        \If{$\text{score} > H.\text{MinimoPunteggio}()$}{
+            $H.\text{EstraiMinimo}()$\;
+            $H.\text{Inserisci}(d, \text{score})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\paragraph{Analisi prestazionale di TAAT:}
+\begin{itemize}
+    \item \textbf{Vantaggi:} Accesso strettamente sequenziale alla memoria. Ciascuna posting list viene letta come un blocco contiguo, massimizzando l'efficacia del prefetching hardware della CPU e la localit\`a di cache (Capitolo~\ref{chap:efficienza-cpu}).
+    \item \textbf{Svantaggi:} Footprint di memoria volatile elevatissimo. La tabella degli accumulatori deve contenere l'unione dei documenti di tutte le posting list: con termini ad alta Document Frequency, $A$ pu\`o coinvolgere decine di milioni di record. Inoltre, \`e impossibile effettuare il \textit{dynamic early pruning}, poich\'e uno score parziale basso potrebbe essere incrementato arbitrariamente dalle liste successive.
+\end{itemize}
+
+\subsection{La Strategia Document-at-a-Time (DAAT)}
+Nell'approccio DAAT, le posting list di tutti i termini di query vengono elaborate \textbf{simultaneamente e in parallelo}, operando come un merge multi-cursore:
+\begin{enumerate}
+    \item Viene posizionato un puntatore $p_i$ all'inizio di ciascuna lista $\mathcal{L}(t_i)$.
+    \item A ogni iterazione, il sistema determina il minimo identificatore corrente:
+    \begin{equation}
+    d_{\min} = \min_{i \in \{1, \dots, m\}} \{p_i.\text{CurrentDocID}()\}.
+    \end{equation}
+    \item Vengono identificati tutti i cursori posizionati su $d_{\min}$, calcolando immediatamente il \textbf{punteggio finale consolidato} del documento:
+    \begin{equation}
+    S(q, d_{\min}) = \sum_{i : p_i.\text{DocID} = d_{\min}} \text{ScoreTerm}(p_i.\text{TF}, t_i).
+    \end{equation}
+    \item Il punteggio definitivo viene confrontato all'istante con il Min-Heap di taglia $k$: se $S(q, d_{\min}) > H.\text{Minimo}()$, il documento entra nella Top-$k$ scalzando il vecchio minimo.
+    \item Tutti i cursori attestati su $d_{\min}$ avanzano al prossimo elemento.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Document-at-a-Time (DAAT)}
+\label{alg:daat}
+\KwInput{Query $q = \{t_1, t_2, \dots, t_m\}$, Indice Invertito, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti per punteggio}
+
+$\text{cursori} \gets \text{InizializzaCursoriPerOgniLista}(q)$\;
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+
+\While{$\text{EsistonoCursoriAttivi}(\text{cursori})$}{
+    $d_{\min} \gets \min \{p.\text{CurrentDocID}() \mid p \in \text{cursori} \land p.\text{\`EAttivo}()\}$\;
+    $\text{score}_{\text{tot}} \gets 0.0$\;
+    
+    \ForEach{$p \in \text{cursori}$}{
+        \If{$p.\text{\`EAttivo}() \land p.\text{CurrentDocID}() == d_{\min}$}{
+            $\text{score}_{\text{tot}} \gets \text{score}_{\text{tot}} + \text{CalcolaContributo}(p.\text{CurrentTF}(), p.\text{Termine}())$\;
+            $p.\text{Avanza}()$\;
+        }
+    }
+    
+    \tcp{Il documento è completo: inserimento immediato nell'heap}
+    \eIf{$H.\text{Dimensione}() < k$}{
+        $H.\text{Inserisci}(d_{\min}, \text{score}_{\text{tot}})$\;
+    }{
+        \If{$\text{score}_{\text{tot}} > H.\text{MinimoPunteggio}()$}{
+            $H.\text{EstraiMinimo}()$\;
+            $H.\text{Inserisci}(d_{\min}, \text{score}_{\text{tot}})$\;
+        }
+    }
+}
+\Return{$H$}\;
+\end{algorithm}
+
+\paragraph{Analisi prestazionale di DAAT:}
+\begin{itemize}
+    \item \textbf{Vantaggi:} Memoria di lavoro trascurabile ($\BigO{k}$ per il Min-Heap e $\BigO{m}$ per lo stato dei cursori), senza alcuna tabella intermedia di accumulo. Supporto nativo all'\textbf{Early Pruning dinamico}: conoscendo la soglia minima corrente dell'heap $\theta = H.\text{MinimoPunteggio}()$, algoritmi avanzati come \textbf{WAND} (\textit{Weak AND}) o \textbf{Block-Max WAND} possono stimare i limiti superiori (\textit{upper bounds}) di punteggio residuo e saltare a blocchi intere sequenze di posting che matematicamente non possono superare $\theta$, evitando decompressioni superflue.
+    \item \textbf{Svantaggi:} Accesso alla memoria frammentato su pi\`u stream contigui, con frequenti salti tra puntatori che riducono l'efficacia del caching rispetto alla lettura lineare di TAAT.
+\end{itemize}
+
+\FloatBarrier
+\section{Elaborazione Term-at-a-Time (TAAT) in Dettaglio}
+\label{sec:taat-dettaglio}
+
+\subsection{Tracciamento dell'Esecuzione di TAAT}
+Si consideri una query composta dai termini \texttt{"information"} e \texttt{"retrieval"}. Le posting list associate ai due vocaboli sono:
+\begin{align*}
+\mathcal{L}(\text{\texttt{"information"}}) &= [1, 5, 8, 11, 13, 20, 35, 40, 42], \\
+\mathcal{L}(\text{\texttt{"retrieval"}}) &= [1, 5, 6, 8, 11, 15, 17, 50, 60].
+\end{align*}
+
+\paragraph{Fase 1: Scansione completa della lista \texttt{"information"}.}
+Il puntatore scorre l'intera lista $\mathcal{L}(\text{\texttt{"information"}})$. Per ciascun identificatore incontrato, viene allocato o incrementato un accumulatore:
+\begin{align*}
+&A[1]=1, \quad A[5]=1, \quad A[8]=1, \quad A[11]=1, \quad A[13]=1, \\
+&A[20]=1, \quad A[35]=1, \quad A[40]=1, \quad A[42]=1.
+\end{align*}
+Lo stato parziale della tabella degli accumulatori conta 9 record.
+
+\paragraph{Fase 2: Scansione completa della lista \texttt{"retrieval"}.}
+Il motore passa alla seconda lista e aggiorna progressivamente la tabella:
+\begin{itemize}
+    \item docID 1: gi\`a presente $\implies A[1] \gets 1 + 1 = 2$.
+    \item docID 5: gi\`a presente $\implies A[5] \gets 1 + 1 = 2$.
+    \item docID 6: non presente $\implies$ viene creato l'accumulatore $A[6] \gets 1$.
+    \item docID 8: gi\`a presente $\implies A[8] \gets 1 + 1 = 2$.
+    \item docID 11: gi\`a presente $\implies A[11] \gets 1 + 1 = 2$.
+    \item docID 15, 17, 50, 60: non presenti $\implies$ vengono creati $A[15]=1, A[17]=1, A[50]=1, A[60]=1$.
+\end{itemize}
+
+\paragraph{Stato Finale degli Accumulatori e Risoluzione delle Query:}
+Al termine della scansione:
+\begin{itemize}
+    \item Documenti con punteggio $2$: $\{1, 5, 8, 11\}$.
+    \item Documenti con punteggio $1$: $\{6, 13, 15, 17, 20, 35, 40, 42, 50, 60\}$.
+\end{itemize}
+A seconda della semantica richiesta:
+\begin{itemize}
+    \item \textbf{Query Disgiuntiva (OR):} si restituiscono tutti i 14 documenti con $A[d] > 0$.
+    \item \textbf{Query Congiuntiva (AND):} si filtrano unicamente gli accumulatori il cui punteggio eguaglia il numero di termini della query ($A[d] == 2$), restituendo $\{1, 5, 8, 11\}$.
+    \item \textbf{Query con Negazione (\texttt{retrieval AND NOT information}):} durante la scansione della lista negata, gli accumulatori corrispondenti non vengono incrementati, ma azzerati o marcati con $-\infty$.
+    \item \textbf{Ranking Pesato (BM25):} l'operazione non esegue un semplice incremento $+1$, ma accumula il contributo reale:
+    \begin{equation}
+    A[d] \gets A[d] + \text{BM25\_weight}(t, d).
+    \end{equation}
+\end{itemize}
+
+\subsection{Strutture Dati per gli Accumulatori: DAT vs. Hash Table}
+Per implementare l'insieme degli accumulatori $A$, si considerano due alternative ingegneristiche:
+\begin{enumerate}
+    \item \textbf{Direct Access Table (DAT) / Array Diretto:} Si alloca un array contiguo di cardinalit\`a pari al numero totale di documenti della collezione: $A[0 \dots N-1]$, inizializzato a zero. L'accesso e l'aggiornamento avvengono in tempo $O(1)$ immediato: $A[d] \gets A[d] + w$.
+    \textit{Criticit\`a insormontabile:} Se $N = 10^9$ documenti, allocare un array da 4 o 8 GB di memoria RAM per ciascun thread concorrente di query \`e fisicamente insostenibile.
+    \item \textbf{Hash Table:} Memorizza unicamente le coppie $\langle \text{docID}, \text{score} \rangle$ relative ai documenti effettivamente intercettati dalle liste della query.
+    \textit{Criticit\`a:} Sebbene risparmi memoria teorica, la funzione di hashing disperde gli accessi casualmente nella RAM.
+\end{enumerate}
+
+\subsection{Vantaggi e Svantaggi Critici di TAAT}
+\begin{itemize}
+    \item \textbf{Pregi:} Semplicit\`a implementativa assoluta. Ciascuna posting list viene letta linearmente tramite la semplice primitiva elementare $\text{next}()$.
+    \item \textbf{Difetti Strutturali Gravi:}
+    \begin{enumerate}
+        \item \textbf{Inefficienza Catastrofica di Cache:} Come formalizzato nel Capitolo~\ref{chap:efficienza-cpu}, l'aggiornamento continuo degli accumulatori (sia su hash table sia su array sparsi) provoca accessi casuali alla memoria fisica (\textit{random memory jumps}). La CPU subisce continui \textbf{cache misses} a tutti i livelli (L1, L2, L3), degradando le prestazioni hardware.
+        \item \textbf{Impossibilit\`a di Salto (\textit{No Skipping}):} L'algoritmo \`e costretto a percorrere integralmente ciascuna lista. Anche per query selettive (AND), ogni elemento deve essere obbligatoriamente visitato per verificare se l'accumulatore esista gi\`a.
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\section{DAAT per Query Disgiuntive (OR) e Congiuntive (AND Base)}
+\label{sec:daat-or-and-base}
+
+\subsection{DAAT per Query Disgiuntive (OR): Unione Sincrona}
+Nelle query disgiuntive (OR), l'algoritmo DAAT opera facendo avanzare simultaneamente i cursori attestati sulle posting list, replicando l'algoritmo di unione a due puntatori del \textbf{MergeSort}:
+\begin{enumerate}
+    \item A ogni iterazione si confrontano i docID puntati dai cursori: $d_1 = p_1.\text{docID}()$ e $d_2 = p_2.\text{docID}()$.
+    \item Sia $m = \min(d_1, d_2)$:
+    \begin{itemize}
+        \item Se $d_1 == d_2$: entrambi i puntatori convergono sullo stesso documento. Si emette $m$ nei risultati (con il punteggio combinato) e \textbf{avanzano entrambi i cursori}.
+        \item Se $d_1 < d_2$: il minimo \`e $d_1$. Si emette $d_1$ nei risultati e \textbf{avanza solo il puntatore $p_1$}.
+        \item Se $d_2 < d_1$: il minimo \`e $d_2$. Si emette $d_2$ nei risultati e \textbf{avanza solo il puntatore $p_2$}.
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{Tracciamento Passo-Passo sull'Esempio di Lezione:}
+Applicando l'unione sincronizzata sulle liste di \texttt{"information"} e \texttt{"retrieval"}:
+\begin{itemize}
+    \item \textbf{Passo 1:} $p_1 \to 1$, $p_2 \to 1 \implies 1 == 1 \implies$ emette \textbf{1}. Avanzano entrambi ($p_1 \to 5$, $p_2 \to 5$).
+    \item \textbf{Passo 2:} $p_1 \to 5$, $p_2 \to 5 \implies 5 == 5 \implies$ emette \textbf{5}. Avanzano entrambi ($p_1 \to 8$, $p_2 \to 6$).
+    \item \textbf{Passo 3:} $p_1 \to 8$, $p_2 \to 6 \implies 6 < 8 \implies$ emette \textbf{6}. Avanza solo $p_2 \to 8$.
+    \item \textbf{Passo 4:} $p_1 \to 8$, $p_2 \to 8 \implies 8 == 8 \implies$ emette \textbf{8}. Avanzano entrambi ($p_1 \to 11$, $p_2 \to 11$).
+    \item \textbf{Passo 5:} $p_1 \to 11$, $p_2 \to 11 \implies 11 == 11 \implies$ emette \textbf{11}. Avanzano entrambi ($p_1 \to 13$, $p_2 \to 15$).
+    \item \textbf{Passo 6:} $p_1 \to 13$, $p_2 \to 15 \implies 13 < 15 \implies$ emette \textbf{13}. Avanza solo $p_1 \to 20$.
+\end{itemize}
+Il processo prosegue linearmente emettendo l'unione rigorosamente ordinata:
+\[
+\text{Results} = [1, 5, 6, 8, 11, 13, 15, 17, 20, 35, 40, 42, 50, 60].
+\]
+
+\paragraph{Costo Computazionale delle Query OR:}
+Il docente evidenzia la criticit\`a intrinseca: \textbf{"OR query is expensive! We touch all the postings!"} Poich\'e ogni documento presente in anche una sola lista fa parte del risultato, \`e matematicamente impossibile scartare elementi. Il costo temporale \`e vincolato alla somma delle lunghezze:
+\begin{equation}
+T_{\text{OR}} = \Theta \left( \sum_{i=1}^m |\mathcal{L}(t_i)| \right).
+\end{equation}
+
+\subsection{DAAT per Query Congiuntive (AND): Algoritmo Base}
+Nelle query congiuntive (AND), un documento appartiene al risultato \textbf{se e solo se compare in tutte le posting list}:
+\begin{equation}
+\text{Results} = \mathcal{L}(t_1) \cap \mathcal{L}(t_2) \cap \dots \cap \mathcal{L}(t_m).
+\end{equation}
+
+L'algoritmo elementare a due puntatori scandisce le liste a passi unitari:
+
+\begin{lstlisting}[style=pythoncode, caption={Algoritmo base di intersezione DAAT AND a due puntatori.}, label={lst:daat-and-base}]
+def intersect(p1, p2):
+    i = 0
+    j = 0
+    r = []
+    while i < len(p1) and j < len(p2):
+        if p1[i] == p2[j]:
+            r.append(p1[i])
+            i += 1
+            j += 1
+            continue
+        if p1[i] < p2[j]:
+            i += 1
+        else:
+            j += 1
+    return r
+\end{lstlisting}
+
+\paragraph{Limite di Inefficienza dell'Algoritmo Base:}
+Nell'Algoritmo~\ref{lst:daat-and-base}, ogni discrepanza ($p_1[i] \neq p_2[j]$) causa l'incremento di una sola posizione ($i \gets i+1$ oppure $j \gets j+1$). Se ad esempio $p_1[i] = 8$ e $p_2[j] = 100$, il puntatore $i$ avanzer\`a faticosamente provando $9, 10, 11 \dots$ fino a raggiungere $100$. L'algoritmo tocca ogni singolo elemento fino all'esaurimento della lista pi\`u corta, disperdendo l'opportunit\`a di compiere ampi salti in avanti.
+
+\FloatBarrier
+\section{La Primitiva di Salto `nextGEQ` e Strutture di Skipping}
+\label{sec:nextgeq-primitiva-skipping}
+
+\subsection{L'Interfaccia a Cursore su Posting List}
+Per consentire algoritmi di salto veloci, l'accesso a ciascuna posting list viene formalizzato tramite un'interfaccia a cursore dotata di 5 operazioni primitive:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l Y}
+\toprule
+\textbf{Primitiva} & \textbf{Semantica Operativa} \\
+\midrule
+$\text{\texttt{first\_t}}()$ & Inizializza o reimposta il cursore sul primo docID della lista (indice 0). \\
+\addlinespace
+$\text{\texttt{next\_t}}()$ & Avanza il puntatore di una singola posizione verso destra (passo unitario). \\
+\addlinespace
+$\text{\texttt{nextGEQ\_t}}(d)$ & Sposta istantaneamente il cursore in avanti fino al \textbf{primo docID maggiore o uguale a $d$}:\\
+& $\text{pos} = \min \{ p \mid \text{list}[p] \ge d \}$. Se nessun docID soddisfa la condizione, posiziona oltre la fine (EOF). \\
+\addlinespace
+$\text{\texttt{docId\_t}}()$ & Restituisce il valore numerico del docID attualmente puntato. \\
+\addlinespace
+$\text{\texttt{position\_t}}()$ & Restituisce l'indice ordinale corrente del cursore all'interno dell'array ($0, 1, 2 \dots$). \\
+\bottomrule
+\end{tabularx}
+\caption{Le 5 operazioni primitive dell'interfaccia a cursore su posting list.}
+\label{tab:primitive-posting-list}
+\end{table}
+
+\begin{remark}[Utilit\`a Architetturale di $\text{\texttt{position\_t}}()$]
+Nei motori reali, le frequenze $\text{tf}$ non sono interlacciate fisicamente con i docID, ma risiedono in uno stream parallelo disaccoppiato. Conoscere la posizione ordinale del cursore dei docID consente di accedere istantaneamente con costo $O(1)$ alla corrispondente frequenza locale nello stream parallelo.
+\end{remark}
+
+\subsection{Implementazione di `nextGEQ`: Galloping Search e Conflitto con la Compressione}
+Per implementare $\text{nextGEQ}(d)$, una prima strategia algoritmica teorica consiste nell'applicare la \textbf{Ricerca Esponenziale} (\textit{Exponential / Galloping Search}):
+\begin{enumerate}
+    \item A partire dalla posizione corrente, si testano salti a distanze crescenti secondo potenze di due:
+    \[
+    \text{distanza} \in \{2^0, 2^1, 2^2, 2^3, \dots\} = \{1, 2, 4, 8, 16, \dots\}.
+    \]
+    \item Non appena si individua una potenza $2^i$ per cui $\text{list}[\text{pos} + 2^i] \ge d$, il target \`e circoscritto nell'intervallo ristretto $[\text{pos} + 2^{i-1}, \text{pos} + 2^i]$.
+    \item All'interno di tale segmento limitato si esegue una classica ricerca dicotomica standard.
+    \item Su $t$ operazioni di salto lungo una lista di taglia $n$, il costo teorico \`e ottimale: $\Theta(t \log (n/t))$.
+\end{enumerate}
+
+\paragraph{Perch\'e la Ricerca Esponenziale Fallisce nei Sistemi Reali:}
+Il docente spiega un principio cardine dell'ingegneria del software per IR:
+\begin{itemize}
+    \item Le posting list occupano centinaia di gigabyte e \textbf{devono essere compresse} tramite differenziazione $d\text{-gaps}$ e codifiche a lunghezza di bit variabile (VByte, Simple9, PForDelta).
+    \item Gli algoritmi di compressione numerica producono flussi continui di bit che \textbf{non supportano l'accesso casuale} (\textit{random access}): per conoscere l'elemento alla posizione 100, il processore \`e costretto a decomprimere sequenzialmente tutti i 99 elementi precedenti!
+    \item Poich\'e la ricerca esponenziale richiede accessi casuali arbitrari, dover decomprimere dall'inizio a ogni salto vanifica qualunque beneficio algoritmico.
+\end{itemize}
+
+\subsection{La Soluzione Industriale: Partizionamento a Blocchi e Skip Pointers}
+Per conciliare skipping rapido e compressione, le posting list vengono suddivise offline in \textbf{blocchi contigui indipendenti} di dimensione prefissata $k$ (ad esempio $k = 64$ o $k = 128$ elementi):
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    headerbox/.style={rectangle, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=4pt, minimum height=0.85cm},
+    block/.style={rectangle, draw=blue!80!black, fill=blue!8, rounded corners=3pt, font=\scriptsize, minimum width=3.2cm, minimum height=1.15cm, align=center, inner sep=4pt},
+    skipnode/.style={rectangle, draw=orange!90!black, fill=orange!12, rounded corners=3pt, font=\scriptsize, minimum width=3.2cm, minimum height=0.85cm, align=center, inner sep=4pt},
+    arr_down/.style={-Stealth, very thick, orange!85!black},
+    arr_skip/.style={-Stealth, thick, dashed, red!85!black}
+]
+    % Titolo SKIP POINTERS (perfettamente centrato sull'ingombro delle 3 colonne con 5 mm di stacco)
+    \node[headerbox, draw=orange!90!black, fill=orange!15, text=orange!95!black, minimum width=15.2cm] (title) at (7.0, 3.65) {%
+        \textbf{SKIP POINTERS (Array indicizzato dei massimi di blocco)}%
+    };
+
+    % Skip Pointers (in alto a y = 2.25, spaziatura allargata a Delta x = 6.0 cm)
+    \node[skipnode] (s1) at (1.0, 2.25) {\textbf{\texttt{max\_docID}} = 85\\[2pt]Offset $\to$ Blocco 1};
+    \node[skipnode] (s2) at (7.0, 2.25) {\textbf{\texttt{max\_docID}} = 194\\[2pt]Offset $\to$ Blocco 2};
+    \node[skipnode] (s3) at (13.0, 2.25) {\textbf{\texttt{max\_docID}} = 340\\[2pt]Offset $\to$ Blocco 3};
+
+    % Frecce orizzontali di skipping tra i puntatori con etichette centrate nello spazio vuoto di 28 mm
+    \draw[arr_skip] (s1.east) -- node[above=2pt, font=\scriptsize\bfseries, text=red!85!black] {Salta se $d > 85$} (s2.west);
+    \draw[arr_skip] (s2.east) -- node[above=2pt, font=\scriptsize\bfseries, text=red!85!black] {Salta se $d > 194$} (s3.west);
+
+    % Blocchi compressi (in basso a y = 0.40)
+    \node[block] (b1) at (1.0, 0.40) {\textbf{Blocco 1 Compresso}\\[2pt]($k=128$ docIDs)\\[2pt]DocIDs $\in [1 \dots 85]$};
+    \node[block] (b2) at (7.0, 0.40) {\textbf{Blocco 2 Compresso}\\[2pt]($k=128$ docIDs)\\[2pt]DocIDs $\in [88 \dots 194]$};
+    \node[block] (b3) at (13.0, 0.40) {\textbf{Blocco 3 Compresso}\\[2pt]($k=128$ docIDs)\\[2pt]DocIDs $\in [199 \dots 340]$};
+
+    % Collegamenti verticali tra skip pointer e rispettivo blocco indirizzato
+    \draw[arr_down] (s1.south) -- (b1.north);
+    \draw[arr_down] (s2.south) -- (b2.north);
+    \draw[arr_down] (s3.south) -- (b3.north);
+
+\end{tikzpicture}%
+}
+\caption{Architettura di skipping a blocchi: gli skip pointers consentono di bypassare la decompressione di interi blocchi non contenenti il target cercato.}
+\label{fig:block-skipping-schema}
+\end{figure}
+
+\begin{itemize}
+    \item Ciascun blocco viene compresso e decompresso come \textbf{unit\`a atomica indipendente}.
+    \item In testa alla lista si memorizza un array di \textbf{Skip Pointers}, contenente per ogni blocco il valore massimo memorizzato ($\max\_docID$) e l'indirizzo dell'offset di memoria.
+    \item All'invocazione di $\text{nextGEQ}(d)$, il sistema scansiona unicamente gli skip pointers: finch\'e $\max\_docID < d$, l'intero blocco viene \textbf{completamente saltato senza essere decompresso}.
+    \item Non appena $\max\_docID \ge d$, il bersaglio risiede necessariamente nel blocco corrente: solo allora il motore decomprime quel singolo blocco di $k$ interi e vi esegue una ricerca lineare o dicotomica interna.
+    \item Nei motori moderni, gli stessi skip pointers vengono codificati in strutture quasi-succinte come la rappresentazione di \textbf{Elias-Fano}, che supporta nativamente l'istruzione hardware ad altissima velocit\`a di $\text{nextGEQ}$.
+\end{itemize}
+
+\FloatBarrier
+\section{Algoritmi di Intersezione Avanzati con `nextGEQ`}
+\label{sec:intersezioni-ottimizzate-nextgeq}
+
+\subsection{Algoritmo DAAT AND Ottimizzato con `nextGEQ`}
+Integrando la primitiva $\text{nextGEQ}$ nell'algoritmo di intersezione a due puntatori, i passi unitari lenti vengono sostituiti da salti istantanei:
+
+\begin{lstlisting}[style=pythoncode, caption={Intersezione DAAT AND ottimizzata con salti $\text{nextGEQ}$.}, label={lst:daat-and-nextgeq}]
+def intersect_nextGEQ(p1, p2):
+    i = 0
+    j = 0
+    r = []
+    while i < len(p1) and j < len(p2):
+        if p1[i] == p2[j]:
+            r.append(p1[i])
+            i += 1
+            j += 1
+            continue
+        if p1[i] < p2[j]:
+            i = p1.nextGEQ(p2[j])
+        else:
+            j = p2.nextGEQ(p1[i])
+    return r
+\end{lstlisting}
+
+\subsection{Tracciamento Passo-Passo con Skipping sull'Esempio di Lezione}
+Siano $p_1$ (\texttt{"information"}) e $p_2$ (\texttt{"retrieval"}):
+\begin{align*}
+p_1 &= [1, 5, 8, 11, 13, 20, 35, 40, 42], \\
+p_2 &= [1, 5, 6, 8, 11, 15, 17, 50, 60].
+\end{align*}
+
+\begin{enumerate}
+    \item \textbf{Stato Iniziale:} Cursori su $i=0, j=0$ ($p_1[0] = p_2[0] = 1$).
+    Match su \textbf{1}: si appende 1 a $r$. Si incrementa $i \gets 1, j \gets 1$.
+    \item \textbf{Passo 2:} $i = 1$ ($p_1[1] = 5$), $j = 1$ ($p_2[1] = 5$).
+    $p_1[1] == p_2[1] \implies$ \textbf{Match su 5}. Inserisce $5$ in $r$. Avanza $i \gets 2$, $j \gets 2$.
+    \item \textbf{Passo 3 (Primo Salto!):} $i = 2$ ($p_1[2] = 8$), $j = 2$ ($p_2[2] = 6$).
+    Poich\'e $p_1[2] > p_2[2]$ ($8 > 6$), si invoca:
+    \[
+    j \gets p_2.\text{nextGEQ}(p_1[i]) = p_2.\text{nextGEQ}(8).
+    \]
+    Il cursore $j$ \textbf{salta istantaneamente} all'indice 3 di $p_2$ (valore 8), bypassando il controllo su 6!
+    \item \textbf{Passo 4:} $i = 2$ ($p_1[2] = 8$), $j = 3$ ($p_2[3] = 8$).
+    $p_1[2] == p_2[3] \implies$ \textbf{Match su 8}. Inserisce $8$ in $r$. Avanza $i \gets 3$, $j \gets 4$.
+    \item \textbf{Passo 5:} $i = 3$ ($p_1[3] = 11$), $j = 4$ ($p_2[4] = 11$).
+    $p_1[3] == p_2[4] \implies$ \textbf{Match su 11}. Inserisce $11$ in $r$. Avanza $i \gets 4$, $j \gets 5$.
+    \item \textbf{Passo 6 (Secondo Salto!):} $i = 4$ ($p_1[4] = 13$), $j = 5$ ($p_2[5] = 15$).
+    Poich\'e $p_1[4] < p_2[5]$ ($13 < 15$), si invoca:
+    \[
+    i \gets p_1.\text{nextGEQ}(p_2[j]) = p_1.\text{nextGEQ}(15).
+    \]
+    Nella lista $p_1$, dopo 13 il primo elemento $\ge 15$ \`e \textbf{20} (indice 5). Il puntatore $i$ salta direttamente a 20!
+    \item \textbf{Passo 7 (Terzo Salto!):} $i = 5$ ($p_1[5] = 20$), $j = 5$ ($p_2[5] = 15$).
+    $20 > 15 \implies j \gets p_2.\text{nextGEQ}(20)$, atterrando su \textbf{50} (indice 7 di $p_2$).
+    \item \textbf{Terminazione:} Le liste si esauriscono senza ulteriori match. Risultato finale: $[1, 5, 8, 11]$.
+\end{enumerate}
+
+\begin{noteblock}{Confronto di Efficienza: AND vs. OR}
+La presenza della primitiva $\text{nextGEQ}$ rovescia radicalmente i rapporti di forza computazionali:
+\begin{center}
+\textit{``AND query is much more efficient than OR query because it skips a lot!''}
+\end{center}
+Mentre la query OR \`e vincolata a scansionare tutti i posting di tutte le liste ($\sum |L_i|$), la query AND sfrutta i disallineamenti tra insiemi per saltare intere porzioni di posting list non contenenti elementi comuni.
+\end{noteblock}
+
+\subsection{Algoritmo TAAT AND Ottimizzato: L'Euristica Shortest-to-Longest}
+Il docente affronta un quesito cruciale: \textit{\`E possibile sfruttare l'efficienza di $\text{nextGEQ}$ anche nel paradigma Term-at-a-Time (TAAT)?}
+
+La risposta \`e affermativa a patto di adottare l'euristica di \textbf{ordinamento preliminare per lunghezza crescente delle liste} (\textit{from shortest to longest}):
+\begin{enumerate}
+    \item Si consultano i valori $df_{t_i}$ registrati nel dizionario.
+    \item Si ordinano le posting list della query in ordine rigorosamente crescente di cardinalit\`a:
+    \begin{equation}
+    |\mathcal{L}_1| \le |\mathcal{L}_2| \le |\mathcal{L}_3| \le \dots \le |\mathcal{L}_m|.
+    \end{equation}
+    \item Si inizializza l'insieme soluzione temporaneo $R$ con la lista pi\`u corta in assoluto:
+    \begin{equation}
+    R \gets \mathcal{L}_1.
+    \end{equation}
+    \item Per ciascuna lista successiva $\mathcal{L}_i$ ($i = 2, \dots, m$), si filtrano gli elementi correnti di $R$: per ogni elemento $e \in R$, si esegue una ricerca mirata tramite salto:
+    \[
+    j \gets \mathcal{L}_i.\text{nextGEQ}(e).
+    \]
+    Se $\mathcal{L}_i[j] == e$, il documento sopravvive nel nuovo insieme provvisorio $R'$; se $\mathcal{L}_i[j] > e$, $e$ viene scartato definitivamente. Si aggiorna $R \gets R'$.
+\end{enumerate}
+
+\begin{lstlisting}[style=pythoncode, caption={Algoritmo TAAT AND ottimizzato con ordinamento Shortest-to-Longest e salti $\text{nextGEQ}$.}, label={lst:taat-and-nextgeq}]
+def intersect_nextGEQ_TAAT(term_lists):
+    # term_lists pre-ordinata per lunghezza crescente: |L1| <= |L2| <= ...
+    r = term_lists[0]
+    for cur_list in term_lists[1:]:
+        cur_r = []
+        for e in r:
+            j = cur_list.nextGEQ(e)
+            if j < len(cur_list) and e == cur_list[j]:
+                cur_r.append(e)
+        r = cur_r
+    return r
+\end{lstlisting}
+
+\subsection{Dimostrazione della Monotonia Decrescente e Limite di TAAT AND}
+
+\begin{theorem}[Monotonia Decrescente della Cardinalit\`a dei Risultati Intermedi]
+La dimensione dell'insieme temporaneo dei candidati $R$ \`e una sequenza debolmente monotona decrescente vincolata superiormente dalla cardinalit\`a della lista pi\`u corta:
+\begin{equation}
+|R_m| \le |R_{m-1}| \le \dots \le |R_1| \le |\mathcal{L}_1| = \min_{t \in q} |\mathcal{L}(t)|.
+\label{eq:monotonia-cardinalita}
+\end{equation}
+\end{theorem}
+\begin{proof}
+Per definizione di intersezione insiemistica, $R_i = R_{i-1} \cap \mathcal{L}_i \subseteq R_{i-1}$, da cui discende $|R_i| \le |R_{i-1}|$ per ogni passo $i \ge 2$. Poich\'e $R_1 = \mathcal{L}_1$, la dimensione massima \`e superiormente limitata da $|\mathcal{L}_1|$.
+\end{proof}
+
+\paragraph{Vantaggio Computazionale:}
+Iniziando dalla lista pi\`u corta, il numero massimo di iterazioni del ciclo esterno \`e limitato dal minimo possibile ($|\mathcal{L}_1|$). Sulle liste successive $\mathcal{L}_2, \mathcal{L}_3 \dots$ (che possono contenere milioni di documenti) \textbf{non viene effettuata alcuna scansione lineare}: ci si limita a eseguire al pi\`u $|R|$ chiamate $\text{nextGEQ}$, elidendo milioni di documenti irrilevanti a costo pressoch\'e nullo.
+
+\paragraph{Il Limite Strutturale di TAAT AND:}
+L'unico limite intrinseco di questa tecnica risiede nella natura dell'insieme intermedio $R$: esso viene generato dinamicamente al volo (\textit{online}) come un array temporaneo in RAM. Tale array non possiede indici di blocco o skip pointers: di conseguenza, \`e possibile eseguire chiamate $\text{nextGEQ}$ sulla lista della collezione $\mathcal{L}_i$ (che \`e statica e indicizzata), ma \textbf{non \`e possibile fare salti all'indietro sul risultato provvisorio} $R$. Ciononostante, l'euristica rende l'intersezione TAAT straordinariamente competitiva ed efficiente.
+
+\FloatBarrier
+\section{Rilevanza nei Motori Vettoriali e Sistemi Moderni (Vector Search)}
+\label{sec:sistemi-moderni-vector-search}
+
+Il dualismo tra TAAT e DAAT e le relative strategie di skipping non appartengono unicamente alla tradizione dell'IR classico, ma definiscono le architetture dei moderni sistemi di recupero neurale e geometrico:
+\begin{itemize}
+    \item \textbf{Sparse Neural Retrieval (es. SPLADE~\cite{formal2021}):} Quando modelli di deep learning predicono distribuzioni di pesi sparsi su vocabolari estesi, i motori riadattano indici invertiti processati con algoritmi DAAT potenziati da \textbf{WAND} (\textit{Weak AND}) o \textbf{Block-Max WAND}, saltando dinamicamente i blocchi il cui limite superiore (\textit{upper bound}) di punteggio non pu\`o superare la soglia minima corrente del Min-Heap.
+    \item \textbf{Acceleratori Tensoriali e GPU:} In ambienti basati su GPU, il paradigma TAAT torna fortemente competitivo per via dell'altissimo throughput garantito da operazioni vettoriali contigue su blocchi di memoria regolari, dove la latenza dei salti complessi di DAAT risulterebbe penalizzante per il parallelismo SIMD.
+    \item \textbf{Vector Search Engines Dedicati (es. Qdrant):} Motori di ricerca vettoriale moderni integrano indici invertiti di supporto per combinare filtri booleani e metadati con indici di prossimit\`a geometrica ($k$-ANN su grafi HNSW), riutilizzando i pattern di scansione DAAT/TAAT per garantire un'efficienza congiunta nel primo stadio di recupero.
+\end{itemize}
+
+\FloatBarrier
+\section{Quadro Sinottico Comparativo degli Algoritmi}
+\label{sec:quadro-sinottico-finale}
+
+A conclusione dell'analisi, la Tabella~\ref{tab:sinottico-algoritmi-ir} riassume le propriet\`a architetturali, i vincoli di memoria e le capacit\`a di salto dei paradigmi analizzati:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash\bfseries}p{2.5cm} >{\raggedright\arraybackslash\hsize=1.25\hsize}X >{\raggedright\arraybackslash\hsize=0.85\hsize}X >{\raggedright\arraybackslash\hsize=0.9\hsize}X}
+\toprule
+Algoritmo & Costo Computazionale & Occupazione RAM & Capacit\`a di Salto \\
+\midrule
+TAAT Base & $\Theta(\sum |\mathcal{L}_i|)$ & Elevata \newline ($\BigO{|\bigcup \mathcal{L}_i|}$) & \textbf{Nessuna:} scansione esaustiva obbligatoria. \\
+\addlinespace
+DAAT OR & $\Theta(\sum |\mathcal{L}_i|)$ & Minima \newline ($\BigO{k}$ per Top-$k$) & \textbf{Nessuna:} tutti i posting vengono toccati. \\
+\addlinespace
+DAAT AND Base & $\BigO{\sum |\mathcal{L}_i|}$ & Minima \newline ($\BigO{k}$ heap, $\BigO{m}$ cursori) & \textbf{Nessuna:} avanzamento a passi unitari $+1$. \\
+\addlinespace
+DAAT AND nextGEQ & Sublineare: \newline $\scalebox{0.9}{$\BigO{|\mathcal{L}_{\min}| \log \frac{|\mathcal{L}_{\max}|}{|\mathcal{L}_{\min}|}}$}$ & Minima \newline ($\BigO{k}$ heap, $\BigO{m}$ cursori) & \textbf{Eccellente:} salti bidirezionali sincroni su tutte le liste. \\
+\addlinespace
+TAAT AND nextGEQ & Sublineare: \newline $\BigO{|\mathcal{L}_1| + \sum_{i>1} c_i}$ \newline {\scriptsize con $c_i = |R_{i-1}| \log \frac{|\mathcal{L}_i|}{|R_{i-1}|}$} & Moderata \newline ($\BigO{|R|}$ array dinamico) & \textbf{Asimmetrica:} salti su $\mathcal{L}_i$, scansione su $R$. \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro sinottico comparativo degli algoritmi di scansione e intersezione in Information Retrieval.}
+\label{tab:sinottico-algoritmi-ir}
+\end{table}
