@@ -1,0 +1,1138 @@
+\chapter[Metodi Diretti per Sistemi Lineari e Fattorizzazione LU]{Metodi Diretti per Sistemi Lineari e Fattorizzazione LU:\\Algoritmi, Stabilit\`a Numerica e Pivoting}
+\label{chap:metodi-diretti-fattorizzazione-lu}
+
+Il presente capitolo sviluppa in modo organico e rigoroso la teoria dei \textbf{metodi diretti} per la risoluzione computazionale dei sistemi di equazioni lineari, costituendo uno dei pilastri fondamentali dell'algebra lineare numerica moderna~\cite{golub2013matrix,trefethen1997numerical}. Partendo dalla formulazione matriciale e dall'interpretazione geometrica dello spazio delle colonne e del nucleo, viene chiarita la ragione per cui nel calcolo scientifico \`e imperativo evitare il calcolo esplicito della matrice inversa. Vengono quindi analizzati in dettaglio i cosiddetti ``casi facili'' (matrici diagonali, triangolari inferiori con \textit{forward substitution}, triangolari superiori con \textit{backward substitution} e matrici ortogonali), dimostrando geometricamente la complessit\`a quadratica della sostituzione triangolare.
+
+La trattazione prosegue con il confronto metodologico tra solutori diretti e iterativi, per poi formalizzare la \textbf{fattorizzazione $LU$} classica e la sua derivazione costruttiva mediante matrici elementari di Gauss. Vengono quindi sviscerate le due grandi patologie dell'eliminazione gaussiana ingenua: il fallimento per pivot nullo e la catastrofica perdita di cifre significative dovuta all'amplificazione degli errori di arrotondamento in presenza di pivot vicini a zero. Si introduce cos\`i la tecnica del \textbf{pivoting parziale} ($PA = LU$), formalizzandone le propriet\`a algebriche, la backward stability e l'algoritmo operativo. Il capitolo si conclude con l'analisi della risoluzione di sistemi lineari mediante decomposizioni alternative precedentemente introdotte ($QR$ ed SVD) e con un'anticipazione sui sistemi simmetrici definiti positivi (fattorizzazioni $LDL^T$ e Cholesky).
+
+\FloatBarrier
+\section{Definizione di Sistema Lineare e Geometria delle Soluzioni}
+\label{sec:def-sistema-lineare-geometria}
+
+\subsection{Formulazione Algebrica Compatta}
+Un sistema di $m$ equazioni lineari in $n$ incognite a coefficienti reali si esprime in forma matriciale compatta come:
+\begin{equation}
+    Ax = b,
+    \label{eq:sistema-lineare-generale}
+\end{equation}
+in cui:
+\begin{itemize}
+    \item $A \in \R^{m \times n}$ \`e la matrice dei coefficienti del sistema, nota;
+    \item $b \in \R^m$ \`e il vettore dei termini noti, noto;
+    \item $x \in \R^n$ \`e il vettore delle incognite da determinare.
+\end{itemize}
+
+Risolvere il sistema~\eqref{eq:sistema-lineare-generale} equivale a caratterizzare la totalit\`a dei vettori $x \in \R^n$ che rendono vera l'uguaglianza vettoriale.
+
+\subsection{Interpretazione Algebrico-Geometrica: Combinazione Lineare di Colonne}
+Esprimendo la matrice $A$ per colonne, ovvero denotando con $a_j \in \R^m$ la $j$-esima colonna di $A$ per $j = 1, \dots, n$:
+\begin{equation}
+    A = \begin{bmatrix}
+        \vert & \vert & & \vert \\
+        a_1 & a_2 & \dots & a_n \\
+        \vert & \vert & & \vert
+    \end{bmatrix}, \qquad
+    x = \begin{bmatrix}
+        x_1 \\ x_2 \\ \vdots \\ x_n
+    \end{bmatrix},
+\end{equation}
+l'operazione di moltiplicazione matrice-vettore si traduce identicamente nella combinazione lineare:
+\begin{equation}
+    Ax = \sum_{j=1}^n x_j a_j = x_1 a_1 + x_2 a_2 + \dots + x_n a_n.
+    \label{eq:combinazione-lineare-colonne}
+\end{equation}
+
+\begin{property}[Interpretazione Geometrica di Compatibilit\`a]
+La risoluzione di $Ax = b$ equivale a determinare i coefficienti scalari $x_1, \dots, x_n \in \R$ tali che la combinazione lineare delle colonne di $A$ riproduca esattamente il vettore $b$. Ne conseguono le seguenti tre situazioni mutualmente esclusive:
+\begin{enumerate}
+    \item \textbf{Sistema Incompatibile (Nessuna soluzione):} Il vettore $b$ non appartiene allo spazio generato dalle colonne di $A$:
+    \begin{equation}
+        b \notin \mathrm{Range}(A) \equiv \spanop(a_1, a_2, \dots, a_n).
+    \end{equation}
+    \item \textbf{Sistema Compatibile Indeterminato (Infinite soluzioni):} Il vettore appartiene all'immagine ($b \in \mathrm{Range}(A)$), ma le colonne di $A$ sono linearmente dipendenti, ovvero il nucleo di $A$ non \`e degenere:
+    \begin{equation}
+        \dim(\ker(A)) = n - \rank(A) > 0.
+    \end{equation}
+    \item \textbf{Sistema Compatibile Determinato (Soluzione unica):} Il vettore appartiene all'immagine ($b \in \mathrm{Range}(A)$) e le colonne di $A$ sono linearmente indipendenti, ovvero $\ker(A) = \{0\}$.
+\end{enumerate}
+\end{property}
+
+\subsection{Esempi Notabili: Struttura del Nucleo e Compatibilit\`a}
+
+\begin{example}[Sistema Indeterminato con Infinite Soluzioni]
+\label{ex:infinite-soluzioni}
+Si consideri la matrice $A \in \R^{4 \times 3}$ e il vettore $b \in \R^4$ definiti da:
+\begin{equation}
+    A = \begin{bmatrix}
+        2 & 0 & 1 \\
+        0 & 1 & 1 \\
+        0 & 0 & 0 \\
+        0 & 0 & 0
+    \end{bmatrix}, \qquad
+    b = \begin{bmatrix}
+        4 \\ 4 \\ 0 \\ 0
+    \end{bmatrix}.
+\end{equation}
+Il vettore delle incognite $x$ deve necessariamente appartenere a $\R^3$ ($n = 3$, pari al numero di colonne di $A$). Esaminando il sistema per componenti:
+\begin{equation}
+    \begin{cases}
+        2x_1 + x_3 = 4 \\
+        x_2 + x_3 = 4 \\
+        0 = 0 \\
+        0 = 0
+    \end{cases}
+\end{equation}
+Si possono individuare immediatamente pi\`u vettori soluzione, ad esempio:
+\begin{equation}
+    x^{(1)} = \begin{bmatrix} 1 \\ 2 \\ 2 \end{bmatrix}, \qquad
+    x^{(2)} = \begin{bmatrix} 0 \\ 0 \\ 4 \end{bmatrix}, \qquad
+    x^{(3)} = \begin{bmatrix} 2 \\ 4 \\ 0 \end{bmatrix}.
+\end{equation}
+Verifichiamo analiticamente la prima soluzione $x^{(1)}$:
+\begin{equation}
+    A x^{(1)} = \begin{bmatrix}
+        2(1) + 0(2) + 1(2) \\
+        0(1) + 1(2) + 1(2) \\
+        0 \\ 0
+    \end{bmatrix} = \begin{bmatrix} 4 \\ 4 \\ 0 \\ 0 \end{bmatrix} = b.
+\end{equation}
+Per dimostrare l'esistenza di infinite soluzioni, calcoliamo il nucleo $\ker(A) = \{w \in \R^3 \mid Aw = 0\}$:
+\begin{equation}
+    \begin{cases}
+        2w_1 + w_3 = 0 \implies w_1 = -\frac{1}{2}w_3 \\
+        w_2 + w_3 = 0 \implies w_2 = -w_3
+    \end{cases}
+    \implies
+    w = \alpha \begin{bmatrix} -1/2 \\ -1 \\ 1 \end{bmatrix} \quad (\alpha \in \R).
+\end{equation}
+Dato un qualsiasi vettore $w \in \ker(A)$ e una soluzione particolare $x$, per linearit\`a il vettore $\tilde{x} = x + w$ soddisfa:
+\begin{equation}
+    A\tilde{x} = A(x + w) = Ax + Aw = b + 0 = b.
+\end{equation}
+Poich\'e $\dim(\ker(A)) = 3 - 2 = 1$, la variet\`a lineare delle soluzioni \`e una retta in $\R^3$:
+\begin{equation}
+    \mathcal{S} = \left\{ \begin{bmatrix} 2 \\ 4 \\ 0 \end{bmatrix} + \alpha \begin{bmatrix} -1 \\ -2 \\ 2 \end{bmatrix} \;\middle|\; \alpha \in \R \right\}.
+\end{equation}
+\end{example}
+
+\begin{example}[Sistema Incompatibile]
+\label{ex:sistema-impossibile}
+Mantenendo inalterata la matrice $A$ dell'Esempio~\ref{ex:infinite-soluzioni}, si scelga il termine noto:
+\begin{equation}
+    b = \begin{bmatrix} 4 \\ 4 \\ 1 \\ 0 \end{bmatrix}.
+\end{equation}
+Poich\'e le ultime due righe di $A$ sono interamente nulle, per ogni possibile vettore $x \in \R^3$ la terza e la quarta componente del prodotto $Ax$ valgono identicamente zero:
+\begin{equation}
+    Ax = \begin{bmatrix} * \\ * \\ 0 \\ 0 \end{bmatrix} \neq \begin{bmatrix} 4 \\ 4 \\ 1 \\ 0 \end{bmatrix} = b.
+\end{equation}
+La terza equazione si ridurrebbe a $0 = 1$, assurdo. Geometricamente, $b \notin \mathrm{Range}(A)$, rendendo il sistema incompatibile.
+\end{example}
+
+\FloatBarrier
+\section{Sistemi Quadrati, Invertibilit\`a e la ``Regola Aurea''}
+\label{sec:matrici-invertibili-regola-aurea}
+
+\subsection{Matrici Non Singolari e Unicit\`a Globale}
+Quando il sistema presenta lo stesso numero di equazioni e di incognite ($m = n$), la matrice $A \in \R^{n \times n}$ \`e quadrata.
+
+\begin{theorem}[Esistenza e Unicit\`a per Matrici Invertibili]
+\label{thm:esistenza-unicita-quadrata}
+Sia $A \in \R^{n \times n}$ una matrice quadrata. Le seguenti condizioni sono logicamente equivalenti:
+\begin{enumerate}
+    \item $A$ \`e invertibile (o non singolare), ovvero esiste $A^{-1} \in \R^{n \times n}$ tale che $A A^{-1} = A^{-1} A = I_n$;
+    \item $\det(A) \neq 0$;
+    \item $\rank(A) = n$;
+    \item $\ker(A) = \{0\}$;
+    \item Le $n$ colonne di $A$ (cos\`i come le $n$ righe) formano una base di $\R^n$.
+\end{enumerate}
+Se tali condizioni sono soddisfatte, allora per \textbf{qualsiasi} vettore termine noto $b \in \R^n$, il sistema $Ax = b$ ammette una e una sola soluzione:
+\begin{equation}
+    x = A^{-1}b.
+    \label{eq:soluzione-formale-inversa}
+\end{equation}
+\end{theorem}
+
+\subsection{La Regola Aurea del Calcolo Numerico: Mai Calcolare $A^{-1}$}
+\label{subsec:regola-aurea}
+
+Sebbene l'equazione~\eqref{eq:soluzione-formale-inversa} sia matematicamente ineccepibile, \textbf{tradurla pedissequamente in codice numerico calcolando esplicitamente $A^{-1}$ ed effettuando poi il prodotto $x = A^{-1}b$ costituisce un grave errore computazionale}~\cite{higham2002accuracy,trefethen1997numerical}.
+
+\begin{alertblock}{Regola Aurea dell'Algebra Lineare Numerica}
+Non calcolare mai esplicitamente l'inversa $A^{-1}$ di una matrice per risolvere un sistema lineare $Ax = b$.
+\end{alertblock}
+
+Le motivazioni sono duplici ed entrambe decisive:
+\begin{enumerate}
+    \item \textbf{Costo Computazionale Superfluo:} Calcolare esplicitamente $A^{-1}$ richiede l'equivalente della risoluzione di $n$ sistemi lineari distinti (aventi come termini noti le $n$ colonne della matrice identit\`a $I_n$), comportando circa $2n^3$ operazioni floating-point (FLOPs). Al contrario, fattorizzare la matrice e risolvere per sostituzione richiede soltanto $\frac{2}{3}n^3$ FLOPs: calcolare l'inversa \`e esattamente tre volte pi\`u lento.
+    \item \textbf{Instabilit\`a Numerica e Perdita di Precisione:} L'inversione esplicita introduce errori di arrotondamento significativamente superiori rispetto ai metodi basati su fattorizzazione diretta ($LU$ o $QR$). Nel modello a virgola mobile, la matrice computata $\mathrm{fl}(A^{-1})$ pu\`o distorcere sensibilmente la direzione della soluzione se il numero di condizionamento $\kappa(A) = \|A\| \|A^{-1}\|$ \`e elevato.
+    \item \textbf{Distruzione della Sparsit\`a:} Se $A$ \`e una matrice sparsa di grandi dimensioni (ad esempio tridiagonale o a bande, con $\mathcal{O}(n)$ elementi non nulli), la sua inversa $A^{-1}$ \`e quasi invariabilmente \textbf{densa}, richiedendo $\mathcal{O}(n^2)$ memoria e rendendo impossibile la scalabilit\`a su calcolatori moderni.
+\end{enumerate}
+
+Nella prassi computazionale, si ricorre sempre a solutori integrati che sfruttano fattorizzazioni interne:
+\begin{lstlisting}[style=pythoncode, caption={Risoluzione corretta in Python mediante SciPy e confronto concettuale.}, label={lst:scipy-solve}]
+import numpy as np
+import scipy.linalg
+
+# Generazione di matrice e termine noto
+n = 1000
+A = np.random.randn(n, n)
+b = np.random.randn(n)
+
+# APPROCCIO CORRETTO (fattorizzazione LU interna in O(2/3 n^3))
+x_corretto = scipy.linalg.solve(A, b)
+
+# APPROCCIO DA EVITARE ASSOLUTAMENTE (spreco O(2 n^3) e instabile)
+# x_errato = np.linalg.inv(A) @ b
+\end{lstlisting}
+
+In ambiente MATLAB e Octave, l'operatore deputato \`e il backslash (\texttt{mldivide}):
+\begin{lstlisting}[style=code, caption={Sintassi standard in MATLAB/Octave.}, label={lst:matlab-backslash}]
+% Operatore mldivide: determina automaticamente la fattorizzazione ottimale
+x = A \ b;
+\end{lstlisting}
+
+\FloatBarrier
+\section{I Quattro Casi Facili (Easy Cases)}
+\label{sec:easy-cases}
+
+Prima di affrontare matrici dense generali mediante eliminazione gaussiana, l'algebra lineare numerica analizza quattro classi di matrici strutturate per le quali il sistema $Ax = b$ ammette una risoluzione immediata ed economica.
+
+\subsection{Caso 1: Matrice Diagonale}
+Sia $A = \diag(a_{11}, a_{22}, \dots, a_{nn})$ con elementi diagonali tutti non nulli ($a_{ii} \neq 0$ per $i = 1, \dots, n$):
+\begin{equation}
+    \begin{bmatrix}
+        a_{11} & 0 & \dots & 0 \\
+        0 & a_{22} & \dots & 0 \\
+        \vdots & \vdots & \ddots & \vdots \\
+        0 & 0 & \dots & a_{nn}
+    \end{bmatrix}
+    \begin{bmatrix}
+        x_1 \\ x_2 \\ \vdots \\ x_n
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+        b_1 \\ b_2 \\ \vdots \\ b_n
+    \end{bmatrix}.
+\end{equation}
+Il sistema si disaccoppia in $n$ equazioni scalari indipendenti:
+\begin{equation}
+    a_{ii} x_i = b_i \iff x_i = \frac{b_i}{a_{ii}}, \qquad \forall i = 1, \dots, n.
+    \label{eq:soluzione-diagonale}
+\end{equation}
+\begin{property}[Costo e Memoria per Matrici Diagonali]
+La risoluzione richiede esattamente $n$ divisioni scalari, con costo computazionale $\mathcal{O}(n)$. In memoria, non si memorizza mai la matrice $n \times n$ (che sprecherebbe $\mathcal{O}(n^2)$ spazio per contenere quasi esclusivamente zeri), bens\`i il solo vettore diagonale $d \in \R^n$.
+\end{property}
+
+\subsection{Caso 2: Matrice Triangolare Inferiore (Forward Substitution)}
+Sia $L \in \R^{n \times n}$ una matrice triangolare inferiore non singolare ($l_{ii} \neq 0$ per ogni $i$):
+\begin{equation}
+    L = \begin{bmatrix}
+        l_{11} & 0 & 0 & \dots & 0 \\
+        l_{21} & l_{22} & 0 & \dots & 0 \\
+        l_{31} & l_{32} & l_{33} & \dots & 0 \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        l_{n1} & l_{n2} & l_{n3} & \dots & l_{nn}
+    \end{bmatrix}.
+\end{equation}
+Scrivendo il sistema $Lx = b$ per esteso:
+\begin{equation}
+    \begin{aligned}
+        l_{11} x_1 &= b_1 \\
+        l_{21} x_1 + l_{22} x_2 &= b_2 \\
+        l_{31} x_1 + l_{32} x_2 + l_{33} x_3 &= b_3 \\
+        &\;\;\vdots \\
+        l_{n1} x_1 + l_{n2} x_2 + \dots + l_{nn} x_n &= b_n.
+    \end{aligned}
+\end{equation}
+
+L'algoritmo di \textbf{sostituzione in avanti} (\textit{Forward Substitution}) procede sequenzialmente dall'alto verso il basso:
+\begin{enumerate}
+    \item Dalla riga 1:
+    \begin{equation}
+        x_1 = \frac{b_1}{l_{11}}.
+    \end{equation}
+    \item Sostituendo $x_1$ nella riga 2, si isola l'incognita $x_2$:
+    \begin{equation}
+        x_2 = \frac{b_2 - l_{21}x_1}{l_{22}}.
+    \end{equation}
+    \item Proseguendo induttivamente, per la riga generica $i \in \{1, \dots, n\}$:
+    \begin{equation}
+        x_i = \frac{b_i - \sum_{j=1}^{i-1} l_{ij} x_j}{l_{ii}}.
+        \label{eq:formula-forward-sub}
+    \end{equation}
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Forward Substitution (Sostituzione in Avanti)}
+\label{alg:forward-substitution}
+\KwInput{Matrice triangolare inferiore $L \in \R^{n \times n}$ con $l_{ii} \neq 0$, vettore termine noto $b \in \R^n$}
+\KwOutput{Vettore soluzione $x \in \R^n$}
+\For{$i = 1$ \KwTo $n$}{
+    $s \leftarrow 0$\;
+    \For{$j = 1$ \KwTo $i - 1$}{
+        $s \leftarrow s + l_{ij} \cdot x_j$\;
+    }
+    $x_i \leftarrow \frac{b_i - s}{l_{ii}}$\;
+}
+\Return $x$\;
+\end{algorithm}
+
+\subsubsection{Conteggio delle Operazioni e Dimostrazione Geometrica}
+Contiamo il numero esatto di operazioni floating-point (moltiplicazioni, sottrazioni e divisioni):
+\begin{itemize}
+    \item Riga $1$: $1$ divisione $\implies 1$ operazione;
+    \item Riga $2$: $1$ moltiplicazione, $1$ sottrazione, $1$ divisione $\implies 3$ operazioni;
+    \item Riga $3$: $2$ moltiplicazioni, $2$ sottrazioni, $1$ divisione $\implies 5$ operazioni;
+    \item Riga $i$: $i - 1$ prodotti, $i - 1$ sottrazioni, $1$ divisione $\implies 2(i - 1) + 1 = 2i - 1$ operazioni;
+    \item Riga $n$: $2n - 1$ operazioni.
+\end{itemize}
+
+Il costo totale \`e dato dalla somma dei primi $n$ numeri dispari:
+\begin{equation}
+    \text{FLOPs} = \sum_{i=1}^n (2i - 1) = 1 + 3 + 5 + \dots + (2n - 1).
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.72, every node/.style={transform shape}]
+    % Griglia n x n
+    \draw[step=1cm, gray!25, very thin] (0,0) grid (5,5);
+    \draw[thick, black!80] (0,0) rectangle (5,5);
+
+    % Gnomone 1 (blu scuro)
+    \fill[blue!70] (0,4) rectangle (1,5);
+    \node at (0.5, 4.5) {\textbf{\footnotesize 1}};
+
+    % Gnomone 2 (azzurro) - 3 quadrati
+    \fill[cyan!60] (1,4) rectangle (2,5);
+    \fill[cyan!60] (0,3) rectangle (2,4);
+    \node at (1.5, 4.5) {\footnotesize 3};
+    \node at (0.5, 3.5) {\footnotesize 3};
+    \node at (1.5, 3.5) {\footnotesize 3};
+
+    % Gnomone 3 (verde) - 5 quadrati
+    \fill[teal!50] (2,3) rectangle (3,5);
+    \fill[teal!50] (0,2) rectangle (3,3);
+    \node at (2.5, 4.0) {\footnotesize 5};
+    \node at (1.0, 2.5) {\footnotesize 5};
+
+    % Gnomone 4 (arancione) - 7 quadrati
+    \fill[orange!50] (3,2) rectangle (4,5);
+    \fill[orange!50] (0,1) rectangle (4,2);
+    \node at (3.5, 3.5) {\footnotesize 7};
+    \node at (1.5, 1.5) {\footnotesize 7};
+
+    % Gnomone 5 (rosso) - 9 quadrati
+    \fill[red!40] (4,1) rectangle (5,5);
+    \fill[red!40] (0,0) rectangle (5,1);
+    \node at (4.5, 3.0) {\footnotesize 9};
+    \node at (2.0, 0.5) {\footnotesize 9};
+
+    % Indicazioni dimensionali
+    \draw[<->, thick, navy] (0, 5.3) -- (5, 5.3) node[midway, above] {$n$};
+    \draw[<->, thick, navy] (-0.3, 0) -- (-0.3, 5) node[midway, left] {$n$};
+    
+    \node[anchor=west] at (6.0, 3.2) {\textbf{Dimostrazione Visiva (Gnomoni Pitagorici):}};
+    \node[anchor=west] at (6.0, 2.3) {Passo 1: $1 = 1^2$};
+    \node[anchor=west] at (6.0, 1.6) {Passo 2: $1 + 3 = 4 = 2^2$};
+    \node[anchor=west] at (6.0, 0.9) {Passo 3: $1 + 3 + 5 = 9 = 3^2$};
+    \node[anchor=west] at (6.0, 0.2) {Passo $n$: $\sum_{i=1}^n (2i-1) = n^2$};
+\end{tikzpicture}
+\caption{Dimostrazione geometrica visiva della somma dei primi $n$ numeri dispari mediante accrescimento gnomonico: l'unione ordinata a forma di ``L'' produce esattamente un'area quadrata di lato $n$, pari a $n^2$.}
+\label{fig:somma-dispari-gnomoni}
+\end{figure}
+
+Dunque il costo esatto \`e:
+\begin{equation}
+    \sum_{i=1}^n (2i - 1) = n^2 \implies \mathcal{O}(n^2) \text{ operazioni.}
+\end{equation}
+Poich\'e una matrice triangolare contiene $\frac{n(n+1)}{2} \approx \frac{n^2}{2}$ elementi non nulli che devono essere necessariamente processati, una complessit\`a pari a $\mathcal{O}(n^2)$ \`e computazionalmente \textbf{ottimale}.
+
+\subsection{Caso 3: Matrice Triangolare Superiore (Backward Substitution)}
+Sia $U \in \R^{n \times n}$ una matrice triangolare superiore non singolare ($u_{ii} \neq 0$ per ogni $i$):
+\begin{equation}
+    U = \begin{bmatrix}
+        u_{11} & u_{12} & u_{13} & \dots & u_{1n} \\
+        0 & u_{22} & u_{23} & \dots & u_{2n} \\
+        0 & 0 & u_{33} & \dots & u_{3n} \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        0 & 0 & 0 & \dots & u_{nn}
+    \end{bmatrix}.
+\end{equation}
+L'algoritmo di \textbf{sostituzione all'indietro} (\textit{Backward Substitution}) procede a ritroso, partendo dall'ultima riga e risalendo fino alla prima:
+\begin{enumerate}
+    \item Dall'ultima equazione ($n$-esima):
+    \begin{equation}
+        u_{nn} x_n = b_n \implies x_n = \frac{b_n}{u_{nn}}.
+    \end{equation}
+    \item Dalla penultima equazione ($(n-1)$-esima), sostituendo $x_n$:
+    \begin{equation}
+        x_{n-1} = \frac{b_{n-1} - u_{n-1, n} x_n}{u_{n-1, n-1}}.
+    \end{equation}
+    \item Per la generica riga $i$, procedendo da $i = n-1$ decrescendo fino a $1$:
+    \begin{equation}
+        x_i = \frac{b_i - \sum_{j=i+1}^n u_{ij} x_j}{u_{ii}}.
+        \label{eq:formula-backward-sub}
+    \end{equation}
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Backward Substitution (Sostituzione all'Indietro)}
+\label{alg:backward-substitution}
+\KwInput{Matrice triangolare superiore $U \in \R^{n \times n}$ con $u_{ii} \neq 0$, vettore termine noto $b \in \R^n$}
+\KwOutput{Vettore soluzione $x \in \R^n$}
+\For{$i = n, n-1, \dots, 1$}{
+    $s \leftarrow 0$\;
+    \For{$j = i + 1$ \KwTo $n$}{
+        $s \leftarrow s + u_{ij} \cdot x_j$\;
+    }
+    $x_i \leftarrow \frac{b_i - s}{u_{ii}}$\;
+}
+\Return $x$\;
+\end{algorithm}
+
+Per simmetria rispetto al caso triangolare inferiore, il numero di operazioni \`e esattamente identico:
+\begin{equation}
+    \text{FLOPs} = \sum_{k=1}^n (2k - 1) = n^2 \implies \mathcal{O}(n^2) \text{ operazioni.}
+\end{equation}
+
+\subsection{Caso 4: Matrice Ortogonale}
+Una matrice quadrata $Q \in \R^{n \times n}$ si dice \textbf{ortogonale} se le sue colonne formano una base ortonormale di $\R^n$, propriet\`a sintetizzata dalla relazione:
+\begin{equation}
+    Q^T Q = Q Q^T = I_n \iff Q^{-1} = Q^T.
+\end{equation}
+Per risolvere il sistema $Qx = b$, \`e sufficiente moltiplicare a sinistra per la trasposta $Q^T$:
+\begin{equation}
+    Q^T Q x = Q^T b \implies I_n x = Q^T b \implies x = Q^T b.
+\end{equation}
+Non \`e richiesta alcuna eliminazione o sostituzione: la soluzione coincide con il prodotto matrice-vettore tra la trasposta e il termine noto.
+\begin{property}[Complessit\`a del Caso Ortogonale]
+Il calcolo di $x = Q^T b$ equivale a calcolare gli $n$ prodotti scalari tra le colonne di $Q$ e il vettore $b$. Ciascun prodotto scalare richiede $n$ moltiplicazioni e $n-1$ somme: il costo computazionale totale \`e di $2n^2 - n \approx 2n^2$ FLOPs, ovvero $\mathcal{O}(n^2)$.
+\end{property}
+
+\FloatBarrier
+\section{Metodi Diretti vs Metodi Iterativi}
+\label{sec:diretti-vs-iterativi}
+
+Quando la matrice dei coefficienti $A$ non appartiene a nessuna delle quattro classi strutturate analizzate, il panorama computazionale si divide in due famiglie concettualmente distinte: i \textbf{metodi diretti} e i \textbf{metodi iterativi}.
+
+\begin{table}[htbp]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Caratteristica} & \textbf{Metodi Diretti ($LU, QR$, Cholesky)} & \textbf{Metodi Iterativi (Krylov, CG, GMRES)} \\
+\midrule
+\textbf{Principio Base} & Fattorizzazione matriciale esatta di $A$ in matrici strutturate semplici. & Costruzione di una successione convergente di vettori $x^{(0)}, x^{(1)}, \dots \to x^*$. \\
+\textbf{Accuratezza} & Soluzione esatta in aritmetica esatta (affetta solo da round-off in virgola mobile). & Soluzione approssimata entro una tolleranza prefissata $\|Ax^{(k)} - b\| \le \varepsilon$. \\
+\textbf{Costo Matrici Dense} & Rigido: $\mathcal{O}(n^3)$ operazioni a monte, indipendentemente dal vettore $b$. & Flessibile: $k$ iterazioni, ciascuna a costo $\mathcal{O}(n^2)$ (prodotto matrice-vettore). \\
+\textbf{Preservazione Sparsit\`a} & Spesso soggetta a \textit{fill-in} (generazione di elementi non nulli nei fattori $L$ e $U$). & Perfetta: la matrice $A$ \`e utilizzata esclusivamente come operatore \textit{black-box} $v \mapsto Av$. \\
+\textbf{Taglia Tipica} & Matrici medio-piccole ($n \lesssim 10^4$ su workstation standard). & Matrici enormi o sparse derivanti da PDE ($n \approx 10^6 \div 10^9$). \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto tassonomico comparativo tra metodi diretti e metodi iterativi.}
+\label{tab:diretti-vs-iterativi}
+\end{table}
+
+I metodi diretti eccellono quando:
+\begin{enumerate}
+    \item La dimensione della matrice $n$ consente di allocare i fattori in memoria RAM;
+    \item \`E richiesta la massima accuratezza di macchina senza dipendere dalla velocit\`a di convergenza spettrale;
+    \item Si devono risolvere \textbf{molteplici sistemi lineari} aventi la medesima matrice di coefficienti $A$ ma vettori termine noto $b^{(1)}, b^{(2)}, \dots, b^{(p)}$ differenti: la fattorizzazione $\mathcal{O}(n^3)$ viene eseguita una sola volta \textit{una tantum}, dopodich\'e ciascun sistema successivo costa solo $\mathcal{O}(n^2)$.
+\end{enumerate}
+
+\FloatBarrier
+\section{La Fattorizzazione LU Standard}
+\label{sec:fattorizzazione-lu-standard}
+
+\subsection{Definizione e Schema di Risoluzione a Due Fasi}
+\begin{definition}[Fattorizzazione LU]
+Data una matrice quadrata $A \in \R^{n \times n}$, la sua \textbf{fattorizzazione $LU$} \`e la decomposizione:
+\begin{equation}
+    A = L U,
+    \label{eq:decomposizione-lu}
+\end{equation}
+dove:
+\begin{itemize}
+    \item $L \in \R^{n \times n}$ \`e una matrice triangolare inferiore a \textbf{diagonale unitaria} (\textit{unit lower triangular}):
+    \begin{equation}
+        l_{ii} = 1 \quad (\forall i), \qquad l_{ij} = 0 \quad (\forall j > i);
+    \end{equation}
+    \item $U \in \R^{n \times n}$ \`e una matrice triangolare superiore (\textit{upper triangular}):
+    \begin{equation}
+        u_{ij} = 0 \quad (\forall i > j).
+    \end{equation}
+\end{itemize}
+\end{definition}
+
+Se la fattorizzazione $A = LU$ \`e nota, la risoluzione di $Ax = b$ si articola in due sottoproblemi triangolari a cascata ponendo la variabile ausiliaria $y := Ux$:
+\begin{equation}
+    A x = b \iff L \underbrace{(U x)}_{y} = b \iff
+    \begin{cases}
+        L y = b & \text{(Fase 1: Forward Substitution)} \\
+        U x = y & \text{(Fase 2: Backward Substitution)}
+    \end{cases}
+    \label{eq:schema-due-fasi-lu}
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    scale=0.81,
+    every node/.style={transform shape},
+    block/.style={
+        rectangle, thick, rounded corners=4pt,
+        minimum height=1.15cm, minimum width=4.7cm,
+        align=center, font=\small
+    },
+    inout/.style={
+        block, draw=navy!85, fill=blue!5
+    },
+    proc/.style={
+        block, draw=navy!85, fill=navy!6
+    },
+    solvebox/.style={
+        block, draw=teal!85!black, fill=teal!6
+    },
+    solbox/.style={
+        block, draw=green!60!black, fill=green!7
+    },
+    lbl/.style={font=\scriptsize\bfseries, align=center, fill=white, inner sep=2.5pt},
+    arr/.style={->, thick, draw=navy!85}
+]
+
+  % ========================================================
+  % COLONNA SINISTRA: FASE 0 - FATTORIZZAZIONE (UNA TANTUM)
+  % ========================================================
+  \node[inout] (in_A)   at (0, 3.6) {\textbf{Matrice di Input}\\$A \in \R^{n \times n}$};
+  \node[proc]  (fact)   at (0, 1.95) {\textbf{Eliminazione Gaussiana}\\Decomposizione $PA = LU$};
+  \node[proc]  (out_LU) at (0, 0.3)  {\textbf{Fattori di Decomposizione}\\$L, U$ triangolari, $P$ permutazione};
+
+  % ========================================================
+  % COLONNA DESTRA: FASI DI SOLVE (PER CIASCUN TERMINE NOTO)
+  % Allargato a X = 9.4 per garantire un ampio corridoio centrale
+  % ========================================================
+  \node[inout]    (in_b)  at (9.4, 3.6) {\textbf{Termine Noto di Input}\\$b \in \R^n$};
+  \node[solvebox] (fwd)   at (9.4, 1.4) {\textbf{Fase 1: Forward Substitution}\\$Ly = \tilde{b} \quad (\tilde{b} = Pb)$};
+  \node[solvebox] (bwd)   at (9.4, -0.8) {\textbf{Fase 2: Backward Substitution}\\$Ux = y$};
+  \node[solbox]   (out_x) at (9.4, -2.8) {\textbf{Soluzione Finale $x \in \R^n$}\\$Ax = b$ \textbf{(senza calcolare $A^{-1}$)}};
+
+  % ========================================================
+  % CONTENITORI DI SFONDO (Tratteggiati)
+  % ========================================================
+  \begin{scope}[on background layer]
+    % Container Fattorizzazione (Sinistra)
+    \node[draw=navy!70, dashed, thick, rounded corners=6pt,
+          fit=(in_A) (fact) (out_LU),
+          inner xsep=12pt, inner ysep=16pt] (box_fact) {};
+    \node[font=\footnotesize\bfseries, text=navy!85, fill=white, inner sep=3pt] 
+          at (box_fact.north) 
+          {Fattorizzazione ($\mathcal{O}(n^3)$)};
+
+    % Container Risoluzione (Destra)
+    \node[draw=teal!70!black, dashed, thick, rounded corners=6pt,
+          fit=(in_b) (fwd) (bwd) (out_x),
+          inner xsep=12pt, inner ysep=16pt] (box_solve) {};
+    \node[font=\footnotesize\bfseries, text=teal!85!black, fill=white, inner sep=3pt] 
+          at (box_solve.north) 
+          {Risoluzione a Due Stadi ($\mathcal{O}(n^2)$)};
+  \end{scope}
+
+  % Connessioni verticali colonna sinistra
+  \draw[arr] (in_A) -- (fact);
+  \draw[arr] (fact) -- (out_LU);
+
+  % Connessioni verticali colonna destra
+  \draw[arr] (in_b) -- (fwd);
+  \draw[arr] (fwd) -- node[midway, right=8pt, font=\small\bfseries, text=teal!85!black] {$y \in \R^n$} (bwd);
+  \draw[arr] (bwd) -- (out_x);
+
+  % Connessioni trasversali ortogonali simmetriche (bus centrale a X = 4.4)
+  \coordinate (bus) at (4.4, 0.3);
+  \coordinate (c_fwd) at (4.4, 1.4);
+  \coordinate (c_bwd) at (4.4, -0.8);
+  
+  \draw[thick, draw=teal!80!black] (out_LU.east) -- (bus);
+  \draw[thick, draw=teal!80!black] (bus) -- (c_fwd);
+  \draw[thick, draw=teal!80!black] (bus) -- (c_bwd);
+  
+  % Etichette posizionate entrambe SOPRA (above=2pt) nel corridoio centrale prima del box tratteggiato
+  \draw[arr, draw=teal!80!black] (c_fwd) -- 
+      node[lbl, pos=0.34, above=2pt] {Fattore $L$ (e $P$)} (fwd.west);
+      
+  \draw[arr, draw=teal!80!black] (c_bwd) -- 
+      node[lbl, pos=0.34, above=2pt] {Fattore $U$} (bwd.west);
+
+\end{tikzpicture}
+\caption{Pipeline computazionale completa per la risoluzione di un sistema lineare $Ax = b$ mediante eliminazione gaussiana e fattorizzazione $PA = LU$: netta separazione tra la decomposizione matriciale a monte ($\approx \frac{2}{3}n^3$ FLOPs, calcolata \textit{una tantum}) e la risoluzione triangolare a due stadi ($2n^2$ FLOPs, ripetibile economicamente per qualsiasi termine noto $b$). La soluzione finale $x$ viene ottenuta senza mai formare la matrice inversa $A^{-1}$.}
+\label{fig:pipeline-lu}
+\end{figure}
+
+L'ordine sequenziale \`e vincolante: non \`e possibile determinare $x$ prima di aver ricavato $y$. Ciascuna delle due fasi richiede $\mathcal{O}(n^2)$ operazioni, per un costo di risoluzione di $2n^2 = \mathcal{O}(n^2)$ FLOPs.
+
+\subsection{Derivazione Costruttiva: Eliminazione Gaussiana e Matrici Elementari}
+Come si calcolano concretamente i fattori $L$ e $U$? L'algoritmo coincide con l'\textbf{eliminazione gaussiana}, formalizzata algebricamente attraverso il prodotto di matrici elementari di trasformazione.
+
+\subsubsection{Passo 1 dell'Eliminazione Gaussiana}
+Data $A \in \R^{n \times n}$, supponiamo che l'elemento pivot $a_{11} \neq 0$. Per annullare gli elementi sottodiagonali della prima colonna ($a_{21}, a_{31}, \dots, a_{n1}$), per ogni riga $i = 2, \dots, n$ si definisce il moltiplicatore:
+\begin{equation}
+    m_{i1} := \frac{a_{i1}}{a_{11}},
+\end{equation}
+e si sottrae alla riga $i$ il multiplo $m_{i1}$ della riga 1:
+\begin{equation}
+    R_i \leftarrow R_i - m_{i1} R_1.
+\end{equation}
+
+Tale operazione equivale a premoltiplicare la matrice $A$ per la \textbf{matrice elementare di Gauss} $E_1 \in \R^{n \times n}$:
+\begin{equation}
+    E_1 = \begin{bmatrix}
+        1 & 0 & 0 & \dots & 0 \\
+        -m_{21} & 1 & 0 & \dots & 0 \\
+        -m_{31} & 0 & 1 & \dots & 0 \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        -m_{n1} & 0 & 0 & \dots & 1
+    \end{bmatrix} = I_n - m^{(1)} e_1^T,
+    \label{eq:matrice-elementare-e1}
+\end{equation}
+dove $m^{(1)} = [0, m_{21}, m_{31}, \dots, m_{n1}]^T$ ed $e_1 = [1, 0, \dots, 0]^T$. La matrice risultante dopo il primo passo \`e:
+\begin{equation}
+    A_1 = E_1 A = \begin{bmatrix}
+        a_{11} & a_{12} & \dots & a_{1n} \\
+        0 & a_{22}^{(1)} & \dots & a_{2n}^{(1)} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        0 & a_{n2}^{(1)} & \dots & a_{nn}^{(1)}
+    \end{bmatrix}.
+\end{equation}
+
+\subsubsection{Passi Successivi e Ricostruzione di $U$}
+Iterando il procedimento per $k = 1, 2, \dots, n-1$, assumendo che a ogni stadio il pivot $a_{kk}^{(k-1)} \neq 0$, si azzerano gli elementi della colonna $k$ al di sotto della diagonale mediante la matrice:
+\begin{equation}
+    E_k = I_n - m^{(k)} e_k^T, \qquad \text{con } m^{(k)} = [\underbrace{0, \dots, 0}_{k \text{ zeri}}, m_{k+1, k}, \dots, m_{nk}]^T,
+\end{equation}
+in cui $m_{ik} = \frac{a_{ik}^{(k-1)}}{a_{kk}^{(k-1)}}$. Al termine di $n-1$ passaggi, la matrice risulta triangolare superiore e coincide con $U$:
+\begin{equation}
+    U = E_{n-1} E_{n-2} \dots E_2 E_1 A.
+    \label{eq:relazione-u-prodotto-e}
+\end{equation}
+
+\subsubsection{Propriet\`a Inversa e Costruzione di $L$}
+Invertendo la relazione~\eqref{eq:relazione-u-prodotto-e}, otteniamo:
+\begin{equation}
+    A = (E_{n-1} \dots E_2 E_1)^{-1} U = E_1^{-1} E_2^{-1} \dots E_{n-1}^{-1} U.
+\end{equation}
+Ponendo per definizione $L := E_1^{-1} E_2^{-1} \dots E_{n-1}^{-1}$, si ha $A = LU$.
+
+\begin{property}[Inversa e Prodotto di Matrici Elementari di Gauss]
+Le matrici elementari $E_k$ godono di due propriet\`a algebriche fondamentali:
+\begin{enumerate}
+    \item L'inversa di $E_k = I_n - m^{(k)} e_k^T$ si ottiene semplicemente \textbf{invertendo il segno dei moltiplicatori}:
+    \begin{equation}
+        E_k^{-1} = I_n + m^{(k)} e_k^T = \begin{bmatrix}
+            1 & & & & \\
+            & \ddots & & & \\
+            & & 1 & & \\
+            & & m_{k+1, k} & \ddots & \\
+            & & m_{nk} & & 1
+        \end{bmatrix}.
+    \end{equation}
+    \item Il prodotto ordinato $L = E_1^{-1} E_2^{-1} \dots E_{n-1}^{-1}$ non richiede alcun calcolo algebrico esplicito: le colonne extradiagonali dei vettori $m^{(k)}$ si \textbf{compenetrano perfettamente senza interferire}:
+    \begin{equation}
+        L = \begin{bmatrix}
+            1 & 0 & 0 & \dots & 0 \\
+            m_{21} & 1 & 0 & \dots & 0 \\
+            m_{31} & m_{32} & 1 & \dots & 0 \\
+            \vdots & \vdots & \vdots & \ddots & \vdots \\
+            m_{n1} & m_{n2} & m_{n3} & \dots & 1
+        \end{bmatrix}.
+    \end{equation}
+\end{enumerate}
+\end{property}
+La matrice $L$ possiede dunque elementi unitari sulla diagonale principale e contiene, nelle rispettive posizioni strettamente triangolari inferiori, \textbf{esattamente i moltiplicatori di Gauss} impiegati durante l'eliminazione.
+
+\subsection{Esempio Numerico Dettagliato a Mano}
+\label{subsec:esempio-numerico-lu-manuale}
+Consideriamo la matrice $3 \times 3$ analizzata nella lezione:
+\begin{equation}
+    A = \begin{bmatrix}
+        2 & 1 & -1 \\
+        1 & 0 & 2 \\
+        -4 & 3 & 2
+    \end{bmatrix}.
+\end{equation}
+
+\paragraph{Passo 1 dell'Eliminazione:}
+\begin{itemize}
+    \item Pivot designato: $a_{11} = 2 \neq 0$.
+    \item Moltiplicatore riga 2: $m_{21} = \frac{a_{21}}{a_{11}} = \frac{1}{2}$.
+    \item Moltiplicatore riga 3: $m_{31} = \frac{a_{31}}{a_{11}} = \frac{-4}{2} = -2$.
+    \item Aggiornamento delle righe:
+    \begin{align}
+        R_2 &\leftarrow R_2 - \tfrac{1}{2} R_1 = \left[0, \; -\tfrac{1}{2}, \; \tfrac{5}{2}\right], \\
+        R_3 &\leftarrow R_3 - (-2) R_1 = [0, \; 5, \; 0].
+    \end{align}
+\end{itemize}
+Matrice al termine del passo 1 e corrispondente matrice elementare $E_1$:
+\begin{equation}
+    A_1 = \begin{bmatrix}
+        2 & 1 & -1 \\
+        0 & -\frac{1}{2} & \frac{5}{2} \\
+        0 & 5 & 0
+    \end{bmatrix}, \qquad
+    E_1 = \begin{bmatrix}
+        1 & 0 & 0 \\
+        -\frac{1}{2} & 1 & 0 \\
+        2 & 0 & 1
+    \end{bmatrix}.
+\end{equation}
+
+\paragraph{Passo 2 dell'Eliminazione:}
+\begin{itemize}
+    \item Nuovo pivot: $a_{22}^{(1)} = -\frac{1}{2} \neq 0$.
+    \item Moltiplicatore riga 3: $m_{32} = \frac{a_{32}^{(1)}}{a_{22}^{(1)}} = \frac{5}{-1/2} = -10$.
+    \item Aggiornamento riga 3:
+    \begin{equation}
+        R_3 \leftarrow R_3 - (-10) R_2 = \left[0, \; 5 - 10\left(\frac{1}{2}\right), \; 0 + 10\left(\frac{5}{2}\right)\right] = [0, \; 0, \; 25].
+    \end{equation}
+\end{itemize}
+Matrice finale $U$ e matrice elementare $E_2$:
+\begin{equation}
+    U = \begin{bmatrix}
+        2 & 1 & -1 \\
+        0 & -\frac{1}{2} & \frac{5}{2} \\
+        0 & 0 & 25
+    \end{bmatrix}, \qquad
+    E_2 = \begin{bmatrix}
+        1 & 0 & 0 \\
+        0 & 1 & 0 \\
+        0 & 10 & 1
+    \end{bmatrix}.
+\end{equation}
+
+\paragraph{Ricostruzione del Fattore $L$:}
+Invertendo i segni sottodiagonali di $E_1$ ed $E_2$:
+\begin{equation}
+    E_1^{-1} = \begin{bmatrix}
+        1 & 0 & 0 \\
+        \frac{1}{2} & 1 & 0 \\
+        -2 & 0 & 1
+    \end{bmatrix}, \qquad
+    E_2^{-1} = \begin{bmatrix}
+        1 & 0 & 0 \\
+        0 & 1 & 0 \\
+        0 & -10 & 1
+    \end{bmatrix}.
+\end{equation}
+Moltiplicando le due matrici:
+\begin{equation}
+    L = E_1^{-1} E_2^{-1} = \begin{bmatrix}
+        1 & 0 & 0 \\
+        \frac{1}{2} & 1 & 0 \\
+        -2 & -10 & 1
+    \end{bmatrix}.
+\end{equation}
+Verifica del prodotto:
+\begin{align}
+    LU &= \begin{bmatrix}
+        1 & 0 & 0 \\
+        \frac{1}{2} & 1 & 0 \\
+        -2 & -10 & 1
+    \end{bmatrix}
+    \begin{bmatrix}
+        2 & 1 & -1 \\
+        0 & -\frac{1}{2} & \frac{5}{2} \\
+        0 & 0 & 25
+    \end{bmatrix} \nonumber \\
+    &= \begin{bmatrix}
+        2 & 1 & -1 \\
+        1 & 0 & 2 \\
+        -4 & 3 & 2
+    \end{bmatrix} = A.
+\end{align}
+La fattorizzazione $LU$ calcolata \`e esatta.
+
+\subsection{Complessit\`a Computazionale della Fattorizzazione $LU$}
+Determiniamo il conteggio esatto delle operazioni floating-point per una matrice $A \in \R^{n \times n}$.
+Al generico passo $k \in \{1, \dots, n-1\}$:
+\begin{enumerate}
+    \item Si calcolano gli $n - k$ moltiplicatori $m_{ik} = a_{ik}/a_{kk}$, richiedendo $n - k$ divisioni;
+    \item Si aggiornano gli elementi sottomatriciali: per ciascuna delle $n - k$ righe sottostanti, si aggiornano le $n - k$ colonne, comportando $(n - k)^2$ moltiplicazioni e $(n - k)^2$ sottrazioni.
+\end{enumerate}
+Sommando su tutti gli stadi $k = 1, \dots, n-1$:
+\begin{equation}
+\begin{aligned}
+    \sum_{k=1}^{n-1} (n - k)^2 &= \sum_{j=1}^{n-1} j^2 = \frac{(n-1)n(2n-1)}{6} \\
+    &= \frac{2n^3 - 3n^2 + n}{6} \approx \frac{n^3}{3} \text{ prodotti e } \frac{n^3}{3} \text{ somme.}
+\end{aligned}
+\end{equation}
+Tenendo conto anche delle divisioni:
+\begin{equation}
+    \text{FLOPs Totali} \approx 2 \cdot \frac{n^3}{3} = \frac{2}{3} n^3 \implies \mathcal{O}(n^3).
+\end{equation}
+
+\begin{property}[Conservazione della Memoria: Algoritmo In-Place]
+L'eliminazione gaussiana non richiede l'allocazione di nuove matrici in memoria. Man mano che un elemento sottodiagonale $a_{ik}$ viene azzerato dall'algoritmo, la sua posizione fisica nella matrice in memoria viene immediatamente riutilizzata per memorizzare il rispettivo moltiplicatore $l_{ik} = m_{ik}$. La diagonale unitaria di $L$ ($l_{ii} = 1$) non viene memorizzata. Al termine dell'esecuzione, la matrice di input $A$ contiene sia $L$ (nella parte strettamente triangolare inferiore) sia $U$ (nella parte triangolare superiore e sulla diagonale principale).
+\end{property}
+
+\FloatBarrier
+\section{Fallimento di LU, Instabilit\`a Numerica e Pivoting Parziale}
+\label{sec:fallimento-instabilita-pivoting}
+
+L'algoritmo di eliminazione gaussiana formulato nella Sezione~\ref{sec:fattorizzazione-lu-standard} soffre di due vulnerabilit\`a intrinseche:
+\begin{enumerate}
+    \item \textbf{Fallimento Algebrico per Pivot Nullo:} Se l'elemento diagonale al passo $k$ risulta esattamente nullo ($a_{kk}^{(k-1)} = 0$), l'algoritmo fallisce immediatamente a causa di una divisione per zero, persino se la matrice $A$ \`e perfettamente invertibile;
+    \item \textbf{Catastrofe Numerica per Pivot Piccolo:} Se il pivot \`e non nullo ma di modulo estremamente ridotto rispetto agli altri elementi della sottomatrice, i moltiplicatori di Gauss esplodono, provocando gravissima perdita di precisione dovuta a cancellazione numerica ed errori di arrotondamento in aritmetica a virgola mobile.
+\end{enumerate}
+
+\subsection{Problema 1: Pivot Esattamente Nullo}
+Si consideri la matrice non singolare:
+\begin{equation}
+    A = \begin{bmatrix}
+        0 & 1 & 2 \\
+        3 & 4 & 5 \\
+        6 & 7 & 8
+    \end{bmatrix}.
+\end{equation}
+Poich\'e $a_{11} = 0$, \`e impossibile calcolare $m_{21} = 3/0$ e $m_{31} = 6/0$: l'eliminazione gaussiana standard collassa al primo passo.
+Tuttavia, poich\'e le righe di un sistema lineare rappresentano singole equazioni, l'ordine con cui esse sono elencate \`e del tutto arbitrario. Scambiando la prima riga con la seconda, si ottiene il sistema equivalente:
+\begin{equation}
+    \begin{bmatrix}
+        3 & 4 & 5 \\
+        0 & 1 & 2 \\
+        6 & 7 & 8
+    \end{bmatrix}
+    \begin{bmatrix} x_1 \\ x_2 \\ x_3 \end{bmatrix}
+    =
+    \begin{bmatrix} b_2 \\ b_1 \\ b_3 \end{bmatrix},
+\end{equation}
+il cui pivot iniziale \`e $3 \neq 0$, consentendo all'algoritmo di proseguire regolarmente.
+
+\subsection{Problema 2: Instabilit\`a da Pivot Piccolo (Il Controesempio Patologico)}
+La vulnerabilit\`a pi\`u insidiosa emerge quando il pivot non \`e zero, ma un numero piccolo in valore assoluto.
+
+\begin{example}[Instabilit\`a dell'Eliminazione Ingenua]
+\label{ex:bad-example-pivot}
+Si consideri la matrice:
+\begin{equation}
+    A = \begin{bmatrix}
+        10^{-10} & 1 & 2 \\
+        1 & 4 & 5 \\
+        -1 & 7 & 8
+    \end{bmatrix}.
+\end{equation}
+Al passo 1, il pivot \`e $a_{11} = 10^{-10} \neq 0$. Eseguiamo il passo di eliminazione:
+\begin{itemize}
+    \item Moltiplicatore riga 2: $m_{21} = \frac{1}{10^{-10}} = 10^{10}$;
+    \item Moltiplicatore riga 3: $m_{31} = \frac{-1}{10^{-10}} = -10^{10}$;
+    \item Aggiornamento della riga 2:
+    \begin{equation}
+        R_2 \leftarrow R_2 - 10^{10} R_1 = \left[0, \; 4 - 10^{10}, \; 5 - 2 \cdot 10^{10}\right].
+    \end{equation}
+\end{itemize}
+In aritmetica floating-point a precisione standard (IEEE 754 a 64 bit, con precisione di macchina $\varepsilon_{\mathrm{mach}} \approx 10^{-16}$), la presenza del termine dominante $10^{10}$ cancella completamente le cifre dei coefficienti originari:
+\begin{equation}
+    \mathrm{fl}(4 - 10^{10}) = -10^{10}, \qquad \mathrm{fl}(5 - 2 \cdot 10^{10}) = -2 \cdot 10^{10}.
+\end{equation}
+Il nuovo pivot al passo 2 avr\`a modulo dell'ordine di $10^{10}$. Di conseguenza, il fattore $U$ conterr\`a contemporaneamente elementi di grandezza originaria ($10^{-10}$) ed elementi artificialmente giganteschi ($10^{10}$).
+\end{example}
+
+\subsubsection{Analisi di Stabilit\`a all'Indietro (Backward Error Analysis)}
+Per comprendere teoricamente la gravit\`a del fenomeno, richiamiamo il teorema fondamentale di backward stability per la fattorizzazione $LU$ calcolata in floating-point~\cite{golub2013matrix,higham2002accuracy}:
+\begin{theorem}[Backward Error della Fattorizzazione LU]
+Siano $\tilde{L}$ e $\tilde{U}$ i fattori calcolati numericamente in aritmetica a precisione $\varepsilon_{\mathrm{mach}}$. Essi rappresentano la fattorizzazione $LU$ esatta di una matrice perturbata $\tilde{A} = \tilde{L}\tilde{U} = A + \Delta A$, per la quale vale la maggiorazione:
+\begin{equation}
+    \|\Delta A\| = \|A - \tilde{L}\tilde{U}\| \le \gamma_n \|\tilde{L}\| \|\tilde{U}\| \varepsilon_{\mathrm{mach}},
+    \label{eq:backward-error-lu}
+\end{equation}
+dove $\gamma_n = \frac{c \cdot n \varepsilon_{\mathrm{mach}}}{1 - c \cdot n \varepsilon_{\mathrm{mach}}} = \mathcal{O}(n \varepsilon_{\mathrm{mach}})$.
+\end{theorem}
+
+L'errore di retroazione $\|\Delta A\|$ \`e proporzionale al prodotto delle norme dei fattori $\|\tilde{L}\| \|\tilde{U}\|$.
+\begin{itemize}
+    \item Se gli elementi di $\tilde{L}$ e $\tilde{U}$ rimangono comparabili a quelli di $A$, si ha $\|\tilde{L}\| \|\tilde{U}\| \approx \|A\|$, garantendo che $\|\Delta A\| / \|A\| \approx \mathcal{O}(\varepsilon_{\mathrm{mach}})$ (algoritmo backward stable);
+    \item Se, come nell'Esempio~\ref{ex:bad-example-pivot}, gli elementi esplodono a $\|\tilde{U}\| \approx 10^{10}$, allora:
+    \begin{equation}
+        \|\Delta A\| \approx 10^{10} \cdot 10^{-16} = 10^{-6}.
+    \end{equation}
+    Si sono irrimediabilmente perdute \textbf{10 cifre decimali di precisione}: l'algoritmo \`e numericamente instabile e la soluzione computata sar\`a inaffidabile.
+\end{itemize}
+
+\subsection{Strategia del Pivoting Parziale (Partial Pivoting)}
+\label{subsec:pivoting-parziale}
+
+Per neutralizzare sia le divisioni per zero sia l'esplosione dei moltiplicatori, si applica la tecnica del \textbf{pivoting parziale}:
+\begin{definition}[Regola del Pivoting Parziale]
+Al generico stadio $k \in \{1, \dots, n-1\}$, tra tutti gli elementi della colonna corrente situati sulla diagonale o al di sotto di essa (ovvero lungo le righe $i = k, k+1, \dots, n$), si ricerca l'elemento avente \textbf{massimo valore assoluto}:
+\begin{equation}
+    |a_{rk}^{(k-1)}| = \max_{k \le i \le n} |a_{ik}^{(k-1)}|.
+    \label{eq:regola-pivoting-parziale}
+\end{equation}
+Si scambia quindi fisicamente la riga corrente $k$ con la riga $r$.
+\end{definition}
+
+Effettuando questo scambio prima di calcolare i moltiplicatori, per ogni riga sottostante $i > k$ si garantisce che:
+\begin{equation}
+    |m_{ik}| = \left| \frac{a_{ik}^{(k-1)}}{a_{kk}^{(k-1)}} \right| \le 1, \qquad \forall i = k+1, \dots, n.
+\end{equation}
+Tutti i moltiplicatori di Gauss (e quindi tutti gli elementi extradiagonali della matrice $L$) hanno valore assoluto strettamente non superiore a 1:
+\begin{equation}
+    |l_{ij}| \le 1 \quad (\forall i > j) \implies \|L\|_{\infty} \le n.
+\end{equation}
+Ci\`o previene l'esplosione della norma $\|L\|$ e stabilizza incondizionatamente il calcolo numerico.
+
+\subsection{Formalizzazione con Matrici di Permutazione: Teorema $PA = LU$}
+Lo scambio di righe si formalizza algebricamente mediante le \textbf{matrici di permutazione}.
+
+\begin{definition}[Matrice di Permutazione]
+Una matrice $P \in \R^{n \times n}$ si dice matrice di permutazione se \`e ottenuta permutando le righe (o le colonne) della matrice identit\`a $I_n$.
+\end{definition}
+
+\begin{property}[Propriet\`a delle Matrici di Permutazione]
+Le matrici di permutazione soddisfano:
+\begin{enumerate}
+    \item $P$ \`e ortogonale: $P^T P = P P^T = I_n \implies P^{-1} = P^T$;
+    \item Moltiplicare a sinistra $PA$ permuta le righe di $A$ secondo la permutazione definita da $P$;
+    \item Moltiplicare a destra $AP$ permuta le colonne di $A$.
+\end{enumerate}
+\end{property}
+
+\begin{theorem}[Fattorizzazione $PA = LU$]
+\label{thm:pa-lu}
+Per ogni matrice quadrata non singolare $A \in \R^{n \times n}$, esistono una matrice di permutazione $P$, una matrice triangolare inferiore a diagonale unitaria $L$ (con $|l_{ij}| \le 1$ per ogni $i > j$) e una matrice triangolare superiore non singolare $U$ tali che:
+\begin{equation}
+    P A = L U.
+    \label{eq:teorema-pa-lu}
+\end{equation}
+\end{theorem}
+
+\subsubsection{Risoluzione del Sistema con $PA = LU$}
+Dato il sistema originario $Ax = b$, premoltiplicando per la matrice di permutazione $P$:
+\begin{equation}
+    P A x = P b.
+\end{equation}
+Poich\'e $PA = LU$, si ottiene l'equazione $LUx = Pb$, che si risolve con lo schema a due stadi:
+\begin{enumerate}
+    \item \textbf{Permutazione del termine noto e Forward Substitution:}
+    \begin{equation}
+        L y = P b;
+    \end{equation}
+    \item \textbf{Backward Substitution:}
+    \begin{equation}
+        U x = y.
+    \end{equation}
+\end{enumerate}
+Il calcolo di $Pb$ non richiede moltiplicazioni aritmetiche: consiste esclusivamente nel riordinare le componenti del vettore $b$ secondo il vettore degli indici di permutazione.
+
+\subsection{Esempio Numerico Rivisitato con Pivoting Parziale}
+Riprendiamo la matrice analizzata nella Sezione~\ref{subsec:esempio-numerico-lu-manuale}:
+\begin{equation}
+    A = \begin{bmatrix}
+        2 & 1 & -1 \\
+        1 & 0 & 2 \\
+        -4 & 3 & 2
+    \end{bmatrix}.
+\end{equation}
+
+\paragraph{Passo 1 (Ricerca del Pivot Massimo e Scambio):}
+I candidati della prima colonna sono gli elementi di modulo $|2| = 2$, $|1| = 1$ e $|-4| = 4$.
+Il massimo assoluto \`e $4$, situato nella riga 3.
+Scambiamo la riga 1 con la riga 3 (e successivamente ordiniamo le righe in modo che la riga 3 diventi la prima riga, la riga 1 diventi la seconda e la riga 2 diventi la terza):
+\begin{equation}
+    PA = \begin{bmatrix}
+        -4 & 3 & 2 \\
+        2 & 1 & -1 \\
+        1 & 0 & 2
+    \end{bmatrix}, \qquad
+    P = \begin{bmatrix}
+        0 & 0 & 1 \\
+        1 & 0 & 0 \\
+        0 & 1 & 0
+    \end{bmatrix}.
+\end{equation}
+
+\paragraph{Eliminazione al Passo 1:}
+\begin{itemize}
+    \item Pivot: $-4$;
+    \item Moltiplicatore riga 2: $m_{21} = \frac{2}{-4} = -\frac{1}{2}$ (notiamo $|-1/2| \le 1$);
+    \item Moltiplicatore riga 3: $m_{31} = \frac{1}{-4} = -\frac{1}{4}$ (notiamo $|-1/4| \le 1$);
+    \item Aggiornamenti:
+    \begin{align}
+        R_2 &\leftarrow R_2 + \tfrac{1}{2} R_1 = \left[0, \; \tfrac{5}{2}, \; 0\right], \\
+        R_3 &\leftarrow R_3 + \tfrac{1}{4} R_1 = \left[0, \; \tfrac{3}{4}, \; \tfrac{5}{2}\right].
+    \end{align}
+\end{itemize}
+
+\paragraph{Passo 2 (Verifica del Pivot e Conclusione):}
+Nella seconda colonna, i candidati sono gli elementi sottodiagonali: in riga 2 abbiamo $\frac{5}{2} = 2.5$, in riga 3 abbiamo $\frac{3}{4} = 0.75$.
+Poich\'e $\frac{5}{2} > \frac{3}{4}$, il massimo si trova gi\`a sulla diagonale in riga 2: \textbf{non occorre alcuno scambio di righe}.
+\begin{itemize}
+    \item Moltiplicatore riga 3: $m_{32} = \frac{3/4}{5/2} = \frac{3}{4} \cdot \frac{2}{5} = \frac{3}{10}$ (notiamo $|3/10| \le 1$);
+    \item Aggiornamento riga 3:
+    \begin{equation}
+        R_3 \leftarrow R_3 - \frac{3}{10} R_2 = \left[0, \; \frac{3}{4} - \frac{3}{10}\left(\frac{5}{2}\right), \; \frac{5}{2} - \frac{3}{10}(0)\right] = \left[0, \; 0, \; \frac{5}{2}\right].
+    \end{equation}
+\end{itemize}
+
+\paragraph{Fattori $P, L, U$ Risultanti:}
+\begin{equation}
+    P = \begin{bmatrix}
+        0 & 0 & 1 \\
+        1 & 0 & 0 \\
+        0 & 1 & 0
+    \end{bmatrix}, \qquad
+    L = \begin{bmatrix}
+        1 & 0 & 0 \\
+        -\frac{1}{2} & 1 & 0 \\
+        -\frac{1}{4} & \frac{3}{10} & 1
+    \end{bmatrix}, \qquad
+    U = \begin{bmatrix}
+        -4 & 3 & 2 \\
+        0 & \frac{5}{2} & 0 \\
+        0 & 0 & \frac{5}{2}
+    \end{bmatrix}.
+\end{equation}
+Tutti i moltiplicatori in $L$ soddisfano $|l_{ij}| \le 1$, garantendo stabilit\`a numerica ottimale.
+
+\subsection{Costo del Pivoting e Cenni sul Pivoting Totale}
+\begin{property}[Costo Asintotico del Pivoting Parziale]
+A ogni passo $k$, individuare il pivot massimo richiede $n - k$ confronti scalari tra numeri reali. Sommando su tutti gli stadi:
+\begin{equation}
+    \sum_{k=1}^{n-1} (n - k) = \frac{n(n-1)}{2} = \mathcal{O}(n^2) \text{ confronti.}
+\end{equation}
+Poich\'e la ricerca del pivot e gli scambi logici di puntatori hanno costo quadratico $\mathcal{O}(n^2)$, tale overhead \`e \textbf{completamente trascurabile} rispetto alle $\frac{2}{3}n^3$ operazioni aritmetiche dell'eliminazione gaussiana.
+\end{property}
+
+\begin{remark}[Pivoting Totale e Caso Patologico di Wilkinson]
+In teoria, esistono rare matrici patologiche (costruite artificialmente da J. H. Wilkinson) per le quali il fattore di crescita degli elementi di $U$ con pivoting parziale pu\`o raggiungere nel caso peggiore $2^{n-1}$~\cite{trefethen1997numerical}. Per prevenire anche questo scenario teorico estremo, si potrebbe adottare il \textbf{pivoting totale} (\textit{Complete Pivoting}), ricercando il massimo su tutta la sottomatrice $(n-k+1) \times (n-k+1)$ e scambiando sia righe che colonne:
+\begin{equation}
+    P A Q = L U,
+\end{equation}
+dove $Q$ \`e una matrice di permutazione delle colonne. Tuttavia, il pivoting totale richiede $\mathcal{O}(n^3)$ confronti, raddoppiando o triplicando il tempo di calcolo. Poich\'e nelle applicazioni reali la crescita $2^{n-1}$ non si riscontra praticamente mai, il \textbf{pivoting parziale costituisce lo standard de facto industriale e scientifico}.
+\end{remark}
+
+\FloatBarrier
+\section{Matrici Singolari e Sistemi Rettangolari}
+\label{sec:matrici-singolari-rettangolari}
+
+Cosa accade alla fattorizzazione $LU$ se la matrice $A$ \`e singolare o rettangolare?
+\begin{enumerate}
+    \item \textbf{Esistenza della Forma a Scalini:} L'algoritmo di eliminazione gaussiana continua a essere applicabile; in presenza di dipendenza lineare, la matrice $U$ conterr\`a uno o pi\`u zeri sulla diagonale principale o intere righe nulle al fondo;
+    \item \textbf{Caratterizzazione dello Spazio delle Colonne e del Nucleo:} La forma ridotta consente di identificare le colonne pivot per estrarre una base ortonormale di $\mathrm{Range}(A)$ e determinare una base del nucleo $\ker(A)$;
+    \item \textbf{Sistemi Sovradeterminati o Sottodeterminati:} Se il fine applicativo \`e risolvere un sistema rettangolare $A \in \R^{m \times n}$ (tipicamente sovradeterminato nei problemi di regressione con $m \gg n$), la fattorizzazione $LU$ non \`e il metodo d'elezione. In tali casi, il sistema si riformula come problema ai \textbf{minimi quadrati lineari} (\textit{Ordinary Least Squares}):
+    \begin{equation}
+        \min_{x \in \R^n} \|Ax - b\|_2^2,
+    \end{equation}
+    risolto in modo numericamente superiore mediante la fattorizzazione $QR$ o la decomposizione ai valori singolari (SVD).
+\end{enumerate}
+
+\FloatBarrier
+\section{Risoluzione di Sistemi Lineari con Fattorizzazioni Alternative: QR e SVD}
+\label{sec:risoluzione-qr-svd}
+
+Nelle lezioni precedenti sono state analizzate due fondamentali decomposizioni matriciali: la fattorizzazione $QR$ (Capitolo~\ref{chap:fattorizzazione-qr-riflessioni-householder}) e la decomposizione ai valori singolari SVD (Capitoli~\ref{chap:decomposizione-valori-singolari-svd} e~\ref{chap:svd-norme-matriciali-applicazioni}).
+Se tali decomposizioni sono gi\`a disponibili a monte (o calcolate per scopi di analisi dati), come si risolve in modo efficiente il sistema $Ax = b$?
+
+\subsection{Esercizio 1: Risoluzione mediante Fattorizzazione $QR$}
+Sia nota la fattorizzazione $QR$ di una matrice quadrata invertibile $A \in \R^{n \times n}$:
+\begin{equation}
+    A = Q R,
+\end{equation}
+con $Q \in \R^{n \times n}$ ortogonale ($Q^T Q = I_n$) e $R \in \R^{n \times n}$ triangolare superiore non singolare.
+
+Sostituendo nel sistema originario:
+\begin{equation}
+    Q R x = b.
+\end{equation}
+Moltiplicando a sinistra per la trasposta $Q^T$:
+\begin{equation}
+    Q^T Q R x = Q^T b \implies I_n R x = Q^T b \implies R x = Q^T b.
+\end{equation}
+
+\subsubsection{Algoritmo in Due Passi e Complessit\`a}
+\begin{enumerate}
+    \item \textbf{Proiezione Ortogonale del Termine Noto:} Si calcola il vettore proiettato:
+    \begin{equation}
+        c := Q^T b.
+    \end{equation}
+    Trattandosi di un prodotto matrice-vettore, il costo \`e di $2n^2 = \mathcal{O}(n^2)$ FLOPs;
+    \item \textbf{Backward Substitution:} Si risolve il sistema triangolare superiore:
+    \begin{equation}
+        R x = c.
+    \end{equation}
+    Come dimostrato nella Sezione~\ref{sec:easy-cases}, l'algoritmo di sostituzione all'indietro richiede esattamente $n^2 = \mathcal{O}(n^2)$ FLOPs.
+\end{enumerate}
+
+\begin{property}[Costo di Risoluzione con $QR$ Precomputata]
+Avendo gi\`a a disposizione i fattori $Q$ ed $R$, il costo computazionale totale per risolvere il sistema lineare \`e:
+\begin{equation}
+    \text{FLOPs} = 2n^2 + n^2 = 3n^2 \implies \mathcal{O}(n^2).
+\end{equation}
+\end{property}
+Si noti che il calcolo \textit{ex novo} della fattorizzazione $QR$ mediante riflettori di Householder richiede $\frac{4}{3}n^3$ FLOPs, ovvero il doppio rispetto a $LU$ ($\frac{2}{3}n^3$). Pertanto, per matrici quadrate ordinarie si preferisce $LU$; $QR$ \`e invece imbattibile nei problemi ai minimi quadrati su sistemi rettangolari.
+
+\subsection{Esercizio 2: Risoluzione mediante Decomposizione SVD}
+Sia nota la decomposizione a valori singolari di una matrice non singolare $A \in \R^{n \times n}$:
+\begin{equation}
+    A = U \Sigma V^T,
+\end{equation}
+dove $U \in \R^{n \times n}$ e $V \in \R^{n \times n}$ sono matrici ortogonali ($U^T U = I_n$, $V^T V = I_n$) e $\Sigma = \diag(\sigma_1, \sigma_2, \dots, \sigma_n)$ con valori singolari strettamente positivi $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_n > 0$.
+
+Il sistema da risolvere \`e:
+\begin{equation}
+    U \Sigma V^T x = b.
+\end{equation}
+Ricordando la propriet\`a inversa del prodotto di matrici invertibili:
+\begin{equation}
+    (U \Sigma V^T)^{-1} = (V^T)^{-1} \Sigma^{-1} U^{-1}.
+\end{equation}
+Poich\'e $U$ e $V$ sono ortogonali, si ha $U^{-1} = U^T$ e $(V^T)^{-1} = (V^T)^T = V$. Dunque:
+\begin{equation}
+    x = V \Sigma^{-1} U^T b.
+    \label{eq:soluzione-esplicita-svd}
+\end{equation}
+
+\subsubsection{Algoritmo Ottimizzato in Tre Passi}
+L'espressione~\eqref{eq:soluzione-esplicita-svd} non va calcolata moltiplicando preliminarmente le tre matrici tra loro (che costerebbe $\mathcal{O}(n^3)$), ma associando da destra verso sinistra tramite prodotti matrice-vettore successivi:
+\begin{enumerate}
+    \item \textbf{Passo 1: Proiezione su $U$:} Si calcola il vettore ausiliario:
+    \begin{equation}
+        z := U^T b \in \R^n.
+    \end{equation}
+    Costo: prodotto matrice-vettore $\implies 2n^2 = \mathcal{O}(n^2)$ FLOPs;
+    \item \textbf{Passo 2: Scalatura Diagonale con $\Sigma^{-1}$:} Poich\'e $\Sigma$ \`e diagonale, la sua inversa \`e $\Sigma^{-1} = \diag(1/\sigma_1, \dots, 1/\sigma_n)$. Il vettore $w := \Sigma^{-1} z$ si calcola componente per componente:
+    \begin{equation}
+        w_i = \frac{z_i}{\sigma_i}, \qquad \forall i = 1, \dots, n.
+    \end{equation}
+    Costo: esattamente $n$ divisioni scalari $\implies \mathcal{O}(n)$ FLOPs;
+    \item \textbf{Passo 3: Ricostruzione tramite $V$:} Si ottiene la soluzione finale:
+    \begin{equation}
+        x := V w \in \R^n.
+    \end{equation}
+    Costo: prodotto matrice-vettore $\implies 2n^2 = \mathcal{O}(n^2)$ FLOPs.
+\end{enumerate}
+
+\begin{property}[Costo di Risoluzione con SVD Precomputata]
+Disponendo della decomposizione SVD, la risoluzione esatta richiede:
+\begin{equation}
+    \text{FLOPs} = 2n^2 + n + 2n^2 = 4n^2 + n \implies \mathcal{O}(n^2).
+\end{equation}
+\end{property}
+
+Il vantaggio supremo della risoluzione tramite SVD risiede nella capacit\`a di diagnosticare e trattare all'istante il \textbf{malcondizionamento numerico}: se alcuni valori singolari $\sigma_i$ sono inferiori alla precisione di macchina, \`e possibile troncarli ponendo $1/\sigma_i = 0$, ottenendo istantaneamente la soluzione regolarizzata a norma minima (pseudoinversa di Moore-Penrose $A^\dagger$).
+
+\subsection{Sguardo al Futuro: Matrici Simmetriche e Fattorizzazione di Cholesky}
+Se la matrice dei coefficienti $A$ possiede propriet\`a strutturali speciali, la complessit\`a della fattorizzazione diretta pu\`o essere ulteriormente abbattuta:
+\begin{itemize}
+    \item Se $A$ \`e \textbf{simmetrica} ($A = A^T$), l'eliminazione gaussiana preserva la simmetria, conducendo alla fattorizzazione:
+    \begin{equation}
+        A = L D L^T,
+    \end{equation}
+    con $L$ triangolare inferiore unitaria e $D$ diagonale, dimezzando sia la memoria che il tempo di calcolo a $\frac{1}{3}n^3$ FLOPs;
+    \item Se $A$ \`e \textbf{simmetrica e definita positiva} (SPD, $x^T A x > 0$ per ogni $x \neq 0$), tutti i pivot diagonali sono garantiti strettamente positivi ($d_{ii} > 0$), rendendo il pivoting completamente superfluo. Definendo $L_{\mathrm{chol}} = L D^{1/2}$, si perviene alla celebre \textbf{Fattorizzazione di Cholesky}:
+    \begin{equation}
+        A = L_{\mathrm{chol}} L_{\mathrm{chol}}^T,
+    \end{equation}
+    caratterizzata da stabilit\`a numerica incondizionata e costo di appena $\frac{1}{3}n^3$ FLOPs.
+\end{itemize}
+Tale tematica sar\`a l'oggetto centrale del capitolo successivo.

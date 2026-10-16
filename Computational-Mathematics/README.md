@@ -44,14 +44,15 @@ latexmk -c
 - **Capitolo 4:** Decomposizione ai Valori Singolari (SVD) (file `A04`)
 - **Capitolo 5:** SVD: Norme Matriciali e Applicazioni (Eckart-Young, Compressione e PCA) (file `A05`)
 - **Capitolo 6:** Fattorizzazione QR e Riflessioni di Householder (Full/Thin QR, Riflettori elementari, Stabilità numerica ed Esempio $3 \times 3$) (file `A06`)
+- **Capitolo 7:** Metodi Diretti per Sistemi Lineari e Fattorizzazione LU (Casi facili, Eliminazione Gaussiana, Pivoting Parziale $PA=LU$, Risoluzione con QR e SVD) (file `A07`)
 
 ### Parte II: Ottimizzazione Continua e Machine Learning
-- **Capitolo 7:** Problemi Semplici di Ottimizzazione (file `B02`)
-- **Capitolo 8:** Ottimizzazione Multivariata Lineare e Quadratica (file `B03`)
-- **Capitolo 9:** Ottimizzazione Quadratica Non Omogenea (GMQ) (file `B04`)
-- **Capitolo 10:** Analisi di Convergenza e Complessità del Metodo del Gradiente (file `B05`)
-- **Capitolo 11:** Ottimizzazione Univariata: Lipschitz, Modelli Locali e Ricerca Dicotomica (file `B06`)
-- **Capitolo 12:** Ottimizzazione Univariata: Interpolazione, Metodo di Newton e Branch-and-Bound (file `B07`)
+- **Capitolo 8:** Problemi Semplici di Ottimizzazione (file `B02`)
+- **Capitolo 9:** Ottimizzazione Multivariata Lineare e Quadratica (file `B03`)
+- **Capitolo 10:** Ottimizzazione Quadratica Non Omogenea (GMQ) (file `B04`)
+- **Capitolo 11:** Analisi di Convergenza e Complessità del Metodo del Gradiente (file `B05`)
+- **Capitolo 12:** Ottimizzazione Univariata: Lipschitz, Modelli Locali e Ricerca Dicotomica (file `B06`)
+- **Capitolo 13:** Ottimizzazione Univariata: Interpolazione, Metodo di Newton e Branch-and-Bound (file `B07`)
 
 ```text
 Computational-Mathematics/
