@@ -1,0 +1,1059 @@
+\chapter{Mining di Regole di Associazione (FP-Growth), Simulazioni di Clustering e Pattern Sequenziali (GSP)}
+\label{chap:dm-fp-growth-clustering-gsp}
+
+Questo capitolo raccoglie ed estende in chiave operativa e analitica tre dei pilastri fondamentali del Data Mining contemporaneo: l'estrazione efficiente di pattern frequenti senza generazione esplicita di candidati (\textbf{FP-Growth}), la simulazione geometrica passo-passo della convergenza negli algoritmi di clustering (\textbf{K-Means} e \textbf{DBSCAN}), e l'estrazione di pattern ordinati nel tempo con vincoli differenziali (\textbf{Sequential Pattern Mining} e algoritmo \textbf{GSP}).
+
+La trattazione è organizzata in tre moduli tematici autosufficienti:
+\begin{enumerate}
+    \item \textbf{Modulo I: Regole di Associazione e l'Algoritmo FP-Growth}: superamento dei limiti computazionali di Apriori, architettura della struttura dati compressa \textit{FP-tree}, Header Table, euristiche di ordinamento per supporto decrescente ed estrazione ricorsiva \textit{divide-and-conquer} con tracciamento analitico completo.
+    \item \textbf{Modulo II: Simulazione degli Algoritmi di Clustering}: tracciamento geometrico cartesiano e computazionale di K-Means con partizionamento di Voronoi mediante assi separatori (\textit{bisecting lines}), dinamica di convergenza, stima della densità in DBSCAN e studio approfondito del fenomeno di migrazione dei punti tra iterazioni consecutive.
+    \item \textbf{Modulo III: Pattern Sequenziali e l'Algoritmo GSP}: modellazione delle sequenze temporali, formalizzazione dei vincoli di inter-distanza (\textit{min-gap} e \textit{max-gap}), calcolo del supporto su dataset transazionali e applicazione del principio di anti-monotonicità nella potatura sistematica (\textit{candidate pruning}) di $k$-sequenze candidate nell'algoritmo GSP.
+\end{enumerate}
+
+% ====================================================================
+% MODULO I: REGOLE DI ASSOCIAZIONE E L'ALGORITMO FP-GROWTH
+% ====================================================================
+
+\section{Limiti dell'Approccio Level-Wise e Motivazione di FP-Growth}
+\label{sec:dm-fp-motivation}
+
+Nel campo del Data Mining e dell'estrazione di regole di associazione, la procedura classica introdotta dalla letteratura scientifica di riferimento si basa sul paradigma \textit{level-wise} (livello per livello) proprio dell'algoritmo \textbf{Apriori}~\cite{tan2018, agrawal1994}, formalizzato originariamente da Rakesh Agrawal e Ramakrishnan Srikant nel 1994~\cite{agrawal1994}.
+
+L'algoritmo Apriori (approfondito nel Capitolo~\ref{chap:dm-association-analysis}) adotta uno schema iterativo basato sul principio di anti-monotonicità del supporto:
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item Si inizializza la dimensione degli itemset a $k=1$, ponendo l'insieme dei candidati $C_1$ pari alla totalità dei singoli item distinti presenti nel database transazionale.
+    \item Fintanto che l'insieme dei candidati $C_k$ non risulta vuoto, si eseguono ciclicamente le seguenti macro-fasi:
+    \begin{itemize}
+        \item \textbf{Frequent Itemset Generation}: Viene scansionato l'intero archivio delle transazioni su memoria di massa per quantificare il conteggio di supporto di ciascun itemset candidato appartenente a $C_k$. Gli itemset il cui supporto relativo soddisfa o supera la soglia minima prestabilita ($\text{minsup}$) vengono promossi nell'insieme $L_k$ dei $k$-itemset frequenti.
+        \item \textbf{Candidate Generation}: Gli elementi di $L_k$ vengono combinati algebricamente tra loro (mediante join $L_k \times L_k$ o su prefisso comune) per generare una nuova collezione di candidati $C_{k+1}$ di cardinalità $k+1$, su cui viene applicata la potatura di sottoinsiemi infrequenti (\textit{candidate pruning}).
+        \item Si incrementa la dimensione $k \leftarrow k+1$ e si reitera la scansione.
+    \end{itemize}
+\end{enumerate}
+
+Sebbene il principio Apriori consenta una massiccia riduzione dello spazio combinatorio rispetto all'approccio a forza bruta, l'efficienza computazionale di questa strategia decade drasticamente in scenari applicativi realistici a causa di molteplici fattori strutturali~\cite{tan2018, han2000, han2011}:
+\begin{itemize}
+    \item \textbf{Scelta della soglia di supporto minimo ($\text{minsup}$)}: All'abbassarsi della soglia di supporto minimo, la cardinalità dell'insieme degli itemset frequenti cresce esponenzialmente. Di conseguenza, il numero di candidati intermedi $C_k$ generati ad ogni livello esplode combinatoriamente, aumentando sensibilmente sia la lunghezza massima raggiungibile dagli itemset, sia lo sforzo computazionale necessario per verificarne l'occorrenza.
+    \item \textbf{Dimensionalità del dataset (numero complessivo di item distinti)}: All'aumentare della varietà degli articoli presenti nel catalogo (migliaia o milioni di item distinti), cresce proporzionalmente lo spazio di memoria primaria richiesto per allocare contatori, tabelle hash e alberi di memorizzazione ($k$-d tree o hash tree). Quando un'elevata porzione di tali item risulta frequente, il sovraccarico di memoria e i costi computazionali associati al monitoraggio di ogni possibile combinazione diventano ingestibili.
+    \item \textbf{Dimensione volumetrica del database}: Poiché la verifica empirica del supporto richiede una scansione integrale del database per ciascuna iterazione $k$, il tempo complessivo di I/O su memoria secondaria scala in modo lineare o super-lineare con il numero totale di transazioni $N$. Per database composti da milioni di record, eseguire decine di letture sequenziali del disco introduce latenze inaccettabili.
+    \item \textbf{Lunghezza media delle transazioni}: Nei dataset ad elevata densità (in cui le singole transazioni contengono decine o centinaia di item), la lunghezza media dei record amplifica il fattore combinatorio: una transazione di lunghezza $w$ contiene $\binom{w}{k}$ sottoinsiemi di dimensione $k$. Ognuno di questi sottoinsiemi deve essere verificato contro l'albero dei candidati, causando un degrado delle prestazioni durante la fase di conteggio delle frequenze.
+\end{itemize}
+
+Per superare il duplice collo di bottiglia della generazione esplosiva dei candidati e delle ripetute scansioni del database, Jiawei Han, Jian Pei e Yiwen Yin hanno proposto nel 2000 l'algoritmo \textbf{FP-Growth} (\textit{Frequent Pattern Growth})~\cite{han2000, han2011}, fondato su una rappresentazione compatta denominata \textbf{FP-tree} (\textit{Frequent Pattern Tree}).
+
+% ====================================================================
+\section{Architettura della Struttura Dati FP-Tree}
+\label{sec:dm-fp-tree-architecture}
+
+L'algoritmo FP-Growth abbandona il paradigma di generazione e test tipico di Apriori, sostituendolo con un approccio basato sulla compressione del database transazionale in un albero dei prefissi (\textit{prefix-tree} o \textit{trie}) residente in memoria principale, denominato \textbf{FP-tree}~\cite{han2000}.
+
+Le proprietà ingegneristiche fondamentali dell'FP-tree comprendono:
+\begin{enumerate}
+    \item \textbf{Rappresentazione Altamente Compressa}: L'FP-tree conserva tutte le informazioni indispensabili relative alle transazioni del database in una forma altamente densa, scartando gli item non frequenti ed eliminando ogni informazione ridondante. La struttura è progettata per essere contenuta interamente nella memoria primaria (RAM), azzerando le operazioni di I/O successive.
+    \item \textbf{Mappatura delle Transazioni come Cammini Sovrapposti}: Ciascuna transazione viene mappata come un cammino (\textit{path}) orientato discendente da un nodo radice virtuale privo di valore semantico (\texttt{null}). Quando più transazioni condividono una medesima sequenza iniziale di item, i loro cammini fisici si sovrappongono parzialmente, condividendo i medesimi nodi e incrementando i relativi contatori di frequenza.
+    \item \textbf{Strategia di Ricerca Divide-and-Conquer}: Una volta ultimata la costruzione dell'albero mediante due sole scansioni complete del database, l'estrazione degli itemset frequenti avviene direttamente sulla struttura ad albero mediante una scomposizione ricorsiva in sotto-problemi indipendenti basati su suffissi (\textit{conditional pattern bases} e \textit{conditional FP-trees}), senza generare mai esplicitamente insiemi di candidati.
+\end{enumerate}
+
+\subsection{Necessità dell'Ordinamento degli Item}
+\label{subsec:dm-item-ordering-necessity}
+
+In una base di dati transazionale standard, ciascuna transazione è formalmente un insieme matematico disordinato di item, per cui $\{A, B\} \equiv \{B, A\}$. Tuttavia, per permettere a una struttura ad albero dei prefissi di identificare ed aggregare prefissi comuni, è indispensabile imporre una relazione di \textbf{ordine totale} $\prec$ sull'universo degli item, trasformando ogni transazione in una sequenza rigorosamente ordinata.
+
+\begin{example}[Impatto dell'Ordinamento sulla Condivisione dei Nodi]
+Si considerino due transazioni $T_1 = \{A, B\}$ e $T_2 = \{B, C, A\}$. Se gli elementi venissero inseriti senza un criterio di ordinamento comune, $T_1$ genererebbe il cammino $\text{null} \to A \to B$, mentre $T_2$ verrebbe letta ad esempio come $\text{null} \to B \to C \to A$. Nonostante entrambe le transazioni contengano congiuntamente la coppia $\{A, B\}$, i rispettivi percorsi non presenterebbero alcun nodo condiviso, vanificando qualunque compressione e duplicando la memoria allocata.
+\end{example}
+
+Imponendo un ordinamento totale condiviso, ogni transazione viene preventivamente riordinata prima dell'inserimento. Come prima istanza didattica, si adotta convenzionalmente l'\textbf{ordinamento lessicografico}:
+\begin{equation}
+A \prec B \prec C \prec D \prec E
+\end{equation}
+
+% ====================================================================
+\section{Costruzione Dettagliata dell'FP-Tree con Ordinamento Lessicografico}
+\label{sec:dm-fp-tree-lexicographical}
+
+Si consideri il database didattico composto da 10 transazioni riportato nella Tabella~\ref{tab:dm-fp-toy-dataset}.
+
+\begin{table}[htbp]
+\centering
+\caption{Database transazionale didattico per la costruzione dell'FP-tree.}
+\label{tab:dm-fp-toy-dataset}
+\begin{tabular}{c l l}
+\toprule
+\textbf{TID} & \textbf{Itemset Originario} & \textbf{Sequenza Ordinata Lessicografica} \\
+\midrule
+1  & $\{A, B\}$          & $(A, B)$ \\
+2  & $\{B, C, D\}$       & $(B, C, D)$ \\
+3  & $\{A, C, D, E\}$    & $(A, C, D, E)$ \\
+4  & $\{A, D, E\}$       & $(A, D, E)$ \\
+5  & $\{A, B, C\}$       & $(A, B, C)$ \\
+6  & $\{A, B, C, D\}$    & $(A, B, C, D)$ \\
+7  & $\{B, C\}$          & $(B, C)$ \\
+8  & $\{A, B, C\}$       & $(A, B, C)$ \\
+9  & $\{A, B, D\}$       & $(A, B, D)$ \\
+10 & $\{B, C, E\}$       & $(B, C, E)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Etichetta dei Nodi e Header Table}
+La struttura dell'FP-tree poggia su due elementi cardine:
+\begin{itemize}
+    \item \textbf{Etichetta del Nodo (\texttt{item:count})}: Ciascun nodo dell'albero memorizza il simbolo dell'item corrispondente e un contatore intero positivo (\textit{support count}), che quantifica esattamente quante transazioni attraversano quel nodo percorrendo il cammino specifico dalla radice fittizia \texttt{null}.
+    \item \textbf{Header Table e Liste Concatenate Orizzontali}: Poiché uno stesso item può apparire in molteplici rami differenti dell'albero a causa di prefissi parzialmente disgiunti, tutti i nodi fisici associati al medesimo item vengono concatenati mediante una lista mono-direzionale (\textit{node-link}). L'\textbf{Header Table} memorizza, per ciascun item distintivo, il puntatore di testa (\textit{head pointer}) alla lista orizzontale, consentendo una rapida scansione di tutte le occorrenze di quell'item durante l'estrazione.
+\end{itemize}
+
+\subsection{Inserimento Passo-Passo delle 10 Transazioni}
+La procedura di popolamento dell'albero evolve sequenzialmente:
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Inizializzazione}: Si alloca la radice fittizia etichettata con \texttt{null}.
+    \item \textbf{TID 1: $(A, B)$}: Dalla radice \texttt{null} non esiste alcun figlio con etichetta $A$. Si crea il nodo figlio $A:1$; da $A:1$ si crea a sua volta il nodo figlio $B:1$. La Header Table imposta i puntatori iniziali di $A$ e $B$ su tali nodi.
+    \item \textbf{TID 2: $(B, C, D)$}: Da \texttt{null} non esiste alcun figlio diretto con etichetta $B$ (il nodo $B$ precedente è figlio di $A$). Viene generato un nuovo ramo autonomo adiacente alla radice: $\text{null} \to B:1 \to C:1 \to D:1$. Il nodo $B:1$ sotto $A$ viene collegato mediante puntatore orizzontale al nuovo nodo $B:1$ sotto \texttt{null}.
+    \item \textbf{TID 3: $(A, C, D, E)$}: Dalla radice \texttt{null} esiste già il figlio $A$. Il suo contatore viene incrementato passando da $A:1$ ad $A:2$. Poiché $A$ non possiede figli etichettati con $C$ (possiede solo il figlio $B$), si genera un nuovo sotto-ramo a partire da $A:2$: $C:1 \to D:1 \to E:1$. La Header Table estende le liste per $C, D, E$.
+    \item \textbf{TID 4: $(A, D, E)$}: Da \texttt{null} si transita per $A$, il cui contatore viene aggiornato ad $A:3$. Poiché $A$ non ha un figlio diretto $D$, si crea la diramazione $D:1 \to E:1$ direttamente sotto $A:3$.
+    \item \textbf{TID 5: $(A, B, C)$}: Il cammino $(A, B)$ è già presente. Si incrementa $A$ (che diventa $A:4$) e il figlio $B$ (che passa da $B:1$ a $B:2$). Da $B:2$ si crea il nuovo figlio $C:1$.
+    \item \textbf{TID 6: $(A, B, C, D)$}: Il percorso $(A, B, C)$ esiste già: si incrementa $A \to A:5$, $B \to B:3$, $C \to C:2$. Sotto $C:2$ si crea il nodo foglia $D:1$.
+    \item \textbf{TID 7: $(B, C)$}: La transazione inizia da $B$ sotto la radice \texttt{null}: si incrementa $B$ da $B:1$ a $B:2$, e il figlio $C$ da $C:1$ a $C:2$.
+    \item \textbf{TID 8: $(A, B, C)$}: Si percorre il ramo sinistro: $A \to A:6$, $B \to B:4$, $C \to C:3$.
+    \item \textbf{TID 9: $(A, B, D)$}: Si transita per $A \to A:7$, $B \to B:5$. Da $B:5$, non essendovi figli etichettati con $D$, si crea un nuovo ramo diretto $D:1$.
+    \item \textbf{TID 10: $(B, C, E)$}: Si percorre il ramo destro: $B \to B:3$, $C \to C:3$, e sotto $C:3$ si crea il nuovo nodo foglia $E:1$.
+\end{enumerate}
+
+La Figura~\ref{fig:dm-fp-tree-lexicographical} illustra l'architettura finale dell'FP-tree così generato con la relativa Header Table.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    level distance=1.3cm,
+    node distance=1.5cm,
+    font=\small,
+    treeNode/.style={circle, draw=navy!85!black, fill=blue!8, thick, inner sep=2pt, minimum size=8.5mm, font=\footnotesize\bfseries},
+    rootNode/.style={rectangle, rounded corners=4pt, draw=black!75, fill=gray!25, thick, inner sep=5pt, font=\small\bfseries},
+    headerHdr/.style={rectangle, draw=navy!85, fill=navy!20, rounded corners=2pt, inner sep=3pt, font=\footnotesize\bfseries, align=center},
+    headerCell/.style={rectangle, draw=navy!80, fill=navy!8, rounded corners=2pt, inner sep=3pt, font=\footnotesize\bfseries, align=center},
+    treeEdge/.style={draw=black!75, thick},
+    linkA/.style={draw=navy!90!black, dashed, thick, -{Stealth[scale=0.9]}},
+    linkB/.style={draw=cyan!75!blue, dashed, thick, -{Stealth[scale=0.9]}},
+    linkC/.style={draw=darkgreen, dashed, thick, -{Stealth[scale=0.9]}},
+    linkD/.style={draw=orange!90!black, dashed, thick, -{Stealth[scale=0.9]}},
+    linkE/.style={draw=purple!80!black, dashed, thick, -{Stealth[scale=0.9]}}
+]
+    % -------------------------------------------------------------
+    % 1. FP-Tree Nodes
+    % -------------------------------------------------------------
+    % Root
+    \node[rootNode] (null) at (1.0, 0) {null};
+
+    % Level 1: Under Root
+    \node[treeNode] (A7)  at (-0.8, -1.3) {A:7};
+    \node[treeNode] (B3)  at (4.6,  -1.3) {B:3};
+    \draw[treeEdge] (null) -- (A7);
+    \draw[treeEdge] (null) -- (B3);
+
+    % Level 2: Under A:7 and B:3
+    \node[treeNode] (B5)  at (-3.2, -2.6) {B:5};
+    \node[treeNode] (C1a) at (-0.8, -2.6) {C:1};
+    \node[treeNode] (D1a) at (0.8,  -2.6) {D:1};
+    \node[treeNode] (C3b) at (4.6,  -2.6) {C:3};
+    \draw[treeEdge] (A7) -- (B5);
+    \draw[treeEdge] (A7) -- (C1a);
+    \draw[treeEdge] (A7) -- (D1a);
+    \draw[treeEdge] (B3) -- (C3b);
+
+    % Level 3
+    \node[treeNode] (C3a) at (-4.0, -3.9) {C:3};
+    \node[treeNode] (D1b) at (-2.4, -3.9) {D:1};
+    \node[treeNode] (D1c) at (-0.8, -3.9) {D:1};
+    \node[treeNode] (E1b) at (0.8,  -3.9) {E:1};
+    \node[treeNode] (D1d) at (3.8,  -3.9) {D:1};
+    \node[treeNode] (E1c) at (5.4,  -3.9) {E:1};
+    \draw[treeEdge] (B5)  -- (C3a);
+    \draw[treeEdge] (B5)  -- (D1b);
+    \draw[treeEdge] (C1a) -- (D1c);
+    \draw[treeEdge] (D1a) -- (E1b);
+    \draw[treeEdge] (C3b) -- (D1d);
+    \draw[treeEdge] (C3b) -- (E1c);
+
+    % Level 4 (Leaves)
+    \node[treeNode] (D1e) at (-4.0, -5.2) {D:1};
+    \node[treeNode] (E1a) at (-0.8, -5.2) {E:1};
+    \draw[treeEdge] (C3a) -- (D1e);
+    \draw[treeEdge] (D1c) -- (E1a);
+
+    % -------------------------------------------------------------
+    % 2. Header Table (Left column)
+    % -------------------------------------------------------------
+    \node[headerHdr,  minimum width=2.2cm] (hdr) at (-6.6, 0.0)  {Header Table};
+    \node[headerCell, minimum width=2.2cm] (hA)  at (-6.6, -1.0) {Item A : 7};
+    \node[headerCell, minimum width=2.2cm] (hB)  at (-6.6, -1.8) {Item B : 8};
+    \node[headerCell, minimum width=2.2cm] (hC)  at (-6.6, -2.6) {Item C : 7};
+    \node[headerCell, minimum width=2.2cm] (hD)  at (-6.6, -3.4) {Item D : 5};
+    \node[headerCell, minimum width=2.2cm] (hE)  at (-6.6, -4.2) {Item E : 3};
+
+    % -------------------------------------------------------------
+    % 3. Node-Link Chains (Strictly Left-to-Right with Directed Arrows)
+    % -------------------------------------------------------------
+    % Catena A (Navy): Header -> A:7
+    \draw[linkA] (hA.east) to[out=10, in=170] (A7.north west);
+
+    % Catena B (Cyan/Teal): Header -> B:5 -> B:3
+    \draw[linkB] (hB.east) -- (B5.west);
+    \draw[linkB] (B5.east) to[out=10, in=170] (B3.west);
+
+    % Catena C (DarkGreen): Header -> C:3a -> C:1a -> C:3b
+    \draw[linkC] (hC.east) to[out=-10, in=150] (C3a.north west);
+    \draw[linkC] (C3a.north east) to[out=40, in=140] (C1a.north west);
+    \draw[linkC] (C1a.north east) to[out=35, in=145] (C3b.north west);
+
+    % Catena D (Orange): Header -> D:1e -> D:1b -> D:1c -> D:1a -> D:1d
+    \draw[linkD] (hD.east) to[out=-20, in=160] (D1e.west);
+    \draw[linkD] (D1e.north east) to[out=40, in=190] (D1b.south);
+    \draw[linkD] (D1b.north east) to[out=40, in=140] (D1c.north west);
+    \draw[linkD] (D1c.north east) to[out=50, in=130] (D1a.north west);
+    \draw[linkD] (D1a.north east) to[out=35, in=145] (D1d.north west);
+
+    % Catena E (Purple): Header -> E:1a -> E:1b -> E:1c
+    \draw[linkE] (hE.south east) to[out=-40, in=180] (-2.4, -6.1) to[out=0, in=-135] (E1a.south west);
+    \draw[linkE] (E1a.north east) to[out=45, in=190] (E1b.south);
+    \draw[linkE] (E1b.south east) to[out=-35, in=-115] (E1c.south);
+
+\end{tikzpicture}
+\caption{FP-tree completo generato dalle 10 transazioni con ordinamento lessicografico ($A \prec B \prec C \prec D \prec E$). Ciascuna riga della Header Table punta al primo nodo del relativo item nell'albero. Le frecce tratteggiate e colorate rappresentano le liste concatenate (\textit{node-links}) che collegano tutte le istanze dello stesso item da sinistra verso destra.}
+\label{fig:dm-fp-tree-lexicographical}
+\end{figure}
+
+% ====================================================================
+\section[Fattori Determinanti la Dimensione dell'FP-Tree ed Ordinamento]{Fattori Determinanti la Dimensione dell'FP-Tree\\ed Euristica di Ordinamento}
+\label{sec:dm-fp-compaction-heuristic}
+
+La complessità spaziale e la cardinalità complessiva dei nodi dell'FP-tree dipendono strettamente dal grado di comprimibilità intrinseco della base di dati:
+\begin{itemize}
+    \item \textbf{Scenario Ottimo Ideale}: Nel caso in cui tutte le transazioni all'interno del database contengano esattamente la medesima sequenza di item, l'albero collassa in un unico ramo discendente dalla radice. In questo regime, il fattore di compattazione è asintoticamente massimo e l'impronta di memoria è minimale.
+    \item \textbf{Scenario Pessimo Degenerato}: Nel caso in cui tutte le transazioni siano reciprocamente disgiunte e non condividano alcun prefisso comune, il numero di nodi allocati eguaglia esattamente il numero totale di occorrenze di item presenti nell'archivio. In tale circostanza, l'FP-tree non apporta alcuna compressione e introduce un sovraccarico di memoria derivante dai puntatori strutturali ai figli e dai collegamenti orizzontali della Header Table.
+\end{itemize}
+
+\subsection{Euristica: Ordinamento per Supporto Decrescente}
+\label{subsec:dm-frequency-ordering}
+
+La profondità, l'ampiezza e il tasso di diramazione (\textit{branching factor}) dell'albero dipendono in maniera determinante dall'ordine scelto per gli item. Per massimizzare la probabilità statistica che transazioni eterogenee condividano la porzione iniziale del cammino, si applica l'\textbf{euristica di ordinamento per frequenza decrescente}~\cite{han2000, tan2018}.
+
+L'adozione di questa euristica richiede una prima scansione preliminare dell'intero database volta a calcolare il supporto assoluto $\sigma(i)$ di ciascun singolo item:
+\begin{align}
+\sigma(B) &= 8, \quad \sigma(A) = 7, \quad \sigma(C) = 7, \quad \sigma(D) = 5, \quad \sigma(E) = 3
+\end{align}
+Ordinando gli elementi in senso decrescente di supporto (utilizzando l'ordine lessicografico come criterio di spareggio tra $A$ e $C$), si ottiene la relazione d'ordine ottima:
+\begin{equation}
+B \succ A \succ C \succ D \succ E
+\end{equation}
+
+Riorganizzando le 10 transazioni originali secondo questo criterio, si ottiene la mappatura strutturata riportata nella Tabella~\ref{tab:dm-fp-reordered-transactions}.
+
+\begin{table}[htbp]
+\centering
+\caption{Riorganizzazione delle transazioni in ordine di frequenza decrescente ($B, A, C, D, E$).}
+\label{tab:dm-fp-reordered-transactions}
+\begin{tabular}{c l l}
+\toprule
+\textbf{TID} & \textbf{Itemset Originario} & \textbf{Sequenza per Frequenza Decrescente} \\
+\midrule
+1  & $\{A, B\}$          & $(B, A)$ \\
+2  & $\{B, C, D\}$       & $(B, C, D)$ \\
+3  & $\{A, C, D, E\}$    & $(A, C, D, E)$ \\
+4  & $\{A, D, E\}$       & $(A, D, E)$ \\
+5  & $\{A, B, C\}$       & $(B, A, C)$ \\
+6  & $\{A, B, C, D\}$    & $(B, A, C, D)$ \\
+7  & $\{B, C\}$          & $(B, C)$ \\
+8  & $\{A, B, C\}$       & $(B, A, C)$ \\
+9  & $\{A, B, D\}$       & $(B, A, D)$ \\
+10 & $\{B, C, E\}$       & $(B, C, E)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{noteblock}{Vantaggio Topologico dell'Euristica di Frequenza}
+    Poiché l'item $B$ compare nell'80\% delle transazioni complessive ($8$ su $10$), collocarlo sistematicamente in testa assicura che ben 8 transazioni su 10 condividano il medesimo nodo iniziale $B:8$ collocato direttamente al di sotto della radice \texttt{null}. Questo riduce drasticamente il numero di diramazioni primarie dell'albero, incrementando il fattore di compattazione e riducendo il tempo di attraversamento durante l'estrazione.
+\end{noteblock}
+
+% ====================================================================
+\section{Estrazione dei Pattern Frequenti con FP-Growth (Divide and Conquer)}
+\label{sec:dm-fp-growth-algorithm}
+
+Una volta istanziato l'FP-tree compresso, l'algoritmo FP-Growth individua l'insieme completo degli itemset frequenti adottando una decomposizione ricorsiva di tipo \textit{divide-and-conquer}~\cite{han2000}:
+\begin{enumerate}
+    \item \textbf{Partizione disgiunta dello spazio}: Si scompone il problema globale analizzando gli item in \textbf{ordine inverso rispetto alla sequenza di inserimento} (dal meno frequente al più frequente: prima $E$, poi $D$, $C$, $B$ e infine $A$). Ciascun sotto-problema identifica tutti e soli gli itemset che terminano con quello specifico suffisso, garantendo partizioni mutualmente disgiunte dell'intero spazio delle soluzioni.
+    \item \textbf{Costruzione della base condizionale}: Per ciascun suffisso $X$, si determinano i cammini di prefisso risalendo dai nodi fisici di $X$ verso la radice \texttt{null} dell'albero, aggregando i conteggi di supporto per formare la \textbf{Conditional Pattern Base} (base di pattern condizionale) di $X$.
+    \item \textbf{Generazione ricorsiva (Conditional FP-tree)}: A partire dalla base condizionale, si eliminano gli elementi con supporto locale inferiore a $\text{minsup}$ e si costruisce il relativo \textbf{Conditional FP-tree}. L'estrazione dei pattern non produce soltanto estensioni dirette, ma combina il suffisso $X$ con tutti i pattern frequenti ricavati ricorsivamente all'interno dell'albero condizionale. Il procedimento viene reiterato in profondità estendendo progressivamente il suffisso (ad esempio, da $\{E\}$ verso $\{D, E\}$ e successivamente $\{A, D, E\}$) fino a quando l'albero condizionale non si riduce a un singolo cammino o diviene vuoto.
+\end{enumerate}
+
+La Figura~\ref{fig:dm-fp-search-space} illustra la decomposizione ad albero dello spazio di ricerca, evidenziando la disgiunzione dei rami primari per suffisso e l'esplorazione gerarchica in profondità del divide-and-conquer.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\small,
+    rootNode/.style={rectangle, draw=navy!90!black, fill=navy!12, rounded corners=3pt, font=\small\bfseries, inner sep=5pt, align=center},
+    level1Node/.style={rectangle, draw=navy!85, fill=blue!10, rounded corners=2pt, font=\footnotesize\bfseries, inner sep=3.5pt},
+    level2Node/.style={rectangle, draw=darkgreen!85!black, fill=darkgreen!10, rounded corners=2pt, font=\footnotesize\bfseries, inner sep=2.8pt},
+    level3Node/.style={rectangle, draw=purple!85!black, fill=purple!10, rounded corners=2pt, font=\footnotesize\bfseries, inner sep=2.5pt},
+    edgeStyle/.style={draw=black!70, thick, rounded corners=2pt}
+]
+    % -------------------------------------------------------------
+    % Coordinate del Livello 0: Radice (x = -4.2)
+    % -------------------------------------------------------------
+    \node[rootNode] (root) at (-4.2, 0.0) {Spazio Completo\\degli Itemset Frequenti};
+
+    % -------------------------------------------------------------
+    % Coordinate del Livello 1: Suffissi Primari (x = 0.0)
+    % -------------------------------------------------------------
+    \node[level1Node] (sE) at (0.0,  3.0) {Suffisso $\{E\}$};
+    \node[level1Node] (sD) at (0.0,  0.8) {Suffisso $\{D\}$};
+    \node[level1Node] (sC) at (0.0, -1.1) {Suffisso $\{C\}$};
+    \node[level1Node] (sB) at (0.0, -2.5) {Suffisso $\{B\}$};
+    \node[level1Node] (sA) at (0.0, -3.5) {Suffisso $\{A\}$};
+
+    % Connessioni Radice -> Livello 1 (Dorsale ortogonale pulita a x = -1.6)
+    \draw[edgeStyle] (root.east) -- (-1.6, 0.0);
+    \draw[edgeStyle] (-1.6,  3.0) -- (-1.6, -3.5);
+    \draw[edgeStyle] (-1.6,  3.0) -- (sE.west);
+    \draw[edgeStyle] (-1.6,  0.8) -- (sD.west);
+    \draw[edgeStyle] (-1.6, -1.1) -- (sC.west);
+    \draw[edgeStyle] (-1.6, -2.5) -- (sB.west);
+    \draw[edgeStyle] (-1.6, -3.5) -- (sA.west);
+
+    % -------------------------------------------------------------
+    % Sotto-albero del Suffisso {E} (y da 4.2 a 2.1)
+    % -------------------------------------------------------------
+    \node[level2Node] (e_de) at (3.1, 4.2) {$\{D, E\}$};
+    \node[level2Node] (e_ce) at (3.1, 3.5) {$\{C, E\}$};
+    \node[level2Node] (e_be) at (3.1, 2.8) {$\{B, E\}$};
+    \node[level2Node] (e_ae) at (3.1, 2.1) {$\{A, E\}$};
+
+    \draw[edgeStyle] (sE.east) -- ++(0.5, 0) |- (e_de.west);
+    \draw[edgeStyle] (sE.east) -- ++(0.5, 0) |- (e_ce.west);
+    \draw[edgeStyle] (sE.east) -- ++(0.5, 0) |- (e_be.west);
+    \draw[edgeStyle] (sE.east) -- ++(0.5, 0) |- (e_ae.west);
+
+    % Livello 3 sotto {D, E}
+    \node[level3Node] (e_ade) at (5.7, 4.2) {$\{A, D, E\}$};
+    \draw[edgeStyle] (e_de.east) -- (e_ade.west);
+
+    % -------------------------------------------------------------
+    % Sotto-albero del Suffisso {D} (y da 1.5 a 0.1)
+    % -------------------------------------------------------------
+    \node[level2Node] (d_cd) at (3.1, 1.5) {$\{C, D\}$};
+    \node[level2Node] (d_bd) at (3.1, 0.8) {$\{B, D\}$};
+    \node[level2Node] (d_ad) at (3.1, 0.1) {$\{A, D\}$};
+
+    \draw[edgeStyle] (sD.east) -- ++(0.5, 0) |- (d_cd.west);
+    \draw[edgeStyle] (sD.east) -- ++(0.5, 0) |- (d_bd.west);
+    \draw[edgeStyle] (sD.east) -- ++(0.5, 0) |- (d_ad.west);
+
+    % Livello 3 sotto {C, D}
+    \node[level3Node] (d_acd) at (5.7, 1.5) {$\{A, C, D\}$};
+    \draw[edgeStyle] (d_cd.east) -- (d_acd.west);
+
+    % -------------------------------------------------------------
+    % Sotto-albero del Suffisso {C} (y da -0.7 a -1.5)
+    % -------------------------------------------------------------
+    \node[level2Node] (c_bc) at (3.1, -0.7) {$\{B, C\}$};
+    \node[level2Node] (c_ac) at (3.1, -1.5) {$\{A, C\}$};
+
+    \draw[edgeStyle] (sC.east) -- ++(0.5, 0) |- (c_bc.west);
+    \draw[edgeStyle] (sC.east) -- ++(0.5, 0) |- (c_ac.west);
+
+    % -------------------------------------------------------------
+    % Sotto-albero del Suffisso {B} (y = -2.5)
+    % -------------------------------------------------------------
+    \node[level2Node] (b_ab) at (3.1, -2.5) {$\{A, B\}$};
+    \draw[edgeStyle] (sB.east) -- (b_ab.west);
+
+    % -------------------------------------------------------------
+    % Suffisso {A}: Terminale (nessun nodo figlio prefisso)
+    % -------------------------------------------------------------
+
+\end{tikzpicture}
+\caption{Decomposizione gerarchica dello spazio di ricerca mediante partizionamento per suffissi disgiunti in FP-Growth. La scomposizione divide-and-conquer elabora ordinatamente i suffissi (da $E$ verso $A$); ciascun ramo genera unicamente pattern che terminano con quel suffisso, approfondendo l'esplorazione nei sotto-alberi condizionali locali (es. $\{E\} \to \{D, E\} \to \{A, D, E\}$ e $\{D\} \to \{C, D\} \to \{A, C, D\}$) senza alcuna duplicazione o interferenza tra partizioni disgiunte.}
+\label{fig:dm-fp-search-space}
+\end{figure}
+
+\subsection{Fasi Operative per un Suffisso Generico $X$}
+Per ciascun elemento $X$ selezionato come suffisso corrente dall'Header Table, l'algoritmo esegue due fasi analitiche fondamentali:
+\begin{itemize}
+    \item \textbf{Fase 1 (Costruzione della Base Condizionale di Pattern e Calcolo del Supporto)}: Risalendo dai nodi $X$ verso la radice \texttt{null}, si raccolgono tutti i cammini di prefisso (\textit{prefix paths}). Il supporto cumulativo di $X$ è dato dalla somma algebrica dei contatori associati a tutti i nodi fisici con etichetta $X$. Se tale supporto risulta inferiore a $\text{minsup}$, il suffisso $X$ viene potato e il sotto-albero non viene esplorato.
+    \item \textbf{Fase 2 (Costruzione del Conditional FP-tree)}: Se $X$ soddisfa la condizione di frequenza, si costruisce il relativo \textbf{albero condizionale}:
+    \begin{enumerate}[label=\alph*.]
+        \item \textit{Ricalcolo e propagazione del supporto}: I nodi antenati nei cammini di prefisso non conservano il loro conteggio originale, bensì unicamente la quota parte di supporto conferita dalle transazioni che contengono $X$.
+        \begin{property}[Propagazione del Supporto nei Cammini Condizionali]
+        Il supporto ricalcolato di un generico nodo antenato $Y$ all'interno della base condizionale di $X$ è pari alla somma dei conteggi di supporto delle sole foglie $X$ che discendono direttamente da $Y$.
+        \end{property}
+        \item \textit{Potatura dei nodi non frequenti}: Tutti gli item antenati il cui conteggio di supporto ricalcolato risulta inferiore a $\text{minsup}$ vengono fisicamente eliminati dall'albero condizionale.
+        \item \textit{Troncamento di $X$ e ricorsione}: Il nodo suffisso $X$ viene eliminato dalla base dell'albero (avendo terminato il suo compito di ancoraggio) e si invoca ricorsivamente l'algoritmo FP-Growth sulla struttura condizionale risultante.
+    \end{enumerate}
+\end{itemize}
+
+% ====================================================================
+\section{Traccia di Esecuzione Completa sul Suffisso \texorpdfstring{$E$}{E} (\texorpdfstring{$\text{minsup} = 2$}{minsup = 2})}
+\label{sec:dm-fp-execution-trace-e}
+
+Si consideri l'FP-tree lessicografico formalizzato nella Sezione~\ref{sec:dm-fp-tree-lexicographical} (Figura~\ref{fig:dm-fp-tree-lexicographical}) e si imponga una soglia di supporto minimo pari a:
+\begin{equation}
+\text{minsup} = 2
+\end{equation}
+
+\subsection{Fase 1: Identificazione dei Prefix Paths e Supporto di $E$}
+Attraverso i puntatori della Header Table associati all'item $E$, si identificano esattamente 3 nodi foglia, corrispondenti ai seguenti tre cammini di prefisso:
+\begin{align}
+\text{Cammino 1:} \quad &\text{null} \to A \to C \to D \to E:1 \\
+\text{Cammino 2:} \quad &\text{null} \to A \to D \to E:1 \\
+\text{Cammino 3:} \quad &\text{null} \to B \to C \to E:1
+\end{align}
+
+Sommando i contatori delle tre foglie si ottiene il supporto totale di $E$:
+\begin{equation}
+\text{support}(E) = 1 + 1 + 1 = 3
+\end{equation}
+Poiché $3 \ge \text{minsup} = 2$, l'itemset singoletto \textbf{$\{E\}$ è frequente} (supporto 3).
+
+\subsection{Fase 2: Ricalcolo del Supporto nel Conditional Tree di $E$}
+Nel database complessivo, i nodi $A, B, C$ possiedono conteggi elevati (es. $A:7$, $B:5$) determinati da transazioni prive dell'item $E$. Nella costruzione dell'albero condizionale per $E$, tali valori devono essere ricalcolati propagando esclusivamente il supporto conferito dalle foglie $E$:
+\begin{itemize}
+    \item \textbf{Ramo Destro ($\text{null} \to B \to C \to E:1$)}: La foglia $E:1$ propaga il proprio valore al nodo genitore $C$, che assume supporto condizionale $1$; a sua volta, $C$ propaga il valore al nodo $B$, che assume supporto condizionale $1$.
+    \item \textbf{Ramo Sinistro}:
+    \begin{itemize}
+        \item Dal cammino $\text{null} \to A \to C \to D \to E:1$, la foglia propaga $1$ a $D$, il quale propaga $1$ a $C$, che a sua volta propaga $1$ ad $A$.
+        \item Dal cammino $\text{null} \to A \to D \to E:1$, la foglia propaga $1$ direttamente a $D$, che propaga $1$ ad $A$.
+    \end{itemize}
+    Il nodo $A$ cumula il supporto di entrambi i rami sottostanti, assumendo un valore ricalcolato pari a:
+    \begin{equation}
+    \text{support}_{\text{cond}}(A) = 1 + 1 = 2
+    \end{equation}
+\end{itemize}
+
+\subsection{Troncamento e Potatura per il Suffisso $E$}
+Una volta ricalcolati i supporti condizionali:
+\begin{enumerate}
+    \item \textbf{Troncamento}: Vengono rimossi tutti i nodi fisici etichettati con l'item $E$.
+    \item \textbf{Potatura dei nodi non frequenti ($\text{support} < 2$)}:
+    \begin{itemize}
+        \item Il nodo $B:1$ derivante dal ramo destro possiede supporto $1 < \text{minsup} = 2$, evidenziando che l'itemset $\{B, E\}$ compare solo una volta nel dataset. Il nodo $B:1$ viene potato.
+        \item Analogamente, il nodo $C:1$ (figlio di $B$) viene rimosso in quanto non supportato da frequenza sufficiente.
+    \end{itemize}
+\end{enumerate}
+
+La struttura superstite definisce il \textbf{Conditional FP-tree per $E$}, mostrato nella Figura~\ref{fig:dm-fp-conditional-e}:
+\begin{itemize}
+    \item Radice \texttt{null};
+    \item Ramo principale facente capo al nodo $A:2$;
+    \item Da $A:2$ si originano due percorsi verso nodi $D$: uno attraverso $C:1 \to D:1$ e uno diretto $D:1$;
+    \item Un ramo isolato $C:1$ adiacente a \texttt{null} (con conteggio 1).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    level distance=1.3cm,
+    every node/.style={circle, draw=navy!80!black, fill=blue!5, thick, inner sep=2pt, font=\footnotesize\bfseries},
+    rootNode/.style={rectangle, rounded corners=3pt, draw=black!70, fill=gray!20, thick, inner sep=4pt, font=\small\bfseries}
+]
+    \node[rootNode] (null) at (0, 0) {null};
+    \node (A2) at (-1.5, -1.3) {A:2};
+    \node (C1) at (1.5, -1.3) {C:1};
+    \draw[thick] (null) -- (A2);
+    \draw[thick] (null) -- (C1);
+
+    \node (C1sub) at (-2.3, -2.6) {C:1};
+    \node (D1sub) at (-0.7, -2.6) {D:1};
+    \draw[thick] (A2) -- (C1sub);
+    \draw[thick] (A2) -- (D1sub);
+
+    \node (D1leaf) at (-2.3, -3.9) {D:1};
+    \draw[thick] (C1sub) -- (D1leaf);
+\end{tikzpicture}
+\caption{Conditional FP-tree per il suffisso $E$ dopo ricalcolo del supporto, troncamento di $E$ e potatura dei rami con frequenza insufficiente.}
+\label{fig:dm-fp-conditional-e}
+\end{figure}
+
+% ====================================================================
+\section{Esplorazione Ricorsiva dei Sotto-Problemi per il Suffisso \texorpdfstring{$E$}{E}}
+\label{sec:dm-fp-recursive-e}
+
+A partire dal Conditional FP-tree di $E$, FP-Growth analizza ricorsivamente i suffissi candidati in ordine inverso: prima $D$, poi $C$, infine $A$.
+
+\subsection{Sotto-problema: Suffisso $\{D, E\}$}
+\begin{enumerate}
+    \item \textbf{Prefix Paths per $D$ nel Conditional Tree di $E$}:
+    Nell'albero condizionale di $E$ sono presenti esattamente due nodi $D$:
+    \begin{align}
+    \text{null} &\to A \to C \to D:1 \\
+    \text{null} &\to A \to D:1
+    \end{align}
+    Supporto complessivo di $\{D, E\} = 1 + 1 = 2 \ge \text{minsup} = 2$. L'itemset \textbf{$\{D, E\}$ è frequente}.
+    \item \textbf{Costruzione del Conditional FP-tree per $\{D, E\}$}:
+    Risalendo dai due nodi $D$, il nodo $C$ riceve supporto condizionale $1$, mentre il nodo $A$ riceve $1 + 1 = 2$.
+    \item \textbf{Troncamento e Potatura}:
+    Si eliminano i nodi $D$. Il nodo $C$ ha supporto $1 < 2$ e viene potato.
+    L'albero condizionale risultante per $\{D, E\}$ contiene unicamente il nodo $A:2$.
+    \item \textbf{Estrazione}: Poiché $A$ ha supporto $2 \ge \text{minsup}$, si estrae l'itemset frequente ternario:
+    \begin{equation}
+    \mathbf{\{A, D, E\}} \quad (\text{supporto } 2)
+    \end{equation}
+    Non essendovi ulteriori prefissi da esplorare al di sopra di $A$, la ricorsione su questo ramo termina.
+\end{enumerate}
+
+\subsection{Sotto-problema: Suffisso $\{C, E\}$}
+\begin{enumerate}
+    \item \textbf{Prefix Paths per $C$ nel Conditional Tree di $E$}:
+    Si rilevano due nodi etichettati con $C$: uno lungo il cammino $\text{null} \to A \to C:1$ e uno isolato $\text{null} \to C:1$.
+    Supporto cumulativo di $\{C, E\} = 1 + 1 = 2 \ge \text{minsup} = 2$. L'itemset \textbf{$\{C, E\}$ è frequente}.
+    \item \textbf{Costruzione del Conditional FP-tree per $\{C, E\}$}:
+    Il nodo $A$ compare unicamente nel primo cammino, ricevendo pertanto un supporto condizionale pari a $1$.
+    \item \textbf{Troncamento e Potatura}:
+    Rimossi i nodi $C$, il nodo residuo $A:1$ ha supporto $1 < \text{minsup} = 2$ e viene immediatamente potato.
+    L'albero condizionale per $\{C, E\}$ collassa nella sola radice fittizia \texttt{null}. Nessun ulteriore itemset viene generato da questa diramazione.
+\end{enumerate}
+
+\subsection{Sotto-problema: Suffisso $\{A, E\}$}
+\begin{enumerate}
+    \item \textbf{Prefix Path per $A$ nel Conditional Tree di $E$}:
+    È presente il solo nodo $A:2$ direttamente agganciato alla radice \texttt{null}.
+    Supporto di $\{A, E\} = 2 \ge \text{minsup} = 2$. L'itemset \textbf{$\{A, E\}$ è frequente}.
+    \item Non essendovi ulteriori nodi intermedi tra $A$ e \texttt{null}, la procedura non genera ulteriori estensioni e l'esplorazione del suffisso $A$ si conclude.
+\end{enumerate}
+
+\subsection{Riepilogo dei Pattern Frequenti Estratti per il Suffisso $E$}
+L'esplorazione esaustiva della componente $E$ conduce all'estrazione formale dei 5 itemset frequenti:
+\begin{equation}
+\mathcal{F}_E = \big\{ \{E\}, \; \{D, E\}, \; \{C, E\}, \; \{A, E\}, \; \{A, D, E\} \big\}
+\end{equation}
+
+% ====================================================================
+\section{Elaborazione del Suffisso Successivo: Suffisso \texorpdfstring{$D$}{D}}
+\label{sec:dm-fp-execution-trace-d}
+
+Esaurita la componente $E$, FP-Growth passa al suffisso immediatamente precedente nell'ordinamento: \textbf{$D$}.
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Identificazione delle Istanze e Supporto di $D$}:
+    Seguendo la catena dei nodi collegati alla voce $D$ nella Header Table dell'FP-tree originale (Figura~\ref{fig:dm-fp-tree-lexicographical}), si individuano 5 nodi fisici distinti (ciascuno con supporto locale 1):
+    \begin{itemize}
+        \item Tre foglie nel sotto-albero originato da $A$:
+        \begin{align}
+        &\text{null} \to A \to B \to D:1 \\
+        &\text{null} \to A \to B \to C \to D:1 \\
+        &\text{null} \to A \to C \to D:1
+        \end{align}
+        \item Due foglie nel sotto-albero originato da $B$:
+        \begin{align}
+        &\text{null} \to B \to C \to D:1 \\
+        &\text{null} \to B \to D:1
+        \end{align}
+    \end{itemize}
+    Supporto complessivo: $\text{support}(D) = 1 + 1 + 1 + 1 + 1 = 5 \ge \text{minsup} = 2$. L'itemset \textbf{$\{D\}$ è frequente}.
+
+    \item \textbf{Ricalcolo del Supporto Condizionale dei Prefissi di $D$}:
+    Propagando i conteggi dal basso verso l'alto lungo i 5 percorsi:
+    \begin{itemize}
+        \item Il nodo $C$ sotto $B$ (ramo sinistro) riceve $1$;
+        \item Il nodo $B$ sotto $A$ somma i contributi di $C$ ($1$) e del proprio figlio diretto $D$ ($1$), totalizzando $\text{support}_{\text{cond}}(B) = 2$;
+        \item Il nodo $A$ assomma tutti i contributi dei cammini sottostanti contenenti $D$, ottenendo $\text{support}_{\text{cond}}(A) = 1 + 1 + 1 = 3$;
+        \item Nel ramo destro, il nodo $C$ sotto $B$ riceve $1$, e il nodo $B$ sotto \texttt{null} riceve $1 + 1 = 2$.
+    \end{itemize}
+
+    \item \textbf{Troncamento e Potatura}:
+    Si rimuovono tutti i nodi etichettati con $D$. I nodi con supporto condizionale insufficiente ($< 2$) vengono eliminati durante le successive invocazioni ricorsive sui suffissi $\{C, D\}$, $\{B, D\}$ e $\{A, D\}$.
+\end{enumerate}
+
+% ====================================================================
+\section{Proprietà e Complessità dell'Algoritmo FP-Growth}
+\label{sec:dm-fp-properties-complexity}
+
+Dall'analisi teorica e operativa emergono tre proprietà strutturali che rendono FP-Growth uno degli algoritmi più performanti nell'analisi delle associazioni~\cite{han2000}:
+\begin{itemize}
+    \item \textbf{Mutua Disgiunzione dei Sotto-Problemi}: La scomposizione combinatoria fondata sulla partizione dei suffissi garantisce che lo spazio di ricerca sia suddiviso in rami perfettamente disgiunti. Ne consegue che \textbf{nessun itemset frequente viene mai generato o valutato più di una volta}, azzerando la ridondanza algoritmica.
+    \item \textbf{Accoppiamento Contestuale del Calcolo del Supporto}: Il conteggio delle frequenze non richiede interrogazioni ripetute del database o scansioni su disco: il supporto effettivo viene ricavato direttamente per aggregazione strutturale durante l'attraversamento dei cammini condizionali in memoria RAM.
+    \item \textbf{Sensibilità al Fattore di Compattazione (\textit{Compaction Factor})}: L'efficienza di FP-Growth dipende dal grado di densità del dataset. In dataset fortemente densi, l'elevata sovrapposizione delle transazioni genera un albero compatto con tempi di elaborazione trascurabili; al contrario, in dataset estremamente sparsi con vocabolari ampi e transazioni prive di correlazione, l'albero tende a ramificarsi eccessivamente (\textit{bushy tree}), incrementando il carico computazionale per la gestione dei sotto-alberi condizionali.
+\end{itemize}
+
+% ====================================================================
+% MODULO II: SIMULAZIONE DEGLI ALGORITMI DI CLUSTERING
+% ====================================================================
+
+\section{Esercizio 1: Simulazione Geometrica e Analitica di K-Means}
+\label{sec:dm-kmeans-exercise-1}
+
+L'algoritmo \textbf{K-Means} (formalizzato nel Capitolo~\ref{chap:dm-kmeans-hierarchical}) mira a ripartire uno spazio vettoriale in $K$ partizioni rigide minimizzando l'errore quadratico totale ($\mathrm{SSE}$). In questa sezione viene condotta una simulazione deterministica passo-passo nello spazio cartesiano continuo $\mathbb{R}^2$.
+
+\subsection{Configurazione Iniziale e Coordinate del Dataset}
+Si consideri un dataset $\mathcal{D}$ composto da 9 punti bidimensionali $P_0, \dots, P_8$:
+\begin{align}
+P_0 &= (3, 1), & P_1 &= (7, 5), & P_2 &= (6, 2) \nonumber \\
+P_3 &= (7, 1), & P_4 &= (9, 7), & P_5 &= (8, 8) \nonumber \\
+P_6 &= (2, 4), & P_7 &= (8, 6), & P_8 &= (4, 4)
+\end{align}
+Si impone $K = 2$ e si selezionano a priori i centroidi iniziali ancorandoli a due punti del dataset:
+\begin{itemize}
+    \item \textbf{Centroide 1 ($C_1^{(0)}$)}: posizionato su $P_2 \implies C_1^{(0)} = (6.00, 2.00)$;
+    \item \textbf{Centroide 2 ($C_0^{(0)}$)}: posizionato su $P_1 \implies C_0^{(0)} = (7.00, 5.00)$.
+\end{itemize}
+
+\subsection{Iterazione 0: Assegnazione alle Regioni di Voronoi}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Determinazione della Retta Separatrice (\textit{Bisecting Line})}:
+    La frontiera di decisione geometrica che separa i punti più vicini a $C_1^{(0)}$ da quelli più vicini a $C_0^{(0)}$ coincide con l'\textbf{asse del segmento} che congiunge i due centroidi.
+    \begin{itemize}
+        \item Vettore congiungente: $\mathbf{v} = C_0^{(0)} - C_1^{(0)} = (7 - 6, \; 5 - 2) = (1, 3)$.
+        \item Punto medio del segmento:
+        \begin{equation}
+        M = \left( \frac{6 + 7}{2}, \; \frac{2 + 5}{2} \right) = (6.50, \; 3.50)
+        \end{equation}
+        \item Equazione cartesiana dell'asse (retta ortogonale a $\mathbf{v}$ passante per $M$):
+        \begin{align}
+        1 \cdot (x - 6.5) + 3 \cdot (y - 3.5) = 0 &\implies x + 3y - 17 = 0 \nonumber \\
+        &\implies y = -\frac{1}{3}x + \frac{17}{3} \approx -0.33x + 5.67
+        \end{align}
+    \end{itemize}
+
+    \item \textbf{Assegnazione dei Punti ai Cluster}:
+    Calcolando la distanza euclidea o valutando il segno della funzione discriminante lineare $f(x, y) = x + 3y - 17$:
+    \begin{itemize}
+        \item \textbf{Cluster 1 (regione di $C_1$)}: punti per cui $f(x, y) < 0 \implies \{P_0, P_2, P_3, P_6, P_8\}$ (5 punti).
+        \item \textbf{Cluster 2 (regione di $C_0$)}: punti per cui $f(x, y) > 0 \implies \{P_1, P_4, P_5, P_7\}$ (4 punti).
+    \end{itemize}
+
+    \item \textbf{Ricalcolo dei Baricentri ($C_1^{(1)}$ e $C_0^{(1)}$)}:
+    \begin{align}
+    C_1^{(1)} &= \left( \frac{3 + 6 + 7 + 2 + 4}{5}, \; \frac{1 + 2 + 1 + 4 + 4}{5} \right) = \left( \frac{22}{5}, \; \frac{12}{5} \right) = (4.40, \; 2.40) \\[4pt]
+    C_0^{(1)} &= \left( \frac{7 + 9 + 8 + 8}{4}, \; \frac{5 + 7 + 8 + 6}{4} \right) = \left( \frac{32}{4}, \; \frac{26}{4} \right) = (8.00, \; 6.50)
+    \end{align}
+\end{enumerate}
+
+\subsection{Iterazione 1 e Criterio di Arresto per Convergenza}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Nuova Retta Separatrice}:
+    Il vettore che unisce i nuovi centroidi è $\mathbf{v}' = (8.00 - 4.40, \; 6.50 - 2.40) = (3.60, \; 4.10)$.
+    Il nuovo punto medio è $M' = \left(\frac{4.40 + 8.00}{2}, \; \frac{2.40 + 6.50}{2}\right) = (6.20, \; 4.45)$.
+    \item \textbf{Verifica delle Assegnazioni}:
+    Rivalutando le distanze euclidee di tutti i 9 punti rispetto a $C_1^{(1)} = (4.40, 2.40)$ e $C_0^{(1)} = (8.00, 6.50)$, la partizione risulta perfettamente invariata:
+    \begin{itemize}
+        \item Punti associati a $C_1^{(1)}$: $\{P_0, P_2, P_3, P_6, P_8\}$;
+        \item Punti associati a $C_0^{(1)}$: $\{P_1, P_4, P_5, P_7\}$.
+    \end{itemize}
+    \item \textbf{Arresto}: La composizione dei cluster non subisce alcuna alterazione rispetto all'iterazione precedente; l'algoritmo K-Means termina formalmente per convergenza della funzione obiettivo.
+\end{enumerate}
+
+La Figura~\ref{fig:dm-kmeans-exercise-1} visualizza la configurazione geometrica finale dei cluster e la frontiera lineare di separazione.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.9]
+    \draw[step=1cm, gray!30, very thin] (0,0) grid (10,9);
+    \draw[thick, ->] (0,0) -- (10.5,0) node[anchor=north] {$X$};
+    \draw[thick, ->] (0,0) -- (0,9.5) node[anchor=east] {$Y$};
+    \foreach \x in {1,...,10} \draw (\x, 1pt) -- (\x, -1pt) node[anchor=north, font=\tiny] {\x};
+    \foreach \y in {1,...,9} \draw (1pt, \y) -- (-1pt, \y) node[anchor=east, font=\tiny] {\y};
+
+    % Points Cluster 1 (Green)
+    \fill[darkgreen] (3,1) circle (3pt) node[below right, font=\scriptsize] {$P_0(3,1)$};
+    \fill[darkgreen] (6,2) circle (3pt) node[below right, font=\scriptsize] {$P_2(6,2)$};
+    \fill[darkgreen] (7,1) circle (3pt) node[below right, font=\scriptsize] {$P_3(7,1)$};
+    \fill[darkgreen] (2,4) circle (3pt) node[above left, font=\scriptsize] {$P_6(2,4)$};
+    \fill[darkgreen] (4,4) circle (3pt) node[above right, font=\scriptsize] {$P_8(4,4)$};
+
+    % Points Cluster 2 (Blue)
+    \fill[navy] (7,5) circle (3pt) node[below right, font=\scriptsize] {$P_1(7,5)$};
+    \fill[navy] (9,7) circle (3pt) node[above right, font=\scriptsize] {$P_4(9,7)$};
+    \fill[navy] (8,8) circle (3pt) node[above right, font=\scriptsize] {$P_5(8,8)$};
+    \fill[navy] (8,6) circle (3pt) node[below right, font=\scriptsize] {$P_7(8,6)$};
+
+    % Centroids Iteration 1
+    \node[draw=darkgreen, fill=darkgreen!20, regular polygon, regular polygon sides=4, thick, inner sep=3pt] at (4.4, 2.4) {};
+    \node[below=3pt, font=\scriptsize\bfseries, color=darkgreen!80!black] at (4.4, 2.4) {$C_1^{(1)}(4.4, 2.4)$};
+
+    \node[draw=navy, fill=navy!20, regular polygon, regular polygon sides=4, thick, inner sep=3pt] at (8.0, 6.5) {};
+    \node[above=3pt, font=\scriptsize\bfseries, color=navy!80!black] at (8.0, 6.5) {$C_0^{(1)}(8.0, 6.5)$};
+
+    % Bisecting line: retta rigorosamente retta passante per M'(6.20, 4.45) con m = -0.878
+    % Estremi calcolati: (2.00, 8.14) e (9.50, 1.55)
+    \draw[crimson, thick, dashed] (2.00, 8.14) -- (9.50, 1.55) node[right, font=\scriptsize\bfseries] {Asse di Separazione};
+\end{tikzpicture}
+\caption{Simulazione di K-Means ($K=2$): partizione finale dei punti nei due cluster e asse di separazione lineare ortogonale al segmento congiungente i centroidi $C_1^{(1)}(4.4, 2.4)$ e $C_0^{(1)}(8.0, 6.5)$.}
+\label{fig:dm-kmeans-exercise-1}
+\end{figure}
+
+% ====================================================================
+\section{Concetto Introduttivo di DBSCAN su Spazio Metrico Continuo}
+\label{sec:dm-dbscan-simulation-intro}
+
+Applicando l'algoritmo basato su densità \textbf{DBSCAN} (approfondito nel Capitolo~\ref{chap:dm-density-dbscan}) sullo stesso dataset, il paradigma di raggruppamento muta radicalmente rispetto a K-Means: non si ricerca un partizionamento convesso basato su prototipi baricentrici, bensì si individuano componenti connesse di densità metrica locale.
+
+Si consideri la parametrizzazione tipica:
+\begin{equation}
+\varepsilon = 1.8, \qquad \text{MinPts} = 3
+\end{equation}
+dove $\text{MinPts} = 3$ include il punto in esame stesso.
+La costante $\varepsilon = 1.8$ definisce il raggio metrico euclideo dell'intorno $\mathcal{N}_\varepsilon(p) = \{q \in \mathcal{D} \mid \mathrm{dist}(p, q) \le \varepsilon\}$:
+\begin{itemize}
+    \item Un punto $p$ è classificato come \textbf{Core Point} se $|\mathcal{N}_\varepsilon(p)| \ge 3$;
+    \item Un punto $p$ è un \textbf{Border Point} se $|\mathcal{N}_\varepsilon(p)| < 3$ ma risiede nell'intorno $\varepsilon$ di almeno un Core Point;
+    \item Un punto $p$ è classificato come \textbf{Noise} (rumore o outlier) se non soddisfa alcuna delle due condizioni precedenti.
+\end{itemize}
+
+A differenza di K-Means, DBSCAN non richiede di specificare il numero $K$ di cluster a priori ed è in grado di escludere naturalmente i punti isolati (come $P_6 = (2,4)$ qualora la densità locale circostante non raggiunga la soglia richiesta).
+
+% ====================================================================
+\section{Esercizio 2: Simulazione di K-Means con Fenomeno di Migrazione dei Punti}
+\label{sec:dm-kmeans-exercise-2}
+
+Si consideri un secondo dataset composto da 10 punti in $\mathbb{R}^2$ per esaminare la dinamica temporale di riassegnazione dei dati al variare delle coordinate dei baricentri:
+\begin{align}
+P_0 &= (3, 3), & P_1 &= (5, 2), & P_2 &= (6, 0), & P_3 &= (7, 4), & P_4 &= (4, 9) \nonumber \\
+P_5 &= (1, 4), & P_6 &= (0, 0), & P_7 &= (6, 8), & P_8 &= (1, 0), & P_9 &= (5, 9)
+\end{align}
+Si impone $K = 2$ e si scelgono come centroidi iniziali:
+\begin{itemize}
+    \item $C_0^{(0)} = P_1 \implies (5.00, \; 2.00)$
+    \item $C_1^{(0)} = P_5 \implies (1.00, \; 4.00)$
+\end{itemize}
+
+\subsection{Iterazione 0: Partizione Iniziale}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Asse Separatore e Assegnazione}:
+    Tracciando l'asse passante per il punto medio $M = (3.00, 3.00)$ perpendicolare al vettore $(5 - 1, 2 - 4) = (4, -2)$:
+    \begin{itemize}
+        \item \textbf{Cluster 1 (associato a $C_0$)}: $\{P_0, P_1, P_2, P_3, P_7\}$ (5 punti);
+        \item \textbf{Cluster 2 (associato a $C_1$)}: $\{P_4, P_5, P_6, P_8, P_9\}$ (5 punti).
+    \end{itemize}
+    \item \textbf{Aggiornamento dei Centroidi al Passo 1}:
+    \begin{align}
+    C_0^{(1)} &= \left( \frac{3 + 5 + 6 + 7 + 6}{5}, \; \frac{3 + 2 + 0 + 4 + 8}{5} \right) = (5.40, \; 3.40) \\[4pt]
+    C_1^{(1)} &= \left( \frac{4 + 1 + 0 + 1 + 5}{5}, \; \frac{9 + 4 + 0 + 0 + 9}{5} \right) = (2.20, \; 4.40)
+    \end{align}
+\end{enumerate}
+
+\subsection{Iterazione 1: Fenomeno di Migrazione del Punto $P_0$}
+Al termine del ricalcolo dei centroidi al passo 1, la posizione dei poli attrattori subisce una traslazione. Si rivalutano rigorosamente le distanze euclidee quadrate del punto critico di confine $P_0 = (3, 3)$ rispetto a entrambi i nuovi centroidi:
+\begin{align}
+\mathrm{dist}^2\big(P_0, \; C_0^{(1)}\big) &= (3 - 5.40)^2 + (3 - 3.40)^2 = (-2.40)^2 + (-0.40)^2 = \mathbf{5.92} \\[4pt]
+\mathrm{dist}^2\big(P_0, \; C_1^{(1)}\big) &= (3 - 2.20)^2 + (3 - 4.40)^2 = (0.80)^2 + (-1.40)^2 = \mathbf{2.60}
+\end{align}
+
+Poiché $\mathrm{dist}^2(P_0, C_1^{(1)}) = 2.60 < 5.92 = \mathrm{dist}^2(P_0, C_0^{(1)})$, il punto $P_0$ non appartiene più al bacino di attrazione di $C_0$: si verifica formalmente il fenomeno della \textbf{migrazione del punto $P_0$ dal Cluster 1 al Cluster 2}.
+
+La nuova composizione dei cluster risulta:
+\begin{itemize}
+    \item \textbf{Nuovo Cluster 1}: $\{P_1, P_2, P_3, P_7\}$ (4 punti);
+    \item \textbf{Nuovo Cluster 2}: $\{P_0, P_4, P_5, P_6, P_8, P_9\}$ (6 punti).
+\end{itemize}
+
+Si ricalcolano i nuovi baricentri $C_0^{(2)}$ e $C_1^{(2)}$:
+\begin{align}
+C_0^{(2)} &= \left( \frac{5 + 6 + 7 + 6}{4}, \; \frac{2 + 0 + 4 + 8}{4} \right) = (6.00, \; 3.50) \\[4pt]
+C_1^{(2)} &= \left( \frac{3 + 4 + 1 + 0 + 1 + 5}{6}, \; \frac{3 + 9 + 4 + 0 + 0 + 9}{6} \right) \approx (2.33, \; 4.17)
+\end{align}
+
+\subsection{Iterazione 2 e Convergenza Stabile}
+Calcolando l'asse separatore tra $C_0^{(2)} = (6.00, 3.50)$ e $C_1^{(2)} = (2.33, 4.17)$, si constata che nessun punto modifica la propria appartenenza tra l'iterazione 1 e l'iterazione 2:
+\begin{itemize}
+    \item Cluster 1 stabile: $\{P_1, P_2, P_3, P_7\}$;
+    \item Cluster 2 stabile: $\{P_0, P_4, P_5, P_6, P_8, P_9\}$.
+\end{itemize}
+L'algoritmo termina per convergenza della partizione.
+
+% ====================================================================
+% MODULO III: PATTERN SEQUENZIALI E L'ALGORITMO GSP
+% ====================================================================
+
+\section{Fondamenti sui Vincoli Temporali nelle Sequenze (Min-Gap e Max-Gap)}
+\label{sec:dm-seq-gap-constraints}
+
+Nei problemi di \textbf{Sequential Pattern Mining} (approfonditi nel Capitolo~\ref{chap:dm-sequential-pattern-mining}), una sequenza temporale di input $S$ è modellata come una lista ordinata di insiemi di eventi (itemset), ciascuno associato a un indice temporale discreto (\textit{time-stamp}) $t$~\cite{tan2018, agrawal1995, srikant1996}:
+\begin{equation}
+S = \langle E_{t_0}, E_{t_1}, \dots, E_{t_n} \rangle
+\end{equation}
+
+Una generica sotto-sequenza target $W = \langle e_1, e_2, \dots, e_m \rangle$ compare all'interno di $S$ se e solo se esiste una sequenza strettamente crescente di indici temporali $\langle t_{k_1}, t_{k_2}, \dots, t_{k_m} \rangle$ tali per cui:
+\begin{equation}
+t_{k_1} < t_{k_2} < \dots < t_{k_m} \quad \text{e} \quad e_j \subseteq E_{t_{k_j}} \quad (\forall j \in \{1, \dots, m\})
+\end{equation}
+
+Nelle applicazioni ingegneristiche reali (diagnostica dei guasti, biologia computazionale, percorsi web), identificare eventi arbitrariamente distanti nel tempo produce pattern spuri privi di rilevanza causale. Si introducono pertanto \textbf{vincoli temporali inter-evento} (\textit{gap constraints})~\cite{srikant1996}:
+\begin{definition}[Vincolo di Min-Gap]
+Il vincolo $\text{min-gap} = g_{\min}$ impone che tra due eventi contigui della sottosequenza debba intercorrere una separazione temporale strettamente superiore al valore prefissato:
+\begin{equation}
+t_{k_j} - t_{k_{j-1}} > g_{\min}
+\end{equation}
+Nel caso particolare didattico in cui $\text{min-gap} = 1$, la disuguaglianza $t_{k_j} - t_{k_{j-1}} > 1$ impone $\Delta t \ge 2$, escludendo eventi contigui che accadono a distanza temporale unitaria.
+\end{definition}
+
+\begin{definition}[Vincolo di Max-Gap]
+Il vincolo $\text{max-gap} = g_{\max}$ impone che due eventi consecutivi del pattern debbano realizzarsi entro un intervallo temporale massimo ammissibile:
+\begin{equation}
+t_{k_j} - t_{k_{j-1}} \le g_{\max}
+\end{equation}
+\end{definition}
+
+% ====================================================================
+\section{Esercizio 1: Pattern Sequenziali con Vincolo Min-Gap}
+\label{sec:dm-seq-min-gap-exercise}
+
+Si consideri la sequenza temporale di riferimento:
+\begin{align}
+S = \big\langle &\{A\}_{t=0}, \; \{B, F\}_{t=1}, \; \{E\}_{t=2}, \; \{A, B\}_{t=3}, \nonumber \\
+&\{A, C, D\}_{t=4}, \; \{F\}_{t=5}, \; \{B, E\}_{t=6}, \; \{C, D\}_{t=7} \big\rangle
+\end{align}
+Si determinano le occorrenze valide per diverse sotto-sequenze confrontando lo scenario senza vincoli con lo scenario soggetto al vincolo $\text{min-gap} = 1$ ($\Delta t > 1$).
+
+\subsection{Esempio Introduttivo: Sotto-sequenza \texorpdfstring{$\langle \{B\}, \{E\} \rangle$}{<\{B\}, \{E\}>}}
+\begin{itemize}
+    \item Distribuzione temporale degli item: $B$ appare a $t \in \{1, 3, 6\}$; $E$ appare a $t \in \{2, 6\}$.
+    \item \textbf{Occorrenze prive di vincoli ($t_B < t_E$)}:
+    \begin{align}
+    t_B = 1 &\implies t_E = 2 \implies \langle 1, 2 \rangle \nonumber \\
+    t_B = 1 &\implies t_E = 6 \implies \langle 1, 6 \rangle \nonumber \\
+    t_B = 3 &\implies t_E = 6 \implies \langle 3, 6 \rangle
+    \end{align}
+    Occorrenze non vincolate: $\langle 1, 2 \rangle, \; \langle 1, 6 \rangle, \; \langle 3, 6 \rangle$.
+    \item \textbf{Verifica del vincolo $\text{min-gap} = 1$ ($t_E - t_B > 1$)}:
+    \begin{itemize}
+        \item Per $\langle 1, 2 \rangle$: $2 - 1 = 1 \ngtr 1 \implies$ \textbf{violato};
+        \item Per $\langle 1, 6 \rangle$: $6 - 1 = 5 > 1 \implies$ \textbf{valido};
+        \item Per $\langle 3, 6 \rangle$: $6 - 3 = 3 > 1 \implies$ \textbf{valido}.
+    \end{itemize}
+    Occorrenze valide con $\text{min-gap} = 1$: $\mathbf{\langle 1, 6 \rangle, \; \langle 3, 6 \rangle}$.
+\end{itemize}
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_1 = \langle \{A\}, \{B\}, \{E\} \rangle$}{w1}}
+\begin{itemize}
+    \item Item $A$ appare a $t \in \{0, 3, 4\}$.
+    \item Da $t_A = 0$, combinandosi con le occorrenze ordinate valide di $\langle \{B\}, \{E\} \rangle$, si ricavano le terne:
+    \begin{equation}
+    \langle 0, 1, 2 \rangle, \quad \langle 0, 1, 6 \rangle, \quad \langle 0, 3, 6 \rangle
+    \end{equation}
+    Per $t_A = 3$ e $t_A = 4$ non esistono coppie $\langle B, E \rangle$ successive.
+    \item \textbf{Verifica $\text{min-gap} = 1$}:
+    \begin{itemize}
+        \item In $\langle 0, 1, 2 \rangle$: $1 - 0 = 1 \ngtr 1$ e $2 - 1 = 1 \ngtr 1 \implies$ violato.
+        \item In $\langle 0, 1, 6 \rangle$: $1 - 0 = 1 \ngtr 1 \implies$ violato.
+        \item In $\langle 0, 3, 6 \rangle$: $3 - 0 = 3 > 1$ e $6 - 3 = 3 > 1 \implies$ \textbf{valido}.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 3, 6 \rangle}$.
+\end{itemize}
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_2 = \langle \{B\}, \{D\} \rangle$}{w2}}
+\begin{itemize}
+    \item $B$ a $t \in \{1, 3, 6\}$; $D$ a $t \in \{4, 7\}$.
+    \item Senza vincoli: $\langle 1, 4 \rangle, \langle 1, 7 \rangle, \langle 3, 4 \rangle, \langle 3, 7 \rangle, \langle 6, 7 \rangle$.
+    \item Con $\text{min-gap} = 1$:
+    \begin{itemize}
+        \item $\langle 1, 4 \rangle$: $4 - 1 = 3 > 1 \implies$ valido;
+        \item $\langle 1, 7 \rangle$: $7 - 1 = 6 > 1 \implies$ valido;
+        \item $\langle 3, 4 \rangle$: $4 - 3 = 1 \ngtr 1 \implies$ violato;
+        \item $\langle 3, 7 \rangle$: $7 - 3 = 4 > 1 \implies$ valido;
+        \item $\langle 6, 7 \rangle$: $7 - 6 = 1 \ngtr 1 \implies$ violato.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 1, 4 \rangle, \; \langle 1, 7 \rangle, \; \langle 3, 7 \rangle}$.
+\end{itemize}
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_3 = \langle \{F\}, \{E\}, \{C, D\} \rangle$}{w3}}
+\begin{itemize}
+    \item $F$ a $t \in \{1, 5\}$; $E$ a $t \in \{2, 6\}$; $\{C, D\}$ a $t \in \{4, 7\}$.
+    \item Senza vincoli: $\langle 1, 2, 4 \rangle, \langle 1, 2, 7 \rangle, \langle 1, 6, 7 \rangle, \langle 5, 6, 7 \rangle$.
+    \item Con $\text{min-gap} = 1$:
+    Ciascuna delle 4 tuple candidate presenta almeno una transizione temporale unitaria ($\Delta t = 1$):
+    $\langle 1, 2, 4 \rangle$ e $\langle 1, 2, 7 \rangle$ violano il vincolo su $t_E - t_F = 1$; $\langle 1, 6, 7 \rangle$ viola il vincolo su $t_{CD} - t_E = 1$; $\langle 5, 6, 7 \rangle$ viola entrambi.
+    \item Esito finale: \textbf{nessuna occorrenza valida (\texttt{none})}.
+\end{itemize}
+
+% ====================================================================
+\section{Esercizio 2: Pattern Sequenziali con Vincolo Max-Gap}
+\label{sec:dm-seq-max-gap-exercise}
+
+Si consideri la seconda sequenza temporale di input:
+\begin{align}
+S = \big\langle &\{B, F\}_{t=0}, \; \{A\}_{t=1}, \; \{A, B\}_{t=2}, \; \{C, D, F\}_{t=3}, \nonumber \\
+&\{E\}_{t=4}, \; \{B, E\}_{t=5}, \; \{C, D\}_{t=6} \big\rangle
+\end{align}
+Si valutano le occorrenze imponendo il vincolo $\text{max-gap} = 4$ ($\Delta t \le 4$).
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_1 = \langle \{B\}, \{E\} \rangle$}{w1}}
+\begin{itemize}
+    \item $B$ a $t \in \{0, 2, 5\}$; $E$ a $t \in \{4, 5\}$. La condizione $t_B < t_E$ esclude la co-occorrenza $t=5$.
+    \item Senza vincoli: $\langle 0, 4 \rangle, \langle 0, 5 \rangle, \langle 2, 4 \rangle, \langle 2, 5 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($t_E - t_B \le 4$):
+    \begin{itemize}
+        \item $\langle 0, 4 \rangle$: $4 - 0 = 4 \le 4 \implies$ valido;
+        \item $\langle 0, 5 \rangle$: $5 - 0 = 5 > 4 \implies$ \textbf{violato};
+        \item $\langle 2, 4 \rangle$: $4 - 2 = 2 \le 4 \implies$ valido;
+        \item $\langle 2, 5 \rangle$: $5 - 2 = 3 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 4 \rangle, \; \langle 2, 4 \rangle, \; \langle 2, 5 \rangle}$.
+\end{itemize}
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_2 = \langle \{B\}, \{D\} \rangle$}{w2}}
+\begin{itemize}
+    \item $B$ a $t \in \{0, 2, 5\}$; $D$ a $t \in \{3, 6\}$.
+    \item Senza vincoli: $\langle 0, 3 \rangle, \langle 0, 6 \rangle, \langle 2, 3 \rangle, \langle 2, 6 \rangle, \langle 5, 6 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($t_D - t_B \le 4$):
+    \begin{itemize}
+        \item $\langle 0, 3 \rangle$: $3 - 0 = 3 \le 4 \implies$ valido;
+        \item $\langle 0, 6 \rangle$: $6 - 0 = 6 > 4 \implies$ \textbf{violato};
+        \item $\langle 2, 3 \rangle$: $3 - 2 = 1 \le 4 \implies$ valido;
+        \item $\langle 2, 6 \rangle$: $6 - 2 = 4 \le 4 \implies$ valido;
+        \item $\langle 5, 6 \rangle$: $6 - 5 = 1 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 3 \rangle, \; \langle 2, 3 \rangle, \; \langle 2, 6 \rangle, \; \langle 5, 6 \rangle}$.
+\end{itemize}
+
+\subsection{Sotto-sequenza \texorpdfstring{$w_3 = \langle \{F\}, \{B\}, \{C, D\} \rangle$}{w3}}
+\begin{itemize}
+    \item $F$ a $t \in \{0, 3\}$; $B$ a $t \in \{0, 2, 5\}$; $\{C, D\}$ a $t \in \{3, 6\}$.
+    \item Condizione d'ordine temporale stretto: $t_F < t_B < t_{CD}$.
+    \item Occorrenze senza vincoli: $\langle 0, 2, 3 \rangle, \langle 0, 2, 6 \rangle, \langle 0, 5, 6 \rangle, \langle 3, 5, 6 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($(t_B - t_F \le 4) \land (t_{CD} - t_B \le 4)$):
+    \begin{itemize}
+        \item $\langle 0, 2, 3 \rangle$: $2 - 0 = 2 \le 4$ e $3 - 2 = 1 \le 4 \implies$ valido;
+        \item $\langle 0, 2, 6 \rangle$: $2 - 0 = 2 \le 4$ e $6 - 2 = 4 \le 4 \implies$ valido;
+        \item $\langle 0, 5 \rangle$: $5 - 0 = 5 > 4 \implies$ \textbf{violato};
+        \item $\langle 3, 5, 6 \rangle$: $5 - 3 = 2 \le 4$ e $6 - 5 = 1 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 2, 3 \rangle, \; \langle 0, 2, 6 \rangle, \; \langle 3, 5, 6 \rangle}$.
+\end{itemize}
+
+% ====================================================================
+\section{Algoritmo GSP: Simulazione del Livello \texorpdfstring{$k=1$}{k=1} su Dataset}
+\label{sec:dm-gsp-simulation-l1}
+
+L'algoritmo \textbf{GSP} (\textit{Generalized Sequential Pattern}), introdotto da Ramakrishnan Srikant e Rakesh Agrawal nel 1996~\cite{srikant1996}, traspone la logica generativa \textit{candidate-generation-and-test} di Apriori ai database di sequenze temporali.
+
+Si consideri il dataset transazionale composto da $|\mathcal{D}| = 4$ sequenze:
+\begin{align}
+s_1&: \langle \{A\} \to \{B, C\} \to \{C\} \to \{D\} \rangle \nonumber \\
+s_2&: \langle \{A, C\} \to \{B\} \to \{C\} \to \{C\} \rangle \nonumber \\
+s_3&: \langle \{D\} \to \{C\} \to \{B\} \to \{C, D\} \rangle \nonumber \\
+s_4&: \langle \{A, B\} \to \{D\} \to \{C\} \to \{C, D\} \to \{E\} \rangle
+\end{align}
+Imponendo una soglia di supporto relativo $\text{minsup} = 60\%$, il conteggio assoluto minimo di sequenze richiedente supporto risulta:
+\begin{equation}
+\sigma_{\min} = \lceil |\mathcal{D}| \times \text{minsup} \rceil = \lceil 4 \times 0.60 \rceil = \lceil 2.4 \rceil = \mathbf{3 \text{ sequenze}}
+\end{equation}
+
+\subsection{Calcolo dei 1-Pattern Frequenti ($L_1$)}
+Si valuta la frequenza di presenza di ciascun item distinto nelle 4 sequenze:
+\begin{itemize}
+    \item \textbf{Item $A$}: compare in $s_1, s_2, s_4 \implies \sigma(A) = 3 / 4 = 75\% \ge 60\%$ (\textbf{Frequente}: $\langle \{A\} \rangle$);
+    \item \textbf{Item $B$}: compare in $s_1, s_2, s_3, s_4 \implies \sigma(B) = 4 / 4 = 100\% \ge 60\%$ (\textbf{Frequente}: $\langle \{B\} \rangle$);
+    \item \textbf{Item $C$}: compare in $s_1, s_2, s_3, s_4 \implies \sigma(C) = 4 / 4 = 100\% \ge 60\%$ (\textbf{Frequente}: $\langle \{C\} \rangle$);
+    \item \textbf{Item $D$}: compare in $s_1, s_3, s_4 \implies \sigma(D) = 3 / 4 = 75\% \ge 60\%$ (\textbf{Frequente}: $\langle \{D\} \rangle$);
+    \item \textbf{Item $E$}: compare unicamente in $s_4 \implies \sigma(E) = 1 / 4 = 25\% < 60\%$ (\textbf{Infrequente} $\implies$ eliminato).
+\end{itemize}
+
+L'insieme risultante delle 1-sequenze frequenti è:
+\begin{equation}
+L_1 = \big\{ \langle \{A\} \rangle, \; \langle \{B\} \rangle, \; \langle \{C\} \rangle, \; \langle \{D\} \rangle \big\}
+\end{equation}
+
+% ====================================================================
+\section{Algoritmo GSP: Fase di Pruning dei Candidati (\texorpdfstring{$C_4$}{C4})}
+\label{sec:dm-gsp-pruning-exercise}
+
+In un'esecuzione avanzata dell'algoritmo GSP, al termine dell'elaborazione di livello $k=3$ è stato identificato l'insieme di \textbf{3-sequenze frequenti ($L_3$)} composto da 12 elementi:
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item $\langle \{A, B\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A, B\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C, D\} \rangle$
+    \item $\langle \{B\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{C, D\} \rangle$
+    \item $\langle \{B\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{D\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{D\} \to \{C\} \to \{D\} \rangle$
+\end{enumerate}
+
+Durante la successiva iterazione per $k=4$, la procedura di generazione produce (tra gli altri) 5 candidati di lunghezza 4 appartenenti a $C_4$:
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+    \item $\langle \{A, B\} \to \{C, D\} \rangle$
+    \item $\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{A, B\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A, B\} \to \{C\} \to \{D\} \rangle$
+\end{enumerate}
+
+\subsection{Principio di Anti-Monotonicità del Pruning in GSP}
+\begin{theorem}[Proprietà di Potatura in GSP]
+\label{thm:dm-gsp-pruning}
+Una $k$-sequenza candidata $s \in C_k$ può essere frequente se e solo se \textbf{tutte le sue $k$ sotto-sequenze di lunghezza $k-1$} (ottenute rimuovendo esattamente un'occorrenza di item alla volta) appartengono all'insieme dei pattern frequenti del livello precedente $L_{k-1}$. Se anche una sola sotto-sequenza di lunghezza $k-1$ risulta assente da $L_{k-1}$, il candidato viene immediatamente eliminato (\textbf{potato a priori}), senza richiedere alcuna scansione del database.
+\end{theorem}
+
+\subsection{Analisi Rigorosa delle Sotto-sequenze per Ciascun Candidato}
+
+\subsubsection{Candidato C1: \texorpdfstring{$\langle \{A, B\} \to \{C, D\} \rangle$}{C1}}
+Le sue 4 sotto-sequenze di lunghezza 3 si ottengono rimuovendo un item alla volta:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{C, D\} \rangle \implies$ presente in $L_3$ (regola 7).
+    \item Rimozione di $B$: $\langle \{A\} \to \{C, D\} \rangle \implies$ presente in $L_3$ (regola 5).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\subsubsection{Candidato C2: \texorpdfstring{$\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$}{C2}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione del primo evento $\{A\}$: $\langle \{D\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 12).
+    \item Rimozione del secondo evento $\{D\}$: $\langle \{A\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 11).
+    \item Rimozione del terzo evento $\{C\}$: $\mathbf{\langle \{A\} \to \{D\} \to \{D\} \rangle} \implies$ \textbf{NON PRESENTE in $L_3$}.
+    \item Rimozione del quarto evento $\{D\}$: $\langle \{A\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 2).
+\end{enumerate}
+\textbf{Decisione}: Poiché la sotto-sequenza $\langle \{A\} \to \{D\} \to \{D\} \rangle \notin L_3$, il candidato viene \textbf{POTATO (PRUNED)}.
+
+\subsubsection{Candidato C3: \texorpdfstring{$\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$}{C3}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione del primo evento $\{B\}$: $\langle \{D\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 12).
+    \item Rimozione del secondo evento $\{D\}$: $\langle \{B\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 6).
+    \item Rimozione del terzo evento $\{C\}$: $\mathbf{\langle \{B\} \to \{D\} \to \{D\} \rangle} \implies$ \textbf{NON PRESENTE in $L_3$}.
+    \item Rimozione del quarto evento $\{D\}$: $\langle \{B\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 8).
+\end{enumerate}
+\textbf{Decisione}: Poiché la sotto-sequenza $\langle \{B\} \to \{D\} \to \{D\} \rangle \notin L_3$, il candidato viene \textbf{POTATO (PRUNED)}.
+
+\subsubsection{Candidato C4: \texorpdfstring{$\langle \{A, B\} \to \{D\} \to \{C\} \rangle$}{C4}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 8).
+    \item Rimozione di $B$: $\langle \{A\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 2).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\subsubsection{Candidato C5: \texorpdfstring{$\langle \{A, B\} \to \{C\} \to \{D\} \rangle$}{C5}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 6).
+    \item Rimozione di $B$: $\langle \{A\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 11).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\subsection{Tabella Sinottica Conclusiva del Pruning GSP}
+La Tabella~\ref{tab:dm-gsp-pruning-summary} sintetizza i riscontri di potatura per tutti i candidati esaminati.
+
+\begin{table}[htbp]
+\centering
+\caption{Quadro sinottico della fase di potatura dei candidati ($C_4$) nell'algoritmo GSP.}
+\label{tab:dm-gsp-pruning-summary}
+\begin{tabularx}{\textwidth}{c l Y c}
+\toprule
+\textbf{ID} & \textbf{Sequenza Candidata ($C_4$)} & \textbf{Sotto-sequenze Assenti da $L_3$} & \textbf{Esito di Potatura} \\
+\midrule
+C1 & $\langle \{A, B\} \to \{C, D\} \rangle$                & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+C2 & $\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$  & $\langle \{A\} \to \{D\} \to \{D\} \rangle$ & \textbf{POTATO} \\
+C3 & $\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$  & $\langle \{B\} \to \{D\} \to \{D\} \rangle$ & \textbf{POTATO} \\
+C4 & $\langle \{A, B\} \to \{D\} \to \{C\} \rangle$         & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+C5 & $\langle \{A, B\} \to \{C\} \to \{D\} \rangle$         & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+\bottomrule
+\end{tabularx}
+\end{table}
