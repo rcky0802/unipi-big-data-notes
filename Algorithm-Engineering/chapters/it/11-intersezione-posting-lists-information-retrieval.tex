@@ -1,19 +1,11 @@
 \chapter{Algoritmi di Intersezione per Posting Lists nell'Information Retrieval}
 \label{chap:posting-lists-intersection}
 
-Nelle lezioni precedenti abbiamo investigato strutture dati associative avanzate e paradigmi probabilistici come le Skip List e i Treap, analizzando come la gestione ordinata delle chiavi consenta di eseguire ricerche e interrogazioni per intervallo in tempo logaritmico. Nei sistemi reali di gestione di grandi moli di dati non strutturati, e in particolare nell'\textbf{Information Retrieval} (IR) su scala web, il collo di bottiglia computazionale dominante non risiede tanto nell'inserimento dinamico di singoli record, quanto nella valutazione fulminea di \textbf{query congiuntive} (operazioni booleane di tipo \texttt{AND}) eseguite sopra insiemi ordinati di identificatori di grandissime dimensioni.
-
-In questo capitolo affrontiamo il problema algoritmico fondamentale della \textbf{Set Intersection} (intersezione tra insiemi ordinati) applicato alle \textbf{Posting Lists} (liste di inversione) di un motore di ricerca web~\cite{manning2008,moffat1996}. Analizziamo formalmente l'architettura dei moderni motori di ricerca e sviluppiamo una progressione sistematica di algoritmi:
-\begin{enumerate}
-  \item Dalle strategie elementari di \textbf{scansione a due puntatori} (\textit{merge-based}) e \textbf{ricerca binaria}, derivando la soglia analitica di pareggio (\textit{breakeven point}) determinata dal grado di sbilanciamento delle dimensioni delle liste.
-  \item All'algoritmo di decomposizione bilanciata \textbf{Mutual Partition} basato sul paradigma \textit{Divide et Impera}, dimostrando la sua ottimalità asintotica rispetto al limite inferiore teorico dell'albero di decisione basato su confronti (\textit{Information-Theoretic Comparison Lower Bound})~\cite{baezayates2004,demaine2000}.
-  \item All'algoritmo non ricorsivo \textbf{Doubling Search} (detto anche \textit{Exponential Search} o \textit{Galloping Search}~\cite{bentley1976}), formalizzando la derivazione passo-passo della sua complessità ottima mediante l'applicazione della \textbf{Disuguaglianza di Jensen} su serie telescopiche concave.
-  \item All'approccio ingegneristico fondamentale per memorie gerarchiche e dischi: il \textbf{Block Partitioning} con \textbf{Skip Pointers}, determinando tramite ottimizzazione analitica la dimensione ottima dei blocchi $L^* = \sqrt{n/m}$ e la relativa complessità sublineare $\mathcal{O}(\sqrt{n \cdot m})$ a scansione sequenziale cache-friendly.
-\end{enumerate}
-
 \FloatBarrier
 \section{Architettura di un Motore di Ricerca e Contesto del Problema}
 \label{sec:search-engine-architecture}
+
+L'efficienza della valutazione delle query nei moderni sistemi di reperimento dell'informazione dipende strettamente dall'organizzazione modulare dell'infrastruttura e dalla rappresentazione compressa e ordinata dei dati testuali. In questa sezione formalizziamo i componenti cardine di un motore di ricerca e introduciamo il problema dell'intersezione di insiemi ordinati.
 
 \subsection{I Moduli Fondamentali di un Web Search Engine}
 Un moderno motore di ricerca web elabora collezioni composte da decine di miliardi di documenti testuali eterogenei, rispondendo a query complesse con tempi di latenza inferiori a poche decine di millisecondi. Per raggiungere questo obiettivo, l'infrastruttura di retrieval viene strutturata in cinque macro-moduli cooperanti, illustrati schematicamente in \autoref{fig:search-engine-pipeline}:
@@ -146,6 +138,8 @@ nel minor tempo computazionale possibile, minimizzando i confronti effettuati e 
 \section{Algoritmi Fondamentali e Analisi Comparativa}
 \label{sec:fundamental-intersection-algorithms}
 
+Per calcolare l'intersezione tra due insiemi ordinati di cardinalit\`a sbilanciata, la letteratura classica propone strategie basate sulla scansione sequenziale coordinata o sulla ricerca binaria mirata. In questa sezione analizziamo la progressione da approcci elementari a soluzioni ottimali per coppie di liste, derivandone il punto di pareggio computazionale.
+
 \subsection{Algoritmo Brute Force}
 L'approccio ingenuo prescinde dalla struttura ordinata delle liste:
 \begin{itemize}
@@ -274,6 +268,8 @@ Dalla relazione~\eqref{eq:breakeven-tradeoff} discendono due regimi operativi di
 \FloatBarrier
 \section{Mutual Partition (Divide et Impera)}
 \label{sec:mutual-partition}
+
+La combinazione del paradigma Divide et Impera con il partizionamento sincronizzato consente di superare le inefficienze delle ricerche binarie ripetute su indici non bilanciati. In questa sezione esaminiamo l'algoritmo Mutual Partition, dimostrandone l'ottimalit\`a teorica rispetto al limite inferiore basato su confronti.
 
 \subsection{Principio di Funzionamento Algoritmico}
 L'algoritmo \textbf{Mutual Partition} (partizionamento mutuale) supera la rigidità delle ricerche binarie indipendenti applicando una suddivisione bilanciata simultanea basata sul paradigma \textbf{Divide et Impera}~\cite{baezayates2004}:
@@ -404,6 +400,8 @@ La natura intrinsecamente ricorsiva comporta una continua allocazione di frame s
 \FloatBarrier
 \section{Doubling Search (Exponential Search / Galloping Search)}
 \label{sec:doubling-search}
+
+L'eliminazione della ricorsione e il miglioramento della localit\`a spaziale nei salti guidano la progettazione di algoritmi iterativi basati su incrementi esponenziali del passo di ricerca. In questa sezione introduciamo il Doubling Search, dimostrandone rigorosamente la complessit\`a ottima mediante la disuguaglianza di Jensen.
 
 \subsection{Motivazione e Intuizione dei Salti Esponenziali}
 L'algoritmo \textbf{Doubling Search} (denominato nella letteratura classica anche \textbf{Exponential Search} o \textbf{Galloping Search}, formalizzato da Bentley e Yao~\cite{bentley1976}) nasce per conseguire la medesima complessità ottima $\mathcal{O}(m \log \frac{n}{m})$ di Mutual Partition, ma attraverso una procedura \textbf{completamente iterativa e non ricorsiva}.
@@ -581,6 +579,8 @@ Sebbene Doubling Search risolva il problema della ricorsione, nei motori di rice
 \FloatBarrier
 \section{Block Partitioning / Skip Pointers (Approccio Pratico a Blocchi)}
 \label{sec:block-partitioning}
+
+Nel contesto delle memorie secondarie e gerarchiche, l'accesso casuale a singoli elementi penalizza severamente le prestazioni rispetto al trasferimento sequenziale a blocchi. In questa sezione presentiamo la tecnica del Block Partitioning con puntatori di salto, derivando analiticamente la dimensione ottima dei blocchi per minimizzare il costo complessivo.
 
 \subsection{Architettura dell'Indice a Blocchi e Skip Pointers}
 Per coniugare l'efficienza asintotica dei salti con la velocità massima della scansione sequenziale in memoria primaria e secondaria, i moderni motori di ricerca (tra cui Apache Lucene ed Elasticsearch) adottano la tecnica del \textbf{Block Partitioning} con \textbf{Skip Pointers} (puntatori di salto)~\cite{moffat1996,manning2008}.

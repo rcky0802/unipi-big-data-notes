@@ -1,8 +1,11 @@
 \chapter{Ordinamento Esterno (Distribution Sort), Over-Sampling e Fondamenti di Random Sampling}
 \label{chap:external-distribution-sort}
 
+\FloatBarrier
 \section{Il Problema dell'Ordinamento Esterno e il Multi-Way Partitioning}
 \label{sec:external-sorting-multiway}
+
+L'ordinamento su memoria secondaria di dataset di dimensioni massicce impone l'abbandono dei paradigmi a partizione dicotomica a favore di strategie multi-via calibrate sulla capacit\`a della RAM e sulla dimensione dei blocchi di I/O. In questa sezione formalizziamo il modello computazionale a due livelli e l'architettura dell'External Distribution Sort basata sulla decomposizione in secchielli.
 
 \subsection{Il Modello Computazionale I/O (Memoria Secondaria)}
 Nei sistemi che elaborano grandi moli di dati (\textit{Massive Datasets}), la dimensione dell'insieme da ordinare $S$ supera ampiamente la capacità della memoria centrale ad accesso casuale (RAM). Si adotta il modello standard a due livelli di memoria secondaria introdotto da Aggarwal e Vitter~\cite{aggarwal1988}:
@@ -104,6 +107,8 @@ Il significato sistemistico di tale bilanciamento è duplice:
 \section{La Tecnica dell'Over-Sampling}
 \label{sec:oversampling-technique}
 
+La robustezza dell'ordinamento per distribuzione dipende dalla capacit\`a di selezionare pivot che ripartiscano il dataset in secchielli di dimensioni uniformi ed equilibrate. In questa sezione esaminiamo la tecnica dell'Over-Sampling, che consente di abbattere drasticamente la varianza campionando un insieme sovradimensionato di elementi.
+
 \subsection{Criticità del Campionamento Banale}
 Se si estraessero casualmente e direttamente solo $k - 1$ pivot da $S$, la varianza statistica della distanza tra due campioni successivi nell'ordinamento reale risulterebbe estremamente elevata. Di conseguenza, con alta probabilità si verificherebbero forti fluttuazioni: esisterebbero intervalli molto densi e intervalli quasi vuoti, generando secchielli patologici con:
 \begin{equation}
@@ -196,6 +201,8 @@ Il vettore ordinato $A$ viene suddiviso in $k$ blocchi logici composti da $a$ el
 \section{Analisi Probabilistica del Fallimento e Limite di Chernoff}
 \label{sec:failure-analysis-chernoff}
 
+Per garantire l'ottimalit\`a asintotica dell'External Distribution Sort, \`e necessario quantificare con precisione la probabilit\`a che uno o pi\`u secchielli eccedano la capacit\`a limite della memoria interna. In questa sezione formalizziamo l'evento di fallimento e ne deriviamo una stima rigorosa sfruttando la disuguaglianza esponenziale di Chernoff.
+
 \subsection{Definizione Formale dell'Evento di Fallimento}
 Il nostro obiettivo algoritmico consiste nel garantire che nessun secchiello ecceda una dimensione critica. Fissiamo come soglia di fallimento una cardinalità pari o superiore al doppio della dimensione media $\frac{2n}{k}$.
 
@@ -212,7 +219,7 @@ Vogliamo dimostrare formalmente che la probabilità di fallimento è strettament
   \mathbb{P}(\text{Failure}) \le \frac{1}{2}.
 \end{equation}
 
-\begin{property}[Commento del Docente sull'Utilità Pratica di $\mathbb{P}(\text{Failure}) \le \frac{1}{2}$]
+\begin{property}[Utilit\`a Pratica della Condizione $\mathbb{P}(\text{Failure}) \le \frac{1}{2}$]
 Una probabilità di insuccesso $\le \frac{1}{2}$ è considerata ottimale nell'analisi degli algoritmi randomizzati con paradigma \textbf{Las Vegas}. 
 Se l'algoritmo verifica a posteriori la condizione di bilanciamento (costo lineare $\frac{n}{B}$ I/O di scansione) e ripete il campionamento in caso di insuccesso, il numero atteso di tentativi prima del successo è una variabile geometrica con valore atteso:
 \begin{equation}
@@ -484,7 +491,7 @@ L'efficienza dell'algoritmo dipende fortemente dal rapporto tra $m$ e $n$:
 \end{property}
 
 \subsubsection{Impatto delle Strutture Dati}
-Come evidenziato a lezione:
+In sede di analisi teorica e implementativa:
 \begin{itemize}
   \item \textbf{Gestione dell'insieme $D$:} Se $D$ è implementato come \textbf{tabella hash}, il controllo di appartenenza $p \notin D$ e l'inserimento richiedono tempo atteso $\mathcal{O}(1)$. Se invece $D$ fosse implementato mediante un array non ordinato, la ricerca lineare richiederebbe tempo $\mathcal{O}(|D|) = \mathcal{O}(m)$ per ciascuna estrazione.
   \item \textbf{Ordinamento finale:} La fase $\operatorname{Sort}(D)$ richiede tempo $\mathcal{O}(m \log m)$ in CPU per restituire gli indici in ordine crescente.
@@ -532,9 +539,9 @@ In un file sequenziale di stringhe a lunghezza arbitraria, una generica posizion
 Per risolvere questo problema, è necessario costruire un \textbf{array di puntatori contigui} (\textit{array of pointers}) $P[1 \dots n]$, dove l'$i$-esimo puntatore indirizza l'esatto offset di inizio dell'$i$-esima stringa. La generazione pseudo-casuale viene quindi eseguita direttamente sull'indice dell'array di puntatori in tempo $\mathcal{O}(1)$, consentendo l'accesso istantaneo al record associato.
 
 \subsection{Perché l'Algoritmo 1 Non è Adatto al Modello di Streaming}
-La lezione si conclude con una fondamentale osservazione architetturale che fa da ponte diretto con la tematica degli stream:
+La trattazione evidenzia una fondamentale osservazione architetturale che fa da ponte diretto con la tematica degli stream:
 
-\begin{property}[Osservazione Critica del Docente: \textit{``Our algorithm is not Streaming!''}]
+\begin{property}[Limite Strutturale: Inapplicabilit\`a al Modello di Streaming]
 L'Algoritmo~\ref{alg:rejection-sampling} presenta limiti strutturali insanabili che ne impediscono l'impiego nel calcolo su flussi:
 \begin{enumerate}
   \item \textbf{Accesso Casuale Arbitrario (Random Access):} Richiede la facoltà di interrogare in qualsiasi momento qualsiasi indice casuale $p \in [1, n]$ dell'intero dataset.
