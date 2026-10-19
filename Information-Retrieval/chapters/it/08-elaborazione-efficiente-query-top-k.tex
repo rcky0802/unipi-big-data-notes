@@ -1,0 +1,868 @@
+\chapter{Elaborazione Efficiente di Query Top-$k$: WAND, MaxScore e Varianti a Blocchi}
+\label{chap:elaborazione-topk-wand-maxscore}
+
+\FloatBarrier
+\section{Architettura di Retrieval a Due Stadi e Motivazione del Top-$k$}
+\label{sec:architettura-funnel-topk}
+
+L'elaborazione delle interrogazioni su collezioni web di scala planetaria impone di superare i limiti dell'approccio booleano esaustivo. Questa sezione analizza le asimmetrie di costo computazionale tra query congiuntive e disgiuntive, formalizza la gerarchia a imbuto dell'architettura di reperimento a due stadi e chiarisce le motivazioni comportamentali che rendono prioritario il calcolo efficiente dei soli migliori $k$ documenti.
+
+\subsection{Limiti Computazionali delle Query Booleane Tradizionali}
+\label{subsec:limiti-computazionali-query-booleane}
+Nell'architettura standard di un sistema di Information Retrieval, a partire da un corpus documentale viene costruito offline l'indice invertito (\textit{inverted index}), interrogato online durante la fase di query processing:
+\begin{itemize}
+    \item \textbf{Query Congiuntive (\texttt{AND}):} Operano calcolando l'intersezione tra le posting list associate ai termini dell'interrogazione. Come dimostrato nella Sezione~\ref{sec:intersezioni-ottimizzate-nextgeq}, l'algoritmo sfrutta intensivamente la primitiva $\text{nextGEQ}(d)$ per compiere salti significativi, scavalcando blocchi estesi di documenti che non contengono contemporaneamente tutti i termini ricercati. La cardinalit\`a dell'intersezione \`e limitata superiormente dalla lista pi\`u corta, rendendo il processing rapido e computazionalmente scalabile.
+    \item \textbf{Query Disgiuntive (\texttt{OR}):} Richiedono l'unione insiemistica delle posting list:
+    \begin{equation}
+        \mathcal{D}_{\text{cand}} = \bigcup_{t \in Q} \mathcal{L}(t).
+    \end{equation}
+    Un approccio esaustivo \`e costretto ad accedere fisicamente, decomprimere e valutare il contributo di frequenza di ogni singolo posting presente in ciascuna lista. Per collezioni web composte da miliardi di documenti, le posting list dei termini pi\`u comuni contengono decine o centinaia di milioni di elementi. L'elaborazione esaustiva comporta costi I/O proibitivi e decine di milioni di accessi in memoria, determinando latenze dell'ordine dei secondi, incompatibili con i requisiti stringenti di reattivit\`a online ($< 50\,\text{ms}$).
+\end{itemize}
+
+\subsection{Motivazione Comportamentale e il Primo Stadio di Retrieval}
+Come formalizzato nella Sezione~\ref{sec:architettura-due-stadi} e illustrato nella Figura~\ref{fig:two-stage-pipeline}, i motori di ricerca su scala planetaria adottano un'\textbf{architettura di reperimento a due stadi} (\textit{Two-Stage Retrieval}):
+\begin{enumerate}
+    \item \textbf{Primo Stadio (Candidate Retrieval / Top-$k$):} estrae rapidamente un insieme compatto di candidati ($k \approx 1\,000$) valutati secondo una funzione di scoring additiva economica (Okapi BM25).
+    \item \textbf{Secondo Stadio (Re-ranking / Learning-to-Rank):} applica modelli di Machine Learning complessi e costosi sui soli candidati pre-filtrati per produrre i primi $10\text{--}20$ risultati finali della SERP.
+\end{enumerate}
+
+La ragione fondamentale per cui in ambito industriale \`e sufficiente estrarre i soli migliori $k \approx 1\,000$ documenti per il primo stadio risiede nell'analisi empirica del comportamento degli utenti sul web:
+\begin{itemize}
+    \item L'attenzione dell'utente medio si concentra quasi esclusivamente sulla prima pagina dei risultati (i primi $10$ documenti) o, al pi\`u, sulla seconda pagina (fino alla posizione $20$).
+    \item Qualora i primi $20$ risultati non soddisfino il bisogno informativo, l'utente non scorre le centinaia di pagine successive della graduatoria, ma interrompe la sessione o riformula la query modificando i termini di ricerca.
+\end{itemize}
+
+\begin{alertblock}{Obiettivo Fondamentale}
+L'obiettivo algoritmico consiste nell'ottimizzare il \textbf{Primo Stadio}: estrarre i migliori $k$ documenti per una query disgiuntiva (\texttt{OR}) garantendo un risultato matematicamente identico alla scansione esaustiva (\textit{Exact Top-$k$}), ma evitando la decompressione e la valutazione dell'immensa maggioranza dei posting dell'indice.
+\end{alertblock}
+
+\FloatBarrier
+\section{Exact Top-$k$ Retrieval e l'Algoritmo Esaustivo con Min-Heap}
+\label{sec:exact-topk-minheap}
+
+La ricerca dei migliori risultati richiede la gestione efficiente di una soglia dinamica di ammissione durante la scansione dei documenti. Questa sezione formalizza matematicamente il problema dell'Exact Top-$k$ Retrieval, giustifica l'adozione strutturale di un Min-Heap di dimensione fissa $k$ per il tracciamento della soglia $\tau$, e ne simula l'esecuzione tramite una dettagliata traccia numerica passo-passo.
+
+\subsection{Definizione Formale del Problema Top-$k$}
+\label{subsec:definizione-formale-topk}
+\begin{definition}[Exact Top-$k$ Retrieval]
+Siano dati una collezione documentale indicizzata $\mathcal{D}$, una query testuale $Q = \{t_1, t_2, \dots, t_m\}$, un intero $k \ge 1$ e una funzione di scoring additiva $s(Q, d)$ definita come:
+\begin{equation}
+    s(Q, d) = \sum_{t \in Q \cap d} s(t, d),
+    \label{eq:score-additivo}
+\end{equation}
+dove $s(t, d) > 0$ rappresenta il punteggio parziale assegnato al documento $d$ per il termine $t$ (ad esempio il peso parziale Okapi BM25 o TF-IDF).  
+Il problema dell'\textbf{Exact Top-$k$ Retrieval} richiede di individuare un sottoinsieme ordinato $R_k \subseteq \mathcal{D}$ tale che $|R_k| = \min(k, |\mathcal{D}|)$ e:
+\begin{equation}
+    \forall d \in R_k, \; \forall d' \in \mathcal{D} \setminus R_k \implies s(Q, d) \ge s(Q, d').
+    \label{eq:exact-topk-condition}
+\end{equation}
+La specifica \textbf{Exact} stabilisce che il sottoinsieme $R_k$ e i rispettivi punteggi devono coincidere rigorosamente con quelli ottenibili tramite la scansione esaustiva di tutti i documenti candidati, ammettendo \textbf{zero falsi negativi} (nessun documento che appartiene teoricamente al Top-$k$ pu\`o essere omesso).
+\end{definition}
+
+\subsection{Gestione della Priorit\`a: Il Ruolo del Min-Heap}
+Per estrarre i $k$ valori massimi da un flusso non ordinato di punteggi, la struttura dati ottimale \`e una coda con priorit\`a implementata tramite un \textbf{Min-Heap} a capacit\`a fissa $k$.  
+A una prima analisi superficiale, l'impiego di un Min-Heap per individuare i massimi pu\`o apparire controintuitivo. La spiegazione risiede nella semantica della radice:
+\begin{itemize}
+    \item La radice di un Min-Heap contiene, per definizione strutturale, l'elemento con il punteggio \textbf{minimo} tra i $k$ elementi correntemente memorizzati.
+    \item Tale valore minimo definisce la \textbf{soglia dinamica di ammissione} $\tau$:
+    \begin{equation}
+        \tau = \min_{d \in \text{Heap}} s(Q, d).
+        \label{eq:tau-definizione}
+    \end{equation}
+    \item La soglia $\tau$ rappresenta il costo d'ingresso: qualunque nuovo documento candidato $d'$ pu\`o entrare a far parte dei Top-$k$ provvisori se e solo se il suo punteggio supera strettamente la soglia:
+    \begin{equation}
+        s(Q, d') > \tau.
+    \end{equation}
+    \item Se $s(Q, d') \le \tau$, il documento non ha alcuna possibilit\`a di qualificarsi e viene scartato immediatamente senza modificare l'heap.
+    \item Se $s(Q, d') > \tau$, l'elemento alla radice (il peggiore tra i migliori finora osservati) viene estratto tramite $\text{extract-min}()$, il nuovo candidato viene inserito con $\text{insert}(d', s(Q, d'))$, e l'albero viene ripristinato in tempo logaritmico $\mathcal{O}(\log k)$. La soglia $\tau$ si aggiorna assumendo il valore della nuova radice: la soglia \`e una funzione \textbf{monotona non decrescente} del numero di candidati valutati con successo.
+\end{itemize}
+
+\begin{property}[Complessit\`a del Min-Heap per Flusso di Dati]
+Dato un flusso sequenziale di $n$ elementi, il costo computazionale per mantenere i $k$ elementi massimi tramite Min-Heap di capacit\`a $k$ \`e limitato superiormente da $\mathcal{O}(n \log k)$. Lo spazio ausiliario in memoria centrale \`e strettamente $\mathcal{O}(k)$, indipendente dal numero totale di documenti presenti nella collezione o nella disgiunzione.
+\end{property}
+
+\begin{example}[Evoluzione della Soglia $\tau$ su Sequenza Numerica]
+Si consideri il flusso di punteggi in arrivo $[2.5, 1.5, 3.0, 0.5]$ con $k = 3$.  
+Si assuma che il Min-Heap contenga inizialmente i valori provvisori $\{2.1, 2.3, 3.1\}$.
+\begin{enumerate}
+    \item La radice contiene il valore $2.1$, da cui $\tau = 2.1$.
+    \item Arriva il punteggio $2.5$: poich\'e $2.5 > 2.1$, la radice $2.1$ viene rimossa e viene inserito $2.5$. L'heap si riorganizza in $\{2.3, 2.5, 3.1\}$ e la nuova radice impone $\tau = 2.3$.
+    \item Arriva il punteggio $1.5$: poich\'e $1.5 \le \tau = 2.3$, il valore viene scartato all'istante senza alcuna operazione sull'albero.
+    \item Arriva il punteggio $3.0$: poich\'e $3.0 > 2.3$, si estrae $2.3$ e si inserisce $3.0$. L'heap diviene $\{2.5, 3.0, 3.1\}$ e la soglia sale a $\tau = 2.5$.
+    \item Arriva il punteggio $0.5$: poich\'e $0.5 \le 2.5$, viene scartato.
+\end{enumerate}
+Al termine, l'heap racchiude fedelmente i 3 punteggi massimi $\{2.5, 3.0, 3.1\}$.
+\end{example}
+
+\subsection{Simulazione dell'Algoritmo Esaustivo DAAT con Min-Heap}
+L'esecuzione dell'Exact Top-$k$ con approccio esaustivo segue lo schema di scansione sincrona Document-at-a-Time gi\`a formalizzato nell'\textbf{Algoritmo~\ref{alg:daat}} (Capitolo~\ref{chap:indici-inversi-query-processing}).  
+Per evidenziare empiricamente il sovraccarico computazionale di tale strategia, si consideri una query composta da $m = 4$ termini:
+\begin{equation*}
+    Q = \{\text{\texttt{"rust"}}, \text{\texttt{"best"}}, \text{\texttt{"programming"}}, \text{\texttt{"language"}}\}.
+\end{equation*}
+Le rispettive posting list contengono le coppie $(\text{docID}, s(t, d))$:
+\begin{align*}
+    \mathcal{L}(\text{\texttt{"rust"}}) &= [(15, 2.5), (16, 1.5), (25, 2.0), (45, 1.5), \dots] \\
+    \mathcal{L}(\text{\texttt{"best"}}) &= [(11, 0.3), (12, 0.1), (13, 0.1), (15, 0.2), (21, 1.0), \dots] \\
+    \mathcal{L}(\text{\texttt{"programming"}}) &= [(13, 0.5), (15, 1.0), (19, 1.0), (21, 1.0), \dots] \\
+    \mathcal{L}(\text{\texttt{"language"}}) &= [(10, 0.5), (13, 0.9), (25, 0.8), (29, 1.1), \dots]
+\end{align*}
+Si imposti $k = 1$ (ricerca del Top-1) e si assuma che l'heap sia pre-popolato con un documento precedente $d = 8$ avente punteggio $2.1$, da cui deriva la soglia iniziale $\tau = 2.1$.
+
+Nel paradigma DAAT esaustivo, a ogni iterazione l'algoritmo calcola $d_{\min} = \min_{i} p_i.\text{docID}$, aggrega i contributi di tutte le liste che contengono $d_{\min}$, e confronta il punteggio ottenuto con la soglia $\tau$:
+\begin{enumerate}
+    \item \textbf{Candidato Doc 10:} Compare unicamente in $\mathcal{L}(\text{\texttt{"language"}})$. Punteggio: $s = 0.5$. Poich\'e $0.5 < 2.1$, viene scartato. L'heap rimane invariato ($\tau = 2.1$).
+    \item \textbf{Candidato Doc 11:} Compare unicamente in $\mathcal{L}(\text{\texttt{"best"}})$. Punteggio: $s = 0.3$. Scartato ($0.3 < 2.1$).
+    \item \textbf{Candidato Doc 12:} Compare unicamente in $\mathcal{L}(\text{\texttt{"best"}})$. Punteggio: $s = 0.1$. Scartato ($0.1 < 2.1$).
+    \item \textbf{Candidato Doc 13:} Compare simultaneamente in tre liste: $\mathcal{L}(\text{\texttt{"language}})$ ($0.9$), $\mathcal{L}(\text{\texttt{"best}})$ ($0.1$) e $\mathcal{L}(\text{\texttt{"programming}})$ ($0.5$). Punteggio reale aggregato:
+    \begin{equation*}
+        s(Q, 13) = 0.9 + 0.1 + 0.5 = 1.5.
+    \end{equation*}
+    Confronto: $1.5 < 2.1 \implies$ documento scartato. L'heap rimane invariato ($\tau = 2.1$).
+    \item \textbf{Candidato Doc 15:} Compare in tre liste: $\mathcal{L}(\text{\texttt{"rust}})$ ($2.5$), $\mathcal{L}(\text{\texttt{"programming}})$ ($1.0$) e $\mathcal{L}(\text{\texttt{"best}})$ ($0.2$). Punteggio reale aggregato:
+    \begin{equation*}
+        s(Q, 15) = 2.5 + 1.0 + 0.2 = 3.7.
+    \end{equation*}
+    Confronto: $3.7 > 2.1 \implies$ il documento entra nell'heap sostituendo Doc 8. La nuova soglia minima sale istantaneamente a $\tau = 3.7$.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{c l l c c}
+\toprule
+\textbf{DocID} & \textbf{Liste Coinvolte} & \textbf{Calcolo Punteggio Effettivo} & \textbf{Verifica Soglia ($\tau$)} & \textbf{Stato Heap / Nuova $\tau$} \\
+\midrule
+\textbf{Doc 10} & \texttt{"language"} & $s = 0.5$ & $0.5 < 2.1 \implies$ Scartato & Invariato ($\tau = 2.1$) \\
+\textbf{Doc 11} & \texttt{"best"} & $s = 0.3$ & $0.3 < 2.1 \implies$ Scartato & Invariato ($\tau = 2.1$) \\
+\textbf{Doc 12} & \texttt{"best"} & $s = 0.1$ & $0.1 < 2.1 \implies$ Scartato & Invariato ($\tau = 2.1$) \\
+\textbf{Doc 13} & \texttt{"language"}, \texttt{"best"}, \texttt{"prog"} & $s = 0.9 + 0.1 + 0.5 = 1.5$ & $1.5 < 2.1 \implies$ Scartato & Invariato ($\tau = 2.1$) \\
+\textbf{Doc 15} & \texttt{"rust"}, \texttt{"prog"}, \texttt{"best"} & $s = 2.5 + 1.0 + 0.2 = 3.7$ & $3.7 > 2.1 \implies$ Inserito & Doc 15 ($\tau = 3.7$) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Tracciamento della scansione esaustiva DAAT con Min-Heap per i primi 5 documenti candidati.}
+\label{tab:daat-esaustivo-traccia}
+\end{table}
+
+\subsection{Limite Computazionale della Strategia Esaustiva}
+L'algoritmo esaustivo calcola correttamente il Top-$k$, ma soffre del difetto cardine delle interrogazioni disgiuntive: \textbf{accede e decomprime ogni singolo posting dell'indice}.  
+Nella pratica reale, man mano che la scansione avanza, la soglia $\tau$ cresce rapidamente nei primissimi millisecondi di elaborazione. Di conseguenza, oltre il $95\%\text{--}99\%$ dei documenti successivamente esaminati possiede un punteggio di gran lunga inferiore a $\tau$: la CPU esegue milioni di letture da memoria, decompressioni e somme scalari per documenti destinati inesorabilmente a essere scartati.  
+Il \textbf{Dynamic Pruning} (potatura dinamica) nasce esattamente per superare questo collo di bottiglia: identificare ed escludere a priori blocchi estesi di documenti non competitivi senza mai toccarli n\'e decomprimerli in memoria.
+
+\FloatBarrier
+\section{L'Algoritmo WAND (Weak AND) e il Dynamic Pruning}
+\label{sec:algoritmo-wand}
+
+Per evitare la valutazione esaustiva di decine di milioni di documenti destinati a essere scartati, il dynamic pruning sfrutta stime maggioranti per scavalcare intere porzioni di indice. Questa sezione introduce l'algoritmo fondazionale WAND, ne definisce gli Upper Bound di termine, descrive la procedura di selezione del pivot ed esamina una simulazione completa dell'algoritmo.
+
+\subsection{Riferimento Bibliografico e Concetti Fondamentali}
+\label{subsec:wand-riferimento-concetti}
+L'algoritmo \textbf{WAND} (\textit{Weak AND}) \`e stato introdotto nel lavoro fondamentale di Andrei Z. Broder, David Carmel, Michael Herscovici, Aya Soffer e Jason Y. Zien~\cite{broder2003} (CIKM 2003). WAND costituisce la prima architettura algoritmica di potatura dinamica in grado di garantire formalmente l'Exact Top-$k$ su query \texttt{OR}, saltando la scansione e la decompressione della maggior parte dei posting delle liste.
+
+Il pilastro teorico di WAND \`e l'introduzione dell'\textbf{Upper Bound di Termine ($UB$)}, definito come il massimo punteggio parziale che il termine pu\`o apportare a un qualsiasi documento all'interno della sua posting list:
+\begin{definition}[Term Upper Bound $UB(t)$]
+Dato un termine di vocabolario $t \in \mathcal{V}$ associato alla posting list $\mathcal{L}(t)$, il suo Upper Bound $UB(t)$ \`e calcolato offline durante l'indicizzazione come:
+\begin{equation}
+    UB(t) = \max_{d \in \mathcal{L}(t)} s(t, d).
+    \label{eq:term-upper-bound}
+\end{equation}
+\end{definition}
+
+\paragraph{Costo in Spazio e Requisiti di Memorizzazione.}
+La memorizzazione degli $UB$ presenta propriet\`a estremamente favorevoli:
+\begin{itemize}
+    \item Per ogni termine $t \in \mathcal{V}$ \`e sufficiente memorizzare un unico valore float a 32 bit indicante $UB(t)$.
+    \item L'ingombro di memoria ausiliaria \`e proporzionale alla dimensione del lessico $|\mathcal{V}|$, non alla dimensione complessiva dell'indice inverso. Per un vocabolario tipico di alcuni milioni di termini, l'array degli $UB$ occupa pochissimi megabyte e risiede stabilmente nella RAM centrale del broker di query.
+    \item Al contrario, pre-calcolare e salvare i punteggi esatti all'interno di ciascun record della posting list su disco risulterebbe disastroso: i numeri a virgola mobile hanno entropia elevata e si comprimono male, compromettendo l'efficienza dei codec per interi ($d$-gaps).
+\end{itemize}
+
+\subsection{Propriet\`a di Maggiorazione e Condizione di Scarto Sicuro}
+\begin{theorem}[Condizione di Scarto Sicuro di WAND]
+\label{thm:wand-safe-skipping}
+Siano dati una query $Q$, un documento candidato $d \in \mathcal{D}$ e la soglia corrente del Min-Heap $\tau$. Il punteggio reale $s(Q, d)$ \`e limitato superiormente dalla somma degli Upper Bound dei termini di query:
+\begin{equation}
+    s(Q, d) = \sum_{t \in Q \cap d} s(t, d) \le \sum_{t \in Q \cap d} UB(t) \le \sum_{t \in Q} UB(t).
+    \label{eq:maggiorazione-wand}
+\end{equation}
+Se un insieme di termini attivi $\mathcal{T} \subseteq Q$ soddisfa la condizione:
+\begin{equation}
+    \sum_{t \in \mathcal{T}} UB(t) < \tau,
+    \label{eq:scarto-sicuro}
+\end{equation}
+allora nessun documento $d$ che riceve contributi di scoring \textbf{esclusivamente} dai termini in $\mathcal{T}$ pu\`o superare la soglia d'ingresso dell'heap:
+\begin{equation}
+    s(Q, d) \le \sum_{t \in \mathcal{T}} UB(t) < \tau.
+\end{equation}
+Tali documenti possono essere \textbf{scartati in modo sicuro} (\textit{safely skipped}), garantendo l'assenza totale di falsi negativi nell'insieme Top-$k$ finale.
+\end{theorem}
+
+\subsection{Modello di Costo Hardware: CPU Reasoning vs Pointer Movements}
+La progettazione di WAND riflette la fisica delle moderne architetture di calcolo, come formalizzato nel Capitolo~\ref{chap:efficienza-cpu}:
+\begin{itemize}
+    \item \textbf{Operazioni ad Alto Costo (Pointer Movements):} Lo scorrimento fisico di un cursore su una posting list compressa (`next()` o `nextGEQ()`) impone il caricamento di blocchi da memoria DRAM o disco, il fallimento dei predittori hardware per salti non contigui (\textit{cache misses}), e l'esecuzione di cicli di decompressione software (PForDelta, Elias-Fano, SIMD).
+    \item \textbf{Operazioni a Basso Costo (CPU Reasoning):} I calcoli eseguiti dalla CPU su registri interni e cache L1 (somme tra float, confronti scalari con $\tau$, riordinamento di un piccolo array contenente i 3--5 puntatori della query) richiedono pochi cicli di clock ($< 1\text{--}5\,\text{ns}$).
+    \item \textbf{Principio Guida:} Conviene sempre impiegare decine di istruzioni di calcolo nella CPU per verificare se un documento pu\`o essere scartato matematicamente, se ci\`o consente di evitare anche una sola lettura o decompressione di un blocco di posting list.
+\end{itemize}
+
+\subsection{Meccanismo Operativo di WAND}
+Ad ogni iterazione, l'algoritmo opera secondo 4 fasi consequenziali:
+\begin{enumerate}
+    \item \textbf{Ordinamento dei Puntatori per DocID Corrente:} L'array delle posting list attive viene ordinato in ordine crescente in base all'identificativo del documento puntato:
+    \begin{equation}
+        d_1 \le d_2 \le \dots \le d_m.
+        \label{eq:wand-sorted-ptrs}
+    \end{equation}
+    \item \textbf{Identificazione del Documento Pivot ($d_{\text{pivot}}$):} Si scorrono le liste ordinate da sinistra a destra, accumulando i rispettivi $UB(t_i)$ fino a individuare il primo indice $p$ (il \textit{pivot}) per cui la somma cumulativa eguaglia o supera la soglia $\tau$:
+    \begin{equation}
+        \sum_{i=1}^{p} UB(t_i) \ge \tau.
+        \label{eq:wand-pivot-condition}
+    \end{equation}
+    Se la somma complessiva di tutti gli $m$ termini di query risulta strettamente inferiore a $\tau$ ($\sum_{i=1}^m UB(t_i) < \tau$), nessun documento residuo pu\`o qualificarsi e l'algoritmo termina immediatamente.
+    \item \textbf{Propriet\`a dello Scarto Iniziale:} Per costruzione del pivot $p$, i documenti puntati dalle liste precedenti $1, \dots, p-1$ accumulano una somma ottimistica strettamente inferiore a $\tau$:
+    \begin{equation*}
+        \sum_{i=1}^{p-1} UB(t_i) < \tau.
+    \end{equation*}
+    Di conseguenza, nessun documento $d < d_p$ ha il potenziale matematico per entrare nell'heap.
+    \item \textbf{Azione sul Pivot Document ($d_{\text{pivot}} = d_p$):}
+    \begin{itemize}
+        \item \textbf{Caso $d_1 == d_{\text{pivot}}$:} La prima lista punta esattamente al documento pivot. Ci\`o implica che $d_1 = d_2 = \dots = d_p = d_{\text{pivot}}$: il documento compare in un numero sufficiente di liste la cui somma di $UB$ supera $\tau$. Il documento possiede un potenziale concreto: viene \textbf{valutato pienamente} (\textit{fully evaluated}), calcolando la somma dei punteggi esatti per tutte le liste che lo contengono. Se $s(Q, d_{\text{pivot}}) > \tau$, entra nell'heap e $\tau$ viene incrementata. Infine, il puntatore della prima lista avanza al docID successivo.
+        \item \textbf{Caso $d_1 < d_{\text{pivot}}$:} La prima lista punta a un documento $d_1$ strettamente inferiore al pivot. Dal Teorema~\ref{thm:wand-safe-skipping}, nessun documento inferiore a $d_{\text{pivot}}$ pu\`o raggiungere la soglia $\tau$. L'algoritmo invoca direttamente:
+        \begin{equation}
+            p_1.\text{nextGEQ}(d_{\text{pivot}}),
+        \end{equation}
+        scavalcando in un singolo salto tutti i documenti compresi nell'intervallo $[d_1, d_{\text{pivot}} - 1]$ senza decomprimerli.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Tracciamento Dettagliato dell'Algoritmo WAND}
+\label{subsec:tracciamento-wand}
+Si consideri lo scenario operativo di riferimento con $m = 4$ termini di query:
+\begin{itemize}
+    \item \textbf{Termini e rispettivi Upper Bound:}
+    \begin{align*}
+        UB(\text{\texttt{"rust"}}) &= 2.5 \\
+        UB(\text{\texttt{"language"}}) &= 1.1 \\
+        UB(\text{\texttt{"programming"}}) &= 0.6 \\
+        UB(\text{\texttt{"best"}}) &= 0.3
+    \end{align*}
+    \item \textbf{Soglia Iniziale del Min-Heap ($k = 1$):} $\tau = 2.1$.
+    \item \textbf{Puntatori Correnti delle Liste:}
+    \begin{itemize}
+        \item $\mathcal{L}(\text{\texttt{"language"}})$ punta a \textbf{10}
+        \item $\mathcal{L}(\text{\texttt{"best"}})$ punta a \textbf{11}
+        \item $\mathcal{L}(\text{\texttt{"programming"}})$ punta a \textbf{13}
+        \item $\mathcal{L}(\text{\texttt{"rust"}})$ punta a \textbf{15}
+    \end{itemize}
+\end{itemize}
+
+L'array ordinato per docID corrente risulta:
+\begin{align*}
+    [\, &\langle \text{\texttt{"language"}}, 10, 1.1 \rangle, \; \langle \text{\texttt{"best"}}, 11, 0.3 \rangle, \\
+        &\langle \text{\texttt{"programming"}}, 13, 0.6 \rangle, \; \langle \text{\texttt{"rust"}}, 15, 2.5 \rangle \,].
+\end{align*}
+
+\paragraph{Fase 1: Determinazione del Pivot.}
+\begin{enumerate}
+    \item Si esamina la prima lista (\texttt{"language"}, $d_1 = 10$):
+    \begin{equation*}
+        \text{Somma} = UB(\text{\texttt{"language"}}) = 1.1 < \tau = 2.1 \quad (\text{sotto la soglia}).
+    \end{equation*}
+    \item Si aggiunge la seconda lista (\texttt{"best"}, $d_2 = 11$):
+    \begin{equation*}
+        \text{Somma} = 1.1 + UB(\text{\texttt{"best"}}) = 1.4 < \tau = 2.1 \quad (\text{sotto la soglia}).
+    \end{equation*}
+    \item Si aggiunge la terza lista (\texttt{"programming"}, $d_3 = 13$):
+    \begin{equation*}
+        \text{Somma} = 1.4 + UB(\text{\texttt{"programming"}}) = 2.0 < \tau = 2.1.
+    \end{equation*}
+    \textit{Osservazione critica:} anche ipotizzando che un documento compaia simultaneamente in \texttt{"language"}, \texttt{"best"} e \texttt{"programming"} e ottenga il massimo punteggio teorico in ciascuna di esse, la sua somma cumulativa ($2.0$) \`e rigorosamente inferiore alla soglia $\tau = 2.1$!
+    \item Si aggiunge la quarta lista (\texttt{"rust"}, $d_4 = 15$):
+    \begin{equation*}
+        \text{Somma} = 2.0 + UB(\text{\texttt{"rust"}}) = 2.0 + 2.5 = 4.5 \ge \tau = 2.1.
+    \end{equation*}
+    La condizione \`e soddisfatta con $p = 4$. Il \textbf{documento pivot \`e $d_{\text{pivot}} = d_4 = 15$}.
+\end{enumerate}
+
+\paragraph{Fase 2: Valutazione del Documento 15.}
+\begin{itemize}
+    \item Poich\'e la prima lista puntava a $d_1 = 10 < 15$, tutti i documenti intermedi ($10, 11, 12, 13$) vengono scartati all'istante senza calcolo del punteggio.
+    \item I cursori avanzano con $\text{nextGEQ}(15)$.
+    \item Si procede alla valutazione completa di Doc 15:
+    \begin{align*}
+        s(\text{\texttt{"rust"}}, 15) &= 2.5 \\
+        s(\text{\texttt{"programming"}}, 15) &= 1.0 \\
+        s(\text{\texttt{"best"}}, 15) &= 0.2 \\
+        s(\text{\texttt{"language"}}, 15) &= 0.0 \quad \text{\scriptsize (termine non presente nel documento)}
+    \end{align*}
+    Punteggio aggregato: $s(Q, 15) = 2.5 + 1.0 + 0.2 = 3.7$.
+    \item Poich\'e $3.7 > 2.1$, Doc 15 viene inserito nel Min-Heap e la soglia di ammissione sale a $\tau = 3.7$.
+\end{itemize}
+
+Lo pseudocodice di WAND \`e formalizzato nell'Algoritmo~\ref{alg:wand-algorithm}.
+
+\begin{algorithm}[H]
+\caption{Algoritmo WAND (Weak AND) Top-$k$ Retrieval}
+\label{alg:wand-algorithm}
+\KwInput{Query $Q = \{t_1, \dots, t_m\}$, Indice Invertito, array di Upper Bound $UB[t]$, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti}
+
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+$\tau \gets 0$\;
+$\text{Liste} \gets \text{InizializzaCursori}(Q)$\;
+
+\While{true}{
+    $\text{Liste}.\text{SortByCurrentDocID}()$\;
+    $\text{acc} \gets 0$; \quad $\text{pivot} \gets -1$\;
+    
+    \For{$i \gets 1$ \KwTo $|\text{Liste}|$}{
+        $\text{acc} \gets \text{acc} + UB[\text{Liste}[i].\text{term}]$\;
+        \If{$\text{acc} \ge \tau$}{
+            $\text{pivot} \gets i$\;
+            \textbf{break}\;
+        }
+    }
+    
+    \If{$\text{pivot} == -1$}{
+        \textbf{break} \tcp*{Nessun documento residuo pu\`o superare $\tau$}
+    }
+    
+    $d_{\text{pivot}} \gets \text{Liste}[\text{pivot}].\text{CurrentDocID}()$\;
+    
+    \eIf{$\text{Liste}[1].\text{CurrentDocID}() == d_{\text{pivot}}$}{
+        $s_{\text{real}} \gets 0$\;
+        \For{$i \gets 1$ \KwTo $|\text{Liste}|$}{
+            \If{$\text{Liste}[i].\text{CurrentDocID}() == d_{\text{pivot}}$}{
+                $s_{\text{real}} \gets s_{\text{real}} + \text{Liste}[i].\text{CurrentScore}()$\;
+                $\text{Liste}[i].\text{Next}()$\;
+            }
+        }
+        \If{$s_{\text{real}} > \tau$}{
+            \If{$|H| == k$}{$H.\text{ExtractMin}()$\;}
+            $H.\text{Insert}(\langle d_{\text{pivot}}, s_{\text{real}} \rangle)$\;
+            \If{$|H| == k$}{$\tau \gets H.\text{FindMin}().\text{score}$\; }
+        }
+    }{
+        $\text{Liste}[1].\text{nextGEQ}(d_{\text{pivot}})$ \tcp*{Salto sicuro oltre i documenti non competitivi}
+    }
+}
+\Return $H$\;
+\end{algorithm}
+
+\FloatBarrier
+\section{Analisi Critica e Casi Limite nel Dynamic Pruning}
+\label{sec:analisi-critica-casi-limite}
+
+L'analisi del comportamento di WAND solleva quattro questioni teoriche e ingegneristiche fondamentali, che ne chiariscono i limiti operativi e le garanzie algebriche:
+
+\subsection{Semantica Disgiuntiva e Trattamento dei Termini Assenti}
+Nella simulazione di WAND, il documento pivot $d_{\text{pivot}} = 15$ viene valutato e inserito nell'heap pur non contenendo il termine \texttt{"language"}.  
+Questa circostanza non costituisce un'anomalia logica:
+\begin{itemize}
+    \item Nelle query disgiuntive (\texttt{OR}), la semantica di retrieval stabilisce che un documento \`e rilevante se la combinazione lineare dei pesi dei termini effettivamente presenti supera la soglia di ammissione $\tau$.
+    \item A differenza della semantica congiuntiva (\texttt{AND}) — in cui l'assenza di un termine impone l'esclusione immediata del documento —, nella disgiunzione il contributo del termine non presente \`e semplicemente nullo ($s(\text{\texttt{"language"}}, 15) = 0$). L'inclusione \`e legittimata dal fatto che la somma parziale dei termini rimanenti ($2.5 + 1.0 + 0.2 = 3.7$) supera comunque la soglia $\tau = 2.1$.
+\end{itemize}
+
+\subsection{Analisi di Convenienza: WAND su Query Congiuntive (\texttt{AND})}
+Sebbene la maggiorazione algebrica basata su Upper Bound rimanga formalmente corretta anche per l'operatore \texttt{AND}, l'applicazione di WAND a query congiuntive risulta nella pratica inefficiente e superflua:
+\begin{enumerate}
+    \item Nelle query \texttt{AND}, l'algoritmo di salto deterministico basato sull'operatore $\text{nextGEQ}$ sul massimo dei docID correnti (analizzato nella Sezione~\ref{sec:intersezioni-ottimizzate-nextgeq}) \`e gi\`a asintoticamente sublineare e non richiede il calcolo di somme ottimistiche tra numeri float.
+    \item Nelle query congiuntive la cardinalit\`a dell'intersezione \`e fortemente ridotta: pochissimi documenti soddisfano la condizione di presenza simultanea di tutti i termini. L'heap riceve quindi un numero esiguo di candidati, facendo crescere la soglia $\tau$ molto lentamente e vanificando il potenziale di potatura dinamica. Il guadagno computazionale esponenziale di WAND si realizza specificamente sulle query \texttt{OR}, dove l'approccio esaustivo comporterebbe la scansione di milioni di record.
+\end{enumerate}
+
+\subsection{Trade-off Computazionale sui Salti Intermedi Anticipati}
+Durante la scansione, non appena la CPU rileva che il contributo cumulativo delle prime liste non supera $\tau$, si potrebbe ipotizzare di eseguire salti intermedi anticipati ($\text{nextGEQ}$) anche sulle liste successive prima di raggiungere il pivot.  
+Tuttavia, l'implementazione pratica deve bilanciare un compromesso architetturale:
+\begin{itemize}
+    \item Ogni invocazione di avanzamento altera la posizione del cursore e impone il riordinamento dell'array dei puntatori per preservare l'invariante $d_1 \le d_2 \le \dots \le d_m$.
+    \item Se la CPU esegue salti intermedi troppo aggressivi, il costo dei cicli spesi nei confronti logici e nel continuo riordinamento in cache/registri pu\`o eccedere il tempo risparmiato sull'indice compresso.
+\end{itemize}
+
+\subsection{Dimostrazione Algebrica dello Scarto a Priori (Doc 12)}
+Si consideri lo stato dei puntatori all'inizio della scansione:
+\begin{itemize}
+    \item Il cursore di $\mathcal{L}(\text{\texttt{"programming"}})$ \`e attestato su Doc 13 $\implies$ Doc 12 non pu\`o comparire in $\mathcal{L}(\text{\texttt{"programming"}})$.
+    \item Il cursore di $\mathcal{L}(\text{\texttt{"rust"}})$ \`e attestato su Doc 15 $\implies$ Doc 12 non pu\`o comparire in $\mathcal{L}(\text{\texttt{"rust"}})$.
+\end{itemize}
+Doc 12 potrebbe comparire unicamente nelle liste con cursori $\le 12$, ossia $\mathcal{L}(\text{\texttt{"language"}})$ e $\mathcal{L}(\text{\texttt{"best"}})$.  
+Il massimo punteggio teorico conseguibile da Doc 12 \`e maggiorato dalla somma dei rispettivi Upper Bound:
+\begin{equation}
+    s(Q, 12) \le UB(\text{\texttt{"language"}}) + UB(\text{\texttt{"best"}}) = 1.1 + 0.3 = 1.4.
+\end{equation}
+Poich\'e $1.4 < \tau = 2.1$, \`e una rigorosa impossibilit\`a algebrica che Doc 12 entri nel Top-$k$. Qualsiasi operazione di lettura, decompressione o calcolo per Doc 12 costituirebbe un'inutile dispersione di cicli macchina: lo scarto a priori \`e matematicamente sicuro.
+
+\begin{remark}[Metodologia di Studio e Tracciamento Manuale]
+Per padroneggiare a fondo la meccanica di WAND e MaxScore, \`e fortemente consigliato esercitarsi nel tracciamento manuale passo-passo su piccoli indici invertiti giocattolo a 3 o 4 termini, simulando con rigore: l'ordinamento dinamico dei puntatori, la selezione del pivot tramite accumulo progressivo degli $UB$, l'esecuzione dei salti con $\text{nextGEQ}$, e l'aggiornamento monotono della soglia $\tau$ nell'heap.
+\end{remark}
+
+\FloatBarrier
+\section{L'Algoritmo MaxScore: Partizionamento in Liste Essenziali e Non-Essenziali}
+\label{sec:algoritmo-maxscore}
+
+Sebbene WAND riduca drasticamente il numero di documenti valutati, l'ordinamento dinamico dei puntatori a ogni iterazione rappresenta un significativo collo di bottiglia CPU su query con molti termini. Questa sezione presenta l'algoritmo MaxScore, illustrandone la ripartizione dinamica tra liste essenziali e non-essenziali e sviluppandone il tracciamento dettagliato.
+
+\subsection{Riferimento Bibliografico e Principio di Funzionamento}
+\label{subsec:maxscore-riferimento-principio}
+L'algoritmo \textbf{MaxScore} \`e stato introdotto da Howard Turtle e James Flood~\cite{turtle1995} nell'articolo \textit{Query evaluation: Strategies and optimizations} (Information Processing \& Management, 1995). Come WAND, MaxScore calcola il risultato Top-$k$ esatto su query disgiuntive; tuttavia, adotta una diversa filosofia architetturale che \textbf{elimina il collo di bottiglia del riordinamento dinamico dei puntatori} a ogni singolo passo.
+
+L'idea fondamentale di MaxScore consiste nel suddividere dinamicamente le posting list della query in due insiemi disgiunti in funzione della soglia $\tau$:
+\begin{enumerate}
+    \item \textbf{Liste Non-Essenziali (\textit{Non-Essential Lists}):} L'insieme delle posting list con gli $UB$ pi\`u bassi la cui somma cumulativa \`e strettamente inferiore alla soglia $\tau$:
+    \begin{equation}
+        \sum_{t \in \text{Non-Essential}} UB(t) < \tau.
+        \label{eq:maxscore-non-essential}
+    \end{equation}
+    \item \textbf{Liste Essenziali (\textit{Essential Lists}):} Tutte le rimanenti posting list della query (quelle con gli $UB$ pi\`u elevati).
+\end{enumerate}
+
+\begin{theorem}[Invariante Fondamentale di MaxScore]
+\label{thm:maxscore-invariant}
+Un documento presente \textbf{esclusivamente} all'interno delle liste non-essenziali non potr\`a mai entrare nel Top-$k$.  
+Infatti, anche nell'ipotesi massimale in cui tale documento compaia in tutte le liste non-essenziali e ottenga in ciascuna il massimo punteggio parziale, il suo score totale soddisfa:
+\begin{equation}
+    s(Q, d) \le \sum_{t \in \text{Non-Essential}} UB(t) < \tau.
+\end{equation}
+\textbf{Conseguenza Operativa Immediata:} Qualsiasi documento appartenente al Top-$k$ \textbf{deve necessariamente comparire in almeno una lista essenziale}.
+\end{theorem}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    tapebox/.style={rectangle, draw=blue!80!black, fill=blue!8, thick, minimum width=2.5cm, minimum height=0.9cm, align=center, font=\footnotesize\bfseries},
+    noness_card/.style={rectangle, rounded corners=4pt, draw=gray!60!black, fill=gray!8, thick, inner sep=9pt, text width=6.6cm, align=left},
+    ess_card/.style={rectangle, rounded corners=4pt, draw=teal!80!black, fill=teal!6, thick, inner sep=9pt, text width=6.6cm, align=left}
+]
+    % ========================================================
+    % INTESTAZIONE GENERALE
+    % ========================================================
+    \node[font=\small\bfseries, text=blue!90!black, anchor=south] at (7.3, 4.65) {Nastro delle Posting List ordinate per Upper Bound crescente: $UB(t_1) \le UB(t_2) \le \dots \le UB(t_m)$};
+
+    % ========================================================
+    % LIVELLO SUPERIORE: NASTRO DELLE LISTE ORDINATE PER UB
+    % ========================================================
+    \node[tapebox, draw=gray!70!black, fill=gray!15] (t1) at (1.8, 3.2) {$\mathcal{L}(t_1)$\\[2pt]{\scriptsize $UB_1 = 0.3$}};
+    \node[font=\footnotesize\bfseries, text=gray!80!black] at (3.45, 3.2) {$\le$};
+    \node[tapebox, draw=gray!70!black, fill=gray!15] (t2) at (5.1, 3.2) {$\mathcal{L}(t_2)$\\[2pt]{\scriptsize $UB_2 = 1.0$}};
+
+    \node[tapebox, draw=teal!80!black, fill=teal!15] (t3) at (9.5, 3.2) {$\mathcal{L}(t_3)$\\[2pt]{\scriptsize $UB_3 = 1.1$}};
+    \node[font=\footnotesize\bfseries, text=gray!80!black] at (11.15, 3.2) {$\le$};
+    \node[tapebox, draw=teal!80!black, fill=teal!15] (t4) at (12.8, 3.2) {$\mathcal{L}(t_4)$\\[2pt]{\scriptsize $UB_4 = 2.5$}};
+
+    % Etichette di gruppo orizzontali sotto le celle
+    \draw[gray!70!black, thick] (0.55, 2.5) -- (6.35, 2.5);
+    \node[font=\scriptsize\bfseries, text=gray!80!black] at (3.45, 2.22) {Somma $UB < \tau$};
+
+    \draw[teal!80!black, thick] (8.25, 2.5) -- (14.05, 2.5);
+    \node[font=\scriptsize\bfseries, text=teal!80!black] at (11.15, 2.22) {Liste candidate attive};
+
+    % ========================================================
+    % SOGLIA TAU E FRECCIA DI AVANZAMENTO IN ALTO
+    % (Spostata interamente a quota y = 4.05, libera da interferenze)
+    % ========================================================
+    \node[draw=red!80!black, fill=red!10, rounded corners=2pt, font=\scriptsize\bfseries, text=red!85!black, inner sep=3pt] (badge_tau) at (7.3, 4.05) {Soglia $\tau$};
+    \draw[-Stealth, very thick, red!85!black] (8.2, 4.05) -- (10.6, 4.05) node[right, font=\scriptsize\bfseries, text=red!85!black] {Avanza a destra se $\tau$ cresce};
+
+    % Linea divisoria rossa tratteggiata (x = 7.3, scorre nel canale divisorio)
+    \draw[red!85!black, very thick, dashed] (7.3, 3.75) -- (7.3, -2.6);
+
+    % ========================================================
+    % LIVELLO INFERIORE: CARD DESCRITTIVE SEPARATE
+    % ========================================================
+    % Box Sinistro: Liste NON-ESSENZIALI
+    \node[noness_card, anchor=north] at (3.6, 1.7) {%
+        \textbf{\large Liste NON-ESSENZIALI}\\[4pt]
+        {\footnotesize\textbf{Condizione:} $\sum_{t \in \text{Non-Ess}} UB(t) < \tau$}\\[3pt]
+        {\footnotesize\itshape Liste a basso $UB$: il loro contributo totale non basta a superare $\tau$}\\[7pt]
+        $\bullet$ \textbf{Nessuna generazione di candidati:} non vengono inserite nell'unione DAAT principale.\\[5pt]
+        $\bullet$ \textbf{Verifica mirata:} interrogate solo via $\text{nextGEQ}(d)$ per completare lo score dei candidati promettenti.
+    };
+
+    % Box Destro: Liste ESSENZIALI
+    \node[ess_card, anchor=north] at (11.0, 1.7) {%
+        \textbf{\large\color{teal!90!black} Liste ESSENZIALI}\\[4pt]
+        {\footnotesize\textbf{Condizione:} Liste residue ad alto $UB$}\\[3pt]
+        {\footnotesize\itshape Le sole in grado di portare un documento oltre la soglia d'ingresso $\tau$}\\[7pt]
+        $\bullet$ \textbf{Guidano la scansione DAAT:} ogni candidato ammesso compare in almeno una di queste liste.\\[5pt]
+        $\bullet$ \textbf{Promozione dinamica:} all'aumentare di $\tau$, la partizione scorre verso destra promuovendo liste a non-essenziali.
+    };
+\end{tikzpicture}%
+}
+\caption{Partizionamento dinamico delle posting list nell'algoritmo MaxScore.}
+\label{fig:maxscore-partitioning}
+\end{figure}
+
+\subsection{Differenze Strutturali rispetto a WAND}
+\begin{enumerate}
+    \item \textbf{Ordinamento Statico Iniziale:} In MaxScore le posting list vengono ordinate per $UB$ crescente \textbf{una sola volta} all'avvio dell'interrogazione:
+    \begin{equation}
+        UB(t_1) \le UB(t_2) \le \dots \le UB(t_m).
+    \end{equation}
+    Durante l'esecuzione dell'algoritmo non \`e richiesto alcun riordinamento dinamico dei puntatori.
+    \item \textbf{Scansione DAAT Selettiva:} La scansione DAAT OR viene eseguita \textbf{esclusivamente sull'insieme delle liste essenziali}. Le liste non-essenziali sono passive: non partecipano all'avanzamento dei puntatori primari.
+    \item \textbf{Promozione Dinamica delle Liste:} Man mano che l'heap si popola e la soglia $\tau$ cresce, la sommatoria degli $UB$ sul prefisso delle liste pu\`o inglobare nuovi termini senza eccedere $\tau$. La frontiera di demarcazione si sposta verso destra: liste originariamente essenziali vengono \textbf{promosse a non-essenziali}, riducendo progressivamente il numero di liste attive da scansionare.
+\end{enumerate}
+
+\subsection{Valutazione Selettiva del Documento Candidato}
+L'algoritmo esamina un candidato $d$ generato dall'unione delle sole liste essenziali ($d = \min_{t \in \text{Ess}} p_t.\text{CurrentDocID}()$):
+\begin{enumerate}
+    \item Calcola il punteggio parziale esatto generato dalle liste essenziali: $s_{\text{ess}}(Q, d)$.
+    \item Calcola la \textbf{stima ottimistica massima} che il documento $d$ potrebbe raggiungere sommando il contributo potenziale massimo di tutte le liste non-essenziali:
+    \begin{equation}
+        \text{Stima}(d) = s_{\text{ess}}(Q, d) + \sum_{t \in \text{Non-Essential}} UB(t).
+        \label{eq:maxscore-stima}
+    \end{equation}
+    \item \textbf{Controllo della Stima:}
+    \begin{itemize}
+        \item Se $\text{Stima}(d) \le \tau$: il documento non ha alcuna possibilit\`a di entrare nel Top-$k$. Viene \textbf{scartato immediatamente senza toccare n\'e decomprimere alcuna lista non-essenziale}.
+        \item Se $\text{Stima}(d) > \tau$: il candidato merita la valutazione. Si interrogano le liste non-essenziali invocando $p_t.\text{nextGEQ}(d)$. Se il documento \`e presente, si aggiunge il punteggio parziale effettivo. Qualora il punteggio finale superi $\tau$, il documento entra nell'heap e $\tau$ viene incrementata.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Tracciamento Dettagliato dell'Algoritmo MaxScore}
+\label{subsec:tracciamento-maxscore}
+Si consideri il medesimo scenario di simulazione con i quattro termini ordinati per Upper Bound:
+\begin{itemize}
+    \item \textbf{Ordinamento Statico per UB Crescente:}
+    \begin{enumerate}
+        \item \texttt{"best"}: $UB = 0.3$
+        \item \texttt{"programming"}: $UB = 1.0$
+        \item \texttt{"language"}: $UB = 1.1$
+        \item \texttt{"rust"}: $UB = 2.5$
+    \end{enumerate}
+    \item \textbf{Soglia Iniziale del Min-Heap:} $\tau = 2.1$.
+\end{itemize}
+
+\paragraph{Partizionamento Iniziale:}
+\begin{itemize}
+    \item Lista \texttt{"best"}: $UB = 0.3 < 2.1$.
+    \item Aggiungiamo \texttt{"programming"}: $0.3 + 1.0 = 1.3 < 2.1$.
+    \item Se aggiungessimo \texttt{"language"} ($1.1$), la somma cumulativa diverrebbe $1.3 + 1.1 = 2.4 \ge 2.1$.
+    \item Pertanto la partizione iniziale risulta:
+    \begin{align*}
+        \text{Non-Essential} &= \{\text{\texttt{"best"}}, \text{\texttt{"programming"}}\} \quad (\sum UB = 1.3), \\
+        \text{Essential} &= \{\text{\texttt{"language"}}, \text{\texttt{"rust"}}\}.
+    \end{align*}
+\end{itemize}
+
+\paragraph{Scansione Guidata dalle Liste Essenziali:}
+\begin{enumerate}
+    \item \textbf{Candidato Doc 10 (proposto da $\mathcal{L}(\text{\texttt{"language"}})$, in quanto $10 < 15$ di \texttt{"rust"}):}
+    \begin{itemize}
+        \item Punteggio parziale reale in \texttt{"language"}: $s(\text{\texttt{"language"}}, 10) = 0.5$.
+        \item Calcolo della stima ottimistica:
+        \begin{equation*}
+            \text{Stima}(10) = 0.5 + \sum_{t \in \text{Non-Ess}} UB(t) = 0.5 + 1.3 = 1.8.
+        \end{equation*}
+        \item Confronto: $1.8 < \tau = 2.1 \implies$ \textbf{Doc 10 viene scartato all'istante senza accedere a \texttt{"best"} o \texttt{"programming"}}!
+    \end{itemize}
+    \item \textbf{Candidato Doc 13 (proposto da $\mathcal{L}(\text{\texttt{"language"}})$, con $13 < 15$):}
+    \begin{itemize}
+        \item Punteggio parziale reale in \texttt{"language"}: $s(\text{\texttt{"language"}}, 13) = 0.9$.
+        \item Calcolo della stima ottimistica:
+        \begin{equation*}
+            \text{Stima}(13) = 0.9 + 1.3 = 2.2.
+        \end{equation*}
+        \item Confronto: $2.2 > \tau = 2.1 \implies$ Doc 13 \`e promettente. Si interrogano le liste non-essenziali con $\text{nextGEQ}(13)$:
+        \begin{itemize}
+            \item In $\mathcal{L}(\text{\texttt{"programming"}})$, Doc 13 \`e presente con score parziale $0.5$.
+            \item In $\mathcal{L}(\text{\texttt{"best"}})$, Doc 13 \`e presente con score parziale $0.1$.
+        \end{itemize}
+        \item Punteggio reale complessivo: $s(Q, 13) = 0.9 + 0.5 + 0.1 = 1.5$.
+        \item Confronto finale: $1.5 < \tau = 2.1 \implies$ Doc 13 non entra nell'heap e viene scartato.
+        \item \textit{Nota sul Doc 12:} Si osservi che Doc 12 \`e stato scavalcato a monte senza essere mai preso in considerazione, poich\'e non compariva in alcuna lista essenziale.
+    \end{itemize}
+    \item \textbf{Candidato Doc 15 (proposto da $\mathcal{L}(\text{\texttt{"rust"}})$):}
+    \begin{itemize}
+        \item Punteggio parziale reale in \texttt{"rust"}: $s(\text{\texttt{"rust"}}, 15) = 2.5$.
+        \item Calcolo della stima ottimistica:
+        \begin{equation*}
+            \text{Stima}(15) = 2.5 + 1.3 = 3.8.
+        \end{equation*}
+        \item Confronto: $3.8 > \tau = 2.1 \implies$ Doc 15 merita la valutazione. Si interrogano le liste non-essenziali:
+        \begin{itemize}
+            \item In $\mathcal{L}(\text{\texttt{"programming"}})$, presente con score $1.0$.
+            \item In $\mathcal{L}(\text{\texttt{"best"}})$, presente con score $0.2$.
+        \end{itemize}
+        \item Punteggio reale complessivo: $s(Q, 15) = 2.5 + 1.0 + 0.2 = 3.7$.
+        \item Confronto finale: $3.7 > 2.1 \implies$ \textbf{Doc 15 entra nell'heap} e la soglia minima sale a $\tau = 3.7$.
+    \end{itemize}
+\end{enumerate}
+
+\paragraph{Aggiornamento della Partizione dopo l'Aumento della Soglia ($\tau = 3.7$):}
+Con la nuova soglia $\tau = 3.7$, la somma di \texttt{"best"} ($0.3$) + \texttt{"programming"} ($1.0$) + \texttt{"language"} ($1.1$) \`e pari a:
+\begin{equation*}
+    0.3 + 1.0 + 1.1 = 2.4 < 3.7.
+\end{equation*}
+Anche la lista \texttt{"language"} viene promossa a non-essenziale:
+\begin{itemize}
+    \item $\text{Non-Essential} = \{\text{\texttt{"best"}}, \text{\texttt{"programming"}}, \text{\texttt{"language"}}\} \quad (\sum UB = 2.4 < 3.7)$;
+    \item $\text{Essential} = \{\text{\texttt{"rust"}}\}$.
+\end{itemize}
+Per l'intero prosieguo dell'elaborazione, l'unica lista attiva che genera candidati rimane $\mathcal{L}(\text{\texttt{"rust"}})$, riducendo drasticamente il costo computazionale.
+
+Lo pseudocodice completo di MaxScore \`e formalizzato nell'Algoritmo~\ref{alg:maxscore-algorithm}.
+
+\begin{algorithm}[H]
+\caption{Algoritmo MaxScore Top-$k$ Retrieval}
+\label{alg:maxscore-algorithm}
+\KwInput{Query $Q = \{t_1, \dots, t_m\}$, Indice Invertito, array $UB[t]$, intero $k$}
+\KwOutput{Min-Heap $H$ contenente i Top-$k$ documenti}
+
+$H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
+$\tau \gets 0$\;
+$\text{Liste} \gets \text{OrdinaPerUBCrescente}(Q)$ \tcp*{Ordinamento statico una sola volta}
+$\text{nonEssEnd} \gets \text{CalcolaFrontieraNonEssenziali}(\text{Liste}, \tau)$\;
+
+\While{$\exists i > \text{nonEssEnd} \text{ tale che } \text{Liste}[i].\text{\`EAttivo}()$}{
+    $d \gets \min \{\text{Liste}[i].\text{CurrentDocID}() \mid i > \text{nonEssEnd} \land \text{Liste}[i].\text{\`EAttivo}()\}$\;
+    $s_{\text{partial}} \gets 0$\;
+    
+    \For{$i \gets \text{nonEssEnd} + 1$ \KwTo $|\text{Liste}|$}{
+        \If{$\text{Liste}[i].\text{\`EAttivo}() \land \text{Liste}[i].\text{CurrentDocID}() == d$}{
+            $s_{\text{partial}} \gets s_{\text{partial}} + \text{Liste}[i].\text{CurrentScore}()$\;
+            $\text{Liste}[i].\text{Next}()$\;
+        }
+    }
+    
+    $\text{stima} \gets s_{\text{partial}} + \sum_{j=1}^{\text{nonEssEnd}} UB[\text{Liste}[j].\text{term}]$\;
+    
+    \If{$\text{stima} > \tau$}{
+        \For{$j \gets 1$ \KwTo $\text{nonEssEnd}$}{
+            $\text{Liste}[j].\text{nextGEQ}(d)$\;
+            \If{$\text{Liste}[j].\text{\`EAttivo}() \land \text{Liste}[j].\text{CurrentDocID}() == d$}{
+                $s_{\text{partial}} \gets s_{\text{partial}} + \text{Liste}[j].\text{CurrentScore}()$\;
+            }
+        }
+        
+        \If{$s_{\text{partial}} > \tau$}{
+            \If{$|H| == k$}{$H.\text{ExtractMin}()$\;}
+            $H.\text{Insert}(\langle d, s_{\text{partial}} \rangle)$\;
+            \If{$|H| == k$}{
+                $\tau \gets H.\text{FindMin}().\text{score}$\;
+                $\text{nonEssEnd} \gets \text{CalcolaFrontieraNonEssenziali}(\text{Liste}, \tau)$\;
+            }
+        }
+    }
+}
+\Return $H$\;
+\end{algorithm}
+
+\FloatBarrier
+\section{Valutazione Sperimentale e Varianti a Blocchi: BMW e VBMW}
+\label{sec:bmw-vbmw}
+
+L'adozione di un unico Upper Bound globale per un'intera posting list soffre della presenza di valori anomali, che limitano la frequenza dei salti. Questa sezione analizza le evidenze empiriche del benchmark standard Gov2, introduce la segmentazione a blocchi di dimensione fissa (Block-Max WAND, BMW) e formalizza la variante a dimensione variabile (Variable Block-Max WAND, VBMW) per minimizzare l'errore di sovrastima.
+
+\subsection{Valutazione Sperimentale Comparativa (Collezione Gov2 - TREC 05)}
+\label{subsec:benchmark-gov2}
+L'efficacia pratica degli algoritmi di Dynamic Pruning \`e documentata dai benchmark accademici su larga scala. La Tabella~\ref{tab:gov2-benchmark} riporta i tempi medi di risposta per query (in millisecondi) misurati sulla collezione standard \textbf{Gov2} (25 milioni di pagine web, benchmark TREC 05), al variare della lunghezza della query (da 2 a oltre 6 termini).
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l c c c c c c r}
+\toprule
+\textbf{Algoritmo} & \textbf{2 termini} & \textbf{3 termini} & \textbf{4 termini} & \textbf{5 termini} & \textbf{6+ termini} & \textbf{Media (\textit{Avg})} & \textbf{Spazio Extra} \\
+\midrule
+\textbf{RankedOR} (Esaustivo) & $23.6\text{ ms}$ & $76.5\text{ ms}$ & $147.9\text{ ms}$ & $235.4\text{ ms}$ & $418.7\text{ ms}$ & $106.7\text{ ms}$ & $0.00\%$ \\
+\textbf{WAND} & $5.1\text{ ms}$ & $5.9\text{ ms}$ & $7.0\text{ ms}$ & $8.8\text{ ms}$ & $17.8\text{ ms}$ & $7.0\text{ ms}$ & $0.22\%$ \\
+\textbf{MaxScore} & $4.7\text{ ms}$ & $6.0\text{ ms}$ & $7.1\text{ ms}$ & $9.2\text{ ms}$ & $14.2\text{ ms}$ & $6.6\text{ ms}$ & $0.22\%$ \\
+\textbf{BMW$_{40}$} & $1.2\text{ ms}$ & $2.9\text{ ms}$ & $4.3\text{ ms}$ & $6.7\text{ ms}$ & $14.8\text{ ms}$ & $3.6\text{ ms}$ & $1.55\%$ \\
+\textbf{VBMW$_{40}$} & $\mathbf{0.8\text{ ms}}$ & $\mathbf{1.7\text{ ms}}$ & $\mathbf{2.4\text{ ms}}$ & $\mathbf{3.8\text{ ms}}$ & $\mathbf{8.1\text{ ms}}$ & $\mathbf{2.1\text{ ms}}$ & $1.55\%$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Tempi medi di query processing (Top-10) su collezione Gov2 (TREC 05) al variare del numero di termini. Fonte: Ding \& Suel~\cite{ding2011}, Mallia et al.~\cite{mallia2017}.}
+\label{tab:gov2-benchmark}
+\end{table}
+
+\paragraph{Considerazioni Critiche sui Risultati:}
+\begin{enumerate}
+    \item \textbf{Crescita Non Lineare di RankedOR:} Nella scansione esaustiva, il tempo di risposta scala drammaticamente all'aumentare dei termini ($418.7\text{ ms}$ per query con 6+ termini), poich\'e l'unione accumula decine di milioni di identificatori da verificare.
+    \item \textbf{Confronto Diretto tra WAND e MaxScore:} Entrambi gli algoritmi riducono la latenza media da oltre $100\text{ ms}$ a circa $6.6\text{--}7.0\text{ ms}$ (un'accelerazione di oltre $15\times$). WAND risulta lievemente pi\`u rapido su query corte (2 termini), mentre MaxScore prevale sulle query lunghe (6+ termini): su insiemi ampi di liste, l'assenza di riordinamento dinamico dei puntatori in MaxScore compensa ampiamente qualsiasi vantaggio di salto di WAND.
+    \item \textbf{Analisi del Costo Spaziale ($0.22\%$ vs $1.55\%$):} Il dato $0.22\%$ indica l'ingombro percentuale dei metadati degli Upper Bound rispetto alla dimensione complessiva dell'indice compresso su disco. Trattandosi di un singolo valore float per ciascun termine del dizionario, il sovraccarico di memoria per WAND e MaxScore \`e del tutto trascurabile. Nelle varianti a blocchi ($1.55\%$), l'indice memorizza un float aggiuntivo per ogni blocco compresso; tale modesto incremento di spazio \`e ripagato da un ulteriore dimezzamento della latenza media ($2.1\text{ ms}$).
+\end{enumerate}
+
+\subsection{Il Limite dell'Upper Bound Globale e l'Approccio Block-Max WAND (BMW)}
+Il limite intrinseco di WAND e MaxScore consiste nell'assegnare \textbf{un unico Upper Bound globale a un'intera posting list}.  
+Se una lista contiene $10$ milioni di posting e un singolo documento isolato presenta un picco eccezionale di frequenza (ad esempio un outlier con score parziale $8.0$), l'Upper Bound globale dell'intera lista sar\`a forzato a $UB = 8.0$. Di conseguenza, anche se il restante $99.99\%$ dei documenti possiede punteggi inferiori a $1.0$, la stima ottimistica della query rester\`a artificialmente maggiorata lungo tutti i 10 milioni di elementi, impedendo alla CPU di compiere salti significativi.
+
+Per risolvere questo problema, Ding e Suel~\cite{ding2011} hanno introdotto \textbf{Block-Max WAND (BMW)}:
+\begin{itemize}
+    \item La posting list viene partizionata in \textbf{blocchi logici contigui di dimensione fissa} (tipicamente $B = 40, 64 \text{ o } 128$ documenti).
+    \item Per ciascun blocco $b$, l'indice memorizza il massimo identificatore contenuto nel blocco ($\text{lastDocID}_b$) e un \textbf{Upper Bound locale di blocco}:
+    \begin{equation}
+        UB_{\text{blocco}}(b) = \max_{d \in b} s(t, d).
+    \end{equation}
+    \item Durante il calcolo, la CPU stima il potenziale del documento corrente utilizzando l'$UB$ del blocco locale a cui appartiene, anzich\'e il massimo globale dell'intera lista. Se l'$UB$ locale sommato agli altri contributi non supera $\tau$, l'\textbf{intero blocco di 40 o 64 documenti viene saltato e scartato in un unico passaggio}, senza accedere ai posting compressi.
+\end{itemize}
+
+\subsection{Variable Block-Max WAND (VBMW) e Minimizzazione dell'Area di Sovrastima}
+Sebbene BMW migliori significativamente le prestazioni, l'adozione di blocchi a dimensione fissa introduce un'inefficienza strutturale dovuta alla presenza degli outlier: se un blocco fisso di 40 elementi racchiude 39 documenti con punteggio $1.0$ e un solo outlier con punteggio $8.0$, l'intero blocco riceve un $UB$ locale pari a $8.0$, creando un ampio \textbf{errore di sovrastima}.
+
+Mallia et al.~\cite{mallia2017} hanno proposto \textbf{Variable Block-Max WAND (VBMW)}, in cui la suddivisione della posting list non avviene a intervalli regolari, bens\`i \textbf{adattando dinamicamente la dimensione dei blocchi} alla forma della distribuzione dei punteggi. La Figura~\ref{fig:bmw-vbmw-comparison} illustra il confronto geometrico tra le due filosofie.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[scale=0.88]
+    % ========================================================
+    % PARTE SINISTRA: BLOCCHI A DIMENSIONE FISSA (BMW)
+    % (Asse X: -0.5 a 7.2. Centro visuale = 3.35)
+    % ========================================================
+    \node[font=\small\bfseries, text=blue!90!black] at (3.35, 5.25) {Blocchi a Dimensione Fissa (BMW)};
+    \node[font=\footnotesize\itshape, text=gray!80!black] at (3.35, 4.65) {Area tratteggiata = errore di sovrastima};
+
+    % Assi BMW
+    \draw[-Stealth, thick] (-0.5, 0) -- (7.2, 0) node[right, font=\footnotesize] {docID};
+    \draw[-Stealth, thick] (-0.5, 0) -- (-0.5, 4.0) node[above, font=\footnotesize] {Score};
+
+    % Blocco 1: fisso (x: 0 a 3.0). Outlier a x=0.5, y=3.6. Doc normali y=0.9, 0.8.
+    \draw[blue!60!black, thick] (0, 0) rectangle (3.0, 3.6);
+    \node[font=\tiny\bfseries, text=blue!80!black, anchor=south] at (1.5, 3.6) {$UB = 3.6$};
+    \fill[pattern=north east lines, pattern color=blue!30] (0, 0) rectangle (3.0, 3.6);
+    \fill[blue!80!black] (0.2, 0) rectangle (0.8, 3.6); % Outlier
+    \fill[blue!80!black] (1.1, 0) rectangle (1.7, 0.9);
+    \fill[blue!80!black] (2.0, 0) rectangle (2.6, 0.8);
+    \draw[dashed, gray!70!black] (0, -0.4) -- (0, 0);
+    \draw[dashed, gray!70!black] (3.0, -0.4) -- (3.0, 0);
+    \node[font=\scriptsize, text=gray!80!black] at (1.5, -0.3) {Blocco 1 ($B=40$)};
+
+    % Blocco 2: fisso (x: 3.5 a 6.5). Outlier a x=4.0, y=3.2. Doc normali y=0.8, 0.7.
+    \draw[blue!60!black, thick] (3.5, 0) rectangle (6.5, 3.2);
+    \node[font=\tiny\bfseries, text=blue!80!black, anchor=south] at (5.0, 3.2) {$UB = 3.2$};
+    \fill[pattern=north east lines, pattern color=blue!30] (3.5, 0) rectangle (6.5, 3.2);
+    \fill[blue!80!black] (3.7, 0) rectangle (4.3, 3.2); % Outlier
+    \fill[blue!80!black] (4.6, 0) rectangle (5.2, 0.8);
+    \fill[blue!80!black] (5.5, 0) rectangle (6.1, 0.7);
+    \draw[dashed, gray!70!black] (3.5, -0.4) -- (3.5, 0);
+    \draw[dashed, gray!70!black] (6.5, -0.4) -- (6.5, 0);
+    \node[font=\scriptsize, text=gray!80!black] at (5.0, -0.3) {Blocco 2 ($B=40$)};
+
+    % ========================================================
+    % PARTE DESTRA: BLOCCHI A DIMENSIONE VARIABILE (VBMW)
+    % (Asse X: 9.5 a 17.5. Gap tra 7.2 e 9.5 = 2.3cm!)
+    % (Centro visuale = 13.5)
+    % ========================================================
+    \node[font=\small\bfseries, text=teal!90!black] at (13.5, 5.25) {Blocchi a Dimensione Variabile (VBMW)};
+    \node[font=\footnotesize\itshape, text=gray!80!black] at (13.5, 4.65) {Isolamento degli outlier $\implies$ Minima sovrastima};
+
+    % Assi VBMW
+    \draw[-Stealth, thick] (9.5, 0) -- (17.5, 0) node[right, font=\footnotesize] {docID};
+    \draw[-Stealth, thick] (9.5, 0) -- (9.5, 4.0) node[above, font=\footnotesize] {Score};
+
+    % Micro-blocco 1 (Outlier): x: 10.0 a 10.8, y=3.6
+    \draw[teal!70!black, thick] (10.0, 0) rectangle (10.8, 3.6);
+    \fill[teal!80!black] (10.1, 0) rectangle (10.7, 3.6);
+    \node[font=\tiny\bfseries, text=teal!80!black, anchor=south] at (10.4, 3.6) {\tiny $UB=3.6$};
+    \node[font=\tiny, text=gray!70!black] at (10.4, -0.3) {B1};
+
+    % Macro-blocco 2 (Doc normali): x: 11.0 a 13.2, y=1.1
+    \draw[teal!70!black, thick] (11.0, 0) rectangle (13.2, 1.1);
+    \fill[pattern=north east lines, pattern color=teal!30] (11.0, 0) rectangle (13.2, 1.1);
+    \fill[teal!80!black] (11.3, 0) rectangle (11.9, 0.9);
+    \fill[teal!80!black] (12.3, 0) rectangle (12.9, 0.8);
+    \node[font=\tiny\bfseries, text=teal!80!black, anchor=south] at (12.1, 1.1) {\tiny $UB=1.1$};
+    \node[font=\tiny, text=gray!70!black] at (12.1, -0.3) {B2 (Macro)};
+
+    % Micro-blocco 3 (Outlier): x: 13.5 a 14.3, y=3.2
+    \draw[teal!70!black, thick] (13.5, 0) rectangle (14.3, 3.2);
+    \fill[teal!80!black] (13.6, 0) rectangle (14.2, 3.2);
+    \node[font=\tiny\bfseries, text=teal!80!black, anchor=south] at (13.9, 3.2) {\tiny $UB=3.2$};
+    \node[font=\tiny, text=gray!70!black] at (13.9, -0.3) {B3};
+
+    % Macro-blocco 4 (Doc normali): x: 14.5 a 16.7, y=1.0
+    \draw[teal!70!black, thick] (14.5, 0) rectangle (16.7, 1.0);
+    \fill[pattern=north east lines, pattern color=teal!30] (14.5, 0) rectangle (16.7, 1.0);
+    \fill[teal!80!black] (14.8, 0) rectangle (15.4, 0.8);
+    \fill[teal!80!black] (15.8, 0) rectangle (16.4, 0.7);
+    \node[font=\tiny\bfseries, text=teal!80!black, anchor=south] at (15.6, 1.0) {\tiny $UB=1.0$};
+    \node[font=\tiny, text=gray!70!black] at (15.6, -0.3) {B4 (Macro)};
+\end{tikzpicture}%
+}
+\caption{Confronto geometrico tra partizionamento a blocchi di dimensione fissa (BMW) e a dimensione variabile (VBMW). L'area tratteggiata rappresenta l'errore di sovrastima: VBMW la riduce al minimo comprimendo gli intervalli omogenei e isolando i picchi.}
+\label{fig:bmw-vbmw-comparison}
+\end{figure}
+
+Il partizionamento a dimensione variabile viene determinato offline tramite un algoritmo di programmazione dinamica:
+\begin{itemize}
+    \item Sequenze contigue di documenti con punteggi uniformemente bassi vengono raggruppate in macro-blocchi estesi ($B > 100$) aventi un $UB$ locale molto basso ($UB \approx 1.0$). Poich\'e l'$UB$ del blocco \`e modesto, il macro-blocco viene quasi sempre saltato in blocco durante la query.
+    \item Gli outlier e i documenti ad altissima rilevanza vengono confinati in micro-blocchi dedicati composti da pochissimi elementi.
+    \item \textbf{Impatto Pratico:} L'area di sovrastima viene minimizzata, consentendo a VBMW di raggiungere una latenza media di appena \textbf{$2.1\text{ ms}$} su collezione Gov2, con un fattore di velocizzazione fino a $50\times$ rispetto alla scansione esaustiva di base.
+\end{itemize}
+
+\FloatBarrier
+\section{Sistemi Industriali: L'Ecosistema Apache Lucene ed Elasticsearch}
+\label{sec:lucene-industriale}
+
+I modelli teorici di potatura dinamica trovano riscontro diretto nell'architettura dei motori di ricerca distribuiti di produzione. Questa sezione analizza il ruolo di Apache Lucene ed Elasticsearch, ne descrive l'evoluzione decennale fino all'adozione del paradigma \textit{Block-Max MaxScore}, e riflette sui complessi requisiti architetturali e di retrocompatibilit\`a che separano la ricerca accademica dal software industriale.
+
+\subsection{L'Architettura di Apache Lucene}
+\label{subsec:architettura-apache-lucene}
+Le strutture dati e gli algoritmi formalizzati in questo capitolo non sono mere astrazioni accademiche, ma costituiscono il motore pulsante dell'infrastruttura di ricerca open-source pi\`u diffusa al mondo:
+\begin{itemize}
+    \item \textbf{Apache Lucene:} Libreria software core scritta in Java (originariamente concepita da Doug Cutting), responsabile della gestione a basso livello degli indici invertiti, dei codec di compressione su segmenti immutabili e dell'elaborazione di query complesse con scoring BM25.
+    \item \textbf{Elasticsearch e Apache Solr:} Motori di ricerca e analisi distribuiti di livello enterprise costruiti al di sopra di Lucene, che offrono scalabilit\`a orizzontale tramite partizionamento (\textit{sharding}), replica e API RESTful.
+\end{itemize}
+
+\subsection{L'Evoluzione Algoritmica in Lucene e la Sintesi di Adrien Grand (2023)}
+Nel dicembre 2023, Adrien Grand (Principal Software Engineer presso Elastic e tra i principali architetti di Lucene) ha pubblicato un'approfondita analisi tecnica intitolata \textit{``MAXSCORE \& block-max MAXSCORE: More skipping with block-max MAXSCORE''}~\cite{grand2023}. L'articolo ripercorre la traiettoria ingegneristica compiuta da Lucene in oltre un decennio, riassumibile in \textbf{quattro fasi evolutive}:
+\begin{enumerate}
+    \item \textbf{Fase 1 (Valutazione Esaustiva):} Scansione DAAT standard di tutti i posting con Min-Heap; tempo di risposta dominato dalla decompressione integrale delle liste.
+    \item \textbf{Fase 2 (Adozione di WAND):} Integrazione del Dynamic Pruning basato su WAND (classe \texttt{TopScoreDocCollector}) con skipping basato su Upper Bound globali, introdotta in Lucene 8.0.
+    \item \textbf{Fase 3 (Transizione a MaxScore):} Sostituzione di WAND con MaxScore per eliminare il costo del riordinamento continuo dei puntatori e massimizzare il throughput su query contenenti molti termini disgiuntivi.
+    \item \textbf{Fase 4 (Integrazione di Block-Max MaxScore):} Combinazione dello schema di partizionamento essenziale/non-essenziale di MaxScore con i metadati di blocco locali (ispirati a Block-Max WAND). I blocchi dell'indice su disco integrano direttamente gli $UB$ locali, consentendo a Lucene di compiere salti a due livelli (\textit{two-level skipping}) su indici industriali distribuiti.
+\end{enumerate}
+
+\subsection{Il Divario tra Teoria Accademica e Produzione Industriale}
+Un aspetto di grande valore metodologico riguarda il \textbf{divario temporale di circa 13 anni} intercorso tra la pubblicazione scientifica delle varianti a blocchi (Ding \& Suel, 2011~\cite{ding2011}) e la loro piena adozione stabile nei formati di indice di Apache Lucene:
+\begin{itemize}
+    \item \textbf{Riprogettazione dei Codec di Indice:} Nei sistemi di produzione che gestiscono petabyte di dati, l'aggiunta di metadati di blocco non pu\`o essere realizzata banalmente. Richiede la completa riscrittura dei codec di serializzazione su disco (\textit{Lucene Postings Format}), garantendo al contempo:
+    \begin{itemize}
+        \item Retrocompatibilit\`a binaria assoluta con gli indici generati dalle versioni software precedenti;
+        \item Supporto efficiente per operazioni concorrenti di fusione dei segmenti (\textit{segment merging});
+        \item Conservazione del budget I/O e assenza di frammentazione della memoria secondaria.
+    \end{itemize}
+    \item \textbf{Robustezza su Workload Eterogenei:} Nei benchmark accademici, gli algoritmi vengono valutati su collezioni statiche e query disgiuntive pure. In un motore di produzione reale come Elasticsearch, la stessa pipeline di esecuzione deve gestire simultaneamente:
+    \begin{itemize}
+        \item Filtri booleani strutturati arbitrariamente nidificati (\texttt{must}, \texttt{should}, \texttt{filter});
+        \item Match di prossimit\`a sintattica e query a frase (\texttt{match\_phrase});
+        \item Calcolo parallelo di aggregazioni analitiche (sfaccettature, conteggi, metriche);
+        \item Aggiornamenti e inserimenti di nuovi documenti in tempo reale (\textit{near-real-time indexing}).
+    \end{itemize}
+    Un'ottimizzazione algoritmica pu\`o essere integrata nel core di Lucene solo se \textbf{non introduce alcuna regressione prestazionale} su nessuno degli altri scenari operativi.
+\end{itemize}
+
+\FloatBarrier
+\section{Quadro Sinottico Comparativo degli Algoritmi Top-$k$}
+\label{sec:conclusioni-sintesi}
+
+A conclusione della trattazione sul query processing top-$k$, la Tabella~\ref{tab:topk-synoptic-comparison} sintetizza le propriet\`a algebriche, computazionali e architetturali di tutti gli approcci trattati nel capitolo, offrendo un confronto sinottico tra le strategie esaustive e i metodi di dynamic pruning.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l p{2.6cm} p{2.8cm} p{3.2cm} p{2.5cm} c}
+\toprule
+\textbf{Algoritmo} & \textbf{Strategia di Scansione} & \textbf{Ordinamento Liste} & \textbf{Granularit\`a di Pruning} & \textbf{Spazio Ausiliario} & \textbf{Latenza Media} \\
+\midrule
+\textbf{DAAT Esaustivo} & Unione sincrona di tutte le liste & Heap dei puntatori o scansione lineare & Nessuna (visita tutti i posting) & $\mathcal{O}(k)$ (solo Min-Heap) & $106.7\text{ ms}$ (Baseline) \\
+\midrule
+\textbf{WAND} & Scansione guidata dal Pivot Document & Dinamico a ogni passo ($d_1 \le \dots \le d_m$) & Documento singolo ($UB$ globale di termine) & $\mathcal{O}(|\mathcal{V}|)$ float in RAM & $\approx 7.0\text{ ms}$ ($\approx 15\times$) \\
+\midrule
+\textbf{MaxScore} & Partizione in liste Essenziali e Non-Essenziali & Statico una sola volta per $UB$ crescente & Documento singolo (scansione solo su essenziali) & $\mathcal{O}(|\mathcal{V}|)$ float in RAM & $\approx 6.6\text{ ms}$ ($\approx 16\times$) \\
+\midrule
+\textbf{BMW} & WAND su blocchi a dimensione fissa & Dinamico sui blocchi correnti & Blocco fisso ($B=40, 64$ posting) & $+1.55\%$ su disco ($UB$ per blocco) & $\approx 3.6\text{ ms}$ ($\approx 30\times$) \\
+\midrule
+\textbf{VBMW} & WAND su blocchi a dimensione variabile & Dinamico adattivo & Macro/Micro blocchi ottimizzati da DP & $+1.55\%$ su disco ($UB$ per blocco) & $\mathbf{\approx 2.1\text{ ms}}$ ($\mathbf{\approx 50\times}$) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo degli algoritmi di Top-$k$ Retrieval su query disgiuntive.}
+\label{tab:topk-synoptic-comparison}
+\end{table}

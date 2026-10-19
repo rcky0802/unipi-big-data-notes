@@ -1,10 +1,6 @@
 \chapter{Architettura dei Motori di Ricerca e Indicizzazione}
 \label{chap:indicizzazione-query-processing}
 
-Nei capitoli precedenti sono stati formalizzati i principi cardine dell'Information Retrieval: dalla valutazione dell'efficacia delle graduatorie (Capitolo~\ref{chap:evaluation}) alle propriet\`a statistiche del linguaggio (Capitolo~\ref{chap:nlp-testo}), fino alla definizione formale delle funzioni di rilevanza nello Spazio Vettoriale e del modello probabilistico Okapi BM25 (Capitolo~\ref{chap:retrieval-vsm-bm25}). Tali modelli definiscono \textit{cosa} calcolare per stimare la pertinenza di un documento rispetto a una query.
-
-In questo capitolo si affronta la sfida ingegneristica dell'organizzazione e memorizzazione dei dati su architetture moderne: vengono analizzati il paradigma di retrieval a due stadi, la risoluzione dell'intrinseca sparsit\`a della matrice termini--documenti attraverso il confronto tra \textit{Forward Index} e \textit{Indice Invertito}, le tecniche di disaccoppiamento e compressione fisica degli stream dei DocID ($d$-gaps) e delle frequenze, e le estensioni strutturali per \textit{Phrase Queries} (indici posizionali) e riscrittura del testo (\textit{Query Expansion}).
-
 \FloatBarrier
 \section{Architettura di Sistema e Paradigma a Due Stadi}
 \label{sec:architettura-due-stadi}
@@ -73,7 +69,10 @@ L'architettura moderna di risoluzione delle query adotta una pipeline a due stad
 \section{Modelli di Scoring: Prodotto Scalare e Connessione con il Dense Retrieval}
 \label{sec:scoring-dotproduct-ponte}
 
+L'elaborazione delle interrogazioni richiede una metrica algebrica solida per graduare i documenti in base alla loro aderenza al bisogno informativo. Questa sezione riesamina i limiti del modello booleano e del coefficiente di Jaccard, dimostrando come il prodotto scalare su vettori pesati costituisca la base unificante sia del retrieval sparso classico sia del moderno dense retrieval neurale.
+
 \subsection{Richiamo dei Limiti del Modello Booleano e di Jaccard}
+\label{subsec:limiti-booleano-jaccard}
 Nei sistemi delle prime generazioni, il reperimento dei documenti poggiava sul modello booleano esatto. Come formalizzato nella Sezione~\ref{sec:boolean-vs-ranked}, tale approccio soffre della grave anomalia del \textit{Feast or Famine}: una congiunzione stringente (\texttt{AND}) svuota l'insieme soluzione, mentre una disgiunzione (\texttt{OR}) restituisce centinaia di migliaia di risultati non graduati. Analogamente, l'applicazione ingenua del coefficiente insiemistico di Jaccard (analizzato in Sezione~\ref{sec:jaccard-scoring}) fallisce poich\'e penalizza arbitrariamente i documenti lunghi e non discrimina tra parole comuni e parole altamente informative.
 
 \subsection{Il Prodotto Scalare come Misura Unificante di Rilevanza}
@@ -102,7 +101,10 @@ In entrambi i paradigmi, l'operazione fondamentale a runtime \`e l'aggregazione 
 \section{Strutture Dati ad Alte Prestazioni: Forward Index vs. Indice Invertito}
 \label{sec:forward-vs-inverted}
 
+Per gestire la sparsit\`a estrema dello spazio termini--documenti, l'architettura del motore di ricerca deve abbandonare le matrici dense a favore di strutture di memorizzazione compressa. Questa sezione confronta le due modalit\`a canoniche di organizzazione dei dati (Forward Index e Indice Invertito), motivando la centralit\`a dell'indice invertito per la risoluzione rapida delle interrogazioni online.
+
 \subsection{La Matrice Termini--Documenti e il Problema della Sparsit\`a}
+\label{subsec:matrice-termini-documenti-sparsita}
 Consideriamo la matrice globale termini--documenti $M \in \mathbb{R}^{|\mathcal{V}| \times |\mathcal{D}|}$. I parametri dimensionali di un motore di ricerca web reale evidenziano l'impossibilit\`a fisica di allocare e scansionare tale struttura in forma densa:
 \begin{itemize}
     \item Dimensione del lessico: $|\mathcal{V}| \sim 10^7$ termini unici.
@@ -254,7 +256,10 @@ Come analizzato nel Capitolo~\ref{chap:efficienza-cpu}, i sistemi di Information
 \section{Tipologie di Query, Indici Posizionali e Riscrittura del Testo}
 \label{sec:query-expansion-posizionali}
 
+L'indice invertito essenziale a sole frequenze $(\text{DocID}, \text{tf})$ non \`e sufficiente per supportare ricerche complesse che richiedono la contiguit\`a delle parole o la riscrittura semantica delle interrogazioni. Questa sezione approfondisce la struttura dell'indice posizionale per l'elaborazione delle \textit{phrase queries} e illustra le tecniche di \textit{query expansion} e normalizzazione a tempo di esecuzione.
+
 \subsection{Phrase Queries e la Necessit\`a dell'Indice Posizionale}
+\label{subsec:phrase-queries-indice-posizionale}
 Nelle ricerche per frase esatta (\textit{Phrase Queries}), la query \`e racchiusa tra virgolette (es. \texttt{"neural network architecture"}). L'utente impone che i termini compaiano nel medesimo documento, nello stesso ordine e in posizioni adiacenti:
 \begin{equation}
 \text{pos}(t_{i+1}) = \text{pos}(t_i) + 1.

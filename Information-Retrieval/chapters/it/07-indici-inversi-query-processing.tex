@@ -1,25 +1,14 @@
 \chapter{Query Processing: Algoritmi di Scansione ed Efficienza di Salto}
 \label{chap:indici-inversi-query-processing}
 
-Nel Capitolo~\ref{chap:indicizzazione-query-processing} sono stati formalizzati i principi architetturali dei moderni motori di ricerca su larga scala: il paradigma di retrieval a due stadi, la risoluzione dell'estrema sparsit\`a della matrice termini--documenti tramite l'\textbf{Indice Inverso} (\textit{Inverted Index}) e il disaccoppiamento fisico tra stream monotoni dei DocID e stream statistici delle frequenze.
-
-In questo capitolo, seguendo la trattazione didattica e algoritmica del Prof. Rossano Venturini, l'attenzione trasla interamente sull'\textbf{esecuzione algoritmica online delle query}. Si approfondiscono:
-\begin{enumerate}
-    \item L'arricchimento statistico del dizionario e delle posting list ($df_t$ vs. $F_t$) e la motivazione fisica del payload compresso.
-    \item I due paradigmi cardine di attraversamento delle liste: \textbf{Term-at-a-Time (TAAT)} e \textbf{Document-at-a-Time (DAAT)}, corredati dai rispettivi schemi architetturali e pseudocodici formali con coda con priorit\`a (Min-Heap).
-    \item L'esecuzione dettagliata di TAAT (tracciamento passo-passo, strutture DAT vs. Hash Table e l'impatto critico dei \textit{cache misses} a livello hardware).
-    \item L'elaborazione DAAT per query disgiuntive (OR, modellate come unione sincronizzata in stile MergeSort con costo $\Theta(\sum |L_i|)$) e query congiuntive (AND base), evidenziando il collo di bottiglia del passo unitario.
-    \item L'\textbf{interfaccia a cursore} a 5 primitive, il fallimento della ricerca esponenziale su stream compressi ($d$-gaps) e l'architettura industriale di \textbf{skipping a blocchi} con Skip Pointers ed Elias-Fano.
-    \item Gli algoritmi avanzati con $\text{nextGEQ}$: l'intersezione DAAT AND a salti sincroni e l'intersezione TAAT AND con l'euristica \textbf{Shortest-to-Longest}, unita al teorema formale di monotonia decrescente della cardinalit\`a intermedia.
-    \item L'impatto sui sistemi moderni: \textbf{Sparse Neural Retrieval (SPLADE)}, acceleratori GPU e Vector Search Engines dedicati (Qdrant).
-    \item Il quadro sinottico comparativo finale che sintetizza complessit\`a temporali, impronta di memoria e capacit\`a di salto.
-\end{enumerate}
-
 \FloatBarrier
 \section{Anatomia Statistica dell'Indice Inverso: Dizionario e Posting Lists}
 \label{sec:modelli-indice-inverso}
 
+L'indice inverso costituisce l'infrastruttura fondamentale su cui poggiano tutte le operazioni di interrogazione nei moderni motori di ricerca. Questa sezione ne esamina l'organizzazione strutturale tra dizionario dei termini e liste di occorrenza, l'invariante di ordinamento dei docID e le statistiche ausiliarie necessarie per abilitare i modelli di scoring pesato.
+
 \subsection{Definizione e Componenti Architetturali}
+\label{subsec:definizione-componenti-indice}
 Come introdotto nella Sezione~\ref{sec:anatomia-compressione-indice}, l'\textbf{Indice Inverso} \`e la struttura dati associativa centrale per l'Information Retrieval: mappa ciascun termine del lessico all'insieme ordinato delle sue occorrenze nell'intera collezione. Si compone di due elementi fisici distinti:
 \begin{enumerate}
     \item \textbf{Dizionario (Dictionary o Lexicon):} Memorizza l'elenco ordinato di tutti i termini distinti $\mathcal{V}$ della collezione assieme a metadati globali di frequenza e offset di puntamento alla memoria secondaria.
@@ -468,7 +457,10 @@ $H \gets \text{InizializzaMinHeap}(\text{capacit\`a}=k)$\;
 \section{Elaborazione Term-at-a-Time (TAAT) in Dettaglio}
 \label{sec:taat-dettaglio}
 
+Nel paradigma TAAT la computazione procede esaurendo sequenzialmente una lista di occorrenza alla volta, accumulando incrementalmente i punteggi parziali dei documenti intercettati. Questa sezione analizza il flusso operativo di TAAT tramite un esempio tracciato passo-passo, confronta le strutture dati per la memorizzazione degli accumulatori e ne evidenzia i limiti prestazionali in termini di localit\`a di cache e assenza di salti.
+
 \subsection{Tracciamento dell'Esecuzione di TAAT}
+\label{subsec:tracciamento-taat}
 Si consideri una query composta dai termini \texttt{"information"} e \texttt{"retrieval"}. Le posting list associate ai due vocaboli sono:
 \begin{align*}
 \mathcal{L}(\text{\texttt{"information"}}) &= [1, 5, 8, 11, 13, 20, 35, 40, 42], \\
@@ -534,7 +526,10 @@ Per implementare l'insieme degli accumulatori $A$, si considerano due alternativ
 \section{DAAT per Query Disgiuntive (OR) e Congiuntive (AND Base)}
 \label{sec:daat-or-and-base}
 
+A differenza di TAAT, il paradigma Document-at-a-Time valuta completamente un documento prima di passare al successivo, operando tramite l'avanzamento sincrono di cursori multipli. Questa sezione analizza il comportamento di DAAT su query disgiuntive (\texttt{OR}) basate sull'unione coordinata, e formalizza l'algoritmo elementare di intersezione per query congiuntive (\texttt{AND}), evidenziandone i margini di inefficienza nei passi unitari.
+
 \subsection{DAAT per Query Disgiuntive (OR): Unione Sincrona}
+\label{subsec:daat-or-unione}
 Nelle query disgiuntive (OR), l'algoritmo DAAT opera facendo avanzare simultaneamente i cursori attestati sulle posting list, replicando l'algoritmo di unione a due puntatori del \textbf{MergeSort}:
 \begin{enumerate}
     \item A ogni iterazione si confrontano i docID puntati dai cursori: $d_1 = p_1.\text{docID}()$ e $d_2 = p_2.\text{docID}()$.
@@ -600,7 +595,10 @@ Nell'Algoritmo~\ref{lst:daat-and-base}, ogni discrepanza ($p_1[i] \neq p_2[j]$) 
 \section{La Primitiva di Salto `nextGEQ` e Strutture di Skipping}
 \label{sec:nextgeq-primitiva-skipping}
 
+Per superare la lentezza intrinseca della scansione sequenziale a passi unitari, l'accesso alle posting list viene potenziato introducendo primitive di salto condizionato. Questa sezione formalizza l'interfaccia a cursore basata sull'operatore $\text{nextGEQ}$, analizza le strategie di ricerca binaria e galloping search, e presenta l'architettura industriale del partizionamento a blocchi compressi con puntatori di skip.
+
 \subsection{L'Interfaccia a Cursore su Posting List}
+\label{subsec:interfaccia-cursore-posting-list}
 Per consentire algoritmi di salto veloci, l'accesso a ciascuna posting list viene formalizzato tramite un'interfaccia a cursore dotata di 5 operazioni primitive:
 
 \begin{table}[H]
@@ -706,7 +704,10 @@ Per conciliare skipping rapido e compressione, le posting list vengono suddivise
 \section{Algoritmi di Intersezione Avanzati con `nextGEQ`}
 \label{sec:intersezioni-ottimizzate-nextgeq}
 
+La disponibilit\`a della primitiva di salto rapido trasforma radicalmente le prestazioni computazionali del query processing congiuntivo. Questa sezione analizza l'algoritmo di intersezione DAAT AND potenziato con $\text{nextGEQ}$, ne illustra il funzionamento pratico tramite un tracciamento su liste concrete, ed esamina l'approccio TAAT guidato dall'euristica \textit{Shortest-List-First}.
+
 \subsection{Algoritmo DAAT AND Ottimizzato con `nextGEQ`}
+\label{subsec:daat-and-nextgeq-ottimizzato}
 Integrando la primitiva $\text{nextGEQ}$ nell'algoritmo di intersezione a due puntatori, i passi unitari lenti vengono sostituiti da salti istantanei:
 
 \begin{lstlisting}[style=pythoncode, caption={Intersezione DAAT AND ottimizzata con salti $\text{nextGEQ}$.}, label={lst:daat-and-nextgeq}]

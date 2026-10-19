@@ -114,6 +114,18 @@ latexmk -c
   - Applicazioni moderne nel retrieval neurale sparso (SPLADE), accelerazione hardware su GPU e vector search engine dedicati (Qdrant).
   - Tabella comparativa di sintesi finale: complessità computazionale, ingombro in RAM e capacità di skipping.
 
+- **Capitolo 8: Elaborazione Efficiente di Query Top-$k$: WAND, MaxScore e Varianti a Blocchi** (`08`)
+  - Architettura di retrieval a due stadi: collegamento con il candidate retrieval (BM25) e motivazione comportamentale dell'attenzione dell'utente sul web (primi 10-20 risultati, riformulazione se insoddisfatto).
+  - Formulazione formale dell'Exact Top-$k$ Retrieval e gestione della coda con priorità tramite Min-Heap: ruolo della soglia dinamica $\tau$ come costo d'ingresso, costo $\mathcal{O}(n \log k)$, traccia numerica e simulazione esaustiva DAAT passo-passo con 4 termini (`rust`, `best`, `programming`, `language`) a confronto con l'Algoritmo 7.2.
+  - Algoritmo WAND (*Weak AND*, Broder et al. 2003): definizione formale di Upper Bound di termine ($UB(t)$), costo di memoria $\mathcal{O}(|\mathcal{V}|)$, condizione di scarto sicuro, modello di costo hardware (*CPU reasoning vs pointer movements*), ordinamento dinamico per docID corrente e selezione del pivot document.
+  - Tracciamento analitico dettagliato di WAND: determinazione del pivot a Doc 15, salto sicuro tramite `nextGEQ` e valutazione completa con innalzamento della soglia a $\tau = 3.7$.
+  - Analisi critica e casi limite nel Dynamic Pruning: semantica disgiuntiva OR e termini assenti, inapplicabilità pratica a query AND, trade-off sui salti intermedi anticipati e dimostrazione algebrica dello scarto a priori di Doc 12.
+  - Algoritmo MaxScore (Turtle & Flood 1995): partizionamento dinamico in liste essenziali e non-essenziali ($\sum UB < \tau$), ordinamento statico per $UB$ una sola volta, scansione DAAT selettiva sulle sole essenziali, stima ottimistica ed eliminazione del collo di bottiglia di riordinamento dinamico; traccia completa ed effetto della promozione dinamica delle liste.
+  - Valutazione sperimentale su benchmark TREC 05 (collezione Gov2): confronto tra RankedOR, WAND, MaxScore, $\text{BMW}_{40}$ e $\text{VBMW}_{40}$; analisi della scalabilità e dell'overhead spaziale ($0.22\%$ vs $1.55\%$).
+  - Limite degli Upper Bound globali e varianti a blocchi: Block-Max WAND (BMW, blocchi a dimensione fissa) e Variable Block-Max WAND (VBMW, blocchi a dimensione variabile adattati alla distribuzione dei punteggi con minimizzazione geometrica dell'area di sovrastima, fino a $50\times$ di accelerazione).
+  - Sistemi reali e stato dell'arte industriale: l'ecosistema Apache Lucene / Elasticsearch, evoluzione a 4 stadi sintetizzata da Adrien Grand (2023) e divario decennale per la riscrittura dei codec di indice e la tolleranza a workload eterogenei.
+  - Sintesi comparativa sinottica degli algoritmi Top-$k$.
+
 ```text
 Information-Retrieval/
 ├── assets/                 # Figure, grafici vettoriali e schemi TikZ
