@@ -1,0 +1,958 @@
+\chapter{Learning to Rank: Fondamenti, Tassonomia e Ottimizzazione di BM25F}
+\label{chap:learning-to-rank-fondamenti}
+
+\FloatBarrier
+\section{Introduzione: Limiti del Bag of Words e Framework Generale di Ranking}
+\label{sec:ltr-intro-framework-generale}
+
+I modelli di reperimento tradizionali basati sul paradigma Bag of Words (BoW), quali il Vector Space Model e Okapi BM25, hanno costituito il pilastro fondante dei motori di ricerca commerciali. Tuttavia, la crescente disponibilit\`a di segnali eterogenei e la necessit\`a di combinare evidenze lessicali, topologiche e comportamentali hanno reso indispensabile l'adozione di metodologie fondate sul Machine Learning.
+
+Questa sezione formalizza la decomposizione astratta delle funzioni di ranking basata sulle rappresentazioni~\cite{guo2020}, analizza l'insufficienza dei vettori sparsi BoW e illustra la ricchezza dello spazio dei segnali moderni.
+
+\subsection{Decomposizione Funzionale delle Funzioni di Ranking}
+\label{subsec:decomposizione-funzionale-ranking}
+
+Seguendo la formalizzazione proposta da Guo et al.~\cite{guo2020}, una funzione di ranking generale che assegna un punteggio di rilevanza $s(q, d) \in \mathbb{R}$ a una coppia query-documento $(q, d)$ pu\`o essere decomposta in tre moduli di rappresentazione e un operatore di aggregazione finale.
+
+\begin{definition}[Framework Generale di Rappresentazione per il Ranking]
+Siano dati una query $q \in \mathcal{Q}$ emessa da un utente e un documento $d \in \mathcal{D}$ appartenente alla collezione indicizzata. La computazione dello score di rilevanza $s(q, d)$ \`e descritta dalla composizione:
+\begin{equation}
+    s(q, d) = f\big(\phi(q), \psi(d), \eta(q, d)\big),
+    \label{eq:general-ranking-framework}
+\end{equation}
+dove:
+\begin{itemize}
+    \item $\phi: \mathcal{Q} \to \mathcal{X}_q$ definisce la funzione di \textbf{rappresentazione della sola query};
+    \item $\psi: \mathcal{D} \to \mathcal{X}_d$ definisce la funzione di \textbf{rappresentazione del solo documento};
+    \item $\eta: \mathcal{Q} \times \mathcal{D} \to \mathcal{X}_{qd}$ definisce la funzione di \textbf{interazione query-documento};
+    \item $f: \mathcal{X}_q \times \mathcal{X}_d \times \mathcal{X}_{qd} \to \mathbb{R}$ rappresenta la \textbf{funzione di aggregazione} che sintetizza i vettori nello scalare finale di ordinamento.
+\end{itemize}
+\end{definition}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    box/.style={
+        rectangle, 
+        draw=navy, 
+        fill=codebackground, 
+        rounded corners=4pt, 
+        line width=0.8pt, 
+        align=center, 
+        text width=3.4cm, 
+        minimum height=1.1cm,
+        inner sep=5pt, 
+        font=\small
+    },
+    inputbox/.style={
+        rectangle, 
+        draw=navy, 
+        fill=codebackground, 
+        rounded corners=4pt, 
+        line width=0.8pt, 
+        align=center, 
+        text width=2.8cm, 
+        minimum height=0.9cm,
+        inner sep=4pt, 
+        font=\small\bfseries
+    },
+    opbox/.style={
+        rectangle, 
+        draw=darkgreen, 
+        fill=darkgreen!10, 
+        rounded corners=4pt, 
+        line width=0.9pt, 
+        align=center, 
+        text width=5.8cm, 
+        minimum height=1.2cm,
+        inner sep=6pt, 
+        font=\small\bfseries
+    },
+    scorebox/.style={
+        rectangle, 
+        draw=crimson, 
+        fill=crimson!10, 
+        rounded corners=4pt, 
+        line width=0.9pt, 
+        align=center, 
+        text width=4.6cm, 
+        minimum height=1.1cm,
+        inner sep=6pt, 
+        font=\small\bfseries
+    },
+    arrow/.style={->, >=stealth, line width=0.9pt, navy}
+]
+    % Riga 1: Ingressi (distanza orizzontale 8.4 cm)
+    \node[inputbox] (q) at (0, 4.0) {Query $q$};
+    \node[inputbox] (d) at (8.4, 4.0) {Documento $d$};
+
+    % Riga 2: Rappresentazioni intermedie (spaziate a 0 cm, 4.2 cm, 8.4 cm)
+    \node[box] (phi) at (0, 2.0) {Rappresentazione Query\\[2pt]$\phi(q)$};
+    \node[box] (eta) at (4.2, 2.0) {Rappresentazione\\Query--Documento\\[2pt]$\eta(q, d)$};
+    \node[box] (psi) at (8.4, 2.0) {Rappresentazione\\Documento\\[2pt]$\psi(d)$};
+
+    % Riga 3: Funzione di Aggregazione (centrata sotto a 4.2 cm, y = -0.4)
+    \node[opbox] (f) at (4.2, -0.4) {Funzione di Aggregazione\\[3pt]$f\big(\phi(q), \psi(d), \eta(q, d)\big)$};
+
+    % Riga 4: Score di Rilevanza finale (y = -2.4, spaziatura verticale generosa di 2.0 cm)
+    \node[scorebox] (score) at (4.2, -2.3) {Punteggio di Rilevanza Finale\\[3pt]$s(q, d)$};
+
+    % Connessioni dagli ingressi alle rappresentazioni
+    \draw[arrow] (q) -- (phi);
+    \draw[arrow] (d) -- (psi);
+
+    % Diramazioni ortogonali eleganti verso il box centrale eta(q, d)
+    \draw[arrow] (q.south) -- ++(0, -0.5) -| ([xshift=-16pt]eta.north);
+    \draw[arrow] (d.south) -- ++(0, -0.5) -| ([xshift=16pt]eta.north);
+
+    % Connessioni dalle rappresentazioni alla funzione di aggregazione
+    \draw[arrow] (phi.south) -- ++(0, -0.6) -| ([xshift=-40pt]f.north);
+    \draw[arrow] (eta.south) -- (f.north);
+    \draw[arrow] (psi.south) -- ++(0, -0.6) -| ([xshift=40pt]f.north);
+
+    % Connessione dall'aggregatore allo score finale
+    \draw[arrow] (f.south) -- (score.north);
+\end{tikzpicture}
+\caption{Decomposizione funzionale di una funzione di ranking generale basata sulle rappresentazioni (rielaborata da Guo et al.~\cite{guo2020}).}
+\label{fig:ltr-general-ranking-framework}
+\end{figure}
+
+Nel modello Bag of Words classico:
+\begin{itemize}
+    \item La query e il documento sono proiettati come vettori sparsi di frequenze o pesi TF-IDF: $\phi(q) \in \mathbb{R}^{|\mathcal{V}|}$ e $\psi(d) \in \mathbb{R}^{|\mathcal{V}|}$;
+    \item Il modulo di interazione esplicita \`e nullo: $\eta(q, d) = \emptyset$;
+    \item La funzione di aggregazione $f$ consiste in una metrica chiusa prefissata, quale il coseno vettoriale o la sommatoria non lineare Okapi BM25:
+    \begin{equation}
+        s_{\text{BM25}}(q, d) = \sum_{t \in q \cap d} \text{IDF}(t) \cdot \frac{f_{t,d} \cdot (k_1 + 1)}{f_{t,d} + k_1 \cdot \left(1 - b + b \cdot \frac{|d|}{\text{avgdl}}\right)}.
+    \end{equation}
+\end{itemize}
+
+Queste rappresentazioni sparse sono memorizzate negli indici invertiti, garantendo scansioni scalabili mediante algoritmi top-$k$ (WAND, MaxScore). Ciononostante, il modello BoW impone forti semplificazioni: assume l'indipendenza statistica tra i termini e trascura qualsiasi caratteristica strutturale del testo o dell'ambiente applicativo.
+
+\subsection{Oltre il Bag of Words: La Molteplicit\`a dei Segnali di Rilevanza}
+\label{subsec:segnali-oltre-bow}
+
+Sul Web, una pagina non \`e un mero multinsieme non strutturato di vocaboli. Essa possiede una ricca anatomia interna e interagisce con un ecosistema complesso:
+\begin{enumerate}
+    \item \textbf{Campi e Zone Strutturate}: Un documento \`e suddiviso in campi eterogenei (titolo, abstract, corpo principale, testo dell'URL). L'occorrenza di un termine nel titolo trasmette un segnale di rilevanza drasticamente superiore rispetto all'occorrenza nel corpo.
+    \item \textbf{Dati Testuali Esterni}: I testi di ancoraggio (\textit{anchor text}) degli hyperlink che puntano alla pagina rappresentano sintesi redatte da terzi, spesso pi\`u descrittive del contenuto stesso della risorsa.
+    \item \textbf{Grafi di Collegamento e Topologia}: Link in entrata (\textit{in-links}), link in uscita (\textit{out-links}), score globali di autorit\`a quali PageRank e HITS.
+    \item \textbf{Segnali Comportamentali e di Utilizzo}: Log delle ricerche, numero aggregato di clic ricevuti dall'URL per una determinata query, tempo di permanenza (\textit{dwell time}) sulla pagina prima di tornare ai risultati della SERP.
+    \item \textbf{Propriet\`a della Query}: Lunghezza della query in termini, popolarit\`a nel log storico delle interrogazioni, entit\`a riconosciute, contesto geografico e temporale dell'utente.
+\end{enumerate}
+
+Di fronte a tale eterogeneit\`a, sorge spontanea la domanda fondante: \emph{Come possiamo apprendere automaticamente la funzione di aggregazione $f$ a partire dai dati anzich\'e concepirla manualmente?}
+
+\FloatBarrier
+\section{Il Paradigma del Machine Learning Applicato al Ranking}
+\label{sec:paradigma-machine-learning-ranking}
+
+Per superare le limitazioni delle formule euristiche chiuse, il problema del ranking viene riformulato all'interno del framework statistico del Machine Learning: consentire a un sistema computazionale di migliorare progressivamente le proprie prestazioni su un compito specifico attraverso l'esposizione all'esperienza (dati empirici) senza essere esplicitamente programmato.
+
+\subsection{Formalizzazione dell'Apprendimento Supervisionato}
+\label{subsec:formalizzazione-apprendimento-supervisionato}
+
+Nel paradigma supervisionato, l'algoritmo riceve un insieme di istanze di addestramento (\textit{training instances}) descritte da un vettore di attributi $\mathbf{x} \in \mathcal{X}$ e corredate da un'etichetta desiderata $y \in \mathcal{Y}$ (\textit{ground truth} o supervisione fornita da annotatori umani):
+\begin{itemize}
+    \item Se $\mathcal{Y} \subseteq \mathbb{R}$, il task \`e di \textbf{Regressione} (stima di una grandezza continua);
+    \item Se $\mathcal{Y} = \{c_1, \dots, c_m\}$ con $m \ge 2$, il task \`e di \textbf{Classificazione} (assegnazione a categorie discrete).
+\end{itemize}
+
+Il ciclo iterativo di addestramento si articola nei seguenti passi:
+\begin{enumerate}
+    \item Un'istanza $\mathbf{x}_i$ viene sottoposta al modello predittivo con parametri $\mathbf{\theta}$, generando una stima $\hat{y}_i = h_{\mathbf{\theta}}(\mathbf{x}_i)$;
+    \item Viene quantificata la discrepanza tra la predizione $\hat{y}_i$ e l'etichetta vera $y_i$ attraverso una funzione di perdita $\mathcal{L}(\hat{y}_i, y_i)$ (\textit{loss function});
+    \item I parametri $\mathbf{\theta}$ vengono aggiornati lungo la direzione che minimizza la perdita empirica (tipicamente mediante discesa del gradiente);
+    \item Il procedimento viene ripetuto su tutti gli esempi del dataset per molteplici epoche di training (\textit{epochs}).
+\end{enumerate}
+
+\subsection{Analogia del Cervello e del Puzzle}
+\label{subsec:analogia-puzzle}
+
+Un'utile analogia concettuale per comprendere il ciclo retroattivo di ottimizzazione \`e quella della risoluzione di un rompicapo o puzzle:
+\begin{itemize}
+    \item A ogni passo abbiamo a disposizione il problema (\emph{il puzzle}) e la sua soluzione ideale certificata (\emph{ground truth});
+    \item Il nostro modello cognitivo (\emph{il cervello / l'algoritmo}) genera un tentativo di soluzione;
+    \item Confrontando la soluzione prodotta con quella corretta, rileviamo gli errori commessi;
+    \item Sulla scorta dell'entit\`a e della direzione dello scarto, calibriamo i nostri parametri interni;
+    \item Ripetendo la procedura per tentativi successivi su un vasto numero di puzzle, il sistema apprende una capacit\`a di generalizzazione efficace.
+\end{itemize}
+
+\subsection{Architettura a Due Fasi: Training Offline vs. Inference Online}
+\label{subsec:architettura-offline-online}
+
+Un vincolo imprescindibile nell'ingegneria dei motori di ricerca risiede nella rigorosa separazione temporale e computazionale tra le fasi di apprendimento e utilizzo del modello:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    phasebox/.style={rectangle, draw=navy, fill=codebackground, rounded corners=5pt, line width=0.9pt, inner sep=10pt, text width=0.88\linewidth, font=\small},
+    arrow/.style={->, >=stealth, line width=1.2pt, crimson}
+]
+    \node[phasebox] (offline) {
+        \textbf{\textcolor{navy}{\large FASE 1: TRAINING (OFFLINE)}}\\[4pt]
+        $\bullet$ \textbf{Dataset Storico}: Insiemi di query $\mathcal{Q}_{\text{train}}$, collezioni di documenti candidati $\mathcal{D}$ ed etichette umane $y \in \{0, 1, \dots, 4\}$ (rilevanza graduata).\\[2pt]
+        $\bullet$ \textbf{Estrazione Feature}: Calcolo esaustivo dei vettori $\mathbf{x} = \langle f_0, f_1, \dots, f_{K-1} \rangle$.\\[2pt]
+        $\bullet$ \textbf{Algoritmo di ML}: Calcolo predizioni $\hat{y} = h_{\mathbf{\theta}}(\mathbf{x})$, valutazione della perdita $\mathcal{L}$, calcolo del gradiente $\nabla_{\mathbf{\theta}}\mathcal{L}$ e aggiornamento iterativo dei pesi $\mathbf{\theta}$.\\[2pt]
+        $\bullet$ \textbf{Profilo Operativo}: Costo computazionale elevato (ore o giorni su cluster distribuiti), ma eseguito \emph{una tantum} fuori linea.
+    };
+
+    \node[phasebox, below=1.2cm of offline] (online) {
+        \textbf{\textcolor{navy}{\large FASE 2: TESTING / INFERENCE (ONLINE)}}\\[4pt]
+        $\bullet$ \textbf{Deployment}: Integrazione del modello validato $h_{\mathbf{\theta}^*}$ nella pipeline del search engine.\\[2pt]
+        $\bullet$ \textbf{Query Real-Time}: Arrivo dell'interrogazione $q$ dall'utente in tempo reale.\\[2pt]
+        $\bullet$ \textbf{Retrieval e Scoring}: Pre-selezione di $N$ candidati ed estrazione rapida delle feature.\\[2pt]
+        $\bullet$ \textbf{Valutazione e Ordinamento}: Valutazione immediata di $h_{\mathbf{\theta}^*}(q, d)$ e ordinamento dei migliori $K$ risultati da restituire nella SERP.\\[2pt]
+        $\bullet$ \textbf{Vincolo Ferreo}: Rispetto rigoroso del \textbf{Time Budget} di sistema ($\le 20\text{--}50\,\text{ms}$).
+    };
+
+    \draw[arrow] (offline) -- node[right, font=\small\bfseries, text=crimson, xshift=4pt] {Generazione del modello ottimizzato $\mathbf{\theta}^*$} (online);
+\end{tikzpicture}
+\caption{Disaccoppiamento strutturale tra la fase di addestramento offline e la fase di inferenza online.}
+\label{fig:ltr-offline-online-phases}
+\end{figure}
+
+\FloatBarrier
+\section{Definizione Formale di Learning to Rank e Tassonomia delle Feature}
+\label{sec:definizione-ltr-tassonomia-feature}
+
+Il framework denominato \textbf{Learning to Rank (LtR)} costituisce l'applicazione metodologica dell'apprendimento automatico al compito di costruire modelli di ordinamento per il recupero delle informazioni~\cite{liu2009}.
+
+\subsection{Definizione e Obiettivo di Apprendimento}
+\label{subsec:definizione-obiettivo-ltr}
+
+\begin{definition}[Learning to Rank]
+Sia data una collezione di query di training $\mathcal{Q}_{\text{train}} = \{q_1, q_2, \dots, q_m\}$. Per ogni query $q_i$, sia disponibile un insieme di documenti candidati $D_i = \{d_{i,1}, d_{i,2}, \dots, d_{i, n_i}\}$ e un corrispondente vettore di giudizi di rilevanza $\mathbf{y}_i = \langle y_{i,1}, y_{i,2}, \dots, y_{i, n_i} \rangle$, dove $y_{i,j} \in \mathcal{Y}$.  
+Ciascuna coppia $(q_i, d_{i,j})$ \`e rappresentata da un vettore di attributi multidimensionale:
+\begin{equation}
+    \mathbf{x}_{i,j} = \Phi(q_i, d_{i,j}) = \langle f_0(q_i, d_{i,j}), f_1(q_i, d_{i,j}), \dots, f_{K-1}(q_i, d_{i,j}) \rangle \in \mathbb{R}^K.
+    \label{eq:feature-vector-ltr}
+\end{equation}
+L'obiettivo di Learning to Rank consiste nell'apprendere una funzione di scoring $h: \mathbb{R}^K \to \mathbb{R}$ che assegni a ciascun documento un valore numerico tale per cui l'ordinamento indotto su $D_i$:
+\begin{equation}
+    \pi(D_i) = \text{sort}\Big(\{h(\mathbf{x}_{i,j})\}_{j=1}^{n_i}\Big)
+\end{equation}
+massimizzi una metrica globale di efficacia della graduatoria (come NDCG@$k$ o MAP).
+\end{definition}
+
+\begin{alertblock}{Distinzione Cruciale: Regressione vs Ranking}
+Anche se i modelli LtR sono frequentemente addestrati come regressori o classificatori che assegnano un valore scalare al documento, l'obiettivo ultimo del sistema non \`e predire con precisione infinitesima la label numerica $y$, bens\`i \textbf{indovinare la permutazione corretta dell'intera lista}, massimizzando la rilevanza dei documenti collocati nelle posizioni di vertice.
+\end{alertblock}
+
+Le etichette di rilevanza umane $y$ sono tipicamente graduate su una scala discreta a $5$ livelli:
+\begin{itemize}
+    \item $y = 0$: \textit{Irrelevant} / Scadente;
+    \item $y = 1$: \textit{Marginally Relevant} / Marginalmente utile;
+    \item $y = 2$: \textit{Relevant} / Rilevante;
+    \item $y = 3$: \textit{Highly Relevant} / Altamente rilevante;
+    \item $y = 4$: \textit{Perfectly Relevant} / Risposta definitiva (ad es. home page cercata per query navigazionale).
+\end{itemize}
+
+\subsection{Tassonomia delle Feature in un Sistema di Ricerca Web}
+\label{subsec:tassonomia-feature-ltr}
+
+Nei motori di ricerca commerciali, la cardinalit\`a dello spazio delle feature \`e rilevante: gi\`a nel 2008 il \emph{New York Times} riportava le dichiarazioni di Amit Singhal secondo cui Google impiegava oltre $200$ feature distinte per ordinare le pagine web.
+
+Secondo la classificazione canonica (Manning et al.~\cite{manning2008}, Liu~\cite{liu2009}), le feature si articolano in tre categorie strutturali distinte:
+
+\begin{enumerate}
+    \item \textbf{Feature Query-Only (Dipendenti esclusivamente dalla Query)}:
+    Assumono il medesimo valore per tutti i documenti candidati associati alla stessa query. Non alterano l'ordinamento relativo dei documenti se applicate linearmente, ma fungono da selettori di contesto o modificatori di pendenza nei modelli ad albero:
+    \begin{itemize}
+        \item Numero di termini della query ($|q|$);
+        \item Frequenza storica della query nei registri di log (popolarit\`a);
+        \item Tipologia o intento della query (navigazionale, informativa, transazionale);
+        \item Lingua rilevata o localizzazione geografica dell'interrogazione.
+    \end{itemize}
+
+    \item \textbf{Feature Query-Independent (Dipendenti esclusivamente dal Documento / statiche)}:
+    Quantificano la qualit\`a intrinseca, l'autorevolezza o l'accessibilit\`a a priori del documento $d$, a prescindere da quale query lo abbia evocato:
+    \begin{itemize}
+        \item Valore di PageRank della pagina;
+        \item Lunghezza dell'URL (in caratteri o in livelli di sottodirectory);
+        \item Presenza di caratteri specifici nell'URL (es. tilde `\textasciitilde{}', indicativa di home page personali spesso obsolete);
+        \item Numero di hyperlink in entrata (\textit{in-links}) e in uscita (\textit{out-links});
+        \item Freschezza del documento (data dell'ultima modifica o tempo trascorso dall'indicizzazione);
+        \item Lunghezza complessiva del testo del documento ($|d|$);
+        \item Numero di immagini o elementi multimediali presenti nella pagina;
+        \item Clic aggregati storici ricevuti dall'URL e Dwell Time medio globale.
+    \end{itemize}
+
+    \item \textbf{Feature Query-Dependent (Interazione Query--Documento)}:
+    Misurano la rilevanza tematica e l'attinenza semantica specifica tra la query $q$ e il documento $d$:
+    \begin{itemize}
+        \item Punteggio Okapi BM25 calcolato sui diversi campi del documento;
+        \item Similarit\`a del coseno nello spazio vettoriale VSM;
+        \item Frequenza logaritmica dei termini della query presenti negli \textit{anchor text} dei link puntanti a $d$;
+        \item Termini della query evidenziati in grassetto, con colori specifici o con tag tipografici primari (\texttt{<h1>}, \texttt{<title>});
+        \item Finestra minima di prossimit\`a (\textit{term proximity}): la lunghezza della sequenza minima di testo che racchiude tutti i termini dell'interrogazione;
+        \item Conteggio dei clic storici registrati per la specifica coppia $(q, d)$.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{L'Architettura di Pipeline Two-Stage e il Vincolo del Time Budget}
+\label{subsec:pipeline-two-stage-budget}
+
+Come evidenziato nella Figura~\ref{fig:ltr-two-stage-pipeline}, un motore di ricerca moderno adotta un'architettura a imbuto (\textit{Two-Stage Retrieval}):
+\begin{itemize}
+    \item \textbf{Primo Stadio (Base Ranker)}: Interroga l'indice invertito compresso mediante algoritmi ad alta efficienza (come WAND o MaxScore descritti nel Capitolo~\ref{chap:elaborazione-topk-wand-maxscore}). Valuta un punteggio lessicale economico (BM25) ed estrae una rosa ristretta di $N \approx 1\,000$ documenti candidati.
+    \item \textbf{Secondo Stadio (Top Ranker / LtR Ranker)}: Riceve gli $N$ candidati, calcola i vettori di feature multidimensionali $\mathbf{x} \in \mathbb{R}^K$ ed esegue il modello di Machine Learning appreso offline per riordinare i documenti e selezionare i migliori $k \approx 10\text{--}20$ risultati da presentare all'utente nella SERP.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    basebox/.style={
+        rectangle, 
+        draw=navy, 
+        fill=codebackground, 
+        rounded corners=4pt, 
+        line width=0.8pt, 
+        align=center, 
+        inner sep=6pt, 
+        font=\small
+    },
+    procbox/.style={
+        rectangle, 
+        draw=darkgreen, 
+        fill=darkgreen!10, 
+        rounded corners=4pt, 
+        line width=0.9pt, 
+        align=center, 
+        inner sep=6pt, 
+        font=\small\bfseries
+    },
+    resbox/.style={
+        rectangle, 
+        draw=crimson, 
+        fill=crimson!10, 
+        rounded corners=4pt, 
+        line width=0.9pt, 
+        align=center, 
+        inner sep=6pt, 
+        font=\small\bfseries
+    },
+    auxbox/.style={
+        rectangle, 
+        draw=navy!70, 
+        fill=navy!5, 
+        dashed,
+        rounded corners=4pt, 
+        line width=0.8pt, 
+        align=center, 
+        inner sep=5pt, 
+        font=\footnotesize
+    },
+    arrow/.style={->, >=stealth, line width=1.0pt, navy},
+    dasharrow/.style={->, >=stealth, line width=0.9pt, dashed, navy!80}
+]
+    % --- FLUSSO ORIZZONTALE PRINCIPALE (y = 0) ---
+    % Query (x = 0)
+    \node[basebox, text width=2.2cm, minimum height=1.2cm] (query) at (0, 0) {Query Utente\\[2pt]$q$};
+
+    % Primo Stadio (x = 3.6)
+    \node[procbox, text width=3.0cm, minimum height=1.2cm] (first) at (3.6, 0) {Primo Stadio\\[2pt]\footnotesize(Base Ranker, WAND)};
+
+    % Candidati intermedi (x = 7.5)
+    \node[basebox, text width=2.8cm, minimum height=1.2cm] (ncands) at (7.5, 0) {$N$ Documenti\\[2pt]Candidati\\[2pt]\footnotesize($N \approx 1\,000$)};
+
+    % Secondo Stadio (x = 11.8)
+    \node[procbox, text width=3.4cm, minimum height=1.2cm] (second) at (11.8, 0) {Secondo Stadio\\[2pt]\footnotesize(Top Ranker / LtR)};
+
+    % Risultati SERP (x = 15.8)
+    \node[resbox, text width=2.8cm, minimum height=1.2cm] (serp) at (15.8, 0) {Risultati SERP\\[2pt]Top-$k$\\[2pt]\footnotesize($k \approx 10\text{--}20$)};
+
+    % --- NODI AUSILIARI SUPERIORI (y = 2.0) ---
+    % Indice Invertito sopra al Primo Stadio
+    \node[auxbox, text width=2.8cm] (index) at (3.6, 2.0) {Indice Invertito\\dei Documenti};
+
+    % Estrazione Feature sopra al Secondo Stadio
+    \node[auxbox, text width=3.0cm] (feats) at (11.8, 2.0) {Estrazione Feature\\$\mathbf{x} = \Phi(q, d) \in \mathbb{R}^K$};
+
+    % --- CONNESSIONI DEL FLUSSO PRINCIPALE ---
+    \draw[arrow] (query) -- (first);
+    \draw[arrow] (first) -- (ncands);
+    \draw[arrow] (ncands) -- (second);
+    \draw[arrow] (second) -- (serp);
+
+    % --- CONNESSIONI AUSILIARIE ---
+    % Da Indice Invertito a Primo Stadio (discesa verticale)
+    \draw[dasharrow] (index.south) -- (first.north);
+
+    % Da Candidati verso l'alto verso Estrazione Feature e poi nel Secondo Stadio
+    \draw[dasharrow] (ncands.north) |- (feats.west);
+    \draw[dasharrow] (feats.south) -- (second.north);
+
+\end{tikzpicture}%
+}
+\caption{Pipeline di elaborazione a due stadi: dal filtraggio scalabile su indice invertito al re-ranking supervisionato.}
+\label{fig:ltr-two-stage-pipeline}
+\end{figure}
+
+Il costo computazionale dei modelli LtR influenza direttamente il throughput complessivo dell'infrastruttura di servizio. I vincoli di latenza impongono che l'estrazione delle centinaia di feature e la valutazione del modello predittivo avvengano entro una frazione infinitesima del budget temporale complessivo ($\le 15\text{--}20\,\text{ms}$ per query). Per questa ragione, la ricerca recente ha sviluppato ottimizzazioni architetturali di basso livello (implementazioni tree-traversal branchless, compilazione di foreste decisionali in codice assembly nativo) volte ad accelerare l'inferenza online.
+
+\FloatBarrier
+\section{Classificazione per l'Ad-Hoc IR: Formulazione ed Esempio Geometrico}
+\label{sec:classificazione-adhoc-ir-geometria}
+
+Uno dei primi approcci all'integrazione del Machine Learning nel ranking ha tentato di ridurre la selezione dei documenti a un problema classico di \textbf{classificazione lineare binaria} (Manning et al.~\cite{manning2008}).
+
+\subsection{Formulazione Lineare dello Scoring}
+\label{subsec:formulazione-lineare-scoring}
+
+Si consideri un dataset di addestramento composto da triple $(q, d, r)$, dove la rilevanza $r \in \{0, 1\}$ \`e binaria: $r = 1$ identifica la classe dei documenti rilevanti ($R$), mentre $r = 0$ identifica la classe dei non rilevanti ($N$).
+
+Ciascuna coppia $(q, d)$ viene proiettata in un semplice spazio bidimensionale $\mathbf{x} = \langle \alpha, \omega \rangle$:
+\begin{itemize}
+    \item $\alpha \in [0, 1]$: la similarit\`a del coseno tra la query e il documento calcolata secondo il modello VSM;
+    \item $\omega \ge 1$: la minima finestra di prossimit\`a (\textit{minimum query window size}), definita come la lunghezza del pi\`u breve segmento contiguo di testo che include tutti i termini della query (indipendentemente dall'ordine). Una finestra $\omega$ ridotta indica che i termini compaiono ravvicinati, fornendo una prova tangibile di coerenza semantica.
+\end{itemize}
+
+Si definisce una funzione di punteggio lineare parametrizzata dai coefficienti scalari $a$ e $b$:
+\begin{equation}
+    \text{Score}(q, d) = \text{Score}(\langle \alpha, \omega \rangle) = a \cdot \alpha + b \cdot \omega.
+    \label{eq:linear-score-function}
+\end{equation}
+Il classificatore lineare stabilisce una superficie di decisione attraverso una soglia critica $\Theta \in \mathbb{R}$:
+\begin{equation}
+    \text{Classe}(q, d) = 
+    \begin{cases}
+        \text{Rilevante } (R), & \text{se } \text{Score}(q, d) > \Theta, \\
+        \text{Non Rilevante } (N), & \text{se } \text{Score}(q, d) \le \Theta.
+    \end{cases}
+    \label{eq:linear-decision-rule}
+\end{equation}
+L'apprendimento consiste nell'individuare la tupla ottimale di parametri $\langle a^*, b^*, \Theta^* \rangle$ in grado di separare le due classi nello spazio geometrico minimizzando l'errore empirico di classificazione.
+
+\subsection{Esempio Geometrico e Superficie di Decisione}
+\label{subsec:esempio-geometrico-superficie}
+
+Nella Figura~\ref{fig:ltr-linear-classification-space} viene visualizzato lo spazio bidimensionale $(\omega, \alpha)$ con la disposizione empirica delle osservazioni e la retta di separazione:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    decisionline/.style={dashed, line width=1.1pt, navy},
+    markerR/.style={circle, fill=darkgreen!85!black, draw=darkgreen, line width=0.6pt, inner sep=2.2pt, opacity=0.9},
+    markerN/.style={regular polygon, regular polygon sides=3, fill=crimson!85!black, draw=crimson, line width=0.6pt, inner sep=2.0pt, opacity=0.9}
+]
+
+    % Margini di respiro laterali per evitare troncamenti a sinistra e a destra
+    \path (-1.4, 0) (8.9, 0);
+
+    % ==================================================================
+    % 0. CAMPITURE DEI SEMIPIANI DECISIONALI (Verde e Rosso pastello)
+    % Retta: y = 0.5*x + 1.35 da x=0 a x=7.5 (y=5.10)
+    % ==================================================================
+    \begin{scope}[on background layer]
+        % Regione Predetta Rilevante (R) - Verde chiarissimo
+        \fill[darkgreen!8] (0, 1.35) -- (7.5, 5.10) -- (7.5, 5.3) -- (0, 5.3) -- cycle;
+        % Regione Predetta Non Rilevante (N) - Rosso chiarissimo
+        \fill[crimson!5] (0, 0) -- (7.5, 0) -- (7.5, 5.10) -- (0, 1.35) -- cycle;
+
+        % Griglia cartesiana ortogonale regolare (passo 0.01 su y, unitario su x)
+        \foreach \x in {0, 1.5, 3.0, 4.5, 6.0} {
+            \draw[gray!20, dashed, line width=0.4pt] (\x, 0) -- (\x, 5.3);
+        }
+        \foreach \y in {1.0, 2.0, 3.0, 4.0, 5.0} {
+            \draw[gray!20, dashed, line width=0.4pt] (0, \y) -- (7.5, \y);
+        }
+    \end{scope}
+
+    % ==================================================================
+    % 1. ASSI CARTESIANI E SCALE REGOLARI
+    % ==================================================================
+    \draw[->, line width=1.0pt, navy] (0, 0) -- (7.8, 0)
+        node[right=3pt, font=\footnotesize\bfseries, text=navy] {$\omega$};
+    \draw[->, line width=1.0pt, navy] (0, 0) -- (0, 5.4)
+        node[above=2pt, font=\footnotesize\bfseries, text=navy] {$\alpha$};
+
+    % Etichette assi distanziate in modo ottimale per la massima leggibilità
+    \node[below=22pt, font=\small\bfseries, text=navy] at (3.75, 0) {Term proximity $\omega$ (ampiezza minima finestra)};
+    \node[rotate=90, anchor=south, font=\small\bfseries, text=navy] at (-1.05, 2.5) {Cosine score $\alpha$};
+
+    % Tacche asse Y regolari a passo 0.01 (0, 0.01, 0.02, 0.03, 0.04, 0.05)
+    \foreach \y/\val in {0/0, 1.0/0.01, 2.0/0.02, 3.0/0.03, 4.0/0.04, 5.0/0.05} {
+        \draw[navy, line width=0.6pt] (0, \y) -- ++(-3pt, 0) node[left=3pt, font=\scriptsize] {$\val$};
+    }
+
+    % Tacche asse X su omega (2, 3, 4, 5, 6)
+    \foreach \x/\val in {0/2, 1.5/3, 3.0/4, 4.5/5, 6.0/6} {
+        \draw[navy, line width=0.6pt] (\x, 0) -- ++(0, -3pt) node[below=3pt, font=\scriptsize] {$\val$};
+    }
+
+    % ==================================================================
+    % 2. SUPERFICIE DI DECISIONE LINEARE (Retta pulita con etichetta terminale)
+    % ==================================================================
+    \draw[decisionline] (0, 1.35) -- (7.5, 5.10)
+        node[anchor=south west, font=\footnotesize\bfseries, text=navy] {$a\alpha + b\omega = \Theta$};
+
+    % ==================================================================
+    % 3. CAMPIONI OSSERVATI (Marker geometrici differenziati con lieve jittering)
+    % ==================================================================
+    % Colonna \omega = 2 (x = 0.12)
+    \node[markerR] at (0.12, 1.85) {};
+
+    % Colonna \omega = 3 (x = 1.5)
+    \node[markerR] at (1.50, 4.05) {};
+    \node[markerR] at (1.46, 2.65) {};
+    \node[markerR] at (1.54, 2.25) {};
+    \node[markerN] at (1.48, 1.70) {};
+    \node[markerN] at (1.52, 0.75) {};
+
+    % Colonna \omega = 4 (x = 3.0)
+    \node[markerR] at (3.00, 3.85) {};
+    \node[markerR] at (3.04, 3.45) {};
+    % Falso Negativo: R sotto la retta tratteggiata!
+    \node[markerR] (fn) at (2.96, 2.35) {};
+    \draw[crimson, line width=0.9pt, dashed] (fn) circle (5.5pt);
+    \draw[->, line width=0.6pt, crimson] (fn) ++(6pt, 0) -- ++(12pt, 0) 
+        node[right, font=\tiny\bfseries, text=crimson] {Falso Negativo ($R \to N$)};
+
+    \node[markerN] at (3.03, 1.85) {};
+    \node[markerN] at (2.97, 1.20) {};
+    \node[markerN] at (3.02, 0.65) {};
+
+    % Colonna \omega = 5 (x = 4.5)
+    \node[markerR] at (4.50, 4.35) {};
+    \node[markerR] at (4.46, 4.05) {};
+    \node[markerR] at (4.54, 3.65) {};
+    \node[markerN] at (4.48, 2.75) {};
+    \node[markerN] at (4.52, 0.85) {};
+
+    % Colonna \omega = 6 (x = 6.0)
+    \node[markerR] at (6.00, 4.85) {};
+    % Falso Positivo: N sopra la retta tratteggiata!
+    \node[markerN] (fp) at (5.96, 4.40) {};
+    \draw[crimson, line width=0.9pt, dashed] (fp) circle (5.5pt);
+    % Freccia rivolta a destra verso lo spazio libero
+    \draw[->, line width=0.6pt, crimson] (fp) ++(6pt, 0) -- ++(12pt, 0) 
+        node[right, font=\tiny\bfseries, text=crimson] {Falso Positivo ($N \to R$)};
+
+    \node[markerN] at (6.03, 2.75) {};
+    \node[markerN] at (5.98, 1.65) {};
+
+    % ==================================================================
+    % 4. LEGENDA ACCADEMICA STRUTTURATA (Esterna agli assi cartesiani)
+    % ==================================================================
+    \node[draw=gray!35, fill=white, rounded corners=3pt, line width=0.5pt, anchor=south, inner sep=4.5pt] at (3.75, 6.3) {
+        \scriptsize
+        \begin{tabular}{c}
+        \tikz\node[markerR, inner sep=2pt] {};~Rilevante ($R$) \qquad
+        \tikz\node[markerN, inner sep=1.8pt] {};~Non Rilevante ($N$) \qquad
+        \tikz\draw[dashed, line width=0.8pt, crimson] (0, 0) circle (3pt);~Errore empirico \\[3pt]
+        \tikz\fill[darkgreen!18, draw=darkgreen!60, line width=0.4pt, rounded corners=1pt] (0,-0.08) rectangle (0.3,0.15);~Regione predetta $R$ ($a\alpha + b\omega > \Theta$) \qquad\qquad
+        \tikz\fill[crimson!12, draw=crimson!60, line width=0.4pt, rounded corners=1pt] (0,-0.08) rectangle (0.3,0.15);~Regione predetta $N$ ($a\alpha + b\omega \le \Theta$)
+        \end{tabular}
+    };
+
+\end{tikzpicture}
+\caption{Spazio delle feature $\langle\omega, \alpha\rangle$ e classificazione lineare per Information Retrieval (Manning et al.~\cite{manning2008}, Sez.~15.4.1): cerchi verdi per documenti rilevanti ($R$), triangoli rossi per non rilevanti ($N$). La retta tratteggiata $a\alpha + b\omega = \Theta$ modella il confine di decisione lineare. Le aree ombreggiate identificano le due semiregioni decisionali previste; i cerchi tratteggiati evidenziano il Falso Negativo su $\omega=4$ e il Falso Positivo su $\omega=6$, a dimostrazione che il dataset empirico non \`e linearmente separabile al 100\%.}
+\label{fig:ltr-linear-classification-space}
+\end{figure}
+
+Il grafico visualizza la distribuzione empirica dei documenti nello spazio bidimensionale definito dalla prossimit\`a dei termini ($\omega$) sull'asse orizzontale e dal punteggio di similarit\`a coseno ($\alpha$) sull'asse verticale. La retta tratteggiata $a\alpha + b\omega = \Theta$ modella il confine di decisione lineare: all'aumentare della distanza tra i termini (peggioramento qualitativo di $\omega$), un documento necessita di un punteggio di coseno $\alpha$ progressivamente pi\`u elevato per essere classificato come rilevante ($R$). Le aree ombreggiate identificano le due semiregioni decisionali previste dal modello; la presenza di campioni oltre la soglia lineare evidenzia come il dataset empirico non sia perfettamente separabile in modo lineare.
+
+Dall'analisi geometrica e concettuale emergono propriet\`a fondamentali per l'Information Retrieval:
+
+\begin{enumerate}
+    \item \textbf{Significato Fisico degli Assi e Regione di Rilevanza}:
+    \begin{itemize}
+        \item L'asse delle ordinate misura il punteggio coseno $\alpha \in [0, 1]$: valori pi\`u alti corrispondono a una maggiore similarit\`a globale tra la query e il documento.
+        \item L'asse delle ascisse misura la dimensione minima della finestra di testo $\omega \ge 2$ che racchiude tutti i termini della query nel documento: trattandosi di una distanza, valori inferiori riflettono una maggiore prossimit\`a sintattica e concettuale (quindi migliore qualit\`a).
+        \item La regione di massima rilevanza si concentra pertanto in \textbf{alto a sinistra} (elevato coseno $\alpha$ e ridotta finestra $\omega$).
+    \end{itemize}
+
+    \item \textbf{Pendenza Positiva della Retta di Decisione (Trade-Off Compensativo)}:
+    \begin{itemize}
+        \item La superficie di separazione lineare $a\alpha + b\omega = \Theta$ esibisce pendenza positiva nel piano cartesiano.
+        \item Questa geometria modella formalmente un principio di \emph{compensazione}: all'aumentare di $\omega$ (ovvero quando i termini della query si disperdono all'interno del documento, degradandone la prossimit\`a), il documento pu\`o comunque essere classificato come rilevante ($R$) solo se compensa tale carenza con un punteggio di coseno $\alpha$ proporzionalmente pi\`u elevato.
+    \end{itemize}
+
+    \item \textbf{Non-Separabilit\`a Lineare Perfetta ed Errori Empirici}:
+    \begin{itemize}
+        \item I campioni reali non risultano linearmente separabili al 100\%: l'iperpiano di decisione ottimale minimizza l'errore empirico, ma non pu\`o annullarlo.
+        \item \textbf{Falso Negativo} ($R$ sotto la soglia): sulla colonna $\omega = 4$, il campione rilevante a quota $\alpha \approx 0.024$ si colloca al di sotto della retta, venendo classificato erroneamente come non rilevante ($N$).
+        \item \textbf{Falso Positivo} ($N$ sopra la soglia): sulla colonna $\omega = 6$, il campione non rilevante a quota $\alpha \approx 0.044$ si trova al di sopra della linea di decisione, venendo predetto erroneamente come rilevante ($R$).
+    \end{itemize}
+\end{enumerate}
+
+Sebbene il classificatore lineare fornisca un'intuitiva demarcazione dello spazio, trattare il ranking documentale come un problema di pura classificazione binaria presenta limiti intrinseci severi:
+\begin{itemize}
+    \item \textbf{Assenza di ranking interno}: tutti i documenti che cadono al di sopra della retta appartengono indistintamente alla classe $R$, senza fornire un ordinamento di preferenza relativo (ad esempio tra il primo e il decimo risultato);
+    \item \textbf{Simmetria ingannevole dei costi di errore}: una misclassificazione a quota altissima (documento cardine da prima posizione scartato) viene penalizzata dalla loss di classificazione esattamente con lo stesso peso di una misclassificazione su documenti a bassa rilevanza;
+    \item \textbf{Incapacit\`a di gestire la rilevanza graduata}: le collezioni moderne impiegano scale multi-livello (es.~$\{0, 1, 2, 3, 4\}$ per NDCG), impossibili da catturare fedelmente con un singolo iperpiano binario.
+\end{itemize}
+
+\FloatBarrier
+\section{La Tassonomia Classica di Learning to Rank: Pointwise, Pairwise e Listwise}
+\label{sec:tassonomia-ltr-pointwise-pairwise-listwise}
+
+Per colmare le discrepanze tra la formulazione classica del Machine Learning e le esigenze del reperimento di documenti, la letteratura scientifica ha codificato tre paradigmi fondamentali~\cite{liu2009}:
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small\sffamily
+]
+
+    % Larghezza standard delle colonne (4.8 cm per evitare sillabazioni forzate)
+    \def\cardW{4.8cm}
+
+    % ==================================================================
+    % 1. CORPI TESTUALI (Posizionati a y = 0, sviluppo verso il basso)
+    % ==================================================================
+    \node[text width=\cardW, align=flush left, inner sep=7pt, anchor=north] (body1) at (0, 0) {
+        \textbf{Input:} Istanza singola\\
+        $(\mathbf{x}(q, d),\, y)$.\\[5pt]
+        \textbf{Target:} Stima dello score o classe di rilevanza $y \in \mathcal{Y}$.\\[5pt]
+        \textbf{Modello:} Regressione standard o classificazione multiclasse.\\[5pt]
+        \textbf{Criticit\`a:} Indifferente all'ordine relativo e alla posizione finale.
+    };
+
+    \node[text width=\cardW, align=flush left, inner sep=7pt, anchor=north] (body2) at (5.5, 0) {
+        \textbf{Input:} Coppia di documenti per query: $(\mathbf{x}_i, \mathbf{x}_j,\, y_{ij})$.\\[5pt]
+        \textbf{Target:} Preservazione dell'ordine relativo ($d_i \succ d_j$).\\[5pt]
+        \textbf{Modello:} Classificazione binaria su coppie (es.~RankNet).\\[5pt]
+        \textbf{Criticit\`a:} Pesa ogni coppia in modo identico, ignorando il vertice top-$k$.
+    };
+
+    \node[text width=\cardW, align=flush left, inner sep=7pt, anchor=north] (body3) at (11.0, 0) {
+        \textbf{Input:} Insieme ordinato dei documenti associati a $q$.\\[5pt]
+        \textbf{Target:} Ottimizzazione di metriche globali (NDCG, MAP).\\[5pt]
+        \textbf{Modello:} Metodi a loss surrogata differenziabile (es.~LambdaMART).\\[5pt]
+        \textbf{Criticit\`a:} Metriche IR discrete e non derivabili sui parametri.
+    };
+
+    % ==================================================================
+    % 2. CALCOLO ALTEZZA COMUNE (Fondo allineato alla colonna più lunga)
+    % ==================================================================
+    \path let \p1 = (body1.south), \p2 = (body2.south), \p3 = (body3.south),
+              \n1 = {min(\y1, min(\y2, \y3)) - 6pt} in
+          coordinate (southCommon) at (0, \n1);
+
+    % ==================================================================
+    % 3. DISEGNO DELLE CARD (Cornice arrotondata + Banner superiore)
+    % ==================================================================
+    \begin{scope}[on background layer]
+        \foreach \i/\title in {1/Pointwise, 2/Pairwise, 3/Listwise} {
+            % Coordinate dei quattro vertici della card
+            \path (body\i.north west) ++(-2pt, 0) coordinate (tl\i)
+                  (body\i.north east) ++(2pt, 0) coordinate (tr\i)
+                  (tl\i |- southCommon) coordinate (bl\i)
+                  (tr\i |- southCommon) coordinate (br\i);
+
+            % Sfondo con angoli arrotondati
+            \draw[draw=navy, fill=codebackground, line width=0.9pt, rounded corners=5pt]
+                ([yshift=26pt]tl\i) rectangle (br\i);
+
+            % Maschera per arrotondare solo gli angoli superiori della barra navy
+            \begin{scope}
+                \clip[rounded corners=5pt]
+                    ([yshift=26pt]tl\i) rectangle (br\i);
+                \fill[navy]
+                    ([yshift=27pt]tl\i) rectangle ([yshift=0pt]tr\i);
+            \end{scope}
+
+            % Ridisegno del bordo
+            \draw[draw=navy, line width=0.9pt, rounded corners=5pt]
+                ([yshift=26pt]tl\i) rectangle (br\i);
+        }
+    \end{scope}
+
+    % Titoli centrati nelle testate
+    \foreach \i/\title in {1/Pointwise, 2/Pairwise, 3/Listwise} {
+        \node[font=\normalsize\bfseries, text=white, anchor=center] 
+            at ($([yshift=13pt]tl\i)!0.5!([yshift=13pt]tr\i)$) {\title};
+    }
+
+\end{tikzpicture}%
+}
+\caption{Confronto sistematico dei tre approcci canonici di Learning to Rank: \mbox{granularit\`a} di input, target e relative criticit\`a.}
+\label{fig:ltr-three-approaches-comparison}
+\end{figure}
+
+\subsection{Approccio Pointwise}
+\label{subsec:approccio-pointwise}
+
+Nel paradigma \textbf{Pointwise}:
+\begin{itemize}
+    \item Ogni coppia query-documento \`e associata a uno score indipendente $y \in \mathcal{Y}$;
+    \item Il problema \`e formulato come regressione convenzionale (minimizzazione dell'errore quadratico medio $\mathcal{L}_2 = (h(\mathbf{x}) - y)^2$) oppure come classificazione multiclasse con loss di entropia incrociata;
+    \item \textbf{Criticit\`a Fondamentale}: L'approccio \`e cieco rispetto alla struttura della graduatoria. Ad esempio, penalizza allo stesso modo una discrepanza di punteggio su un documento irrilevante a fondo lista e su un documento cardine collocato in prima posizione.
+\end{itemize}
+
+\subsection{Approccio Pairwise e il Modello RankNet}
+\label{subsec:approccio-pairwise-ranknet}
+
+Il paradigma \textbf{Pairwise} sposta l'unit\`a di analisi dalla stima assoluta alla preservazione dell'ordinamento relativo tra coppie di documenti associati alla medesima query:
+\begin{itemize}
+    \item Dati due documenti $d_i$ e $d_j$ candidati per la query $q$, se $y_i > y_j$ si stabilisce una preferenza ordinata $d_i \succ d_j$ (documento $d_i$ pi\`u rilevante di $d_j$);
+    \item Il compito si riconduce a una classificazione binaria: il modello deve assegnare punteggi tali per cui $h(\mathbf{x}_i) > h(\mathbf{x}_j)$;
+    \item La perdita empirica quantifica il numero di inversioni o violazioni di coppia (\emph{pairwise ranking loss}).
+\end{itemize}
+
+\subsubsection{Formulazione Algebrica di RankNet}
+L'algoritmo \textbf{RankNet} (Burges et al.~\cite{burges2010}) modella probabilisticamente la preferenza di coppia tramite una funzione logistica sigmoide:
+\begin{equation}
+    P_{ij} = P(d_i \succ d_j) = \frac{1}{1 + e^{-\sigma (s_i - s_j)}},
+    \label{eq:ranknet-probability}
+\end{equation}
+dove $s_i = h(\mathbf{x}_i)$ e $s_j = h(\mathbf{x}_j)$ denotano i punteggi predetti dal modello (ad esempio una rete neurale o un ensemble), e $\sigma > 0$ governa la pendenza della curva sigmoide.
+
+Definita la probabilit\`a target della ground truth come $\bar{P}_{ij} = 1$ se $y_i > y_j$ (oppure $0.5$ se $y_i = y_j$), la funzione di costo di RankNet per la coppia $(d_i, d_j)$ corrisponde alla cross-entropy:
+\begin{equation}
+    \mathcal{C}_{ij} = -\bar{P}_{ij} \log P_{ij} - (1 - \bar{P}_{ij}) \log(1 - P_{ij}).
+\end{equation}
+Nel caso rigoroso in cui $d_i \succ d_j$ ($\bar{P}_{ij} = 1$), la funzione di costo si semplifica in forma analitica chiusa:
+\begin{equation}
+    \mathcal{C}_{ij} = \log\big(1 + e^{-\sigma (s_i - s_j)}\big).
+    \label{eq:ranknet-loss-pair}
+\end{equation}
+La formulazione~\eqref{eq:ranknet-loss-pair} \`e ovunque continua e derivabile rispetto ai punteggi $s_i$ e $s_j$:
+\begin{equation}
+    \frac{\partial \mathcal{C}_{ij}}{\partial s_i} = -\sigma \left(\frac{1}{1 + e^{\sigma (s_i - s_j)}}\right) = -\sigma (1 - P_{ij}) = -\frac{\partial \mathcal{C}_{ij}}{\partial s_j}.
+    \label{eq:ranknet-derivatives}
+\end{equation}
+Grazie alla differenziabilit\`a, RankNet consente l'addestramento diretto dei pesi interni tramite Stochastic Gradient Descent (SGD) applicando la regola della catena:
+\begin{equation}
+    \frac{\partial \mathcal{C}_{ij}}{\partial \mathbf{\theta}} = \frac{\partial \mathcal{C}_{ij}}{\partial s_i} \frac{\partial s_i}{\partial \mathbf{\theta}} + \frac{\partial \mathcal{C}_{ij}}{\partial s_j} \frac{\partial s_j}{\partial \mathbf{\theta}}.
+\end{equation}
+
+\subsection{Criticit\`a Strutturale del Pairwise e Divergenza con NDCG}
+\label{subsec:criticita-pairwise-ndcg}
+
+Nonostante l'eleganza matematica di RankNet, il paradigma Pairwise soffre di una patologia intrinseca: minimizzare il numero globale di coppie invertite non equivale a massimizzare metriche IR posizionali quali NDCG@$k$ o MAP.
+
+\begin{alertblock}{Il Dilemma della Priorit\`a di Posizione}
+Nella metrica Normalized Discounted Cumulative Gain (NDCG@$k$), il contributo di ciascun documento \`e ponderato da uno smorzamento logaritmico della posizione: $\frac{1}{\log_2(\text{rank} + 1)}$.  
+Ne consegue che un'inversione tra la posizione $1$ e la posizione $2$ provoca una perdita di qualit\`a drasticamente superiore rispetto alla medesima inversione tra la posizione $80$ e la posizione $81$. L'approccio Pairwise classico tratta invece entrambe le inversioni come una singola violazione identica, distorcendo l'ottimizzazione del modello.
+\end{alertblock}
+
+Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwise-loss-vs-ndcg}, dove si osserva l'andamento della Pairwise Loss a confronto con NDCG@5 al progredire delle epoche di addestramento:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    ndcgline/.style={line width=1.3pt, crimson},
+    lossline/.style={line width=1.3pt, teal!80!navy}
+]
+    % --- RETICOLO DI SFONDO (Tratteggiato sottile e allineato alle tacche comuni) ---
+    \begin{scope}[on background layer]
+        % Griglia verticale sulle epoche
+        \foreach \x in {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0} {
+            \draw[gray!20, dashed, line width=0.4pt] (\x, 0) -- (\x, 4.5);
+        }
+        % Griglia orizzontale: coincide esattamente sia sui valori di sinistra che di destra!
+        % y = 1.5 -> NDCG = 0.48, Loss = 0.30
+        % y = 3.0 -> NDCG = 0.49, Loss = 0.32
+        \foreach \y in {1.5, 3.0} {
+            \draw[gray!20, dashed, line width=0.4pt] (0, \y) -- (9.0, \y);
+        }
+    \end{scope}
+
+    % --- ASSI ORIZZONTALI (Superiore e Inferiore in Navy neutro) ---
+    \draw[navy, line width=0.8pt] (0, 0) -- (9.0, 0);
+    \draw[navy, line width=0.8pt] (0, 4.5) -- (9.0, 4.5);
+
+    % Tacche asse orizzontale: Epoche da 20 a 200
+    \foreach \x/\val in {0/20, 1/40, 2/60, 3/80, 4/100, 5/120, 6/140, 7/160, 8/180, 9/200} {
+        \draw[navy, line width=0.6pt] (\x, 0) -- ++(0, -3pt) node[below=2pt, font=\scriptsize] {\val};
+        \draw[navy, line width=0.6pt] (\x, 4.5) -- ++(0, 3pt);
+    }
+    \node[font=\footnotesize\bfseries, text=navy] at (4.5, -0.65) {Epoche di addestramento};
+
+    % --- ASSE Y SINISTRO: METRICA NDCG@5 (Codice Colore Crimson/Bordeaux) ---
+    \draw[crimson, line width=1.0pt] (0, 0) -- (0, 4.5);
+    \foreach \y/\val in {0.0/0.47, 1.5/0.48, 3.0/0.49, 4.5/0.50} {
+        \draw[crimson, line width=0.7pt] (0, \y) -- ++(-3pt, 0) node[left=3pt, font=\scriptsize\bfseries, text=crimson] {$\val$};
+    }
+    \node[rotate=90, font=\footnotesize\bfseries, text=crimson] at (-1.1, 2.25) {Metrica posizionale (NDCG@5)};
+
+    % --- ASSE Y DESTRO: FUNZIONE DI PERDITA (Codice Colore Ottanio/Teal) ---
+    \draw[teal!80!navy, line width=1.0pt] (9.0, 0) -- (9.0, 4.5);
+    \foreach \y/\val in {0.0/0.28, 1.5/0.30, 3.0/0.32, 4.5/0.34} {
+        \draw[teal!80!navy, line width=0.7pt] (9.0, \y) -- ++(3pt, 0) node[right=3pt, font=\scriptsize\bfseries, text=teal!80!navy] {$\val$};
+    }
+    \node[rotate=-90, font=\footnotesize\bfseries, text=teal!80!navy] at (10.1, 2.25) {Funzione di perdita (Pairwise Loss)};
+
+    % --- CURVA 1: PAIRWISE LOSS (Monotona decrescente da 0.334 a 0.285) ---
+    % Mappatura: y = ((loss - 0.28) / 0.06) * 4.5
+    \draw[lossline] plot[mark=x, mark size=1.6pt] coordinates {
+        (0.0, 4.05) (0.5, 3.75) (1.0, 3.42) (1.5, 3.10) (2.0, 2.76)
+        (2.5, 2.40) (3.0, 2.05) (3.5, 1.70) (4.0, 1.38) (4.5, 1.15)
+        (5.0, 0.95) (5.5, 0.72) (6.0, 0.52) (6.5, 0.35) (7.0, 0.33)
+        (7.5, 0.32) (8.0, 0.31) (8.5, 0.30) (9.0, 0.29)
+    };
+
+    % --- CURVA 2: NDCG@5 (Taylor et al. CIKM 2006) ---
+    % Sale rapida: da 0.477 a 0.493 (epoca 50), poi degrado progressivo e stabilizzazione
+    % Mappatura: y = ((ndcg - 0.47) / 0.03) * 4.5
+    \draw[ndcgline] plot[mark=+, mark size=1.8pt] coordinates {
+        (0.0, 1.05) (0.4, 1.55) (0.8, 2.20) (1.2, 3.45) (1.5, 3.30)
+        (1.8, 3.15) (2.1, 3.15) (2.4, 3.55) (2.7, 2.40) (3.0, 2.30)
+        (3.4, 2.45) (3.8, 1.95) (4.2, 1.50) (4.6, 1.45) (5.0, 1.10)
+        (5.3, 1.35) (5.6, 0.85) (6.0, 0.80) (6.3, 0.75) (6.5, 1.25)
+        (7.0, 1.25) (7.5, 1.25) (8.0, 1.25) (8.5, 1.25) (9.0, 1.25)
+    };
+
+    % --- LEGENDA ACCADEMICA COMPATTA (In alto, centrata e ariosa) ---
+    \node[draw=gray!35, fill=white, rounded corners=3pt, line width=0.5pt, anchor=south, inner sep=4.5pt] at (4.5, 4.85) {
+        \scriptsize
+        \tikz[baseline=-0.5ex]{\draw[ndcgline] (0,0) -- (0.45,0) plot[mark=+, mark size=1.8pt] coordinates {(0.225,0)};}~NDCG@5 (asse sinistro) \qquad
+        \tikz[baseline=-0.5ex]{\draw[lossline] (0,0) -- (0.45,0) plot[mark=x, mark size=1.6pt] coordinates {(0.225,0)};}~Pairwise Loss (asse destro)
+    };
+
+\end{tikzpicture}
+\caption{Divergenza empirica tra funzione di perdita pairwise e metrica di ranking NDCG@5 durante l'addestramento di RankNet (Taylor et al.~\cite{taylor2006}).}
+\label{fig:ltr-pairwise-loss-vs-ndcg}
+\end{figure}
+
+L'andamento evidenzia il limite intrinseco dell'approccio pairwise rispetto all'ottimizzazione posizionale: mentre la perdita continua a decrescere monotonicamente (asse destro in ottanio), la metrica NDCG@5 (asse sinistro in bordeaux) subisce un progressivo degrado dopo aver raggiunto il picco attorno all'epoca 50--70. Ci\`o dimostra che la minimizzazione globale delle coppie errate non garantisce l'ottimizzazione dei primi documenti restituiti all'utente, motivando storicamente l'introduzione di approcci sensibili alla posizione come LambdaRank.
+
+La stabilizzazione piatta di NDCG@5 osservabile tra l'epoca 150 e 200 riflette la natura discreta della metrica a gradini: finch\'e la permutazione relativa dei primi 5 documenti non varia, il valore di NDCG rimane rigorosamente costante anche a fronte di continue variazioni dei punteggi continui prodotti dal modello.
+
+\subsection{Approccio Listwise e l'Intrattabilit\`a dell'Ottimizzazione Diretta}
+\label{subsec:approccio-listwise-intrattabilita}
+
+Il paradigma \textbf{Listwise} si propone di risolvere la discrepanza affrontando l'intero elenco dei candidati come un'unica entit\`a indivisibile e ottimizzando direttamente le metriche posizionali ufficiali (NDCG, MAP).
+
+Tuttavia, l'applicazione standard della Discesa del Gradiente si scontra con una barriera matematica:
+
+\begin{theorem}[Non-Derivabilit\`a dell'Operatore di Ranking]
+Sia $\mathbf{s} = \langle s_1, s_2, \dots, s_n \rangle \in \mathbb{R}^n$ il vettore dei punteggi continui prodotti dal modello di ranking $h_{\mathbf{\theta}}$. La permutazione o posizione di rango $\pi(i)$ del documento $d_i$ \`e determinata dall'operatore di ordinamento discreto:
+\begin{equation}
+    \pi(i) = 1 + \sum_{j \neq i} \mathbb{I}(s_j > s_i),
+    \label{eq:rank-indicator-sum}
+\end{equation}
+dove $\mathbb{I}(\cdot)$ indica la funzione indicatrice booleana.  
+Poich\'e la funzione indicatrice \`e una funzione a gradino costante a tratti con derivata nulla quasi ovunque e punti di discontinuit\`a non derivabili ogni volta che $s_j = s_i$, ne consegue che:
+\begin{equation}
+    \frac{\partial \pi(i)}{\partial s_k} = 0 \quad \text{quasi ovunque}, \quad \text{e indifferenziabile nei punti di pareggio.}
+\end{equation}
+Di conseguenza, qualsiasi metrica $M(\pi, \mathbf{y})$ definita sui ranghi posizionali (come NDCG@$k$ o MAP) possiede gradiente nullo o non definito rispetto ai parametri $\mathbf{\theta}$ del modello:
+\begin{equation}
+    \nabla_{\mathbf{\theta}} \text{NDCG}@k = \mathbf{0}.
+\end{equation}
+\end{theorem}
+
+L'impossibilit\`a di applicare il calcolo differenziale diretto alle funzioni di ranking ha aperto la strada a due strategie di risoluzione storiche:
+\begin{enumerate}
+    \item L'ottimizzazione di funzioni di perdita differenziabili surrogate che fungono da limite superiore per NDCG (ad esempio \textbf{ListNet}, \textbf{ListMLE});
+    \item La formulazione di gradienti virtuali corretti dall'impatto sul ranking, alla base della teoria di \textbf{LambdaRank} e dell'algoritmo allo stato dell'arte \textbf{LambdaMART}~\cite{burges2010}, discussi nel Capitolo successivo.
+\end{enumerate}
+
+\FloatBarrier
+\section{Caso di Studio: BM25F e Ottimizzazione di Ranking Multi-Campo}
+\label{sec:bm25f-ottimizzazione-strutturata}
+
+Per comprendere concretamente come i principi di Learning to Rank trovino applicazione nella calibrazione di funzioni di ranking strutturate, questa sezione esamina in dettaglio l'estensione \textbf{BM25F} (Robertson et al., Zaragoza et al.~\cite{taylor2006}).
+
+\subsection{Fondamenti e Motivazione di BM25F}
+\label{subsec:fondamenti-bm25f}
+
+Nei documenti complessi (articoli scientifici, brevetti, pagine web), il testo \`e suddiviso in campi o zone semi-strutturate $s \in \mathcal{S}$:
+\begin{itemize}
+    \item Per un articolo accademico: $\mathcal{S} = \{\text{titolo}, \text{abstract}, \text{corpo}, \text{autori}\}$;
+    \item Per una pagina Web: $\mathcal{S} = \{\text{titolo}, \text{url}, \text{body}, \text{anchor text}\}$.
+\end{itemize}
+
+L'approccio ingenuo consisterebbe nel calcolare lo score Okapi BM25 standard separatamente su ciascun campo $s$ e combinare linearmente i punteggi parziali ottenuti:
+\begin{equation}
+    s_{\text{ingenuo}}(q, d) = \sum_{s \in \mathcal{S}} w_s \cdot \text{BM25}_s(q, d).
+\end{equation}
+Tale combinazione soffre di un difetto intrinseco: applica la saturazione non lineare del termine indipendentemente su ogni singolo campo. Di conseguenza, se un termine compare due volte nel titolo e due volte nel testo principale, esso subisce due saturazioni separate, anzich\'e saturare una volta sola in base all'evidenza complessiva ponderata del termine all'interno del documento.
+
+L'algoritmo \textbf{BM25F} (*BM25 with Fields*) adotta la corretta impostazione algebrica: \textbf{combina linearmente le frequenze ponderate dei campi all'interno del termine prima di applicare la trasformazione di saturazione asintotica}.
+
+\subsection{Formulazione Matematica di BM25F}
+\label{subsec:formulazione-matematica-bm25f}
+
+Sia $f_{t, s}$ la frequenza del termine $t$ nel campo $s$ del documento $d$.  
+Si definiscono:
+\begin{itemize}
+    \item $w_s > 0$: il peso d'importanza associato al campo $s$;
+    \item $l_s$: la lunghezza effettiva (in numero di termini) del campo $s$ nel documento $d$;
+    \item $L_s$: la lunghezza media del campo $s$ sull'intera collezione di documenti;
+    \item $b_s \in [0, 1]$: il parametro di normalizzazione della lunghezza specifico per il campo $s$.
+\end{itemize}
+
+La lunghezza normalizzata del campo $s$ \`e calcolata come:
+\begin{equation}
+    B_s = (1 - b_s) + b_s \cdot \frac{l_s}{L_s}.
+    \label{eq:field-length-norm}
+\end{equation}
+
+La \textbf{pseudo-frequenza effettiva ponderata} del termine $t$ nel documento $d$, denotata con $\tilde{f}_t(d)$, \`e la combinazione convessa:
+\begin{equation}
+    \tilde{f}_t(d) = \sum_{s \in \mathcal{S}} w_s \cdot \frac{f_{t, s}}{B_s} = \sum_{s \in \mathcal{S}} \frac{w_s \cdot f_{t, s}}{(1 - b_s) + b_s \cdot \frac{l_s}{L_s}}.
+    \label{eq:bm25f-weighted-tf}
+\end{equation}
+
+Il punteggio globale BM25F della coppia $(q, d)$ applica la saturazione non lineare basata sul parametro $k_1$:
+\begin{equation}
+    s_{\text{BM25F}}(q, d) = \sum_{t \in q} \text{IDF}(t) \cdot \frac{\tilde{f}_t(d)}{k_1 + \tilde{f}_t(d)},
+    \label{eq:bm25f-final-score}
+\end{equation}
+dove l'inverso della frequenza documentale $\text{IDF}(t)$ \`e calcolato convenzionalmente come:
+\begin{equation}
+    \text{IDF}(t) = \log \left(\frac{N - df_t + 0.5}{df_t + 0.5}\right).
+\end{equation}
+
+\subsection{Esplosione dei Parametri Liberi e Necessit\`a di Learning to Rank}
+\label{subsec:esplosione-parametri-bm25f}
+
+Mentre Okapi BM25 possiede soltanto $2$ parametri liberi scalari ($\mathbf{\theta} = \langle k_1, b \rangle$), la funzione BM25F definita su $|\mathcal{S}|$ campi possiede uno spazio di calibrazione di dimensionalit\`a:
+\begin{equation}
+    |\mathbf{\theta}_{\text{BM25F}}| = 2|\mathcal{S}| + 1.
+\end{equation}
+Per ciascun campo $s \in \mathcal{S}$, il sistema richiede di fissare:
+\begin{itemize}
+    \item Il peso d'importanza del campo $w_s$;
+    \item Il parametro di normalizzazione della lunghezza $b_s$;
+\end{itemize}
+a cui si aggiunge il parametro globale di saturazione $k_1$ (oppure parametri $k_{1, s}$ dedicati nelle formulazioni generalizzate).
+
+Se un documento web include ad esempio $S=4$ campi (titolo, body, url, anchor), lo spazio di configurazione comprende $2 \times 4 + 1 = 9$ parametri liberi reali continui.
+
+Una ricerca esaustiva a griglia (\textit{grid search}) risulta proibitiva: campionando appena $10$ valori per ciascuna dimensione, si generano $10^9 = 1$ miliardo di combinazioni, ciascuna richiedente la valutazione di centinaia di query di test su collezioni di scala industriale.  
+Risulta dunque mandatorio \textbf{inquadrare BM25F nel paradigma di Learning to Rank}:
+\begin{itemize}
+    \item \textbf{Spazio delle Ipotesi}: La famiglia di funzioni $h_{\mathbf{\theta}}(q, d) = s_{\text{BM25F}}(q, d; \mathbf{\theta})$, con $\mathbf{\theta} = \langle \{w_s, b_s\}_{s \in \mathcal{S}}, k_1 \rangle$;
+    \item \textbf{Dati di Addestramento}: Query annotate con rilevanza graduata $y \in \{0, 1, 2, 3, 4\}$;
+    \item \textbf{Metrica di Valutazione}: NDCG@10 (con guadagni esponenziali $2^{y} - 1$ per accentuare l'eccellenza al vertice);
+    \item \textbf{Strategia di Ottimizzazione}: Calibrazione automatica dei parametri $\mathbf{\theta}$ mediante discesa di gradiente guidata da una loss surrogata differenziabile (RankNet o gradienti $\lambda$), come formalizzato pionieristicamente da Taylor et al.~\cite{taylor2006}.
+\end{itemize}
+
+\FloatBarrier
+\section{Quadro Sinottico e Considerazioni Conclusive}
+\label{sec:quadro-sinottico-conclusioni}
+
+La Tabella~\ref{tab:ltr-foundations-synoptic} sintetizza i tre paradigmi di Learning to Rank e i rispettivi modelli prototipo analizzati nel capitolo:
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l p{3.0cm} p{3.2cm} p{3.4cm} p{3.6cm}}
+\toprule
+\textbf{Paradigma} & \textbf{Unit\`a di Input} & \textbf{Loss Function Prototipo} & \textbf{Ottimizzazione} & \textbf{Criticit\`a Fondamentale} \\
+\midrule
+\textbf{Pointwise} & Singola coppia $(q, d)$ & Mean Squared Error (MSE), Cross-Entropy & Regressione diretta / SGD & Ignora la posizione del documento nella graduatoria finale. \\
+\midrule
+\textbf{Pairwise} & Coppia di documenti $(d_i, d_j)$ per query $q$ & RankNet Loss ($\log(1 + e^{-\sigma(s_i - s_j)})$), Hinge Loss & Discesa del gradiente continua (SGD) & Tratta le violazioni in testa e in coda con peso identico; diverge da NDCG. \\
+\midrule
+\textbf{Listwise} & Intero insieme dei candidati per $q$ & Surrogate Loss differenziabili (ListNet, LambdaMART) & Gradienti virtuali $\lambda$ / Surrogate ranking loss & Non-derivabilit\`a dell'operatore discreto di ordinamento ($\nabla_{\mathbf{\theta}} \text{sort} = \mathbf{0}$). \\
+\midrule
+\textbf{BM25F (Parametrico)} & Documenti semi-strutturati a $S$ campi & Calibrazione dei $2S+1$ parametri tramite LTR proxy & Gradient Descent su loss di coppia / coordinate search & Evita saturazioni premature combinando le frequenze prima della non linearit\`a. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo dei paradigmi di Learning to Rank.}
+\label{tab:ltr-foundations-synoptic}
+\end{table}
+
+Nel prossimo capitolo l'analisi sar\`a estesa alla formulazione rigorosa di \textbf{LambdaRank} e \textbf{LambdaMART}, illustrando la costruzione algebrica dei gradienti virtuali $\lambda_{ij}$ scalati dal differenziale di metrica $|\Delta \text{NDCG}|$ e l'impiego dei Gradient Boosted Decision Trees (GBDT) nella produzione industriale moderna.

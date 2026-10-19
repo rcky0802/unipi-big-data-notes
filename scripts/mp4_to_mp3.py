@@ -46,6 +46,48 @@ def format_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def parse_time_duration(val: str | float | int) -> float:
+    """
+    Interpreta un valore di durata temporale.
+    Supporta:
+      - float o int in secondi (es. 1800, 3600.0)
+      - stringa di secondi ("1800", "90s")
+      - formato minuti ("30m", "45min")
+      - formato ore ("1h", "1.5h")
+      - formato timestamp "MM:SS" (es. "30:00") o "HH:MM:SS" (es. "01:00:00")
+    """
+    if isinstance(val, (int, float)):
+        return float(val)
+
+    val_str = str(val).strip()
+    if not val_str:
+        return 0.0
+
+    # Formato HH:MM:SS o MM:SS
+    if ":" in val_str:
+        parts = val_str.split(":")
+        if len(parts) == 2:
+            m, s = parts
+            return float(m) * 60 + float(s)
+        elif len(parts) == 3:
+            h, m, s = parts
+            return float(h) * 3600 + float(m) * 60 + float(s)
+
+    # Formato con unità (es. 30m, 1h, 90s, 45min)
+    m_unit = re.match(r"^([\d.]+)\s*(s|sec|m|min|h|hr|ore)?$", val_str, re.IGNORECASE)
+    if m_unit:
+        num = float(m_unit.group(1))
+        unit = (m_unit.group(2) or "s").lower()
+        if unit in ["s", "sec"]:
+            return num
+        elif unit in ["m", "min"]:
+            return num * 60.0
+        elif unit in ["h", "hr", "ore"]:
+            return num * 3600.0
+
+    return float(val_str)
+
+
 def find_binary(name: str) -> str | None:
     """Cerca un eseguibile nel PATH o nei percorsi di installazione tipici."""
     found = shutil.which(name)
@@ -141,12 +183,15 @@ def convert_mp4_to_mp3(
     channels: int = 1,
     split_threshold: float = 3600.0,
     split: bool = False,
+    segment_duration: float | str | None = None,
 ) -> list[Path]:
     """
     Converte un file MP4 in MP3 mono a 64 kbps.
-    Di default genera un unico file audio completo.
-    Se split=True e la durata supera split_threshold (default 3600s = 1 ora),
-    divide l'output in due metà: <name>_part1.mp3 e <name>_part2.mp3.
+    - Se segment_duration e' specificato (> 0), divide il video in segmenti
+      di durata fissa (es. ogni 1800s / 30m / 00:30:00).
+    - Se split=True e duration > split_threshold (default 3600s = 1 ora),
+      divide l'output in due meta': <name>_part1.mp3 e <name>_part2.mp3.
+    - Altrimenti genera un unico file audio completo.
     """
     if not input_path.exists():
         raise FileNotFoundError(f"File di input non trovato: {input_path}")
@@ -171,8 +216,15 @@ def convert_mp4_to_mp3(
     initial_size = input_path.stat().st_size
     duration = get_media_duration(input_path)
 
-    # Verifica se è richiesto e necessario dividere in 2 metà
-    should_split = split and (duration > split_threshold)
+    seg_sec: float | None = None
+    if segment_duration is not None:
+        parsed_sec = parse_time_duration(segment_duration)
+        if parsed_sec > 0:
+            seg_sec = parsed_sec
+
+    # Verifica modalita' di frazionamento
+    use_segments = seg_sec is not None and duration > seg_sec
+    should_split = (not use_segments) and split and (duration > split_threshold)
 
     print("\n" + "=" * 65)
     print(" 🎙️  CONVERSIONE VIDEOLEZIONE (MP4 -> MP3 MONO 64K)")
@@ -184,24 +236,55 @@ def convert_mp4_to_mp3(
         print(f"  • Durata totale:     {format_duration(duration)} ({format_timestamp(duration)})")
     print(f"  • Formato output:    Mono (1 canale), {bitrate} MP3")
 
-    if should_split:
+    if use_segments and seg_sec is not None:
+        total_parts = int(duration // seg_sec) + (1 if (duration % seg_sec) > 0.05 else 0)
+        print("-" * 65)
+        print(f"  ✂️  Frazionamento per durata segmento: {format_duration(seg_sec)} ({format_timestamp(seg_sec)})")
+        print(f"     - Numero stimato di parti: {total_parts}")
+    elif should_split:
         half_duration = duration / 2.0
         print("-" * 65)
         print("  ✂️  Flag --split specificato e durata > 1 ora: l'audio verrà diviso in 2 metà!")
         print(f"     - Durata di ciascuna parte: {format_duration(half_duration)} ({format_timestamp(half_duration)})")
-    elif split:
+    elif split or seg_sec is not None:
         print("-" * 65)
-        print("  ℹ️  Flag --split specificato, ma la durata non supera 1 ora: generato file unico.")
+        print("  ℹ️  La durata totale non supera la lunghezza del segmento: generato file unico.")
     print("=" * 65)
 
     start_clock = time.time()
     generated_files: list[Path] = []
+    stem = base_output.stem
+    parent = base_output.parent
 
-    if should_split:
+    if use_segments and seg_sec is not None:
+        current_start = 0.0
+        part_idx = 1
+        while current_start < duration:
+            current_chunk_dur = min(seg_sec, duration - current_start)
+            # Evita micro-spezzoni insignificanti alla fine (< 1 secondo) se non e' l'unico segmento
+            if current_chunk_dur < 1.0 and part_idx > 1:
+                break
+
+            part_path = parent / f"{stem}_part{part_idx:02d}.mp3"
+            end_time = min(current_start + current_chunk_dur, duration)
+            print(f"\n>>> Generazione Parte {part_idx}: [{format_timestamp(current_start)} -> {format_timestamp(end_time)}] -> {part_path.name}...")
+            t_chunk = time.time()
+            convert_chunk(
+                ffmpeg_bin=ffmpeg_bin,
+                input_path=input_path,
+                output_path=part_path,
+                bitrate=bitrate,
+                channels=channels,
+                start_time=current_start,
+                duration=current_chunk_dur,
+            )
+            print(f"    [OK] Parte {part_idx} completata in {time.time() - t_chunk:.1f}s ({format_size(part_path.stat().st_size)})")
+            generated_files.append(part_path)
+            current_start += current_chunk_dur
+            part_idx += 1
+
+    elif should_split:
         half_duration = duration / 2.0
-        stem = base_output.stem
-        parent = base_output.parent
-
         part1_path = parent / f"{stem}_part1.mp3"
         part2_path = parent / f"{stem}_part2.mp3"
 
@@ -236,7 +319,7 @@ def convert_mp4_to_mp3(
         generated_files.append(part2_path)
 
     else:
-        # File unico (durata <= 1 ora o split disabilitato)
+        # File unico
         print(f"\n>>> Elaborazione audio in corso su file unico: {base_output.name}...")
         convert_chunk(
             ffmpeg_bin=ffmpeg_bin,
@@ -296,15 +379,22 @@ def main():
         help="Numero di canali audio (default: 1 per mono)",
     )
     parser.add_argument(
+        "-s",
+        "--segment",
+        type=str,
+        default=None,
+        help="Lunghezza temporale di ciascun segmento in cui frazionare l'audio (es: '1800', '30m', '00:30:00', '1h'). Se non specificato, genera un file unico.",
+    )
+    parser.add_argument(
         "--split-threshold",
         type=float,
         default=3600.0,
-        help="Soglia in secondi oltre la quale dividere in due metà (default: 3600s = 1 ora)",
+        help="Soglia in secondi oltre la quale dividere in due metà (default: 3600s = 1 ora, usata con --split)",
     )
     parser.add_argument(
         "--split",
         action="store_true",
-        help="Abilita la divisione dell'audio in due metà se la durata supera 1 ora (default: disabilitato, genera file unico)",
+        help="Abilita la divisione dell'audio in due metà se la durata supera 1 ora (mantenuto per retrocompatibilità)",
     )
 
     args = parser.parse_args()
@@ -320,6 +410,7 @@ def main():
             channels=args.channels,
             split_threshold=args.split_threshold,
             split=args.split,
+            segment_duration=args.segment,
         )
     except Exception as exc:
         print(f"\n[ERRORE]: {exc}", file=sys.stderr)

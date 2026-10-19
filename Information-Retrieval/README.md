@@ -126,6 +126,20 @@ latexmk -c
   - Sistemi reali e stato dell'arte industriale: l'ecosistema Apache Lucene / Elasticsearch, evoluzione a 4 stadi sintetizzata da Adrien Grand (2023) e divario decennale per la riscrittura dei codec di indice e la tolleranza a workload eterogenei.
   - Sintesi comparativa sinottica degli algoritmi Top-$k$.
 
+- **Capitolo 9: Learning to Rank: Fondamenti, Tassonomia e Ottimizzazione di BM25F** (`09`)
+  - Decomposizione formale delle funzioni di ranking basata sulle rappresentazioni (Guo et al. 2020: rappresentazione query $\phi$, documento $\psi$, interazione $\eta$, aggregatore $f$).
+  - Oltre il modello Bag of Words (BoW): campi strutturati, testi di ancoraggio (*anchor text*), link graph e PageRank, segnali comportamentali (clic, dwell time) e propriet\`a della query.
+  - Il paradigma del Machine Learning applicato al ranking: regressione vs. ranking posizionale, analogia del puzzle, disaccoppiamento tra Fase 1 (Training Offline) e Fase 2 (Inference Online) sotto Time Budget rigoroso.
+  - Tassonomia delle feature in un motore di ricerca web: query-only, query-independent (statiche del documento) e query-dependent.
+  - Pipeline di Two-Stage Retrieval: Base Ranker ad alto throughput su indice invertito ($N \approx 1\,000$) e Top Ranker LtR per la SERP ($k \approx 10\text{--}20$).
+  - Esempio di classificazione per l'ad-hoc IR (Manning et al.): spazio bidimensionale $\langle \alpha, \omega \rangle$ (coseno vs. minima finestra di prossimit\`a) e limiti della separazione lineare binaria.
+  - Tassonomia canonica di Learning to Rank (Liu 2009):
+    - *Pointwise*: predizione indipendente dello score del singolo documento (MSE, cross-entropy), cecit\`a rispetto alla graduatoria.
+    - *Pairwise*: preservazione delle preferenze di coppia ($d_i \succ d_j$), funzione di perdita logistica di RankNet ($\mathcal{C}_{ij} = \log(1 + e^{-\sigma(s_i - s_j)})$) e calcolo dei gradienti per SGD; criticit\`a strutturale dell'appiattimento delle coppie e divergenza con NDCG@$k$.
+    - *Listwise*: ottimizzazione dell'intero elenco e teorema di non-derivabilit\`a dell'operatore discreto di ordinamento ($\nabla_{\mathbf{\theta}} \text{sort} = \mathbf{0}$).
+  - Caso di studio BM25F (*BM25 with Fields*, Robertson, Zaragoza, Taylor et al.): combinazione convessa delle frequenze normalizzate di campo prima della saturazione asintotica, spazio a $2S+1$ parametri liberi e calibrazione tramite LTR/SGD su perdita surrogata differenziabile.
+  - Quadro sinottico comparativo dei paradigmi di Learning to Rank.
+
 ```text
 Information-Retrieval/
 ├── assets/                 # Figure, grafici vettoriali e schemi TikZ

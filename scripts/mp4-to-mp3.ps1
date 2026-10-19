@@ -1,21 +1,24 @@
 <#
 .SYNOPSIS
     Converte una videolezione MP4 in MP3 mono a 64 kbps eseguendo Python e FFmpeg nel container Docker.
-    Di default genera un unico file MP3 completo; se specificato il flag -Split e la durata supera 1 ora, viene diviso in due meta'.
+    Di default genera un unico file MP3 completo; se specificato il parametro -Segment, fraziona l'audio in parti della durata indicata.
 .PARAMETER FilePath
     Percorso del file MP4 da convertire (relativo o assoluto).
 .PARAMETER OutputPath
     Percorso del file MP3 di output (opzionale, default: stesso nome e cartella con estensione .mp3).
+.PARAMETER Segment
+    Lunghezza temporale di ciascun segmento in cui frazionare l'audio (es: "1800", "30m", "00:30:00", "1h").
 .PARAMETER Bitrate
     Bitrate audio (default: "64k").
 .PARAMETER Channels
     Numero di canali audio (default: 1 per mono).
 .PARAMETER Split
-    Se specificato, divide l'audio in due meta' se la durata supera 1 ora (default: false, file unico).
+    Se specificato, divide l'audio in due meta' se la durata supera 1 ora (mantenuto per retrocompatibilita').
 .EXAMPLE
     .\scripts\mp4-to-mp3.ps1 "D:\Archivio\Download\Lecture5.mp4"
+    .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -Segment "30m"
+    .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -Segment "00:45:00"
     .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -OutputPath "audio_lezione.mp3"
-    .\scripts\mp4-to-mp3.ps1 "lezione.mp4" -Split
 #>
 [CmdletBinding()]
 param(
@@ -24,6 +27,9 @@ param(
 
     [Parameter(Position = 1)]
     [string]$OutputPath,
+
+    [Alias("s")]
+    [string]$Segment,
 
     [string]$Bitrate = "64k",
     [int]$Channels = 1,
@@ -82,6 +88,9 @@ if ($OutputPath) {
             "-b", $Bitrate,
             "-c", "$Channels"
         )
+        if ($Segment) {
+            $dockerArgs += @("-s", "$Segment")
+        }
         if ($Split) {
             $dockerArgs += "--split"
         }
@@ -107,6 +116,9 @@ if ($outputArgs.Count -gt 0) {
     $dockerArgs += $outputArgs
 }
 $dockerArgs += @("-b", $Bitrate, "-c", "$Channels")
+if ($Segment) {
+    $dockerArgs += @("-s", "$Segment")
+}
 if ($Split) {
     $dockerArgs += "--split"
 }
