@@ -47,6 +47,7 @@ latexmk -c
 - **Capitolo 11:** Analisi delle Associazioni: Concetti di Base e Algoritmi (`11`)
 - **Capitolo 12:** Sequential Pattern Mining: Modelli, Definizioni ed Esercizi (`12`)
 - **Capitolo 13:** Mining di Regole di Associazione (FP-Growth), Simulazioni di Clustering e Pattern Sequenziali (GSP) (`13`)
+- **Capitolo 14:** Serie Temporali: Similarità, Distanze, Trasformazioni e Clustering (`14`)
 
 ```text
 Data-Mining/
