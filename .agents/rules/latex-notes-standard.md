@@ -36,18 +36,23 @@ Questa regola definisce gli standard editoriali, tipografici e strutturali per t
   - `darkgreen`: stati di successo, match positivi, pesi ottimali, partizioni valide.
   - `crimson`: stati di errore, divergenze, pruning, valori limite o scarti.
   - `codebackground`: riempimento di box informativi, blocchi di codice o nodi di sfondo neutro.
-* **Stile dei Nodi**:
+* **Stile dei Nodi ed Ergonomia Grafica**:
   - Utilizzare `rounded corners` e spessori di linea armonici (`line width=0.8pt` o `thick`).
   - Font leggibili e proporzionati all'interno dei nodi (`\small`, `\footnotesize`).
-* **Layout**:
-  - Centrare sempre l'ambiente: `\begin{figure}[htbp] \centering ... \end{figure}`.
+* **Frecce ed Etichette TikZ**:
+  - Garantire una spaziatura sufficiente tra i nodi (lunghezza degli archi adeguata) per una lettura pulita.
+  - Le etichette lungo gli archi (es. simboli $<$, $=$, $>$) non devono **mai coprire o sovrapporsi al tratto o alla punta della freccia**: posizionarle a lato (`above left`, `above right`, `left`, `right`) oppure specificare un background opaco (`fill=white, inner sep=1.5pt`).
+* **Confinamento nei Paragrafi e Posizionamento Rigido**:
+  - **Regola di non scavalcamento**: nessuna figura o tabella appartenente alla sezione/sottosezione $X.Y$ può scivolare nella sezione $X.Y+1$.
+  - Usare sempre il posizionatore rigido `[H]` (dal package `float`): `\begin{figure}[H] \centering ... \end{figure}`.
+  - Inserire `\FloatBarrier` (dal package `placeins`) immediatamente prima di ogni `\section{...}` e `\subsection{...}` per confinare deterministicamente i float nel loro ambito di pertinenza.
   - Aggiungere sempre `\caption{...}` esplicativa e `\label{fig:...}`.
 
 ---
 
 ## 3. Tabelle e Impaginazione Dati
 
-* Le tabelle devono essere sempre centrate (`\centering`) e con font compatto (`\small` o `\footnotesize`).
+* Le tabelle devono essere posizionate in modo rigido tramite `\begin{table}[H] \centering ... \end{table}`, con font compatto (`\small` o `\footnotesize`).
 * Per tabelle larghe o con testo lungo, utilizzare `tabularx` con colonne a larghezza automatica `X` o racchiudere in `\resizebox{\columnwidth}{!}{...}` se a singola colonna.
 * Utilizzare `booktabs` per la spaziatura orizzontale (`\toprule`, `\midrule`, `\bottomrule`), evitando linee verticali continue.
 * Se necessario regolare lo spazio intercolonna, usare `\setlength{\tabcolsep}{...}` localmente all'interno del gruppo `table`.

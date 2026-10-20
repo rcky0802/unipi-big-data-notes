@@ -46,6 +46,7 @@ latexmk -c
 - **Capitolo 10:** Alberi di Ricerca Randomizzati: Treap, Operazioni Dinamiche e Applicazioni Geometriche (`10`)
 - **Capitolo 11:** Algoritmi di Intersezione per Posting Lists nell'Information Retrieval (`11`)
 - **Capitolo 12:** Ricerca per Interpolazione su Bucket e Ordinamento di Stringhe (Multi-Key Quicksort) (`12`)
+- **Capitolo 13:** Strutture Dati e Algoritmi per Stringhe: Ternary Search Trees (TST) e Radix Sort (`13`)
 
 ```text
 Algorithm-Engineering/

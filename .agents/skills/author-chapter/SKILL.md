@@ -32,8 +32,9 @@ In questo capitolo vengono esaminati i fondamenti di...
 
 Linee guida di stile per il corpo del testo:
 - **Formalismo Matematico**: definisci sempre insiemi, vettori e dimensioni con chiarezza ($X = \langle x_1, \dots, x_n \rangle \in \mathbb{R}^n$).
-- **Figure TikZ**: usa la palette `navy`, `darkgreen`, `crimson`, `codebackground` con nodi `rounded corners`.
-- **Tabelle**: usa `booktabs` (`\toprule`, `\midrule`, `\bottomrule`), font `\small` e layout compatto.
+- **Figure TikZ**: usa la palette `navy`, `darkgreen`, `crimson`, `codebackground` con nodi `rounded corners`. Posiziona sempre le etichette a lato degli archi o con sfondo per non nascondere le frecce.
+- **Confinamento Float**: usa sempre `\begin{figure}[H]` e `\begin{table}[H]`, e anteponi `\FloatBarrier` ad ogni `\section` e `\subsection` affinché nessuna figura o tabella oltrepassi il proprio paragrafo.
+- **Tabelle**: usa `booktabs` (`\toprule`, `\midrule`, `\bottomrule`), font `\small` e layout compatto racchiuso ove opportuno in `\resizebox{\columnwidth}{!}{...}`.
 - **Box e Teoremi**: usa gli ambienti `definition`, `theorem`, `example` per evidenziare i passaggi teorici cardine.
 
 ### Fase 3: Integrazione nei File Principali

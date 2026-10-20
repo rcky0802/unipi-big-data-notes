@@ -1,0 +1,779 @@
+\chapter{Strutture Dati e Algoritmi per Stringhe: TST e Radix Sort}
+\label{chap:strutture-dati-stringhe-tst-radix-sort}
+
+\FloatBarrier
+\section{Introduzione e Modello Computazionale per Stringhe}
+\label{sec:intro-modello-stringhe}
+
+Nel modello computazionale convenzionale adottato per l'analisi degli algoritmi di ordinamento e ricerca su tipi atomici (come interi a precisione prefissata a 32 o 64 bit o valori in virgola mobile), l'operazione elementare di confronto tra due elementi viene considerata atomica e caratterizzata da un costo unitario $\mathcal{O}(1)$. Quando si estende l'orizzonte applicativo alla manipolazione di collezioni di \textbf{stringhe} o chiavi a lunghezza arbitraria, tale assunzione teorica decade completamente, rendendo necessario un modello computazionale dedicato.
+
+Sia dato un insieme $S$ costituito da $n$ stringhe definite su un alfabeto finito ed ordinato $\Sigma$ di cardinalit\`a finita $\sigma = |\Sigma|$:
+\begin{equation}
+  S = \{s_1, s_2, \dots, s_n\}, \quad s_j \in \Sigma^* \quad \forall j \in \{1, \dots, n\}
+\end{equation}
+Il confronto lessicografico tra due stringhe arbitrarie $s_1, s_2 \in S$ non pu\`o avvenire in tempo unitario: esso richiede la scansione carattere per carattere a partire dalla posizione iniziale, arrestandosi al primo indice in cui i caratteri differiscono oppure al termine della stringa pi\`u corta. Tale costo \`e intrinsecamente proporzionale alla lunghezza del pi\`u lungo prefisso comune (\textit{Longest Common Prefix}, LCP):
+\begin{equation}
+  \text{Costo}(s_1, s_2) = \mathcal{O}(\text{LCP}(s_1, s_2) + 1) \le \mathcal{O}(\min(|s_1|, |s_2|))
+\end{equation}
+Se si gestissero insiemi di stringhe mediante algoritmi generici di ordinamento basati su comparazioni globali (quali ad esempio il \textit{MergeSort} o il \textit{Quicksort} convenzionale) applicati a $n$ stringhe di lunghezza uniforme o massima pari a $L$, nel caso peggiore il costo computazionale risulterebbe:
+\begin{equation}
+  T_{\text{generico}}(n, L) = \mathcal{O}(L \cdot n \log_2 n)
+\end{equation}
+Tale limite riflette la ridondanza tipica degli approcci a confronto completo: le coppie di stringhe che condividono prefissi identici vengono confrontate ripetutamente dall'inizio ad ogni passo ricorsivo, riesaminando caratteri gi\`a validati e dissipando risorse di calcolo.
+
+Per superare queste inefficienze, l'Algorithm Engineering introduce strutture dati e algoritmi specializzati che operano \textbf{carattere per carattere} o su blocchi discreti di bit:
+\begin{enumerate}
+  \item \textbf{Ternary Search Trees (TST)}~\cite{bentley1997}: strutture ad albero che combinano l'efficienza temporale dei Trie con il limitato consumo spaziale degli alberi binari di ricerca (BST). La loro architettura \`e strettamente interconnessa all'algoritmo di partizionamento ternario \textit{Multi-Key Quicksort} (o \textit{3-Way Radix Quicksort}) introdotto da Jon Bentley e Robert Sedgewick~\cite{bentley1997}.
+  \item \textbf{Radix Sort}~\cite{knuth1998vol3, sedgewickwayne2011}: una classe di algoritmi di ordinamento non comparativi che distribuiscono le stringhe esaminandone le singole componenti elementari (cifre decimali, caratteri ASCII o byte), declinati nelle varianti \textbf{LSD} (\textit{Least Significant Digit}) e \textbf{MSD} (\textit{Most Significant Digit}).
+\end{enumerate}
+
+\FloatBarrier
+\section{Ternary Search Trees: Modello Teorico e Struttura del Nodo}
+\label{sec:tst-modello-teorico}
+
+I \textbf{Ternary Search Trees (TST)}, formulati da Bentley e Sedgewick~\cite{bentley1997}, nascono per risolvere il fondamentale compromesso fra consumo spaziale e tempo di risposta nei dizionari dinamici per stringhe:
+\begin{itemize}
+  \item \textbf{Trie Standard (ad arit\`a $\sigma$):} garantisce ricerche in tempo ottimo $\mathcal{O}(|s|)$, indipendente dal numero di chiavi $n$. Tuttavia, ciascun nodo interno deve allocare un vettore di puntatori di dimensione $\sigma = |\Sigma|$. Quando l'alfabeto \`e vasto (come l'ASCII esteso con $\sigma = 256$ o lo standard Unicode) e l'albero \`e poco denso, la stragrande maggioranza dei puntatori rimane nulla, causando un'enorme dispersione di memoria e compromettendo la localit\`a dei riferimenti nella cache.
+  \item \textbf{Binary Search Tree (BST) convenzionale:} memorizza intere stringhe all'interno di ciascun nodo, mantenendo l'occupazione spaziale limitata a $\mathcal{O}(n)$. Nondimeno, a ogni biforcazione dell'albero viene eseguito un confronto lessicografico completo fra l'intera chiave cercata e la stringa memorizzata nel nodo, comportando una riesecuzione ridondante dei test sui caratteri del prefisso comune.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Definizione Formale del Nodo di un TST}
+\label{subsec:definizione-nodo-tst}
+
+Un Ternary Search Tree organizza i caratteri delle chiavi in una gerarchia ternaria. Ciascun nodo non rappresenta una stringa intera, bens\`i un singolo carattere discriminante associato a uno specifico indice di scansione.
+
+\begin{definition}[Nodo di un Ternary Search Tree]
+\label{def:nodo-tst}
+Un nodo $u$ di un TST \`e definito formalmente dalla tupla:
+\begin{equation}
+  u = \langle X, \; i, \; \text{left}[u], \; \text{mid}[u], \; \text{right}[u] \rangle
+\end{equation}
+dove:
+\begin{itemize}
+  \item $X = \text{char}(u) \in \Sigma$ \`e il \textbf{carattere discriminante} associato al nodo.
+  \item $i \in \{1, 2, \dots, |s|\}$ \`e l'\textbf{indice di ispezione}, che indica quale carattere della stringa in ingresso viene confrontato con $X$ nel nodo corrente.
+  \item $\text{left}[u]$ (\textbf{Ramo Minore}, $<$): punta al sottoalbero contenente le chiavi il cui $i$-esimo carattere \`e strettamente minore di $X$ nell'ordine dell'alfabeto ($\text{chiave}[i] < X$). Se la navigazione imbocca questo ramo, \textbf{l'indice $i$ rimane invariato}: la ricerca proseguir\`a confrontando la medesima posizione $i$ con il carattere del nodo figlio.
+  \item $\text{mid}[u]$ (\textbf{Ramo Uguale}, $=$): punta al sottoalbero contenente le chiavi il cui $i$-esimo carattere coincide esattamente con $X$ ($\text{chiave}[i] == X$). Poich\'e il carattere corrente \`e stato validato con successo, \textbf{l'indice avanza di una posizione}:
+  \begin{equation}
+    i \leftarrow i + 1
+  \end{equation}
+  \item $\text{right}[u]$ (\textbf{Ramo Maggiore}, $>$): punta al sottoalbero contenente le chiavi il cui $i$-esimo carattere \`e strettamente maggiore di $X$ ($\text{chiave}[i] > X$). Analogamente al ramo sinistro, \textbf{l'indice $i$ rimane invariato}.
+\end{itemize}
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    mainnode/.style={draw=navy, fill=codebackground, thick, rounded corners=4pt, align=center, inner sep=7pt, font=\small},
+    branchnode/.style={draw=navy!70!black, fill=white, thick, rounded corners=3pt, align=center, inner sep=6pt, font=\footnotesize},
+    midnode/.style={draw=darkgreen, fill=darkgreen!8, thick, rounded corners=3pt, align=center, inner sep=6pt, font=\footnotesize},
+    arr/.style={->, thick, draw=navy},
+    midarr/.style={->, very thick, draw=darkgreen}
+]
+  \node[mainnode] (root) {\textbf{Nodo Discriminante}\\Carattere: $X \in \Sigma$\\\textit{Indice Corrente: $i$}};
+
+  \node[branchnode, below left=2.2cm and 2.3cm of root] (left) {\textbf{Ramo Minore ($<$)}\\$\text{chiave}[i] < X$\\\textit{Indice resta: $i$}};
+  \node[midnode, below=2.2cm of root] (mid) {\textbf{Ramo Uguale ($=$)}\\$\text{chiave}[i] == X$\\\textbf{\textit{Avanza: $i \leftarrow i + 1$}}};
+  \node[branchnode, below right=2.2cm and 2.3cm of root] (right) {\textbf{Ramo Maggiore ($>$)}\\$\text{chiave}[i] > X$\\\textit{Indice resta: $i$}};
+
+  % Frecce con etichette a lato per non coprire il tratto della freccia
+  \draw[arr] (root.south west) -- (left.north) node[midway, above left=2pt, font=\small\bfseries, text=navy] {$<$};
+  \draw[midarr] (root.south) -- (mid.north) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+  \draw[arr] (root.south east) -- (right.north) node[midway, above right=2pt, font=\small\bfseries, text=navy] {$>$};
+\end{tikzpicture}%
+}
+\caption{Rappresentazione concettuale del nodo elementare di un TST e della regola fondamentale di avanzamento dell'indice: la transizione lungo il ramo centrale ($=$) valida il carattere corrente e incrementa l'indice di scansione ($i \leftarrow i+1$), mentre le transizioni laterali ($<$ e $>$) mantengono inalterato l'indice $i$.}
+\label{fig:tst-node-structure}
+\end{figure}
+
+\FloatBarrier
+\subsection{Gestione dei Terminatori di Stringa e Sentinelle}
+\label{subsec:terminatori-stringa}
+
+All'interno di un dizionario per stringhe, pu\`o verificarsi la condizione in cui una chiave costituisca prefisso proprio di un'altra chiave gi\`a inserita nell'albero (si consideri ad esempio la coppia di parole $\text{"CAT"}$ e $\text{"CAST"}$). Se l'albero si limitasse a memorizzare i soli caratteri della parola, la chiave pi\`u corta verrebbe completamente oscurata dal percorso della chiave pi\`u estesa.
+
+Per garantire la separabilit\`a e l'univocit\`a di ciascuna chiave, si adotta una convenzione basata su \textbf{caratteri sentinella}:
+\begin{itemize}
+  \item Si appende al termine di ciascuna stringa un carattere speciale convenzionale di fine stringa, denotato con il simbolo $\$$ oppure con il byte nullo $\texttt{\textbackslash 0}$.
+  \item Il terminatore possiede un valore convenzionale strettamente inferiore a qualsiasi carattere alfanumerico o simbolico dell'alfabeto:
+  \begin{equation}
+    \$ < a \quad \forall a \in \Sigma
+  \end{equation}
+  \item In questo schema, la condizione di terminazione e corrispondenza esatta coincide formalmente con il transito attraverso un collegamento centrale ($=$) che valida il carattere sentinella $\$$.
+  \item Negli appunti si fa inoltre riferimento all'impiego coordinato di sentinelle inferiori e superiori (quali $\$$ e $\#$) per delimitare gli estremi lessicografici dell'universo delle chiavi, garantendo che qualsiasi ricerca per intervallo o ricerca di predecessore e successore operi su domini compatti e ben definiti.
+\end{itemize}
+
+\FloatBarrier
+\section{Costruzione del TST e Partizionamento a 3 Vie}
+\label{sec:costruzione-tst-partizionamento}
+
+La topologia di un TST riflette in modo diretto l'albero delle chiamate ricorsive generato dall'algoritmo di \textbf{Multi-Key Quicksort} (o partizionamento ternario di Bentley-Sedgewick) applicato sull'insieme delle stringhe~\cite{bentley1997}. 
+
+Dato un insieme corrente di stringhe $R \subseteq S$ e un indice di carattere attivo $i$:
+\begin{enumerate}
+  \item Si seleziona una stringa pivot $P \in R$, estraendone il carattere discriminante $X = P[i]$.
+  \item L'insieme $R$ viene partizionato in tre sottoinsiemi mutualmente disgiunti:
+  \begin{align}
+    R_{<} &= \{ s \in R \mid s[i] < X \} \\
+    R_{=} &= \{ s \in R \mid s[i] = X \} \\
+    R_{>} &= \{ s \in R \mid s[i] > X \}
+  \end{align}
+  \item Si applica la ricorsione sui tre rami:
+  \begin{itemize}
+    \item Sul sottoinsieme $R_{<}$, mantenendo l'indice invariato ($i$).
+    \item Sul sottoinsieme $R_{=}$, avanzando l'indice al carattere successivo ($i + 1$).
+    \item Sul sottoinsieme $R_{>}$, mantenendo l'indice invariato ($i$).
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Tracciamento Analitico dell'Esempio Didattico}
+\label{subsec:tracciamento-esempio-tst}
+
+Si consideri l'insieme di $n = 5$ stringhe fornito negli appunti:
+\begin{equation}
+  S = \{\text{"CAT"}, \; \text{"AB"}, \; \text{"CAST"}, \; \text{"CAR"}, \; \text{"AT"}\}
+\end{equation}
+
+\paragraph{Passo 1: Radice Globale (Livello 1)}
+\begin{itemize}
+  \item \textbf{Indice di partenza:} $i = 1$.
+  \item \textbf{Selezione del Pivot:} si seleziona come pivot la stringa $P = \text{"CAST"}$, per cui il carattere discriminante alla radice \`e $X = P[1] = \text{'C'}$.
+  \item \textbf{Valutazione dei caratteri a $i = 1$:}
+  \begin{itemize}
+    \item $\text{"AB"}[1] = \text{'A'} < \text{'C'} \implies \text{"AB"} \in R_{<}$
+    \item $\text{"AT"}[1] = \text{'A'} < \text{'C'} \implies \text{"AT"} \in R_{<}$
+    \item $\text{"CAT"}[1] = \text{'C'} == \text{'C'} \implies \text{"CAT"} \in R_{=}$
+    \item $\text{"CAST"}[1] = \text{'C'} == \text{'C'} \implies \text{"CAST"} \in R_{=}$
+    \item $\text{"CAR"}[1] = \text{'C'} == \text{'C'} \implies \text{"CAR"} \in R_{=}$
+  \end{itemize}
+  \item \textbf{Partizioni risultanti:}
+  \begin{equation}
+    R_{<} = \{\text{"AB"}, \; \text{"AT"}\}, \quad R_{=} = \{\text{"CAT"}, \; \text{"CAST"}, \; \text{"CAR"}\}, \quad R_{>} = \emptyset
+  \end{equation}
+\end{itemize}
+
+\paragraph{Passo 2A: Sottoalbero Sinistro ($R_{<}$)}
+Si analizza il sottoinsieme $R_{<} = \{\text{"AB"}, \text{"AT"}\}$ a partire dall'indice iniziale $i = 1$:
+\begin{itemize}
+  \item \textbf{Pivot selezionato:} $P = \text{"AT"}$, con $i = 1 \implies P[1] = \text{'A'}$.
+  \item Sia $\text{"AB"}[1] = \text{'A'}$ che $\text{"AT"}[1] = \text{'A'}$. Poich\'e entrambi gli elementi condividono il carattere $\text{'A'}$, non si generano rami laterali ($R_{<} = \emptyset$, $R_{>} = \emptyset$) e l'insieme confluisce interamente nel ramo centrale $R_{=}$.
+  \item Si avanza pertanto l'indice di scansione sul ramo centrale a \textbf{$i = 2$}:
+  \begin{itemize}
+    \item Carattere di pivot a $i = 2$: $P[2] = \text{'T'}$.
+    \item Confronto a $i = 2$:
+    \begin{align}
+      \text{"AB"}[2] &= \text{'B'} < \text{'T'} \implies \text{"AB"} \in R_{<} \\
+      \text{"AT"}[2] &= \text{'T'} == \text{'T'} \implies \text{"AT"} \in R_{=}
+    \end{align}
+    mentre $R_{>} = \emptyset$.
+  \end{itemize}
+  \item Ne discende che la stringa $\text{"AB"}$ devia sul ramo minore del nodo associato a $\text{'T'}$, mentre $\text{"AT"}$ prosegue e conclude il percorso lungo il ramo centrale.
+\end{itemize}
+
+\paragraph{Passo 2B: Sottoalbero Centrale ($R_{=}$)}
+Si elabora il sottoinsieme $R_{=} = \{\text{"CAT"}, \text{"CAST"}, \text{"CAR"}\}$ derivante dalla radice:
+\begin{itemize}
+  \item Poich\'e l'insieme scaturisce dalla transizione centrale della radice ($X = \text{'C'}$), l'ispezione si sposta su \textbf{$i = 2$}.
+  \item \textbf{Pivot selezionato:} $P = \text{"CAST"}$, con $i = 2 \implies P[2] = \text{'A'}$.
+  \item Tutte e tre le stringhe presentano la lettera $\text{'A'}$ in seconda posizione ($\text{"CAT"}[2] = \text{"CAST"}[2] = \text{"CAR"}[2] = \text{'A'}$).
+  \item Di conseguenza, $R_{<} = \emptyset$, $R_{>} = \emptyset$, e si avanza ricorsivamente lungo il ramo uguale a \textbf{$i = 3$}.
+  \item \textbf{Nuovo pivot a $i = 3$:} $P = \text{"CAST"}$, con $X = P[3] = \text{'S'}$.
+  \item \textbf{Confronto dei terzi caratteri ($i = 3$):}
+  \begin{itemize}
+    \item $\text{"CAR"}[3] = \text{'R'}$. Poich\'e nel codice alfabetico $\text{'R'} < \text{'S'}$, si ha $\text{"CAR"} \in R_{<}$.
+    \item $\text{"CAST"}[3] = \text{'S'}$. Corrispondenza esatta $\text{'S'} == \text{'S'}$, per cui $\text{"CAST"} \in R_{=}$.
+    \item $\text{"CAT"}[3] = \text{'T'}$. Poich\'e $\text{'T'} > \text{'S'}$, si ha $\text{"CAT"} \in R_{>}$.
+  \end{itemize}
+  \item \textbf{Partizioni a $i = 3$:}
+  \begin{equation}
+    R_{<} = \{\text{"CAR"}\}, \quad R_{=} = \{\text{"CAST"}\}, \quad R_{>} = \{\text{"CAT"}\}
+  \end{equation}
+  Tutte le tre partizioni risultano composte da un singolo elemento (singleton), esaurendo le biforcazioni necessarie per disambiguare l'intero insieme.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{cccccp{5.5cm}}
+\toprule
+\textbf{Livello/Nodo} & \textbf{Indice $i$} & \textbf{Carattere $X$} & \textbf{Ramo $<$} & \textbf{Ramo $=$} & \textbf{Ramo $>$} \\
+\midrule
+Radice & $i=1$ & \texttt{'C'} & $\{\text{AB}, \text{AT}\}$ & $\{\text{CAT}, \text{CAST}, \text{CAR}\}$ & $\emptyset$ \\
+Figlio Sx & $i=1$ & \texttt{'A'} & $\emptyset$ & $\{\text{AB}, \text{AT}\}$ (avanza a $i=2$) & $\emptyset$ \\
+Sub Sx & $i=2$ & \texttt{'T'} & $\{\text{AB}\}$ & $\{\text{AT}\}$ & $\emptyset$ \\
+Figlio Mid & $i=2$ & \texttt{'A'} & $\emptyset$ & $\{\text{CAT}, \text{CAST}, \text{CAR}\}$ (avanza a $i=3$) & $\emptyset$ \\
+Sub Mid & $i=3$ & \texttt{'S'} & $\{\text{CAR}\}$ & $\{\text{CAST}\}$ & $\{\text{CAT}\}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro riassuntivo dei passi di partizionamento ternario e delle ramificazioni ricorsive per l'insieme didattico $S = \{\text{CAT}, \text{AB}, \text{CAST}, \text{CAR}, \text{AT}\}$.}
+\label{tab:tst-partition-summary}
+\end{table}
+
+\FloatBarrier
+\subsection{Topologia Vettoriale dell'Albero Ricostruito}
+\label{subsec:topologia-tst-albero}
+
+La Figura~\ref{fig:tst-complete-tree} illustra la conformazione geometrica esatta del TST corrispondente ai passaggi sopra derivati.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    tstnode/.style={draw=navy, fill=codebackground, thick, rounded corners=4pt, align=center, inner sep=6pt, font=\small},
+    leafnode/.style={draw=darkgreen, fill=darkgreen!10, thick, rounded corners=3pt, align=center, inner sep=5pt, font=\small\bfseries},
+    edge_lt/.style={->, thick, draw=navy},
+    edge_eq/.style={->, very thick, draw=darkgreen},
+    edge_gt/.style={->, thick, draw=crimson}
+]
+  % Livello 0: Radice
+  \node[tstnode] (r_c1) at (0, 0) {\textbf{(C)} \\ \scriptsize $i=1$};
+
+  % Livello 1: Sottoalbero sinistro e centrale dalla radice
+  % Ramo < va a sinistra, ramo = scende verticalmente verso il basso (ramo > vuoto)
+  \node[tstnode] (n_a1) at (-3.4, -2.1) {\textbf{(A)} \\ \scriptsize $i=1$};
+  \node[tstnode] (n_a2) at (0, -2.1) {\textbf{(A)} \\ \scriptsize $i=2$};
+
+  \draw[edge_lt] (r_c1) -- (n_a1) node[midway, above left=2pt, font=\small\bfseries, text=navy] {$<$};
+  \draw[edge_eq] (r_c1) -- (n_a2) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+
+  % Livello 2: Da A (i=1) a T (i=2) lungo ramo = (verticale)
+  \node[tstnode] (n_t2) at (-3.4, -4.2) {\textbf{(T)} \\ \scriptsize $i=2$};
+  \draw[edge_eq] (n_a1) -- (n_t2) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+
+  % Livello 3 (Foglie del sottoalbero sinistro da T i=2):
+  % AB va a sinistra (<), AT scende verticale (=)
+  \node[leafnode] (l_ab) at (-4.8, -6.3) {\texttt{AB}};
+  \node[leafnode] (l_at) at (-3.4, -6.3) {\texttt{AT}};
+  \draw[edge_lt] (n_t2) -- (l_ab) node[midway, above left=2pt, font=\small\bfseries, text=navy] {$<$};
+  \draw[edge_eq] (n_t2) -- (l_at) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+
+  % Livello 2: Da A (i=2) a S (i=3) lungo ramo = (verticale)
+  \node[tstnode] (n_s3) at (0, -4.2) {\textbf{(S)} \\ \scriptsize $i=3$};
+  \draw[edge_eq] (n_a2) -- (n_s3) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+
+  % Livello 3 (Foglie del sottoalbero centrale da S i=3): 3 uscite simmetriche
+  \node[leafnode] (l_car) at (-1.6, -6.3) {\texttt{CAR}};
+  \node[leafnode] (l_cast) at (0, -6.3) {\texttt{CAST}};
+  \node[leafnode] (l_cat) at (1.6, -6.3) {\texttt{CAT}};
+
+  \draw[edge_lt] (n_s3) -- (l_car) node[midway, above left=2pt, font=\small\bfseries, text=navy] {$<$};
+  \draw[edge_eq] (n_s3) -- (l_cast) node[midway, right=5pt, font=\small\bfseries, text=darkgreen] {$=$};
+  \draw[edge_gt] (n_s3) -- (l_cat) node[midway, above right=2pt, font=\small\bfseries, text=crimson] {$>$};
+\end{tikzpicture}%
+}
+\caption{Diagramma topologico del Ternary Search Tree ottenuto dal partizionamento dell'insieme $S = \{\text{CAT}, \text{AB}, \text{CAST}, \text{CAR}, \text{AT}\}$, inteso come albero di ricorsione del Multi-Key Quicksort (con compressione alle foglie non appena $|R|=1$). La geometria ternaria \`e rigorosamente uniforme: le transizioni centrali ($=$) scendono verticalmente verso il basso avanzando l'indice ($i \leftarrow i+1$), mentre le transizioni laterali ($<$ e $>$) divergono diagonalmente a sinistra e a destra mantenendo invariato l'indice $i$.}
+\label{fig:tst-complete-tree}
+\end{figure}
+
+\FloatBarrier
+\section{Operazioni Fondamentali e Analisi di Complessità nei TST}
+\label{sec:operazioni-complessita-tst}
+
+\FloatBarrier
+\subsection{Ricerca Esatta (Exact Match)}
+\label{subsec:ricerca-esatta-tst}
+
+Data una chiave interrogante $s \in \Sigma^*$ di lunghezza $|s|$ da localizzare all'interno del dizionario $S$ contenente $n$ stringhe:
+\begin{enumerate}
+  \item La procedura ha inizio presso il nodo radice impostando l'indice di scansione a $i = 1$.
+  \item Presso ciascun nodo corrente $u$ caratterizzato dal discriminante $X = \text{char}(u)$ e indice $i$:
+  \begin{itemize}
+    \item Se $s[i] < X$, la ricerca prosegue sul figlio sinistro $\text{left}[u]$ mantenendo $i$ invariato.
+    \item Se $s[i] > X$, la ricerca prosegue sul figlio destro $\text{right}[u]$ mantenendo $i$ invariato.
+    \item Se $s[i] == X$, la corrispondenza del carattere corrente \`e verificata: la ricerca prosegue sul figlio centrale $\text{mid}[u]$ incrementando l'indice di scansione:
+    \begin{equation}
+      i \leftarrow i + 1
+    \end{equation}
+  \end{itemize}
+  \item La ricerca si conclude con successo se e solo se, dopo aver consumato l'intero vettore dei caratteri di $s$, si perviene alla validazione del carattere sentinella di fine stringa $\$$ (o a un marcatore di nodo terminale attivo). Qualora si raggiunga un puntatore nullo prima del termine di $s$, la chiave non \`e presente nel dizionario.
+\end{enumerate}
+
+\paragraph{Analisi Formale della Complessità:}
+Il tempo di esecuzione di una ricerca esatta si scompone nella somma di due contributi computazionali nettamente distinti:
+\begin{enumerate}
+  \item Il numero di archi centrali ($=$) attraversati, che corrisponde esattamente al numero di caratteri validati con successo, pari a $|s|$.
+  \item Il numero di biforcazioni binarie interne ($<$ e $>$) percorse per individuare il carattere corretto a ciascun livello.
+\end{enumerate}
+
+\begin{theorem}[Complessit\`a della Ricerca in un TST]
+\label{thm:complessita-ricerca-tst}
+Sia dato un TST contenente $n$ chiavi.
+\begin{enumerate}
+  \item Nel \textbf{caso peggiore teorico} (albero completamente sbilanciato o catene lineari lungo i branch laterali), il costo di ricerca \`e delimitato superiormente da:
+  \begin{equation}
+    T_{\text{worst}}(s) = \mathcal{O}(|s| \cdot \sigma) \quad \text{oppure} \quad \mathcal{O}(|s| \log_2 n)
+  \end{equation}
+  \item Nel \textbf{caso medio} (sotto l'ipotesi di inserimento delle chiavi in ordine casuale, assimilabile all'albero di partizionamento di un Quicksort bilanciato), il costo computazionale per una ricerca con successo \`e:
+  \begin{equation}
+    T_{\text{medio}}(s) = \mathcal{O}(|s| + \ln n) = \mathcal{O}(|s| + \log_2 n)
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+La componente dovuta ai collegamenti uguali \`e vincolata deterministicamente dal numero di caratteri della chiave: ogni transizione centrale consuma esattamente un carattere di $s$, comportando al pi\`u $|s|$ passi. Per la componente laterale, lungo qualsiasi cammino dalla radice a una foglia, i nodi con il medesimo indice $i$ formano un albero binario di ricerca sui caratteri dell'alfabeto presenti a quel livello. Quando le chiavi sono inserite in ordine casuale, la profondit\`a cumulata attraversata lungo i rami minori e maggiori sull'intero percorso \`e asintoticamente governata dall'altezza media di un BST su $n$ elementi, pari a $\mathcal{O}(\log_2 n)$ confronti. Sommando i due termini, si ottiene la complessit\`a media $\mathcal{O}(|s| + \log_2 n)$.
+\end{proof}
+
+\FloatBarrier
+\subsection{Ricerca per Prefisso (Prefix Search)}
+\label{subsec:ricerca-prefisso-tst}
+
+Dato un prefisso arbitrario $\hat{s}$ di lunghezza $|\hat{s}|$, determinare se esiste almeno una chiave $s \in S$ che ammetta $\hat{s}$ come prefisso iniziale e individuare l'insieme di tutte le chiavi che lo estendono:
+\begin{itemize}
+  \item Si discende l'albero guidati dai caratteri del prefisso $\hat{s}$ applicando le medesime regole della ricerca esatta.
+  \item Se il cammino si interrompe su un puntatore nullo prima di aver esaurito tutti i caratteri di $\hat{s}$, nessuna chiave nel dizionario possiede tale prefisso.
+  \item Se tutti i caratteri di $\hat{s}$ vengono validati con successo pervenendo al nodo figlio centrale dell'ultimo carattere, \textbf{l'intero sottoalbero radicato in quel nodo contiene tutte e sole le chiavi che ammettono $\hat{s}$ come prefisso}.
+  \item L'elenco completo delle stringhe associate si ricava mediante una visita simmetrica ordinata (in-order traversal) del sottoalbero, senza dover riesaminare i caratteri di $\hat{s}$.
+  \item Il costo temporale medio per localizzare il nodo radice del prefisso \`e:
+  \begin{equation}
+    T_{\text{prefix}}(\hat{s}) = \mathcal{O}(|\hat{s}| + \log_2 n)
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Operazioni Lessicografiche Avanzate}
+\label{subsec:operazioni-lessicografiche}
+
+A differenza delle tabelle hash (che disperdono l'ordine dei dati per massimizzare l'uniformit\`a di distribuzione), i Ternary Search Trees preservano nativamente l'\textbf{ordinamento lessicografico} delle chiavi grazie alla separazione ordinata tra sottoalberi sinistri ($<$) e destri ($>$). Ci\`o rende i TST eccezionalmente adatti all'esecuzione di operazioni ordinate complesse:
+\begin{itemize}
+  \item \textbf{Ricerca del Predecessore e Successore Lessicografico:} data una stringa arbitraria $s$, individua la chiave immediatamente precedente o successiva appartenente a $S$. La ricerca scende lungo l'albero tenendo traccia dell'ultimo ramo laterale imboccato, consentendo di identificare la chiave pi\`u vicina anche se $s \notin S$.
+  \item \textbf{Rango o Posizione Lessicografica ($\text{Rank}(s, S)$):} calcola in tempo logaritmico quante stringhe memorizzate nel dizionario precedono lessicograficamente la chiave $s$. Arricchendo ciascun nodo con un campo aggiuntivo che memorizza la cardinalit\`a (\textit{size}) del sottoalbero, il calcolo del rango avviene in tempo $\mathcal{O}(|s| + \log_2 n)$ accumulando le dimensioni dei rami minori scartati durante la discesa.
+  \item \textbf{Ricerca per Intervallo ($\text{Range Search}(s_1, s_2)$):} estrae ordinatamente tutte le chiavi $s \in S$ tali che $s_1 \le s \le s_2$. La visita attraversa l'albero potando tempestivamente qualsiasi sottoalbero le cui chiavi risultino strettamente minori di $s_1$ o strettamente maggiori di $s_2$.
+\end{itemize}
+
+\FloatBarrier
+\section{Radix Sort: Tassonomia, Funzionamento e Complessità}
+\label{sec:radix-sort-tassonomia}
+
+Il \textbf{Radix Sort} \`e un algoritmo di ordinamento lineare che non si basa sul confronto diretto tra coppie di elementi, bens\`i sull'estrazione e classificazione ordinata delle singole \textbf{componenti elementari} o "cifre" che costituiscono la chiave (come bit, nibble, byte o caratteri)~\cite{knuth1998vol3}.
+
+\FloatBarrier
+\subsection{Tassonomia Fondamentale: LSD vs MSD}
+\label{subsec:tassonomia-lsd-msd}
+
+La letteratura algoritmica classifica il Radix Sort in due filosofie operative distinte in base alla direzione di scansione delle cifre:
+
+\begin{enumerate}
+  \item \textbf{LSD (Least Significant Digit):}
+  \begin{itemize}
+    \item \textbf{Direzione:} Scansione da destra verso sinistra ($\leftarrow$), partendo dalla cifra meno significativa fino a raggiungere la pi\`u significativa.
+    \item \textbf{Requisito Vincente:} Richiede \textbf{tassativamente} che la routine di ordinamento ausiliaria impiegata ad ogni passata sia \textbf{stabile} (ovvero preservi rigorosamente l'ordine relativo preesistente tra elementi che possiedono la medesima cifra).
+    \item \textbf{Caratteristiche di Memoria:} Algoritmo prettamente \textbf{iterativo}, privo di stack di ricorsione profonda e caratterizzato da un ciclo compatto ad accessi sequenziali alla memoria.
+  \end{itemize}
+  \item \textbf{MSD (Most Significant Digit):}
+  \begin{itemize}
+    \item \textbf{Direzione:} Scansione da sinistra verso destra ($\rightarrow$), partendo dal carattere pi\`u significativo.
+    \item \textbf{Meccanismo:} Partiziona ricorsivamente le chiavi in sottoinsiemi distinti (\textit{bucket}) caratterizzati dal medesimo prefisso iniziale, operando in modo concettualmente identico alla costruzione di un Trie o alle partizioni del Multi-Key Quicksort.
+    \item \textbf{Caratteristiche di Memoria:} Non richiede la stabilit\`a della routine ausiliaria, ma richiede la gestione di stack ricorsivi e allocazioni dinamiche di vettori d'appoggio per i bucket intermedi.
+  \end{itemize}
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    charbox/.style={draw=navy, fill=codebackground, thick, minimum width=1.1cm, minimum height=0.85cm, font=\small\bfseries, align=center},
+    arr_lsd/.style={->, very thick, draw=darkgreen},
+    arr_msd/.style={->, very thick, draw=crimson}
+]
+  % -------------------------------------------------------------
+  % BLOCCO SINISTRO: LSD (Least Significant Digit)
+  % -------------------------------------------------------------
+  \node[draw=darkgreen, fill=darkgreen!8, thick, rounded corners=4pt, text width=6.6cm, align=center, inner sep=6pt] (lsd_title) at (-4.2, 2.3) {
+    \textbf{\textcolor{darkgreen}{\normalsize LSD: Least Significant Digit}}\\[2pt]
+    \footnotesize\textit{Iterativo $\cdot$ Richiede Routine Stabile}
+  };
+
+  \node[font=\footnotesize\bfseries, text=darkgreen!80!black] at (-4.2, 1.4) {
+    Direzione: da destra a sinistra ($\leftarrow$)
+  };
+
+  % Freccia orientata a sinistra (da x = -1.4 a x = -7.0)
+  \draw[arr_lsd] (-1.4, 0.95) -- (-7.0, 0.95);
+
+  % Celle caratteri LSD
+  \node[charbox] (l1) at (-6.4, 0.2) {$c_1$};
+  \node[charbox] (l2) at (-5.3, 0.2) {$c_2$};
+  \node[charbox] (l3) at (-4.2, 0.2) {$\dots$};
+  \node[charbox] (l4) at (-3.1, 0.2) {$c_{l-1}$};
+  \node[charbox] (l5) at (-2.0, 0.2) {$c_l$};
+
+  \node[font=\footnotesize\bfseries, text=darkgreen] at (-2.0, -0.55) {Passo 1 (Inizio)};
+  \node[font=\footnotesize\bfseries, text=darkgreen] at (-6.4, -0.55) {Passo $l$ (Fine)};
+
+  % -------------------------------------------------------------
+  % SEPARATORE CENTRALE
+  % -------------------------------------------------------------
+  \draw[dashed, thick, gray!40] (0, -0.9) -- (0, 3.1);
+
+  % -------------------------------------------------------------
+  % BLOCCO DESTRO: MSD (Most Significant Digit)
+  % -------------------------------------------------------------
+  \node[draw=crimson, fill=crimson!8, thick, rounded corners=4pt, text width=6.6cm, align=center, inner sep=6pt] (msd_title) at (4.2, 2.3) {
+    \textbf{\textcolor{crimson}{\normalsize MSD: Most Significant Digit}}\\[2pt]
+    \footnotesize\textit{Ricorsivo $\cdot$ Partizionamento a Bucket}
+  };
+
+  \node[font=\footnotesize\bfseries, text=crimson!80!black] at (4.2, 1.4) {
+    Direzione: da sinistra a destra ($\rightarrow$)
+  };
+
+  % Freccia orientata a destra (da x = 1.4 a x = 7.0)
+  \draw[arr_msd] (1.4, 0.95) -- (7.0, 0.95);
+
+  % Celle caratteri MSD
+  \node[charbox] (m1) at (2.0, 0.2) {$c_1$};
+  \node[charbox] (m2) at (3.1, 0.2) {$c_2$};
+  \node[charbox] (m3) at (4.2, 0.2) {$\dots$};
+  \node[charbox] (m4) at (5.3, 0.2) {$c_{l-1}$};
+  \node[charbox] (m5) at (6.4, 0.2) {$c_l$};
+
+  \node[font=\footnotesize\bfseries, text=crimson] at (2.0, -0.55) {Passo 1 (Inizio)};
+  \node[font=\footnotesize\bfseries, text=crimson] at (6.4, -0.55) {Passo $l$ (Fine)};
+\end{tikzpicture}%
+}
+\caption{Confronto schematico sulla direzione di elaborazione tra l'approccio LSD (a passate iterative stabili dalla cifra meno significativa) e l'approccio MSD (a partizioni ricorsive a partire dal prefisso pi\`u significativo).}
+\label{fig:lsd-vs-msd-diagram}
+\end{figure}
+
+\FloatBarrier
+\subsection{Analisi dell'Algoritmo LSD Radix Sort}
+\label{subsec:analisi-algoritmo-lsd}
+
+Si consideri un insieme composto da $n$ stringhe di lunghezza uniforme prefissata pari a $l$ caratteri (o cifre), definite su un alfabeto di cardinalit\`a $\sigma$:
+\begin{itemize}
+  \item \textbf{Struttura a Fasi:} L'algoritmo esegue esattamente \textbf{$l$ passate successive}, scansionando le posizioni a ritroso dall'indice $l$ (ultima componente a destra) fino all'indice $1$ (prima componente a sinistra).
+  \item \textbf{Routine di Ordinamento Stabile:} In ciascuna passata $j \in \{l, l-1, \dots, 1\}$, l'insieme delle $n$ stringhe viene riordinato rispetto alla sola componente $s[j]$ mediante un ordinamento stabile. La procedura canonica d'elezione \`e il \textbf{Counting Sort}~\cite{knuth1998vol3}.
+  \item \textbf{Complessit\`a del Counting Sort per Singola Fase:}
+  Dati $n$ elementi le cui chiavi assumono valori discreti nell'intervallo $[0, \sigma - 1]$:
+  \begin{enumerate}
+    \item Calcolo dell'istogramma delle frequenze: tempo $\mathcal{O}(n)$ e memoria ausiliaria $\mathcal{O}(\sigma)$.
+    \item Calcolo delle somme prefisse (\textit{prefix sums}) e ridistribuzione stabile in un array d'appoggio: tempo $\mathcal{O}(n + \sigma)$.
+  \end{enumerate}
+  Il costo di una singola fase risulta quindi:
+  \begin{equation}
+    T_{\text{fase}} = \mathcal{O}(n + \sigma)
+  \end{equation}
+  \item \textbf{Complessit\`a Temporale Complessiva dell'LSD Radix Sort:}
+  Poich\'e l'algoritmo esegue esattamente $l$ passate indipendenti:
+  \begin{equation}
+    T_{\text{totale}}(n, l, \sigma) = l \cdot \mathcal{O}(n + \sigma) = \mathcal{O}(l(n + \sigma))
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Esecuzione Dettagliata dell'Esempio Numerico Didattico}
+\label{subsec:esempio-numerico-lsd}
+
+Si traccia l'esecuzione rigorosa dell'algoritmo LSD Radix Sort sull'insieme di $n = 5$ chiavi numeriche di lunghezza $l = 3$ su alfabeto decimale ($\Sigma = \{0, 1, \dots, 9\}$, con $\sigma = 10$) riportato negli appunti:
+\begin{equation}
+  S_1 = \text{"111"}, \quad S_2 = \text{"042"}, \quad S_3 = \text{"665"}, \quad S_4 = \text{"077"}, \quad S_5 = \text{"007"}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{0.8\linewidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Elemento} & \textbf{Cifra 1 (MSD)} & \textbf{Cifra 2 (Mid)} & \textbf{Cifra 3 (LSD)} & \textbf{Valore Completo} \\
+\midrule
+$S_1$ & \texttt{'1'} & \texttt{'1'} & \texttt{'1'} & \texttt{111} \\
+$S_2$ & \texttt{'0'} & \texttt{'4'} & \texttt{'2'} & \texttt{042} \\
+$S_3$ & \texttt{'6'} & \texttt{'6'} & \texttt{'5'} & \texttt{665} \\
+$S_4$ & \texttt{'0'} & \texttt{'7'} & \texttt{'7'} & \texttt{077} \\
+$S_5$ & \texttt{'0'} & \texttt{'0'} & \texttt{'7'} & \texttt{007} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Configurazione tabellare iniziale delle chiavi numeriche per l'algoritmo LSD Radix Sort.}
+\label{tab:lsd-initial-state}
+\end{table}
+
+\paragraph{Fase 1: Ordinamento Stabile sulla Cifra 3 (Posizione Meno Significativa / Destra)}
+\begin{itemize}
+  \item Si estraggono le terze cifre delle stringhe nell'ordine originario:
+  \begin{equation}
+    S_1 \to \texttt{'1'}, \quad S_2 \to \texttt{'2'}, \quad S_3 \to \texttt{'5'}, \quad S_4 \to \texttt{'7'}, \quad S_5 \to \texttt{'7'}
+  \end{equation}
+  \item Si applica il Counting Sort rispetto a tali chiavi. Si osservi che sia $S_4$ che $S_5$ presentano la medesima cifra $\texttt{'7'}$. In virt\`u della \textbf{stabilit\`a del Counting Sort}, l'ordine relativo originario viene rigidamente conservato: $S_4$ precede $S_5$ nel vettore prodotto.
+  \item \textbf{Vettore al termine della Fase 1:}
+  \begin{equation}
+    [S_1, \; S_2, \; S_3, \; S_4, \; S_5] = [\texttt{"111"}, \; \texttt{"042"}, \; \texttt{"665"}, \; \texttt{"077"}, \; \texttt{"007"}]
+  \end{equation}
+\end{itemize}
+
+\paragraph{Fase 2: Ordinamento Stabile sulla Cifra 2 (Posizione Centrale)}
+\begin{itemize}
+  \item Si estraggono le seconde cifre rispettando l'ordine scaturito dalla Fase 1:
+  \begin{itemize}
+    \item $\texttt{"111"} \implies \text{cifra } \texttt{'1'}$
+    \item $\texttt{"042"} \implies \text{cifra } \texttt{'4'}$
+    \item $\texttt{"665"} \implies \text{cifra } \texttt{'6'}$
+    \item $\texttt{"077"} \implies \text{cifra } \texttt{'7'}$
+    \item $\texttt{"007"} \implies \text{cifra } \texttt{'0'}$
+  \end{itemize}
+  \item Chiavi di ordinamento estratte: $\{\texttt{'1'}, \texttt{'4'}, \texttt{'6'}, \texttt{'7'}, \texttt{'0'}\}$.
+  \item L'ordinamento stabile riorganizza il vettore secondo i valori crescenti delle cifre:
+  \begin{enumerate}
+    \item $\texttt{'0'} \implies \texttt{"007"}$ (diviene $1^\circ$)
+    \item $\texttt{'1'} \implies \texttt{"111"}$ (diviene $2^\circ$)
+    \item $\texttt{'4'} \implies \texttt{"042"}$ (diviene $3^\circ$)
+    \item $\texttt{'6'} \implies \texttt{"665"}$ (diviene $4^\circ$)
+    \item $\texttt{'7'} \implies \texttt{"077"}$ (diviene $5^\circ$)
+  \end{enumerate}
+  \item \textbf{Vettore al termine della Fase 2:}
+  \begin{equation}
+    [\texttt{"007"}, \; \texttt{"111"}, \; \texttt{"042"}, \; \texttt{"665"}, \; \texttt{"077"}]
+  \end{equation}
+\end{itemize}
+
+\paragraph{Fase 3: Ordinamento Stabile sulla Cifra 1 (Posizione Pi\`u Significativa / Sinistra)}
+\begin{itemize}
+  \item Si estraggono le prime cifre dalla sequenza ordinata al termine della Fase 2:
+  \begin{itemize}
+    \item $\texttt{"007"} \implies \text{cifra } \texttt{'0'}$
+    \item $\texttt{"111"} \implies \text{cifra } \texttt{'1'}$
+    \item $\texttt{"042"} \implies \text{cifra } \texttt{'0'}$
+    \item $\texttt{"665"} \implies \text{cifra } \texttt{'6'}$
+    \item $\texttt{"077"} \implies \text{cifra } \texttt{'0'}$
+  \end{itemize}
+  \item Chiavi di ordinamento estratte: $\{\texttt{'0'}, \texttt{'1'}, \texttt{'0'}, \texttt{'6'}, \texttt{'0'}\}$.
+  \item Notiamo che vi sono tre elementi aventi prima cifra identica pari a $\texttt{'0'}$: $\texttt{"007"}$, $\texttt{"042"}$ e $\texttt{"077"}$. Poich\'e il Counting Sort \`e rigorosamente stabile, l'ordine relativo maturato alla fine della Fase 2 ($\texttt{"007"}$, seguito da $\texttt{"042"}$, seguito da $\texttt{"077"}$) \textbf{viene interamente preservato}!
+  \item \textbf{Vettore finale (Fase 3 ultimata):}
+  \begin{equation}
+    [\texttt{"007"}, \; \texttt{"042"}, \; \texttt{"077"}, \; \texttt{"111"}, \; \texttt{"665"}]
+  \end{equation}
+\end{itemize}
+Il vettore risulta perfettamente ordinato sia numericamente sia lessicograficamente in senso strettamente crescente.
+
+\FloatBarrier
+\section{Ottimizzazione di LSD Radix Sort per Stringhe Binarie}
+\label{sec:ottimizzazione-stringhe-binarie}
+
+Un problema cardinale nell'ingegneria dei sistemi software (gestione di indici di database, elaborazione di hash crittografici SHA-256 a 256 bit o ordinamento di indirizzi di memoria fisica a 64 bit) consiste nell'ordinare grandi collezioni di \textbf{chiavi binarie}:
+\begin{equation}
+  S = \{s_1, s_2, \dots, s_n\}, \quad s_j \in \{0, 1\}^L \quad \forall j \in \{1, \dots, n\}
+\end{equation}
+ovvero $n$ stringhe su alfabeto binario $\Sigma = \{0, 1\}$ di lunghezza uniforme pari a $L$ bit.
+
+Se si applicasse ingenuamente l'LSD Radix Sort considerando la singola cifra elementare a livello di singolo bit ($R = 1$ bit), l'alfabeto avrebbe cardinalit\`a minima $\sigma = 2^1 = 2$, ma l'algoritmo richiederebbe un numero proibitivo di passate, esattamente pari a $L$, comportando un tempo di esecuzione complessivo pari a:
+\begin{equation}
+  T(n, L) = L \cdot \mathcal{O}(n + 2) = \mathcal{O}(L \cdot n)
+\end{equation}
+Per abbattere il numero di passate, si raggruppano i bit adiacenti in blocchi omogenei (\textbf{chunk}) di dimensione fissa $R$ bit ciascuno.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.85\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=0.5cm,
+    chunkbox/.style={draw=navy, fill=codebackground, thick, minimum width=1.8cm, minimum height=0.8cm, font=\small\bfseries, align=center},
+    brace/.style={decorate, decoration={brace, amplitude=6pt, raise=3pt}, thick, navy}
+]
+  \node[chunkbox] (c1) at (0, 0) {$R$ bit};
+  \node[chunkbox] (c2) at (2.0, 0) {$R$ bit};
+  \node[chunkbox] (c3) at (4.0, 0) {$R$ bit};
+  \node[chunkbox] (c4) at (6.0, 0) {$\dots$};
+  \node[chunkbox] (ck) at (8.0, 0) {$R$ bit};
+
+  \draw[brace] (-0.9, 0.5) -- (8.9, 0.5) node[midway, above=10pt, font=\small\bfseries, text=navy] {Lunghezza complessiva della chiave: $L$ bit};
+  \draw[decorate, decoration={brace, amplitude=5pt, mirror, raise=3pt}, thick, darkgreen] (-0.9, -0.5) -- (8.9, -0.5) node[midway, below=8pt, font=\small\bfseries, text=darkgreen] {Numero di passate: $L / R$ blocchi (chunk)};
+\end{tikzpicture}%
+}
+\caption{Scomposizione di una chiave binaria di lunghezza $L$ bit in blocchi elementari di dimensione fissa $R$ bit.}
+\label{fig:chunking-binary-strings}
+\end{figure}
+
+\FloatBarrier
+\subsection{Formalizzazione del Modello a Blocchi}
+\label{subsec:formalizzazione-chunking}
+
+\begin{itemize}
+  \item \textbf{Dimensione del singolo blocco:} $R$ bit.
+  \item \textbf{Alfabeto virtuale per ciascun blocco:} Ciascun blocco di $R$ bit esprime uno tra $2^R$ valori interi distinti nell'intervallo $[0, 2^R - 1]$; l'alfabeto equivalente ha pertanto cardinalit\`a:
+  \begin{equation}
+    \sigma = 2^R
+  \end{equation}
+  \item \textbf{Numero di passate complessive:}
+  \begin{equation}
+    \text{Passate} = \frac{L}{R}
+  \end{equation}
+  \item \textbf{Costo di una singola passata di Counting Sort:}
+  \begin{equation}
+    T_{\text{passata}} = \mathcal{O}(n + \sigma) = \mathcal{O}(n + 2^R)
+  \end{equation}
+  \item \textbf{Funzione di Complessit\`a Globale:}
+  Moltiplicando il numero di passate per il costo temporale della singola passata, si ottiene:
+  \begin{equation}
+    T(n, L, R) = \mathcal{O}\left( \frac{L}{R} (n + 2^R) \right)
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Derivazione Matematica del Valore Ottimo di $R$}
+\label{subsec:derivazione-ottimo-r}
+
+La funzione di costo evidenzia un evidente \textbf{trade-off}:
+\begin{itemize}
+  \item All'aumentare di $R$, il fattore $\frac{L}{R}$ decresce proporzionalmente, riducendo il numero totale di iterazioni richieste.
+  \item Al contempo, il costo di allocazione e inizializzazione dei contatori del Counting Sort $\mathcal{O}(2^R)$ cresce in modo esponenziale.
+\end{itemize}
+
+Per identificare il minimo globale, analizziamo il comportamento asintotico della funzione dividendo il dominio di $R$ in due regimi distinti rispetto a $\log_2 n$:
+
+\paragraph{Regime 1: $1 \le R < \log_2 n$}
+In questo intervallo si ha $2^R < n$. Nel binomio $(n + 2^R)$, la cardinalit\`a dell'insieme $n$ domina strettamente la dimensione della tabella di conteggio $2^R$:
+\begin{equation}
+  n + 2^R = \Theta(n)
+\end{equation}
+La funzione di complessit\`a asintotica si riduce a:
+\begin{equation}
+  T(n, L, R) = \mathcal{O}\left( \frac{L}{R} \cdot n \right)
+\end{equation}
+Poich\'e la funzione \`e \textbf{strettamente decrescente} rispetto a $R$ in tutto l'intervallo $R < \log_2 n$, risulta vantaggioso incrementare $R$ per comprimere il numero di passate $\frac{L}{R}$ senza pagare penalizzazioni significative nella dimensione dell'alfabeto.
+
+\paragraph{Regime 2: $R \ge \log_2 n$}
+In questo intervallo si ha $2^R \ge n$. Nel binomio $(n + 2^R)$, il termine esponenziale $2^R$ sovrasta il numero di stringhe $n$:
+\begin{equation}
+  n + 2^R = \Theta(2^R)
+\end{equation}
+La funzione di complessit\`a asintotica diventa:
+\begin{equation}
+  T(n, L, R) = \mathcal{O}\left( \frac{L \cdot 2^R}{R} \right)
+\end{equation}
+Poich\'e al numeratore compare la funzione esponenziale $2^R$ e al denominatore compare la funzione lineare $R$, per $R \ge \log_2 n$ la funzione \`e \textbf{strettamente crescente} rispetto a $R$.
+
+\paragraph{Punto di Minimo Globale ed Efficienza Ottima:}
+Il minimo della funzione di complessit\`a temporale coincide con il punto di pareggio (\textit{break-even}) in cui i due contributi risultano perfettamente bilanciati:
+\begin{equation}
+  2^R \approx n \implies R_{\text{ottimo}} = \log_2 n
+\end{equation}
+Sostituendo il valore ottimo $R_{\text{ottimo}} = \log_2 n$ nell'espressione generale di costo:
+\begin{align}
+  T(n, L, \log_2 n) &= \mathcal{O}\left( \frac{L}{\log_2 n} (n + 2^{\log_2 n}) \right) \nonumber \\
+                    &= \mathcal{O}\left( \frac{L}{\log_2 n} (n + n) \right) \nonumber \\
+                    &= \mathcal{O}\left( \frac{2n \cdot L}{\log_2 n} \right)
+\end{align}
+Trascurando le costanti moltiplicative, si ottiene il teorema di ottimalit\`a per l'ordinamento di stringhe binarie:
+
+\begin{theorem}[Complessit\`a Ottima di LSD Radix Sort su Stringhe Binarie]
+\label{thm:ottimo-radix-binario}
+Dato un insieme di $n$ stringhe binarie di lunghezza uniforme $L$ bit, l'algoritmo LSD Radix Sort configurato con blocchi di ampiezza $R = \log_2 n$ bit raggiunge una complessit\`a temporale ottima pari a:
+\begin{equation}
+  T_{\text{min}} = \mathcal{O}\left( \frac{n \cdot L}{\log_2 n} \right)
+\end{equation}
+\end{theorem}
+
+\begin{remark}[Verifica Analitica con Calcolo Differenziale]
+Considerando la funzione continua $f(R) = \frac{n + 2^R}{R}$ definita per $R > 0$ e calcolandone la derivata prima rispetto a $R$:
+\begin{equation}
+  f'(R) = \frac{\frac{d}{dR}(n + 2^R) \cdot R - (n + 2^R) \cdot 1}{R^2} = \frac{(2^R \ln 2) R - n - 2^R}{R^2}
+\end{equation}
+Ponendo la derivata uguale a zero per ricercare i punti stazionari:
+\begin{equation}
+  2^R (R \ln 2 - 1) = n
+\end{equation}
+Poich\'e asintoticamente $(R \ln 2 - 1)$ cresce in modo logaritmico rispetto a $2^R$, la soluzione esatta soddisfa $R = \Theta(\log_2 n)$, confermando rigorosamente la derivazione discreta.
+\end{remark}
+
+\FloatBarrier
+\section{Analisi Comparativa Critica e Scelta Architetturale}
+\label{sec:analisi-comparativa-stringhe}
+
+Negli appunti del corso viene formulata una fondamentale osservazione comparativa conclusiva:
+\begin{quote}
+\textit{"Radix sort is good when prefix is close to $L$, otherwise multikey quicksort is better."}
+\end{quote}
+Questo commento del docente racchiude un principio architetturale di primaria importanza per l'Algorithm Engineering, chiarendo le motivazioni teoriche e pratiche che guidano la scelta tra algoritmi basati su partizionamento (\textit{Multi-Key Quicksort}) e algoritmi a scansione lineare (\textit{Radix Sort}).
+
+\FloatBarrier
+\subsection{Perché il Radix Sort è penalizzato da prefissi corti?}
+\label{subsec:penalizzazione-radix-sort}
+
+L'algoritmo LSD Radix Sort \`e per sua natura \textbf{"cieco"} rispetto alla variabilit\`a intrinseca dei prefissi delle stringhe e alla loro distribuzione:
+\begin{itemize}
+  \item Anche qualora due stringhe differiscano macroscopicamente fin dal primissimo bit o carattere (si pensi a due chiavi che iniziano rispettivamente per $\texttt{"0..."}$ e $\texttt{"1..."}$), l'LSD Radix Sort non dispone di alcun meccanismo di arresto anticipato (\textit{early exit}).
+  \item Ogni singola stringa dell'insieme deve obbligatoriamente transitare attraverso tutte le $\frac{L}{R}$ passate del Counting Sort, ispezionando l'intera estensione di $L$ bit fino all'ultima fase.
+  \item Quando le stringhe si distinguono quasi immediatamente (ovvero la lunghezza media del prefisso comune prima della separazione, denominato \textbf{prefisso distinguibile} o \textit{Distinguishing Prefix} $D_i$, \`e molto piccola rispetto a $L$: $D_i \ll L$), l'ispezione forzata di tutti gli $L$ bit genera una mole ingente di operazioni di conteggio ridondanti.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Perché il Multi-Key Quicksort eccelle con prefissi corti?}
+\label{subsec:eccellenza-multikey-quicksort}
+
+Il \textbf{Multi-Key Quicksort} (cos\`i come l'inserimento nei TST o l'MSD Radix Sort con potatura) sfrutta attivamente l'informazione estratta dai caratteri pi\`u significativi:
+\begin{itemize}
+  \item Non appena una stringa viene instradata in un sottoinsieme laterale ($R_{<}$ o $R_{>}$), essa viene isolata rispetto alle altre partizioni e non verr\`a mai pi\`u confrontata con esse sui caratteri successivi.
+  \item L'algoritmo ispeziona ciascuna stringa $s_i$ unicamente fino al raggiungimento del suo prefisso distinguibile $D_i \le L$.
+  \item Come dimostrato nel Teorema~\ref{thm:complessita-multikey-quicksort}, il costo computazionale totale del Multi-Key Quicksort \`e:
+  \begin{equation}
+    T_{\text{MKQ}} = \Theta\left( n \log_2 n + \sum_{i=1}^n D_i \right)
+  \end{equation}
+  \item Se i prefissi distinguibili sono brevi ($D_i \ll L$), la sommatoria $\sum_{i=1}^n D_i$ risulta trascurabile rispetto a $n \cdot L$, rendendo il Multi-Key Quicksort incomparabilmente pi\`u veloce dell'LSD Radix Sort.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Il Caso Favorevole al Radix Sort: Prefissi Prossimi a $L$}
+\label{subsec:caso-favorevole-radix}
+
+Al contrario, si consideri uno scenario in cui l'insieme di dati sia composto da stringhe densamente collegate che condividono lunghissimi prefissi comuni (come nel caso di URL web con domini e percorsi identici, firme genomiche o serie di timestamp ad altissima frequenza):
+\begin{itemize}
+  \item In questo contesto, il prefisso distinguibile si avvicina alla lunghezza massima della chiave: $D_i \approx L$.
+  \item Anche gli algoritmi top-down come il Multi-Key Quicksort o i TST sono costretti a scendere in profondit\`a lungo quasi tutti gli $L$ caratteri per disambiguare le chiavi; nessun algoritmo basato su confronti pu\`o eludere l'ispezione di $\Omega(n \cdot L)$ caratteri.
+  \item Poich\'e l'ispezione completa dell'intera stringa diviene inevitabile per qualsiasi metodo, il \textbf{Radix Sort (LSD)} manifesta appieno la propria superiorit\`a architetturale:
+  \begin{enumerate}
+    \item \textbf{Accessi Sequenziali alla Memoria:} il Counting Sort opera mediante scansioni lineari contigue su array vettoriali, massimizzando il throughput della cache hardware e azzerando i \textit{cache miss}.
+    \item \textbf{Assenza di Branch Misprediction:} l'esecuzione \`e rigidamente iterativa, priva dei salti condizionali imprevedibili caratteristici dei confronti del Quicksort.
+    \item \textbf{Zero Overhead Ricorsivo:} non vi sono chiamate ricorsive n\'e dereferenziazioni di puntatori a nodi dinamici.
+  \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Quadro Sinottico Comparativo delle Metodologie}
+\label{subsec:quadro-sinottico-finale}
+
+La Tabella~\ref{tab:string-paradigms-final-comparison} sintetizza le propriet\`a teoriche, operative ed architetturali delle metodologie per stringhe analizzate.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.2cm} >{\raggedright\arraybackslash}p{4.0cm} >{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}p{4.0cm}}
+\toprule
+\textbf{Propriet\`a / Criterio} & \textbf{Ternary Search Tree (TST)} & \textbf{LSD Radix Sort (Chunking)} & \textbf{Multi-Key Quicksort (3-Way)} \\
+\midrule
+Paradigma Computazionale & Albero di ricerca dinamico (ibrido Trie/BST) & Ordinamento non comparativo a passate di Counting Sort & Divide et Impera ternario sui singoli caratteri \\
+\midrule
+Complessit\`a Temporale & Ricerca: $\mathcal{O}(|s| + \log_2 n)$ \newline Costruzione: $\mathcal{O}(n \log_2 n + \sum D_i)$ & Ordinamento: $\mathcal{O}\left(\frac{n \cdot L}{\log_2 n}\right)$ \newline (su chiavi binarie di $L$ bit) & Ordinamento: $\mathbf{\Theta(n \log_2 n + \sum D_i)}$ \newline (ottimo al Lower Bound) \\
+\midrule
+Occupazione Spaziale & $\mathcal{O}(\text{nodi}) \approx 3$ puntatori per nodo & $\mathcal{O}(n + 2^R)$ ausiliario per i bucket di conteggio & $\mathcal{O}(\log_2 n)$ stack di ricorsione in-place \\
+\midrule
+Sensibilit\`a al Prefisso ($D_i$) & \textbf{Massima:} naviga unicamente i caratteri necessari & \textbf{Nulla:} ispeziona obbligatoriamente tutti gli $L$ bit & \textbf{Massima:} potatura immediata delle partizioni disgiunte \\
+\midrule
+Operazioni Supportate & Ricerca esatta, prefissi, predecessore, rango, range query & Esclusivamente ordinamento statico di massa & Esclusivamente ordinamento dell'array di stringhe \\
+\midrule
+Scenario Ideale d'Uso & Dizionari dinamici, autocompletamento e ricerche lessicografiche & Grandi moli di chiavi binarie o dense con prefissi $D_i \approx L$ & Ordinamento generale di stringhe con prefissi eterogenei o corti \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo tra Ternary Search Trees, LSD Radix Sort a blocchi e Multi-Key Quicksort.}
+\label{tab:string-paradigms-final-comparison}
+\end{table}
+
+\begin{noteblock}{Regola Decisionale per l'Ingegnere del Software}
+Nella progettazione di sistemi di elaborazione ad elevate prestazioni:
+\begin{itemize}
+  \item Se la collezione di stringhe \`e dinamica e richiede frequenti interrogazioni di tipo \textit{prefix match}, \textit{autocompletion} o ricerche per intervallo ordinato, il \textbf{Ternary Search Tree} rappresenta la struttura d'elezione per via dell'eccellente compromesso tra tempo $\mathcal{O}(|s| + \log_2 n)$ e compattezza di memoria.
+  \item Se il problema consiste nell'ordinamento statico di grandi vettori di stringhe con prefissi corti ed eterogenei, il \textbf{Multi-Key Quicksort} \`e preferibile poich\'e ispeziona solo i caratteri strettamente necessari ($\sum D_i$), operando in-place con memoria ausiliaria minima.
+  \item Se le chiavi sono binarie a lunghezza fissa $L$ bit e fortemente correlate (prefissi lunghi $D_i \approx L$), l'\textbf{LSD Radix Sort} con chunking a $R = \log_2 n$ bit supera qualsiasi altro algoritmo grazie alla localit\`a sequenziale dei trasferimenti nella gerarchia di memoria.
+\end{itemize}
+\end{noteblock}
