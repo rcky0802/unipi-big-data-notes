@@ -1,14 +1,166 @@
-\chapter{Learning to Rank: Fondamenti, Tassonomia e Ottimizzazione di BM25F}
+\chapter{Learning to Rank I: Fondamenti, Tassonomia e Framework Generale}
 \label{chap:learning-to-rank-fondamenti}
 
 \FloatBarrier
-\section{Introduzione: Limiti del Bag of Words e Framework Generale di Ranking}
+\section{Okapi BM25: Storia, Intuizioni e Term Frequency Smoothing}
+\label{sec:okapi-bm25-fondamenti}
+
+Prima di analizzare i complessi modelli supervisionati basati sul Machine Learning, \`e indispensabile esaminare in dettaglio la funzione di ordinamento lessicale che costituisce il cardine di tutti i motori di ricerca moderni: \textbf{Okapi BM25}~\cite{robertson2009,manning2008}. Sviluppato all'interno del Probabilistic Relevance Framework (PRF), BM25 supera i limiti strutturali del Vector Space Model introducendo la saturazione asintotica della frequenza dei termini e la normalizzazione imperniata della lunghezza dei documenti.
+
+\FloatBarrier
+\subsection{Genesi Storica e il Modello Probabilistico di Reperimento}
+\label{subsec:bm25-genesi-storica}
+Sviluppato negli anni '80 e '90 da Stephen Robertson e Karen Sp\"arck Jones presso la City University di Londra all'interno del sistema di reperimento sperimentale \textit{Okapi}, l'acronimo \textbf{BM} sta per \textit{Best Matching}, mentre il suffisso \textbf{25} identifica la venticinquesima iterazione e messa a punto della formula di ponderazione formulata durante le conferenze TREC.
+
+BM25 poggia sui fondamenti del \textbf{Probabilistic Relevance Framework} (PRF)~\cite{robertson2009}. In tale paradigma, il ranking ideale dei documenti viene formulato in termini di stima della probabilit\`a a posteriori di rilevanza $R \in \{0, 1\}$ rispetto alla query $q$:
+\begin{equation}
+\text{Odds}(R=1 \mid d, q) = \frac{P(R=1 \mid d, q)}{P(R=0 \mid d, q)}.
+\end{equation}
+Applicando il teorema di Bayes e assumendo l'indipendenza statistica condizionale della presenza dei termini dato lo stato di rilevanza, il principio del ranking probabilistico (\textit{Probability Ranking Principle}, PRP) stabilisce che ordinare i documenti per log-odds decrescente minimizza il rischio bayesiano atteso di errore. Mentre il modello binario classico di Robertson-Sp\"arck Jones (Binary Independence Model, BIM) operava unicamente su indicatori binari di presenza/assenza ($x_t \in \{0, 1\}$), Okapi BM25 estende il framework incorporando la frequenza dei termini e la lunghezza dei documenti mediante un'efficace modellazione non lineare a due stati di Poisson.
+
+\FloatBarrier
+\subsection{Term Frequency Smoothing: Limiti di Raw TF e Saturazione Asintotica}
+\label{subsec:bm25-tf-smoothing}
+Un difetto insito nei primi modelli di Information Retrieval consisteva nell'assumere una proporzionalit\`a diretta tra l'evidenza semantica e il conteggio assoluto dei termini (\textit{Raw TF}):
+\begin{itemize}
+    \item Se un documento cita il termine \texttt{"microprocessor"} $20$ volte anzich\'e $10$ volte, la sua rilevanza tematica non risulta affatto raddoppiata;
+    \item L'introduzione della ponderazione logaritmica (esaminata nel \chapref{chap:modelli-retrieval-tfidf}):
+    \begin{equation}
+    w_{\text{log-tf}} = 1 + \log_{10}(f_{t,d}) \quad (\text{per } f_{t,d} > 0),
+    \end{equation}
+    smorza la crescita, ma la funzione diverge monotonicamente all'infinito per $f_{t,d} \to \infty$. Non pone alcun tetto superiore al contributo di un singolo vocabolo.
+\end{itemize}
+
+Okapi BM25 introduce una funzione razionale di \textbf{saturazione asintotica} (\textit{Term Frequency Smoothing}) governata dal parametro $k_1 > 0$:
+\begin{equation}
+\tau(f_{t,d}) = \frac{(k_1 + 1) \cdot f_{t,d}}{k_1 + f_{t,d}}.
+\label{eq:bm25-saturation-curve}
+\end{equation}
+La derivata prima di $\tau(f_{t,d})$ rispetto a $f_{t,d}$ \`e strettamente positiva ma decresce rapidamente a zero:
+\begin{equation}
+\frac{d\tau}{df_{t,d}} = \frac{k_1(k_1 + 1)}{(k_1 + f_{t,d})^2} > 0, \quad \lim_{f_{t,d} \to \infty} \tau(f_{t,d}) = k_1 + 1.
+\end{equation}
+Il punteggio parziale converge al limite superiore asintotico finito $k_1 + 1$. Quando $f_{t,d} = 1$, il termine apporta $\tau(1) = 1$; all'aumentare delle occorrenze, il rendimento marginale di ogni occorrenza successiva collassa progressivamente verso zero, impedendo a documenti spammati o prolissi di dominare la graduatoria.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\columnwidth}{!}{%
+\begin{tikzpicture}[scale=0.95]
+    % Assi cartesiani calibrati sull'estensione delle curve
+    \draw[-Stealth, thick] (0, 0) -- (11.5, 0) node[right, font=\small] {Frequenza del termine $f_{t,d}$};
+    \draw[-Stealth, thick] (0, 0) -- (0, 5.0) node[above, font=\small] {Contributo di Ponderazione};
+
+    % Tacche numerate sugli assi (il trattino si arresta a x = 0.1, ben distante dalle etichette a x = 0.4)
+    \foreach \x in {1, 2, 4, 6, 8, 10}
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\scriptsize] {\x};
+    \foreach \y in {1, 2, 3, 4}
+        \draw (0.1, \y) -- (-0.1, \y) node[left, font=\scriptsize] {\y};
+
+    % Linee di proiezione al punto comune di ancoraggio (1, 1)
+    \draw[dotted, gray!60!black] (1.0, 0) -- (1.0, 1.0);
+    \draw[dotted, gray!60!black] (0, 1.0) -- (1.0, 1.0);
+
+    % Asintoti orizzontali BM25 estesi fino a x = 10.8 (coprono l'intero sviluppo delle curve)
+    \draw[dashed, crimson, thick] (0, 2.2) -- (10.8, 2.2);
+    \node[above right=2pt, font=\scriptsize\bfseries, crimson] at (0.4, 2.2) {Asintoto 2.2};
+
+    \draw[dashed, darkgreen, thick] (0, 3.0) -- (10.8, 3.0);
+    \node[above right=2pt, font=\scriptsize\bfseries, darkgreen] at (0.4, 3.0) {Asintoto 3.0};
+
+    % 1. Raw TF (lineare non scalato: y = x, interseca esattamente (1, 1))
+    \draw[domain=0:4.3, smooth, variable=\x, gray!70!black, thick, dashdotted] 
+        plot ({\x}, {\x}) node[above right, font=\scriptsize\bfseries, text=gray!80!black] {Raw TF ($y = f$)};
+
+    % 2. Log-TF (Definita per f >= 1, non negativa, passa per (1, 1))
+    \fill[navy] (0,0) circle (1.8pt);
+    \draw[dotted, navy, thick] (0,0) -- (1.0, 1.0);
+    \fill[navy] (1.0, 1.0) circle (1.8pt);
+    \draw[domain=1:10.0, smooth, variable=\x, navy, very thick] 
+        plot ({\x}, {1.0 + 0.9*ln(\x)});
+    \node[right=3pt, font=\scriptsize\bfseries, navy] at (10.0, 3.07) {Log-TF ($1 + \ln f$)};
+
+    % 3. BM25 con k1 = 1.2: tau(x) = 2.2*x / (1.2 + x), passa per (1, 1)
+    \draw[domain=0:10.0, smooth, variable=\x, crimson, line width=1.3pt] 
+        plot ({\x}, {(2.2*\x)/(1.2 + \x)});
+    \node[right=3pt, font=\scriptsize\bfseries, crimson] at (10.0, 1.96) {BM25 ($k_1 = 1.2$)};
+
+    % 4. BM25 con k1 = 2.0: tau(x) = 3.0*x / (2.0 + x), passa per (1, 1)
+    \draw[domain=0:10.0, smooth, variable=\x, darkgreen, line width=1.3pt] 
+        plot ({\x}, {(3.0*\x)/(2.0 + \x)});
+    \node[right=3pt, font=\scriptsize\bfseries, darkgreen] at (10.0, 2.50) {BM25 ($k_1 = 2.0$)};
+\end{tikzpicture}%
+}
+\caption{Confronto tra le curve di risposta della frequenza dei termini: il Raw TF cresce illimitatamente in modo lineare; il Log-TF cresce lentamente ma senza saturare; Okapi BM25 satura asintoticamente verso il limite finito $k_1 + 1$.}
+\label{fig:bm25-saturation-comparison}
+\end{figure}
+
+\FloatBarrier
+\subsection{Pivoted Document Length Normalization}
+\label{subsec:bm25-length-norm}
+La seconda innovazione cardine di BM25 risiede nel trattamento della lunghezza del documento. Un testo molto lungo pu\`o presentare un'alta frequenza di un vocabolo per due ragioni strutturali antitetiche:
+\begin{enumerate}
+    \item \textbf{Verbosit\`a (\textit{Verbosity}):} Il testo tratta l'argomento con ridondanza stilistica o prolissit\`a ingiustificata, impiegando molte parole per esprimere il medesimo concetto di un testo compatto.
+    \item \textbf{Ampiezza Tematica (\textit{Multi-topic Scope}):} Il testo \`e un trattato enciclopedico o una raccolta che affronta svariati argomenti eterogenei; in tal caso, il documento ha una probabilit\`a a priori enormemente maggiore di intercettare casualmente i termini di una qualunque query.
+\end{enumerate}
+
+Per riequilibrare la competizione tra testi sintetici e testi estesi, BM25 introduce un fattore di scala imperniato (\textit{Pivoted Document Length Normalization}):
+\begin{equation}
+B(d) = (1 - b) + b \cdot \frac{|d|}{\text{avgdl}},
+\label{eq:bm25-length-normalizer}
+\end{equation}
+dove $|d|$ denota la lunghezza in token del documento $d$, $\text{avgdl}$ (\textit{average document length}) indica la lunghezza media calcolata sull'intera collezione:
+\begin{equation}
+\text{avgdl} = \frac{1}{N} \sum_{d \in \mathcal{D}} |d|,
+\end{equation}
+e $b \in [0, 1]$ \`e un iperparametro che controlla l'intensit\`a della penalizzazione:
+\begin{itemize}
+    \item \textbf{Punto di Pivot ($|d| = \text{avgdl}$):} Indipendentemente dal valore assegnato a $b$, se il documento ha una lunghezza pari alla media della collezione, si ha $B(d) = 1.0$;
+    \item \textbf{Assenza di Normalizzazione ($b = 0$):} Il termine $B(d)$ collassa a $1.0$ per qualsiasi documento, annullando ogni correzione di lunghezza;
+    \item \textbf{Normalizzazione Rigorosa ($b = 1$):} Il termine $B(d) = |d| / \text{avgdl}$ normalizza la frequenza in modo esattamente proporzionale alla lunghezza assoluta del documento.
+\end{itemize}
+
+Il normalizzatore $B(d)$ viene inserito al denominatore della saturazione di frequenza, modulando la soglia $k_1$:
+\begin{equation}
+k_1 \cdot B(d) = k_1 \cdot \left((1 - b) + b \cdot \frac{|d|}{\text{avgdl}}\right).
+\end{equation}
+Se un documento \`e lungo ($|d| > \text{avgdl}$), il denominatore cresce, rallentando la crescita della funzione e riducendo il punteggio parziale; se il documento \`e sintetico ($|d| < \text{avgdl}$), la saturazione si raggiunge con una frequenza inferiore.
+
+\FloatBarrier
+\subsection{Formulazione Completa di Okapi BM25 e Best Practices}
+\label{subsec:bm25-formula-completa}
+Combinando la saturazione non lineare, la normalizzazione imperniata e la ponderazione di selettivit\`a inversa Document Frequency, la formulazione integrale di Okapi BM25 per una query $q$ e un documento $d$ risulta:
+\begin{equation}
+\text{Score}_{\text{BM25}}(q, d) = \sum_{t \in q \cap d} \text{IDF}_{\text{BM25}}(t) \cdot \frac{f_{t,d} \cdot (k_1 + 1)}{f_{t,d} + k_1 \cdot \left((1 - b) + b \cdot \frac{|d|}{\text{avgdl}}\right)},
+\label{eq:okapi-bm25-full}
+\end{equation}
+dove l'IDF probabilistico di Robertson-Sp\"arck Jones \`e formulato come:
+\begin{equation}
+\text{IDF}_{\text{BM25}}(t) = \log \left( \frac{N - n_t + 0.5}{n_t + 0.5} + 1 \right),
+\end{equation}
+in cui $N$ \`e la cardinalit\`a della collezione e $n_t = df_t$ \`e il numero di documenti contenenti il termine $t$ (l'aggiunta $+1$ o il floor a zero evitano valori di IDF negativi per termini presenti in oltre met\`a della collezione).
+
+\paragraph{Best Practices e Calibrazione degli Iperparametri ($k_1, b$):}
+L'esperienza consolidata nei benchmark internazionali (TREC) e nei sistemi di produzione stabilisce i seguenti valori di riferimento:
+\begin{itemize}
+    \item \textbf{Parametro $k_1$:} Valore predefinito standard compreso tra \textbf{$1.2$ e $2.0$} (spesso $k_1 = 1.2$ in Apache Lucene ed Elasticsearch). Valori bassi ($k_1 \to 1.0$) comprimono rapidamente l'effetto di frequenze multiple (ideale per documenti brevi e query specifiche); valori pi\`u alti ($k_1 \to 2.0$) lasciano spazio a una maggiore discriminazione tra occorrenze ripetute.
+    \item \textbf{Parametro $b$:} Valore predefinito quasi universale fissato a \textbf{$b = 0.75$}. Un valore di $0.75$ penalizza sensibilmente i documenti prolissi pur lasciando un margine di tolleranza rispetto alla normalizzazione lineare pura ($b = 1$).
+\end{itemize}
+
+\begin{noteblock}{Dalla Formula Chiusa all'Esigenza di Apprendere dai Dati}
+Nonostante BM25 sia una funzione di ranking robusta e formidabile per testi omogenei, essa resta una funzione euristica chiusa a soli 2 parametri liberi, cieca rispetto a pagine strutturate, link di autorit\`a o comportamenti degli utenti. Nelle sezioni successive esaminiamo come il Machine Learning consenta di estendere tale orizzonte attraverso il paradigma di \textbf{Learning to Rank}.
+\end{noteblock}
+
+
+
+\FloatBarrier
+\section{Framework Generale di Ranking e Oltre il Bag of Words}
 \label{sec:ltr-intro-framework-generale}
 
 I modelli di reperimento tradizionali basati sul paradigma Bag of Words (BoW), quali il Vector Space Model e Okapi BM25, hanno costituito il pilastro fondante dei motori di ricerca commerciali. Tuttavia, la crescente disponibilit\`a di segnali eterogenei e la necessit\`a di combinare evidenze lessicali, topologiche e comportamentali hanno reso indispensabile l'adozione di metodologie fondate sul Machine Learning.
 
-Questa sezione formalizza la decomposizione astratta delle funzioni di ranking basata sulle rappresentazioni~\cite{guo2020}, analizza l'insufficienza dei vettori sparsi BoW e illustra la ricchezza dello spazio dei segnali moderni.
+Questa sezione formalizza la decomposizione astratta delle funzioni di ranking basata sulle rappresentazioni~\cite{guo2020,bruch2023}, analizza l'insufficienza dei vettori sparsi BoW e illustra la ricchezza dello spazio dei segnali moderni.
 
+\FloatBarrier
 \subsection{Decomposizione Funzionale delle Funzioni di Ranking}
 \label{subsec:decomposizione-funzionale-ranking}
 
@@ -24,12 +176,12 @@ dove:
 \begin{itemize}
     \item $\phi: \mathcal{Q} \to \mathcal{X}_q$ definisce la funzione di \textbf{rappresentazione della sola query};
     \item $\psi: \mathcal{D} \to \mathcal{X}_d$ definisce la funzione di \textbf{rappresentazione del solo documento};
-    \item $\eta: \mathcal{Q} \times \mathcal{D} \to \mathcal{X}_{qd}$ definisce la funzione di \textbf{interazione query-documento};
+    \item $\eta: \mathcal{Q} \times \mathcal{D} \to \mathcal{X}_{qd}$ \`e la funzione di \textbf{interazione query-documento};
     \item $f: \mathcal{X}_q \times \mathcal{X}_d \times \mathcal{X}_{qd} \to \mathbb{R}$ rappresenta la \textbf{funzione di aggregazione} che sintetizza i vettori nello scalare finale di ordinamento.
 \end{itemize}
 \end{definition}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[
     box/.style={
@@ -129,6 +281,7 @@ Nel modello Bag of Words classico:
 
 Queste rappresentazioni sparse sono memorizzate negli indici invertiti, garantendo scansioni scalabili mediante algoritmi top-$k$ (WAND, MaxScore). Ciononostante, il modello BoW impone forti semplificazioni: assume l'indipendenza statistica tra i termini e trascura qualsiasi caratteristica strutturale del testo o dell'ambiente applicativo.
 
+\FloatBarrier
 \subsection{Oltre il Bag of Words: La Molteplicit\`a dei Segnali di Rilevanza}
 \label{subsec:segnali-oltre-bow}
 
@@ -149,6 +302,7 @@ Di fronte a tale eterogeneit\`a, sorge spontanea la domanda fondante: \emph{Come
 
 Per superare le limitazioni delle formule euristiche chiuse, il problema del ranking viene riformulato all'interno del framework statistico del Machine Learning: consentire a un sistema computazionale di migliorare progressivamente le proprie prestazioni su un compito specifico attraverso l'esposizione all'esperienza (dati empirici) senza essere esplicitamente programmato.
 
+\FloatBarrier
 \subsection{Formalizzazione dell'Apprendimento Supervisionato}
 \label{subsec:formalizzazione-apprendimento-supervisionato}
 
@@ -166,6 +320,7 @@ Il ciclo iterativo di addestramento si articola nei seguenti passi:
     \item Il procedimento viene ripetuto su tutti gli esempi del dataset per molteplici epoche di training (\textit{epochs}).
 \end{enumerate}
 
+\FloatBarrier
 \subsection{Analogia del Cervello e del Puzzle}
 \label{subsec:analogia-puzzle}
 
@@ -178,13 +333,15 @@ Un'utile analogia concettuale per comprendere il ciclo retroattivo di ottimizzaz
     \item Ripetendo la procedura per tentativi successivi su un vasto numero di puzzle, il sistema apprende una capacit\`a di generalizzazione efficace.
 \end{itemize}
 
+\FloatBarrier
 \subsection{Architettura a Due Fasi: Training Offline vs. Inference Online}
 \label{subsec:architettura-offline-online}
 
 Un vincolo imprescindibile nell'ingegneria dei motori di ricerca risiede nella rigorosa separazione temporale e computazionale tra le fasi di apprendimento e utilizzo del modello:
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
+\resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
     phasebox/.style={rectangle, draw=navy, fill=codebackground, rounded corners=5pt, line width=0.9pt, inner sep=10pt, text width=0.88\linewidth, font=\small},
     arrow/.style={->, >=stealth, line width=1.2pt, crimson}
@@ -207,7 +364,8 @@ Un vincolo imprescindibile nell'ingegneria dei motori di ricerca risiede nella r
     };
 
     \draw[arrow] (offline) -- node[right, font=\small\bfseries, text=crimson, xshift=4pt] {Generazione del modello ottimizzato $\mathbf{\theta}^*$} (online);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Disaccoppiamento strutturale tra la fase di addestramento offline e la fase di inferenza online.}
 \label{fig:ltr-offline-online-phases}
 \end{figure}
@@ -218,6 +376,7 @@ Un vincolo imprescindibile nell'ingegneria dei motori di ricerca risiede nella r
 
 Il framework denominato \textbf{Learning to Rank (LtR)} costituisce l'applicazione metodologica dell'apprendimento automatico al compito di costruire modelli di ordinamento per il recupero delle informazioni~\cite{liu2009}.
 
+\FloatBarrier
 \subsection{Definizione e Obiettivo di Apprendimento}
 \label{subsec:definizione-obiettivo-ltr}
 
@@ -248,6 +407,7 @@ Le etichette di rilevanza umane $y$ sono tipicamente graduate su una scala discr
     \item $y = 4$: \textit{Perfectly Relevant} / Risposta definitiva (ad es. home page cercata per query navigazionale).
 \end{itemize}
 
+\FloatBarrier
 \subsection{Tassonomia delle Feature in un Sistema di Ricerca Web}
 \label{subsec:tassonomia-feature-ltr}
 
@@ -290,16 +450,17 @@ Secondo la classificazione canonica (Manning et al.~\cite{manning2008}, Liu~\cit
     \end{itemize}
 \end{enumerate}
 
+\FloatBarrier
 \subsection{L'Architettura di Pipeline Two-Stage e il Vincolo del Time Budget}
 \label{subsec:pipeline-two-stage-budget}
 
 Come evidenziato nella Figura~\ref{fig:ltr-two-stage-pipeline}, un motore di ricerca moderno adotta un'architettura a imbuto (\textit{Two-Stage Retrieval}):
 \begin{itemize}
-    \item \textbf{Primo Stadio (Base Ranker)}: Interroga l'indice invertito compresso mediante algoritmi ad alta efficienza (come WAND o MaxScore descritti nel Capitolo~\ref{chap:elaborazione-topk-wand-maxscore}). Valuta un punteggio lessicale economico (BM25) ed estrae una rosa ristretta di $N \approx 1\,000$ documenti candidati.
+    \item \textbf{Primo Stadio (Base Ranker)}: Interroga l'indice invertito compresso mediante algoritmi ad alta efficienza (come WAND o MaxScore descritti nel \chapref{chap:elaborazione-topk-wand-maxscore}). Valuta un punteggio lessicale economico (BM25) ed estrae una rosa ristretta di $N \approx 1\,000$ documenti candidati.
     \item \textbf{Secondo Stadio (Top Ranker / LtR Ranker)}: Riceve gli $N$ candidati, calcola i vettori di feature multidimensionali $\mathbf{x} \in \mathbb{R}^K$ ed esegue il modello di Machine Learning appreso offline per riordinare i documenti e selezionare i migliori $k \approx 10\text{--}20$ risultati da presentare all'utente nella SERP.
 \end{itemize}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
@@ -347,7 +508,7 @@ Come evidenziato nella Figura~\ref{fig:ltr-two-stage-pipeline}, un motore di ric
     arrow/.style={->, >=stealth, line width=1.0pt, navy},
     dasharrow/.style={->, >=stealth, line width=0.9pt, dashed, navy!80}
 ]
-    % --- FLUSSO ORIZZONTALE PRINCIPALE (y = 0) ---
+    % === FLUSSO ORIZZONTALE PRINCIPALE (y = 0) ===
     % Query (x = 0)
     \node[basebox, text width=2.2cm, minimum height=1.2cm] (query) at (0, 0) {Query Utente\\[2pt]$q$};
 
@@ -363,20 +524,20 @@ Come evidenziato nella Figura~\ref{fig:ltr-two-stage-pipeline}, un motore di ric
     % Risultati SERP (x = 15.8)
     \node[resbox, text width=2.8cm, minimum height=1.2cm] (serp) at (15.8, 0) {Risultati SERP\\[2pt]Top-$k$\\[2pt]\footnotesize($k \approx 10\text{--}20$)};
 
-    % --- NODI AUSILIARI SUPERIORI (y = 2.0) ---
+    % === NODI AUSILIARI SUPERIORI (y = 2.0) ===
     % Indice Invertito sopra al Primo Stadio
     \node[auxbox, text width=2.8cm] (index) at (3.6, 2.0) {Indice Invertito\\dei Documenti};
 
     % Estrazione Feature sopra al Secondo Stadio
     \node[auxbox, text width=3.0cm] (feats) at (11.8, 2.0) {Estrazione Feature\\$\mathbf{x} = \Phi(q, d) \in \mathbb{R}^K$};
 
-    % --- CONNESSIONI DEL FLUSSO PRINCIPALE ---
+    % === CONNESSIONI DEL FLUSSO PRINCIPALE ===
     \draw[arrow] (query) -- (first);
     \draw[arrow] (first) -- (ncands);
     \draw[arrow] (ncands) -- (second);
     \draw[arrow] (second) -- (serp);
 
-    % --- CONNESSIONI AUSILIARIE ---
+    % === CONNESSIONI AUSILIARIE ===
     % Da Indice Invertito a Primo Stadio (discesa verticale)
     \draw[dasharrow] (index.south) -- (first.north);
 
@@ -398,6 +559,7 @@ Il costo computazionale dei modelli LtR influenza direttamente il throughput com
 
 Uno dei primi approcci all'integrazione del Machine Learning nel ranking ha tentato di ridurre la selezione dei documenti a un problema classico di \textbf{classificazione lineare binaria} (Manning et al.~\cite{manning2008}).
 
+\FloatBarrier
 \subsection{Formulazione Lineare dello Scoring}
 \label{subsec:formulazione-lineare-scoring}
 
@@ -425,12 +587,13 @@ Il classificatore lineare stabilisce una superficie di decisione attraverso una 
 \end{equation}
 L'apprendimento consiste nell'individuare la tupla ottimale di parametri $\langle a^*, b^*, \Theta^* \rangle$ in grado di separare le due classi nello spazio geometrico minimizzando l'errore empirico di classificazione.
 
+\FloatBarrier
 \subsection{Esempio Geometrico e Superficie di Decisione}
 \label{subsec:esempio-geometrico-superficie}
 
 Nella Figura~\ref{fig:ltr-linear-classification-space} viene visualizzato lo spazio bidimensionale $(\omega, \alpha)$ con la disposizione empirica delle osservazioni e la retta di separazione:
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[
     >=Stealth,
@@ -592,7 +755,7 @@ Sebbene il classificatore lineare fornisca un'intuitiva demarcazione dello spazi
 
 Per colmare le discrepanze tra la formulazione classica del Machine Learning e le esigenze del reperimento di documenti, la letteratura scientifica ha codificato tre paradigmi fondamentali~\cite{liu2009}:
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
@@ -675,6 +838,7 @@ Per colmare le discrepanze tra la formulazione classica del Machine Learning e l
 \label{fig:ltr-three-approaches-comparison}
 \end{figure}
 
+\FloatBarrier
 \subsection{Approccio Pointwise}
 \label{subsec:approccio-pointwise}
 
@@ -685,6 +849,7 @@ Nel paradigma \textbf{Pointwise}:
     \item \textbf{Criticit\`a Fondamentale}: L'approccio \`e cieco rispetto alla struttura della graduatoria. Ad esempio, penalizza allo stesso modo una discrepanza di punteggio su un documento irrilevante a fondo lista e su un documento cardine collocato in prima posizione.
 \end{itemize}
 
+\FloatBarrier
 \subsection{Approccio Pairwise e il Modello RankNet}
 \label{subsec:approccio-pairwise-ranknet}
 
@@ -722,6 +887,7 @@ Grazie alla differenziabilit\`a, RankNet consente l'addestramento diretto dei pe
     \frac{\partial \mathcal{C}_{ij}}{\partial \mathbf{\theta}} = \frac{\partial \mathcal{C}_{ij}}{\partial s_i} \frac{\partial s_i}{\partial \mathbf{\theta}} + \frac{\partial \mathcal{C}_{ij}}{\partial s_j} \frac{\partial s_j}{\partial \mathbf{\theta}}.
 \end{equation}
 
+\FloatBarrier
 \subsection{Criticit\`a Strutturale del Pairwise e Divergenza con NDCG}
 \label{subsec:criticita-pairwise-ndcg}
 
@@ -734,13 +900,13 @@ Ne consegue che un'inversione tra la posizione $1$ e la posizione $2$ provoca un
 
 Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwise-loss-vs-ndcg}, dove si osserva l'andamento della Pairwise Loss a confronto con NDCG@5 al progredire delle epoche di addestramento:
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \begin{tikzpicture}[
     ndcgline/.style={line width=1.3pt, crimson},
     lossline/.style={line width=1.3pt, teal!80!navy}
 ]
-    % --- RETICOLO DI SFONDO (Tratteggiato sottile e allineato alle tacche comuni) ---
+    % === RETICOLO DI SFONDO (Tratteggiato sottile e allineato alle tacche comuni) ===
     \begin{scope}[on background layer]
         % Griglia verticale sulle epoche
         \foreach \x in {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0} {
@@ -754,7 +920,7 @@ Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwis
         }
     \end{scope}
 
-    % --- ASSI ORIZZONTALI (Superiore e Inferiore in Navy neutro) ---
+    % === ASSI ORIZZONTALI (Superiore e Inferiore in Navy neutro) ===
     \draw[navy, line width=0.8pt] (0, 0) -- (9.0, 0);
     \draw[navy, line width=0.8pt] (0, 4.5) -- (9.0, 4.5);
 
@@ -765,21 +931,21 @@ Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwis
     }
     \node[font=\footnotesize\bfseries, text=navy] at (4.5, -0.65) {Epoche di addestramento};
 
-    % --- ASSE Y SINISTRO: METRICA NDCG@5 (Codice Colore Crimson/Bordeaux) ---
+    % === ASSE Y SINISTRO: METRICA NDCG@5 (Codice Colore Crimson/Bordeaux) ===
     \draw[crimson, line width=1.0pt] (0, 0) -- (0, 4.5);
     \foreach \y/\val in {0.0/0.47, 1.5/0.48, 3.0/0.49, 4.5/0.50} {
         \draw[crimson, line width=0.7pt] (0, \y) -- ++(-3pt, 0) node[left=3pt, font=\scriptsize\bfseries, text=crimson] {$\val$};
     }
     \node[rotate=90, font=\footnotesize\bfseries, text=crimson] at (-1.1, 2.25) {Metrica posizionale (NDCG@5)};
 
-    % --- ASSE Y DESTRO: FUNZIONE DI PERDITA (Codice Colore Ottanio/Teal) ---
+    % === ASSE Y DESTRO: FUNZIONE DI PERDITA (Codice Colore Ottanio/Teal) ===
     \draw[teal!80!navy, line width=1.0pt] (9.0, 0) -- (9.0, 4.5);
     \foreach \y/\val in {0.0/0.28, 1.5/0.30, 3.0/0.32, 4.5/0.34} {
         \draw[teal!80!navy, line width=0.7pt] (9.0, \y) -- ++(3pt, 0) node[right=3pt, font=\scriptsize\bfseries, text=teal!80!navy] {$\val$};
     }
     \node[rotate=-90, font=\footnotesize\bfseries, text=teal!80!navy] at (10.1, 2.25) {Funzione di perdita (Pairwise Loss)};
 
-    % --- CURVA 1: PAIRWISE LOSS (Monotona decrescente da 0.334 a 0.285) ---
+    % === CURVA 1: PAIRWISE LOSS (Monotona decrescente da 0.334 a 0.285) ===
     % Mappatura: y = ((loss - 0.28) / 0.06) * 4.5
     \draw[lossline] plot[mark=x, mark size=1.6pt] coordinates {
         (0.0, 4.05) (0.5, 3.75) (1.0, 3.42) (1.5, 3.10) (2.0, 2.76)
@@ -788,7 +954,7 @@ Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwis
         (7.5, 0.32) (8.0, 0.31) (8.5, 0.30) (9.0, 0.29)
     };
 
-    % --- CURVA 2: NDCG@5 (Taylor et al. CIKM 2006) ---
+    % === CURVA 2: NDCG@5 (Taylor et al. CIKM 2006) ===
     % Sale rapida: da 0.477 a 0.493 (epoca 50), poi degrado progressivo e stabilizzazione
     % Mappatura: y = ((ndcg - 0.47) / 0.03) * 4.5
     \draw[ndcgline] plot[mark=+, mark size=1.8pt] coordinates {
@@ -799,7 +965,7 @@ Questa divergenza \`e documentata graficamente nella Figura~\ref{fig:ltr-pairwis
         (7.0, 1.25) (7.5, 1.25) (8.0, 1.25) (8.5, 1.25) (9.0, 1.25)
     };
 
-    % --- LEGENDA ACCADEMICA COMPATTA (In alto, centrata e ariosa) ---
+    % === LEGENDA ACCADEMICA COMPATTA (In alto, centrata e ariosa) ===
     \node[draw=gray!35, fill=white, rounded corners=3pt, line width=0.5pt, anchor=south, inner sep=4.5pt] at (4.5, 4.85) {
         \scriptsize
         \tikz[baseline=-0.5ex]{\draw[ndcgline] (0,0) -- (0.45,0) plot[mark=+, mark size=1.8pt] coordinates {(0.225,0)};}~NDCG@5 (asse sinistro) \qquad
@@ -815,6 +981,7 @@ L'andamento evidenzia il limite intrinseco dell'approccio pairwise rispetto all'
 
 La stabilizzazione piatta di NDCG@5 osservabile tra l'epoca 150 e 200 riflette la natura discreta della metrica a gradini: finch\'e la permutazione relativa dei primi 5 documenti non varia, il valore di NDCG rimane rigorosamente costante anche a fronte di continue variazioni dei punteggi continui prodotti dal modello.
 
+\FloatBarrier
 \subsection{Approccio Listwise e l'Intrattabilit\`a dell'Ottimizzazione Diretta}
 \label{subsec:approccio-listwise-intrattabilita}
 
@@ -842,96 +1009,14 @@ Di conseguenza, qualsiasi metrica $M(\pi, \mathbf{y})$ definita sui ranghi posiz
 L'impossibilit\`a di applicare il calcolo differenziale diretto alle funzioni di ranking ha aperto la strada a due strategie di risoluzione storiche:
 \begin{enumerate}
     \item L'ottimizzazione di funzioni di perdita differenziabili surrogate che fungono da limite superiore per NDCG (ad esempio \textbf{ListNet}, \textbf{ListMLE});
-    \item La formulazione di gradienti virtuali corretti dall'impatto sul ranking, alla base della teoria di \textbf{LambdaRank} e dell'algoritmo allo stato dell'arte \textbf{LambdaMART}~\cite{burges2010}, discussi nel Capitolo successivo.
+    \item La formulazione di gradienti virtuali corretti dall'impatto sul ranking, alla base della teoria di \textbf{LambdaRank} e dell'algoritmo allo stato dell'arte \textbf{LambdaMART}~\cite{burges2010}, discussi nel \chapref{chap:learning-to-rank-avanzato}.
 \end{enumerate}
-
-\FloatBarrier
-\section{Caso di Studio: BM25F e Ottimizzazione di Ranking Multi-Campo}
-\label{sec:bm25f-ottimizzazione-strutturata}
-
-Per comprendere concretamente come i principi di Learning to Rank trovino applicazione nella calibrazione di funzioni di ranking strutturate, questa sezione esamina in dettaglio l'estensione \textbf{BM25F} (Robertson et al., Zaragoza et al.~\cite{taylor2006}).
-
-\subsection{Fondamenti e Motivazione di BM25F}
-\label{subsec:fondamenti-bm25f}
-
-Nei documenti complessi (articoli scientifici, brevetti, pagine web), il testo \`e suddiviso in campi o zone semi-strutturate $s \in \mathcal{S}$:
-\begin{itemize}
-    \item Per un articolo accademico: $\mathcal{S} = \{\text{titolo}, \text{abstract}, \text{corpo}, \text{autori}\}$;
-    \item Per una pagina Web: $\mathcal{S} = \{\text{titolo}, \text{url}, \text{body}, \text{anchor text}\}$.
-\end{itemize}
-
-L'approccio ingenuo consisterebbe nel calcolare lo score Okapi BM25 standard separatamente su ciascun campo $s$ e combinare linearmente i punteggi parziali ottenuti:
-\begin{equation}
-    s_{\text{ingenuo}}(q, d) = \sum_{s \in \mathcal{S}} w_s \cdot \text{BM25}_s(q, d).
-\end{equation}
-Tale combinazione soffre di un difetto intrinseco: applica la saturazione non lineare del termine indipendentemente su ogni singolo campo. Di conseguenza, se un termine compare due volte nel titolo e due volte nel testo principale, esso subisce due saturazioni separate, anzich\'e saturare una volta sola in base all'evidenza complessiva ponderata del termine all'interno del documento.
-
-L'algoritmo \textbf{BM25F} (*BM25 with Fields*) adotta la corretta impostazione algebrica: \textbf{combina linearmente le frequenze ponderate dei campi all'interno del termine prima di applicare la trasformazione di saturazione asintotica}.
-
-\subsection{Formulazione Matematica di BM25F}
-\label{subsec:formulazione-matematica-bm25f}
-
-Sia $f_{t, s}$ la frequenza del termine $t$ nel campo $s$ del documento $d$.  
-Si definiscono:
-\begin{itemize}
-    \item $w_s > 0$: il peso d'importanza associato al campo $s$;
-    \item $l_s$: la lunghezza effettiva (in numero di termini) del campo $s$ nel documento $d$;
-    \item $L_s$: la lunghezza media del campo $s$ sull'intera collezione di documenti;
-    \item $b_s \in [0, 1]$: il parametro di normalizzazione della lunghezza specifico per il campo $s$.
-\end{itemize}
-
-La lunghezza normalizzata del campo $s$ \`e calcolata come:
-\begin{equation}
-    B_s = (1 - b_s) + b_s \cdot \frac{l_s}{L_s}.
-    \label{eq:field-length-norm}
-\end{equation}
-
-La \textbf{pseudo-frequenza effettiva ponderata} del termine $t$ nel documento $d$, denotata con $\tilde{f}_t(d)$, \`e la combinazione convessa:
-\begin{equation}
-    \tilde{f}_t(d) = \sum_{s \in \mathcal{S}} w_s \cdot \frac{f_{t, s}}{B_s} = \sum_{s \in \mathcal{S}} \frac{w_s \cdot f_{t, s}}{(1 - b_s) + b_s \cdot \frac{l_s}{L_s}}.
-    \label{eq:bm25f-weighted-tf}
-\end{equation}
-
-Il punteggio globale BM25F della coppia $(q, d)$ applica la saturazione non lineare basata sul parametro $k_1$:
-\begin{equation}
-    s_{\text{BM25F}}(q, d) = \sum_{t \in q} \text{IDF}(t) \cdot \frac{\tilde{f}_t(d)}{k_1 + \tilde{f}_t(d)},
-    \label{eq:bm25f-final-score}
-\end{equation}
-dove l'inverso della frequenza documentale $\text{IDF}(t)$ \`e calcolato convenzionalmente come:
-\begin{equation}
-    \text{IDF}(t) = \log \left(\frac{N - df_t + 0.5}{df_t + 0.5}\right).
-\end{equation}
-
-\subsection{Esplosione dei Parametri Liberi e Necessit\`a di Learning to Rank}
-\label{subsec:esplosione-parametri-bm25f}
-
-Mentre Okapi BM25 possiede soltanto $2$ parametri liberi scalari ($\mathbf{\theta} = \langle k_1, b \rangle$), la funzione BM25F definita su $|\mathcal{S}|$ campi possiede uno spazio di calibrazione di dimensionalit\`a:
-\begin{equation}
-    |\mathbf{\theta}_{\text{BM25F}}| = 2|\mathcal{S}| + 1.
-\end{equation}
-Per ciascun campo $s \in \mathcal{S}$, il sistema richiede di fissare:
-\begin{itemize}
-    \item Il peso d'importanza del campo $w_s$;
-    \item Il parametro di normalizzazione della lunghezza $b_s$;
-\end{itemize}
-a cui si aggiunge il parametro globale di saturazione $k_1$ (oppure parametri $k_{1, s}$ dedicati nelle formulazioni generalizzate).
-
-Se un documento web include ad esempio $S=4$ campi (titolo, body, url, anchor), lo spazio di configurazione comprende $2 \times 4 + 1 = 9$ parametri liberi reali continui.
-
-Una ricerca esaustiva a griglia (\textit{grid search}) risulta proibitiva: campionando appena $10$ valori per ciascuna dimensione, si generano $10^9 = 1$ miliardo di combinazioni, ciascuna richiedente la valutazione di centinaia di query di test su collezioni di scala industriale.  
-Risulta dunque mandatorio \textbf{inquadrare BM25F nel paradigma di Learning to Rank}:
-\begin{itemize}
-    \item \textbf{Spazio delle Ipotesi}: La famiglia di funzioni $h_{\mathbf{\theta}}(q, d) = s_{\text{BM25F}}(q, d; \mathbf{\theta})$, con $\mathbf{\theta} = \langle \{w_s, b_s\}_{s \in \mathcal{S}}, k_1 \rangle$;
-    \item \textbf{Dati di Addestramento}: Query annotate con rilevanza graduata $y \in \{0, 1, 2, 3, 4\}$;
-    \item \textbf{Metrica di Valutazione}: NDCG@10 (con guadagni esponenziali $2^{y} - 1$ per accentuare l'eccellenza al vertice);
-    \item \textbf{Strategia di Ottimizzazione}: Calibrazione automatica dei parametri $\mathbf{\theta}$ mediante discesa di gradiente guidata da una loss surrogata differenziabile (RankNet o gradienti $\lambda$), come formalizzato pionieristicamente da Taylor et al.~\cite{taylor2006}.
-\end{itemize}
 
 \FloatBarrier
 \section{Quadro Sinottico e Considerazioni Conclusive}
 \label{sec:quadro-sinottico-conclusioni}
 
-La Tabella~\ref{tab:ltr-foundations-synoptic} sintetizza i tre paradigmi di Learning to Rank e i rispettivi modelli prototipo analizzati nel capitolo:
+La Tabella~\ref{tab:ltr-foundations-synoptic} sintetizza i tre paradigmi fondazionali di Learning to Rank analizzati nel capitolo:
 
 \begin{table}[H]
 \centering
@@ -946,8 +1031,6 @@ La Tabella~\ref{tab:ltr-foundations-synoptic} sintetizza i tre paradigmi di Lear
 \textbf{Pairwise} & Coppia di documenti $(d_i, d_j)$ per query $q$ & RankNet Loss ($\log(1 + e^{-\sigma(s_i - s_j)})$), Hinge Loss & Discesa del gradiente continua (SGD) & Tratta le violazioni in testa e in coda con peso identico; diverge da NDCG. \\
 \midrule
 \textbf{Listwise} & Intero insieme dei candidati per $q$ & Surrogate Loss differenziabili (ListNet, LambdaMART) & Gradienti virtuali $\lambda$ / Surrogate ranking loss & Non-derivabilit\`a dell'operatore discreto di ordinamento ($\nabla_{\mathbf{\theta}} \text{sort} = \mathbf{0}$). \\
-\midrule
-\textbf{BM25F (Parametrico)} & Documenti semi-strutturati a $S$ campi & Calibrazione dei $2S+1$ parametri tramite LTR proxy & Gradient Descent su loss di coppia / coordinate search & Evita saturazioni premature combinando le frequenze prima della non linearit\`a. \\
 \bottomrule
 \end{tabular}%
 }
@@ -955,4 +1038,4 @@ La Tabella~\ref{tab:ltr-foundations-synoptic} sintetizza i tre paradigmi di Lear
 \label{tab:ltr-foundations-synoptic}
 \end{table}
 
-Nel prossimo capitolo l'analisi sar\`a estesa alla formulazione rigorosa di \textbf{LambdaRank} e \textbf{LambdaMART}, illustrando la costruzione algebrica dei gradienti virtuali $\lambda_{ij}$ scalati dal differenziale di metrica $|\Delta \text{NDCG}|$ e l'impiego dei Gradient Boosted Decision Trees (GBDT) nella produzione industriale moderna.
+Nel successivo \chapref{chap:learning-to-rank-avanzato} l'analisi affronter\`a la pipeline industriale a due stadi, l'estensione di Okapi BM25 ai documenti semi-strutturati con l'algoritmo BM25F e la sua calibrazione in chiave Learning to Rank tramite discesa di gradiente e perdite surrogate differenziabili (Taylor et al.), i limiti teorici dell'operatore di ordinamento e l'architettura dei modelli non lineari basati su alberi decisionali (Regression Trees, GBRT e LambdaMART).

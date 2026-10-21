@@ -1,0 +1,749 @@
+\chapter{Learning to Rank II: Pipeline Industriale, BM25F e Modelli ad Albero GBRT}
+\label{chap:learning-to-rank-avanzato}
+\label{chap:learning-to-rank-gbrt}
+
+\FloatBarrier
+\section{La Pipeline Completa di Learning to Rank e Vincoli Operativi}
+\label{sec:pipeline-ltr-operativa}
+
+L'impiego del Machine Learning nei motori di ricerca su scala Web non sostituisce le strutture dati ad alte prestazioni analizzate nei capitoli precedenti (\chapref{chap:indicizzazione-query-processing} e \chapref{chap:indici-inversi-query-processing}), ma si innesta sopra di esse all'interno di un'architettura modulare a stadi~\cite{tonellotto2018,bruch2023}. Questa sezione analizza il flusso di elaborazione end-to-end che conduce dalla query dell'utente alla SERP finale, formalizzando i vincoli operativi di throughput e time budget.
+
+\FloatBarrier
+\subsection{Flusso di Elaborazione End-to-End}
+\label{subsec:flusso-elaborazione-end-to-end}
+Come schematizzato nella Figura~\ref{fig:ltr-pipeline-end-to-end}, l'infrastruttura di un motore di ricerca moderno articola il recupero dei documenti lungo un percorso a imbuto strettamente sequenziale:
+\begin{enumerate}
+    \item \textbf{Ricezione ed Espansione della Query:} L'interrogazione dell'utente $q$ viene intercettata, normalizzata e arricchita tramite correzione ortografica, espansione sinonimica contestuale e identificazione delle entit\`a nominate (come analizzato nella \secref{sec:query-expansion-posizionali}).
+    \item \textbf{Primo Stadio (Candidate Retrieval / Base Ranker):} La query riscritta interroga l'indice invertito compresso distribuito su molteplici shard. Utilizzando algoritmi di dynamic pruning (WAND o MaxScore, formalizzati nel \chapref{chap:elaborazione-topk-wand-maxscore}) su una funzione di scoring additiva economica (tipicamente Okapi BM25), il sistema estrae un insieme ristretto di candidati promettenti:
+    \begin{equation}
+    \mathcal{C} \subset \mathcal{D}, \quad |\mathcal{C}| \approx 1\,000 \text{--} 2\,000 \text{ documenti}.
+    \end{equation}
+    \item \textbf{Feature Extraction e Lookup:} Per ciascun documento candidato $d \in \mathcal{C}$, il sistema interroga il \textit{Document Features Repository} (Forward Index e archivi di metadati residenti in RAM o SSD NVMe) estraendo il vettore multidimensionale delle feature:
+    \begin{equation}
+    \mathbf{x}_{q,d} = \langle f_1(q, d), f_2(q, d), \dots, f_D(q, d) \rangle \in \mathbb{R}^D, \quad D \approx 100 \text{--} 1\,000.
+    \end{equation}
+    \item \textbf{Secondo Stadio (Top Ranker / Learning to Rank):} Un modello supervisionato complesso (ad esempio un ensemble di alberi di regressione potenziati da gradiente, GBRT/LambdaMART) valuta contemporaneamente tutti i vettori $\mathbf{x}_{q,d}$, predicendo un punteggio di rilevanza calibrato $\hat{s}(q, d)$.
+    \item \textbf{Ordinamento Finale e Visualizzazione:} I candidati vengono ordinati per punteggio decrescente e i primi $k \approx 10\text{--}20$ documenti vengono arricchiti con titoli, URL e snippet contestuali per formare la SERP visualizzata dall'utente.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.96\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=navy!80!black, fill=codebackground, thick,
+                font=\footnotesize, minimum width=7.0cm, text width=6.8cm, minimum height=0.95cm, align=center, inner sep=5pt},
+    stage1/.style={rectangle, rounded corners=4pt, draw=darkgreen!85!black, fill=darkgreen!10, thick,
+                   font=\footnotesize, minimum width=7.0cm, text width=6.8cm, minimum height=0.95cm, align=center, inner sep=5pt},
+    stage2/.style={rectangle, rounded corners=4pt, draw=crimson!85!black, fill=crimson!10, thick,
+                   font=\footnotesize, minimum width=7.0cm, text width=6.8cm, minimum height=0.95cm, align=center, inner sep=5pt},
+    store/.style={cylinder, shape border rotate=90, draw=navy!80!black, fill=codebackground, thick,
+                  font=\scriptsize\bfseries, text=navy!90!black, aspect=0.22, minimum width=2.8cm, text width=2.6cm, minimum height=1.4cm, align=center, inner sep=3pt},
+    arr/.style={-Stealth, thick, navy!80!black, shorten >= 3.5pt, shorten <= 2.5pt}
+]
+    % Flusso Principale Online (distanziamento uniforme e larghezza aumentata a 7.0cm per azzerare ogni sillabazione)
+    \node[box] (q) {Query Utente $q$};
+    \node[box, below=0.75cm of q] (exp) {\textbf{Query Understanding \& Expansion}\\[2pt]{\scriptsize NLP, correzione refusi, intento semantico}};
+    \node[stage1, below=0.75cm of exp] (b_rank) {\textbf{Base Ranker (1$^\circ$ Stadio)}\\[2pt]{\scriptsize Indice Invertito + Scoring Veloce (BM25 / WAND)}};
+    \node[box, below=0.75cm of b_rank] (feat) {\textbf{Feature Extraction \& Combination}\\[2pt]{\scriptsize Vettori densi $\mathbf{x}_{q,d} \in \mathbb{R}^D$ ($D \approx 100\text{--}1\,000$)}};
+    \node[stage2, below=0.75cm of feat] (top_rank) {\textbf{Top Ranker (2$^\circ$ Stadio)}\\[2pt]{\scriptsize Modello LtR Avanzato (LambdaMART / GBRT)}};
+    \node[box, below=0.75cm of top_rank, fill=navy!12, draw=navy!90!black] (serp) {\textbf{SERP Finale}\\[2pt]{\scriptsize Top-$k$ risultati ($k \approx 10\text{--}20$)}};
+
+    % Sorgenti Dati a sinistra (perfettamente allineate sullo stesso asse verticale x tramite (inv |- feat))
+    \node[store, left=2.6cm of b_rank] (inv) {\textbf{Indice Invertito}\\[2pt]{\tiny Compresso (RAM / SSD)}};
+    \node[store] (fstore) at (inv |- feat) {\textbf{Feature Store}\\[2pt]{\tiny (PageRank, Quality, CTR)}};
+
+    % Frecce verticali discendenti (flusso ordinato verso il basso)
+    \draw[arr] (q) -- (exp);
+    \draw[arr] (exp) -- (b_rank);
+    \draw[arr] (b_rank) -- node[right=4pt, font=\scriptsize\itshape] {$\mathcal{C} \approx 1\,000$ candidati} (feat);
+    \draw[arr] (feat) -- (top_rank);
+    \draw[arr] (top_rank) -- node[right=4pt, font=\scriptsize\itshape] {Top-$k$ ordinati per score} (serp);
+
+    % Connessione orizzontale Indice Invertito -> Base Ranker (etichetta sopra la freccia a distanza di sicurezza)
+    \draw[arr] (inv.east) -- node[midway, above=5pt, font=\tiny\itshape, text=navy!85!black] {Postings compresse} (b_rank.west);
+
+    % Query bidirezionale Feature Extraction <-> Feature Store:
+    % 1. Richiesta di lookup (da destra a sinistra: Feature Extraction -> Feature Store)
+    \draw[arr] ([yshift=6pt]feat.west) -- node[midway, above=5pt, font=\tiny\itshape, text=navy!85!black] {Lookup DocID $\in \mathcal{C}$} ([yshift=6pt]fstore.east);
+
+    % 2. Restituzione segnali statici (da sinistra a destra: Feature Store -> Feature Extraction)
+    \draw[arr] ([yshift=-6pt]fstore.east) -- node[midway, below=5pt, font=\tiny\itshape, text=navy!85!black] {Segnali statici $f(d)$} ([yshift=-6pt]feat.west);
+
+    % Ramo dinamico da Query Understanding a Feature Extraction (tratto laterale a destra)
+    \draw[arr, dashed, navy!75!black] (exp.east) -- ++(1.4, 0)
+        |- (feat.east) node[pos=0.25, right=4pt, font=\tiny\itshape, align=left, text=navy!85!black] {Segnali Dinamici\\$f(q, d)$ (BM25F, proximity)};
+\end{tikzpicture}%
+}
+\caption{Flusso operativo end-to-end di una pipeline di Learning to Rank a due stadi: dal filtraggio scalabile sui miliardi di documenti dell'indice invertito alla graduazione fine con modelli supervisionati complessi~\cite{bruch2023}.}
+\label{fig:ltr-pipeline-end-to-end}
+\end{figure}
+
+\FloatBarrier
+\subsection{Il Vincolo del Time Budget nei Motori Industriali}
+\label{subsec:vincolo-time-budget}
+Nei motori di ricerca commerciali (Google, Bing, Baidu), l'accordo sul livello di servizio (\textit{Service Level Agreement}, SLA) impone che l'intera transazione computazionale si concluda entro una soglia rigida denominata \textbf{Time Budget}, tipicamente fissata tra $50$ e $100\text{ ms}$ per l'utente finale:
+\begin{equation}
+T_{\text{totale}} = T_{\text{network}} + T_{\text{first-stage}} + T_{\text{feature-lookup}} + T_{\text{ltr-inference}} + T_{\text{rendering}} \le 100\text{ ms}.
+\end{equation}
+Tenendo conto delle latenze di rete e dell'estrazione dei candidati, la quota temporale riservata all'inferenza del modello di Machine Learning \`e vincolata a \textbf{non pi\`u di $15\text{--}25\text{ ms}$}:
+\begin{itemize}
+    \item Se $|\mathcal{C}| = 1\,000$ documenti e il modello valuta ciascun candidato sequenzialmente, ogni singola predizione deve richiedere meno di $20\,\mu\text{s}$;
+    \item Modelli eccessivamente profondi (come reti neurali basate su Transformer complessi) non possono essere eseguiti in questo stadio su tutti i $1\,000$ candidati senza provocare il collasso del throughput della macchina;
+    \item Gli ensemble di alberi decisionali (GBRT) rappresentano lo standard industriale indiscusso proprio per la loro capacit\`a di calcolare centinaia di split binari in pochissimi microsecondi mediante codice auto-vettorizzato SIMD e lookup su tabelle precalcolate.
+\end{itemize}
+
+\FloatBarrier
+\section[Classificatori per l'Ad-Hoc Search e Meccanica delle Loss LtR]{Apprendimento di un Classificatore per l'Ad-Hoc Search\\ e Formulazione Precisa degli Approcci LtR}
+\label{sec:classificatore-adhoc-meccanica-loss}
+\label{sec:formulazione-matematica-obiettivi}
+
+Mentre la tassonomia concettuale dei tre paradigmi \`e stata introdotta nel \chapref{chap:learning-to-rank-fondamenti} (\secref{sec:tassonomia-ltr-pointwise-pairwise-listwise}), questa sezione affronta innanzitutto come sia possibile apprendere un classificatore supervisionato per stimare la rilevanza di una coppia query-documento nella ricerca ad-hoc, evidenziandone i limiti strutturali e formalizzando la meccanica computazionale rigorosa delle funzioni di costo (\textit{Loss Machinery}) dei tre approcci fondazionali di Learning to Rank~\cite{bruch2023}.
+
+\FloatBarrier
+\subsection{Apprendere un Classificatore per la Rilevanza di Coppie Query-Documento}
+\label{subsec:apprendere-classificatore-coppia}
+
+Il punto di partenza naturale per integrare il Machine Learning nell'Information Retrieval consiste nel riformulare la ricerca ad-hoc come un problema di \textbf{classificazione supervisionata standard}~\cite{manning2008,bruch2023}.
+
+\paragraph{Rappresentazione e Modello di Predizione.}
+Data una query $q$ e un documento $d$, il sistema estrae un vettore denso di feature congiunte $\mathbf{x} = \Phi(q, d) \in \mathbb{R}^D$, contenente indicatori lessicali (BM25, tf-idf), attributi di prossimità testuale, metriche statiche di qualità (PageRank, lunghezza del testo) e segnali comportamentali (CTR storico).  
+Se la rilevanza \`e binaria ($y \in \{0, 1\}$), \`e possibile addestrare un classificatore probabilistico (es. regressione logistica) per stimare la probabilit\`a a posteriori di pertinenza:
+\begin{equation}
+P(R = 1 \mid \mathbf{x}) = \sigma(\mathbf{w}^T \mathbf{x} + b) = \frac{1}{1 + e^{-(\mathbf{w}^T \mathbf{x} + b)}},
+\label{eq:logistic-classifier-adhoc}
+\end{equation}
+dove i pesi $\mathbf{w} \in \mathbb{R}^D$ e il bias $b \in \mathbb{R}$ vengono ottimizzati minimizzando la log-loss (o binary cross-entropy) su un training set etichettato.  
+Nella fase di inferenza online per una query ad-hoc, il motore calcola lo score continuo $s(q, d) = \mathbf{w}^T \mathbf{x} + b$ (oppure la probabilit\`a $P(R=1 \mid \mathbf{x})$) per ciascun candidato estratto dal primo stadio, ordinando la SERP in ordine decrescente di punteggio.
+
+\paragraph{Vantaggi e Limiti dell'Approccio a Classificatore Standard.}
+L'impiego di un classificatore convenzionale presenta vantaggi immediati ma si scontra con tre severe criticit\`a intrinseche:
+\begin{itemize}
+    \item \textbf{Vantaggi:}
+    \begin{enumerate}
+        \item Consente di utilizzare algoritmi e librerie di machine learning off-the-shelf ampiamente consolidate;
+        \item Fonde automaticamente segnali eterogenei e a scale differenti in un unico punteggio scalare continuo.
+    \end{enumerate}
+    \item \textbf{Limiti Strutturali nel Ranking:}
+    \begin{enumerate}
+        \item \textit{Sbilanciamento Estremo delle Classi (\textit{Severe Class Imbalance}):} In una collezione Web, per qualunque query il numero di documenti non rilevanti supera di molti ordini di grandezza i documenti pertinenti ($|D_{\text{irrilevanti}}| \gg |D_{\text{rilevanti}}|$). Un classificatore orientato all'accuratezza globale tender\`a a predire sistematicamente la classe negativa, penalizzando la sensibilit\`a sul recupero.
+        \item \textit{Simmetria dell'Errore di Classificazione:} La perdita logistica o quadratica penalizza l'errore di classificazione in modo identico, indipendentemente dalla posizione del documento nella graduatoria. In IR, al contrario, commettere un errore di ordinamento sulla prima posizione (rank 1) distrugge l'esperienza utente, mentre uno scambio alla posizione 500 \`e completamente ininfluente.
+        \item \textit{Assenza di Relazione di Competizione Locale:} Il classificatore valuta ogni coppia $(q, d)$ in isolamento, ignorando che l'obiettivo dell'utente non \`e stimare un valore assoluto ma identificare il \textit{migliore} documento tra i concorrenti disponibili per quella specifica query.
+    \end{enumerate}
+\end{itemize}
+Per superare tali limitazioni, la disciplina del Learning to Rank ha elaborato formulazioni matematiche dedicate, capaci di modellare esplicitamente le relazioni di coppia o l'intera permutazione della graduatoria.
+
+\FloatBarrier
+\subsection{Spazio delle Istanze, Scoring e Permutazioni}
+\label{subsec:spazio-istanze-permutazioni}
+Sia $\mathcal{Q}$ l'insieme delle possibili query e $\mathcal{D}$ l'insieme dei documenti. Un dataset di addestramento supervisionato per il ranking \`e composto da una collezione di $M$ tuple:
+\begin{equation}
+\mathcal{T} = \big\{ (q_i, \mathbf{D}_i, \mathbf{y}_i) \big\}_{i=1}^M,
+\end{equation}
+dove per ciascuna query $q_i$:
+\begin{itemize}
+    \item $\mathbf{D}_i = [d_{i,1}, d_{i,2}, \dots, d_{i,n_i}]$ \`e la lista di $n_i$ documenti candidati associati a $q_i$;
+    \item Ciascuna coppia $(q_i, d_{i,j})$ \`e rappresentata da un vettore di feature $\mathbf{x}_{i,j} = \Phi(q_i, d_{i,j}) \in \mathbb{R}^D$;
+    \item $\mathbf{y}_i = [y_{i,1}, y_{i,2}, \dots, y_{i,n_i}]$ rappresenta il vettore delle etichette di rilevanza fornite da valutatori umani o ricavate implicitamente dai log di clic ($y_{i,j} \in \{0, 1, \dots, L-1\}$).
+\end{itemize}
+
+Il modello di ranking $R: \mathbb{R}^D \to \mathbb{R}$ assegna a ciascuna coppia un punteggio continuo $s_{i,j} = R(\mathbf{x}_{i,j})$. I punteggi predetti inducono un ordinamento (\textit{permutazione}) $\pi_i \in \mathfrak{S}_{n_i}$ sui documenti:
+\begin{equation}
+\pi_i(j) < \pi_i(k) \iff R(\mathbf{x}_{i,j}) > R(\mathbf{x}_{i,k}).
+\end{equation}
+
+\FloatBarrier
+\subsection{Obiettivo Pointwise: Regressione e Classificazione}
+\label{subsec:obiettivo-pointwise}
+Come evidenziato nella tassonomia comparativa di Figura~\ref{fig:ltr-three-approaches-comparison}, l'approccio \textbf{Pointwise} ignora la struttura relazionale dell'elenco, trattando ogni singola coppia $(q_i, d_{i,j})$ come un'istanza statistica isolata e indipendente.
+
+\paragraph{Formulazione di Regressione:}
+Se le etichette sono considerate valori numerici continui, la funzione di perdita minimizza l'errore quadratico medio (\textit{Mean Squared Error}, MSE):
+\begin{equation}
+\mathcal{L}_{\text{pointwise-reg}}(R) = \frac{1}{\sum n_i} \sum_{i=1}^M \sum_{j=1}^{n_i} \big( R(\mathbf{x}_{i,j}) - y_{i,j} \big)^2.
+\end{equation}
+
+\paragraph{Formulazione di Classificazione Multi-Classe:}
+Se le etichette sono categorie discrete ($y \in \{0, 1, 2, 3, 4\}$), il modello modella le probabilit\`a $P(y = c \mid \mathbf{x})$ tramite softmax e minimizza la cross-entropia:
+\begin{equation}
+\mathcal{L}_{\text{pointwise-class}}(R) = - \sum_{i=1}^M \sum_{j=1}^{n_i} \sum_{c=0}^{L-1} \mathbb{I}(y_{i,j} = c) \cdot \log P(y_{i,j} = c \mid \mathbf{x}_{i,j}).
+\end{equation}
+
+\textit{Limite intrinseco:} Il modello penalizza allo stesso modo l'errore di predizione su un documento altamente rilevante (in testa) e su un documento totalmente irrilevante (in fondo alla coda), ignorando la qualit\`a posizionale della graduatoria.
+
+\FloatBarrier
+\subsection{Obiettivo Pairwise: Ordinamento di Coppia e Modello RankNet}
+\label{subsec:obiettivo-pairwise-ranknet}
+L'approccio \textbf{Pairwise} sposta l'unit\`a elementare di apprendimento dal singolo documento alla coppia ordinata di documenti per la medesima query: $(d_j, d_k)$ tale che $y_{i,j} > y_{i,k}$ (notazione di preferenza: $d_j \succ_{q_i} d_k$).
+
+Come introdotto nel modello fondazionale \textbf{RankNet}~\cite{burges2005}, la probabilit\`a modellata che il documento $d_j$ sia preferito al documento $d_k$ viene definita tramite la funzione sigmoide applicata alla differenza dei loro punteggi:
+\begin{equation}
+P(d_j \succ d_k) = \sigma\big(s_j - s_k\big) = \frac{1}{1 + e^{-\sigma(s_j - s_k)}} = \frac{1}{1 + e^{-\sigma(R(\mathbf{x}_j) - R(\mathbf{x}_k))}},
+\end{equation}
+dove $\sigma > 0$ modula la pendenza della curva logistica.
+La funzione di perdita per la coppia \`e la cross-entropia rispetto alla preferenza ideale determinata dalle label ($P^* = 1$ se $y_j > y_k$):
+\begin{equation}
+\mathcal{C}_{jk} = - P^* \log P(d_j \succ d_k) - (1 - P^*) \log (1 - P(d_j \succ d_k)) = \log \big( 1 + e^{-\sigma(s_j - s_k)} \big).
+\label{eq:ranknet-loss-formula}
+\end{equation}
+
+La funzione di costo complessiva \`e la somma su tutte le coppie discordanti:
+\begin{equation}
+\mathcal{L}_{\text{pairwise}}(R) = \sum_{i=1}^M \sum_{j, k : y_{i,j} > y_{i,k}} \log \Big( 1 + e^{-\sigma(R(\mathbf{x}_{i,j}) - R(\mathbf{x}_{i,k}))} \Big).
+\end{equation}
+Poich\'e la funzione~\eqref{eq:ranknet-loss-formula} \`e liscia e differenziabile ovunque rispetto ai parametri del modello, il gradiente pu\`o essere calcolato analiticamente e propagato tramite Stochastic Gradient Descent (SGD).
+
+\FloatBarrier
+\subsection{Obiettivo Listwise: ListNet e Distribuzioni di Probabilit\`a}
+\label{subsec:obiettivo-listwise-listnet}
+L'approccio \textbf{Listwise} mira a valutare l'intero elenco di documenti simultaneamente. Poich\'e l'operatore di ordinamento discreto non \`e differenziabile, i metodi listwise probabilistici come \textbf{ListNet}~\cite{cao2007} proiettano i punteggi e le etichette su distribuzioni di probabilit\`a multinomiali.
+
+Per una query con $n$ documenti:
+\begin{itemize}
+    \item La \textbf{probabilit\`a predetta di top-1} per il documento $j$ (la probabilit\`a che $d_j$ sia il migliore della lista) \`e data dal softmax dei punteggi:
+    \begin{equation}
+    P_s(d_j) = \frac{\exp(s_j)}{\sum_{k=1}^n \exp(s_k)};
+    \end{equation}
+    \item La \textbf{probabilit\`a ideale di top-1} viene calcolata analogamente sulle etichette di rilevanza (tipicamente trasformate in guadagni esponenziali $2^{y_j} - 1$):
+    \begin{equation}
+    P_y(d_j) = \frac{\exp(y_j)}{\sum_{k=1}^n \exp(y_k)}.
+    \end{equation}
+\end{itemize}
+
+La funzione di perdita di ListNet misura la distanza di Kullback-Leibler (o cross-entropia) tra la distribuzione ideale e quella predetta:
+\begin{equation}
+\mathcal{L}_{\text{ListNet}}(R) = - \sum_{j=1}^n P_y(d_j) \cdot \log P_s(d_j).
+\end{equation}
+ListNet garantisce una formulazione continua e derivabile che cattura le interazioni sull'intera lista, favorendo i documenti con etichette elevate rispetto a quelli con etichette basse.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    docbox/.style={rectangle, draw=navy!80!black, fill=codebackground, rounded corners=3pt, thick,
+                   minimum width=1.1cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center, inner sep=2pt},
+    pairbox/.style={rectangle, draw=crimson!80!black, fill=crimson!6, rounded corners=3pt, thick,
+                    minimum width=1.9cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+    lossbox/.style={rectangle, draw=navy!90!black, fill=navy!8, rounded corners=3pt, thick,
+                    minimum width=4.2cm, minimum height=0.85cm, font=\scriptsize\bfseries, align=center},
+    arr/.style={-Stealth, thick, navy!80!black}
+]
+    % ================= (a) Pointwise =================
+    \node[font=\small\bfseries, text=navy] at (2.1, 4.0) {(a) Pointwise};
+    % Singole istanze valutate in isolamento (distanziate per evitare sovrapposizioni)
+    \node[docbox] (pa) at (0.75, 3.1) {$d_1 \to s_1$};
+    \node[docbox] (pb) at (2.10, 3.1) {$d_2 \to s_2$};
+    \node[docbox] (pc) at (3.45, 3.1) {$d_3 \to s_3$};
+    
+    % Perdite indipendenti per ciascun documento
+    \node[font=\tiny, text=gray!80!black] (la) at (0.75, 2.2) {$\ell_1(s_1, y_1)$};
+    \node[font=\tiny, text=gray!80!black] (lb) at (2.10, 2.2) {$\ell_2(s_2, y_2)$};
+    \node[font=\tiny, text=gray!80!black] (lc) at (3.45, 2.2) {$\ell_3(s_3, y_3)$};
+    
+    \draw[-Stealth, thick, gray!70!black] (pa) -- (la);
+    \draw[-Stealth, thick, gray!70!black] (pb) -- (lb);
+    \draw[-Stealth, thick, gray!70!black] (pc) -- (lc);
+    
+    \node[lossbox] (ploss) at (2.1, 1.1) {Loss additiva indipendente:\\[2pt]$\mathcal{L}_{\text{point}} = \sum_{j=1}^n (s_j - y_j)^2$};
+    \draw[arr] (2.1, 1.85) -- (ploss);
+
+    % Separatore 1
+    \draw[dashed, gray!40, thick] (4.5, 0.6) -- (4.5, 4.2);
+
+    % ================= (b) Pairwise (RankNet) =================
+    \node[font=\small\bfseries, text=navy] at (7.8, 4.0) {(b) Pairwise (RankNet)};
+    % Istanze di training: coppie ordinate senza sovrapposizioni
+    \node[pairbox] (pab) at (6.8, 2.8) {$(d_1, d_2)$\\{\tiny $y_{1,2} = +1$}};
+    \node[pairbox] (pbc) at (8.8, 2.8) {$(d_2, d_3)$\\{\tiny $y_{2,3} = +1$}};
+    
+    \node[lossbox] (qloss) at (7.8, 1.1) {Loss logistica sulle coppie:\\[2pt]$\mathcal{L}_{\text{pair}} = \frac{1}{2}\sum_{j < k} \log(1 + e^{-\sigma(s_j - s_k)})$};
+    \draw[arr] (pab.south) -- ++(0,-0.4) -| ([xshift=-1.0cm]qloss.north);
+    \draw[arr] (pbc.south) -- ++(0,-0.4) -| ([xshift=1.0cm]qloss.north);
+
+    % Separatore 2
+    \draw[dashed, gray!40, thick] (10.5, 0.6) -- (10.5, 4.2);
+
+    % ================= (c) Listwise (ListNet) =================
+    \node[font=\small\bfseries, text=navy] at (13.5, 4.0) {(c) Listwise (ListNet)};
+    % Intera lista con distribuzione di probabilità
+    \node[docbox, minimum width=4.1cm] (rlist) at (13.5, 2.8) {Vettore Documenti: $\langle d_1, d_2, \dots, d_n \rangle$\\[2pt]{\tiny Proiezione Softmax: $P_s(d_j) = \frac{\exp(s_j)}{\sum_{k=1}^n \exp(s_k)}$}};
+    
+    \node[lossbox] (rloss) at (13.5, 1.1) {Cross-entropia tra distribuzioni:\\[2pt]$\mathcal{L}_{\text{list}} = -\sum_{j=1}^n P_y(d_j) \cdot \log P_s(d_j)$};
+    \draw[arr] (rlist.south) -- (rloss.north);
+\end{tikzpicture}%
+}
+\caption{Confronto schematico tra le unità di calcolo e la propagazione delle funzioni di costo dei tre paradigmi di ranking (Pointwise, Pairwise e Listwise), a complemento della visione tassonomica della Figura~\ref{fig:ltr-three-approaches-comparison}~\cite{bruch2023}.}
+\label{fig:pointwise-pairwise-listwise-machinery}
+\end{figure}
+
+\FloatBarrier
+\section[Estensione a BM25F e Ottimizzazione dei Parametri]{Estensione a BM25F:\\ Architettura, Ottimizzazione e Loss Surrogate}
+\label{sec:bm25f-estensione-ottimizzazione}
+\label{sec:bm25f-ottimizzazione-ltr}
+\label{sec:bm25f-ottimizzazione-strutturata}
+
+La formulazione standard di Okapi BM25 analizzata nel \chapref{chap:learning-to-rank-fondamenti} assume che ciascun documento sia un testo continuo e omogeneo. Nei sistemi reali (come pagine Web, articoli scientifici o schede di e-commerce), i documenti presentano una ricca struttura a zone o campi eterogenei. Questa sezione esamina l'algoritmo \textbf{BM25F} (\textit{BM25 with Fields}), ne analizza i vantaggi e gli svantaggi strutturali, e mostra come la calibrazione dei suoi parametri venga formulata e risolta come un problema di Learning to Rank mediante discesa di gradiente e perdite surrogate~\cite{robertson2009,taylor2006}.
+
+\FloatBarrier
+\subsection[Dall'Okapi BM25 ai Documenti Semi-Strutturati]{Dall'Okapi BM25 ai Documenti\\ Semi-Strutturati: L'Algoritmo BM25F}
+\label{subsec:fondamenti-bm25f}
+
+Nei documenti complessi, il contenuto testuale \`e ripartito in molteplici campi o flussi semi-strutturati $s \in \mathcal{S}$:
+\begin{itemize}
+    \item Pagine Web: $\mathcal{S} = \{\texttt{Title}, \texttt{Body}, \texttt{Anchor Text}, \texttt{URL}\}$;
+    \item Articoli scientifici: $\mathcal{S} = \{\texttt{Titolo}, \texttt{Abstract}, \texttt{Corpo}, \texttt{Autori}\}$.
+\end{itemize}
+
+\paragraph{Perch\'e l'approccio ingenuo fallisce.}
+Un tentativo immediato per gestire campi multipli consisterebbe nel calcolare lo score Okapi BM25 standard separatamente su ciascun campo $s$ e combinare linearmente i punteggi parziali ottenuti:
+\begin{equation}
+    s_{\text{ingenuo}}(q, d) = \sum_{s \in \mathcal{S}} w_s \cdot \text{BM25}_s(q, d).
+\end{equation}
+Tale combinazione soffre di un difetto intrinseco: applica la saturazione non lineare del termine indipendentemente su ogni singolo campo. Di conseguenza, se una parola chiave compare due volte nel titolo e due volte nel corpo, essa subisce due saturazioni parziali separate, anzich\'e saturare una volta sola in base all'evidenza complessiva ponderata del termine nel documento.
+
+\paragraph{L'architettura algebrica corretta di BM25F.}
+Sviluppato da Robertson, Zaragoza e Taylor~\cite{robertson2009,taylor2006}, l'algoritmo \textbf{BM25F} adotta l'impostazione corretta: \textbf{combina linearmente le frequenze ponderate dei campi prima di applicare la trasformazione di saturazione asintotica}.
+
+Sia $f_{t, s}$ la frequenza del termine $t$ nel campo $s$ del documento $d$. Si definiscono:
+\begin{itemize}
+    \item $w_s > 0$: il peso d'importanza assegnato al campo $s$;
+    \item $l_s = |d_s|$: la lunghezza effettiva (in token) del campo $s$ nel documento $d$;
+    \item $L_s = \text{avgdl}_s$: la lunghezza media del campo $s$ sull'intera collezione;
+    \item $b_s \in [0, 1]$: il parametro di normalizzazione della lunghezza specifico per il campo $s$.
+\end{itemize}
+
+La lunghezza normalizzata specifica per il campo $s$ \`e:
+\begin{equation}
+    B_s = (1 - b_s) + b_s \cdot \frac{l_s}{L_s}.
+    \label{eq:field-length-norm}
+\end{equation}
+
+La \textbf{pseudo-frequenza effettiva ponderata} del termine $t$ nel documento $d$, denotata con $\tilde{f}_t(d)$, \`e la combinazione convessa:
+\begin{equation}
+    \tilde{f}_t(d) = \sum_{s \in \mathcal{S}} w_s \cdot \frac{f_{t, s}}{B_s} = \sum_{s \in \mathcal{S}} \frac{w_s \cdot f_{t, s}}{(1 - b_s) + b_s \cdot \frac{l_s}{L_s}}.
+    \label{eq:bm25f-weighted-tf}
+\end{equation}
+
+Il punteggio globale BM25F della coppia $(q, d)$ applica infine la saturazione non lineare governata dal parametro globale $k_1$:
+\begin{equation}
+    s_{\text{BM25F}}(q, d) = \sum_{t \in q} \text{IDF}(t) \cdot \frac{\tilde{f}_t(d)}{k_1 + \tilde{f}_t(d)},
+    \label{eq:bm25f-final-score}
+\end{equation}
+dove l'IDF probabilistico \`e convenzionalmente calcolato come:
+\begin{equation}
+    \text{IDF}(t) = \ln \left( \frac{N - df_t + 0.5}{df_t + 0.5} + 1 \right).
+\end{equation}
+
+\FloatBarrier
+\subsection{Vantaggi e Svantaggi di BM25F (Pros and Cons)}
+\label{subsec:pros-cons-bm25f}
+
+L'estensione BM25F introduce un bilanciamento analitico ben preciso:
+
+\paragraph{Vantaggi (Pros):}
+\begin{enumerate}
+    \item \textbf{Saturazione Asintotica Corretta:} Sommando le frequenze dei singoli campi all'interno di $\tilde{f}_t(d)$ prima della funzione concava sublineare, il termine satura una sola volta. Ci\`o rispecchia fedelmente il rendimento marginale decrescente dell'evidenza complessiva.
+    \item \textbf{Ponderazione Flessibile delle Zone:} Consente di assegnare pesi $w_s$ dedicati a zone a densit\`a semantica diseguale (es. occorrenze nel titolo o nell'anchor text conferiscono un segnale di rilevanza assai pi\`u affidabile rispetto al corpo).
+    \item \textbf{Controllo Differenziato della Verbosit\`a ($b_s$):} Permette di calibrare indipendentemente la penalizzazione della lunghezza per ciascuna zona. Ad esempio, per il titolo si adotta spesso $b_{\text{title}} \approx 0$ (poich\'e i titoli lunghi non diluiscono il contenuto ma sono descrittivi), mentre per il testo esteso si sceglie $b_{\text{body}} \approx 0.75$.
+    \item \textbf{Robustezza e Ruolo nel Candidate Retrieval:} Costituisce lo standard industriale de facto per il reperimento di primo stadio ad altissimo throughput nei motori di ricerca commerciali.
+\end{enumerate}
+
+\paragraph{Svantaggi (Cons):}
+\begin{enumerate}
+    \item \textbf{Esplosione dei Parametri Liberi:} Mentre Okapi BM25 possiede soltanto $2$ parametri liberi scalari ($\langle k_1, b \rangle$), BM25F richiede di configurare $2|\mathcal{S}| + 1$ grandezze continue:
+    \begin{equation}
+    \vec{\theta} = \langle w_1, \dots, w_S, b_1, \dots, b_S, k_1 \rangle.
+    \end{equation}
+    Con $S=4$ campi standard, vi sono ben $9$ iperparametri interdipendenti.
+    \item \textbf{Interdipendenza Non Lineare:} Poich\'e i pesi $w_s$ e i fattori di lunghezza $b_s$ interagiscono entro la sommatoria prima della saturazione governata da $k_1$, variare il peso di un campo altera la dinamica di saturazione di tutti gli altri. Non \`e possibile ottimizzare i parametri in modo scorrelato o manuale.
+    \item \textbf{Overhead di Indicizzazione ed Estrazione:} L'indice invertito deve memorizzare e scorrere frequenze e lunghezze suddivise per campo, incrementando l'ingombro in memoria e il tempo di lookup rispetto a posting list monocampo.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Inquadramento dell'Ottimizzazione di BM25F in un Problema di Learning to Rank}
+\label{subsec:bm25f-cast-to-ltr}
+
+Di fronte a $2S+1$ iperparametri continui interdipendenti, la calibrazione di BM25F cessa di essere una regolazione euristica manuale e viene formalizzata rigorosamente come un problema di \textbf{Learning to Rank (LtR)}~\cite{taylor2006}:
+\begin{itemize}
+    \item \textbf{Spazio delle Ipotesi:} La famiglia parametrica di tutte le possibili funzioni di ranking BM25F indicizzate dal vettore dei pesi: $\mathcal{H} = \{ \text{BM25F}_{\vec{\theta}} \mid \vec{\theta} \in \mathbb{R}_+^{2S+1} \}$;
+    \item \textbf{Dati di Addestramento:} Una collezione supervisionata di query storiche $\mathcal{Q}_{\text{train}}$, corredata da insiemi di documenti con giudizi di rilevanza multilivello (ground truth, es. scale a 5 punti da 0 a 4);
+    \item \textbf{Obiettivo di Ottimizzazione:} Individuare la configurazione ottima $\vec{\theta}^*$ che massimizza la metrica di posizionamento target sull'ordinamento prodotto (tipicamente NDCG@10):
+    \begin{equation}
+    \vec{\theta}^* = \arg\max_{\vec{\theta}} \text{NDCG@10}\big( \text{sort}(\text{BM25F}_{\vec{\theta}}) \big).
+    \end{equation}
+\end{itemize}
+
+\paragraph{Vantaggi e Svantaggi dell'Approccio LTR per BM25F (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):}
+    \begin{enumerate}
+        \item \textit{Automazione Oggettiva Guidata dai Dati:} Sostituisce l'arbitrio umano con un'ottimizzazione empirica fondata sulle query effettive e sul comportamento reale degli utenti.
+        \item \textit{Navigazione in Spazi ad Alta Dimensionalit\`a:} Individua combinazioni ottimali di parametri che l'intuito umano non potrebbe mai calibrare a causa delle retroazioni non lineari tra $w_s$, $b_s$ e $k_1$.
+        \item \textit{Adattabilit\`a a Domini Specifici:} Consente di ricalibrare istantaneamente il motore per collezioni verticali (e-commerce, brevetti, letteratura medica) semplicemente fornendo nuovi log o valutazioni di dominio.
+    \end{enumerate}
+    \item \textbf{Svantaggi (Cons):}
+    \begin{enumerate}
+        \item \textit{Rischio di Sovradattamento (Overfitting):} Uno spazio a 9 o pi\`u dimensioni rischia di specializzarsi sulle peculiarit\`a di un set ristretto di query di training, degradando su query non viste.
+        \item \textit{Costo dei Dati di Rilevanza:} Richiede la disponibilit\`a di collezioni annotate con etichette graduate accurate, la cui generazione manuale o inferenza da click log comporta notevoli costi o rumore statistico.
+        \item \textit{Non-Derivabilit\`a della Metrica Target:} L'NDCG non \`e differenziabile, impedendo l'applicazione diretta della discesa di gradiente e imponendo l'uso di perdite surrogate.
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Calibrazione dei Parametri: Grid Search vs. Discesa di Gradiente}
+\label{subsec:grid-search-vs-gradient-descent}
+
+Per individuare $\vec{\theta}^*$, il confronto tra le strategie di ricerca pone in evidenza l'insostenibilit\`a della ricerca esaustiva al crescere del numero di campi:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X X}
+\toprule
+\textbf{Caratteristica} & \textbf{Grid Search (Ricerca a Griglia)} & \textbf{Gradient Descent (Discesa di Gradiente)} \\
+\midrule
+\textbf{Complessit\`a} & Esponenziale: $\mathcal{O}(G^{2S+1})$, dove $G$ \`e il numero di campioni per parametro. & Polinomiale / Lineare rispetto al numero di iterazioni di update: $\mathcal{O}(I \cdot |\mathcal{T}| \cdot (2S+1))$. \\
+\addlinespace
+\textbf{Fattibilit\`a ($S=4$)} & \textbf{Impossibile:} testando soli 10 valori per parametro su 9 variabili occorrono $10^9$ valutazioni dell'intero corpus. & \textbf{Fattibile ed efficiente:} converge al minimo locale in poche centinaia di iterazioni (pochi minuti di CPU). \\
+\addlinespace
+\textbf{Requisito Funzione} & Funziona su qualunque funzione scatola nera non differenziabile. & Richiede una funzione di perdita continua e differenziabile ovunque ($\nabla_{\vec{\theta}} \mathcal{L}$). \\
+\addlinespace
+\textbf{Precisione} & Vincolata alla grana discreta del campionamento prefissato. & Continua: individua valori decimali ottimali continui nello spazio $\mathbb{R}_+^{2S+1}$. \\
+\bottomrule
+\end{tabularx}
+\caption{Confronto analitico tra Grid Search e Gradient Descent per l'ottimizzazione degli iperparametri di BM25F.}
+\label{tab:grid-search-vs-gradient-descent}
+\end{table}
+
+\FloatBarrier
+\subsection{La Scelta della Funzione di Perdita Surrogata (RankNet)}
+\label{subsec:scelta-funzione-perdita-surrogata}
+
+Sebbene la discesa di gradiente sia enormemente pi\`u efficiente della ricerca a griglia, essa non pu\`o essere applicata direttamente alla metrica primaria $\text{NDCG@10}$:
+\begin{itemize}
+    \item La funzione $\text{NDCG@10}$ dipende dalla posizione discreta $1, 2, \dots, 10$ assegnata ai documenti dall'operatore di ordinamento $\text{sort}()$;
+    \item Variazioni infinitesimali di $\vec{\theta}$ non modificano l'ordinamento relativo e lasciano invariato l'NDCG, per cui il gradiente \`e quasi ovunque nullo ($\nabla_{\vec{\theta}} \text{NDCG} = \mathbf{0}$);
+    \item Quando la variazione di $\vec{\theta}$ scambia due posizioni, il valore di NDCG compie un salto discontinuo: il gradiente \`e indefinito.
+\end{itemize}
+
+Per superare tale ostacolo fondamentale, Taylor et al.~\cite{taylor2006} hanno introdotto l'ottimizzazione di BM25F guidata da una \textbf{funzione di perdita surrogata pairwise differenziabile}: la loss logistica di RankNet (definita nell'Equazione~\eqref{eq:ranknet-loss-formula}):
+\begin{equation}
+\vec{\theta}^{(t+1)} \gets \vec{\theta}^{(t)} - \eta \cdot \nabla_{\vec{\theta}} \mathcal{L}_{\text{RankNet}}(\vec{\theta}^{(t)}),
+\end{equation}
+dove i gradienti analitici rispetto a ciascun peso di campo $\frac{\partial \text{BM25F}}{\partial w_s}$, fattore di lunghezza $\frac{\partial \text{BM25F}}{\partial b_s}$ e saturazione $\frac{\partial \text{BM25F}}{\partial k_1}$ vengono calcolati tramite la regola di derivazione a catena (\textit{chain rule}). In questo modo, l'ottimizzazione converge in tempi lineari verso la configurazione che massimizza la concordanza di rango sulle coppie.
+
+\FloatBarrier
+\section{I Problemi Fondamentali dell'Apprendimento del Ranking}
+\label{sec:problemi-fondamentali-ranking}
+
+L'analisi dell'ottimizzazione di BM25F solleva una serie di problematiche teoriche intrinseche che distinguono nettamente l'Information Retrieval dai classici compiti di regressione e classificazione dell'apprendimento automatico standard.
+
+\FloatBarrier
+\subsection{La Natura Discreta delle Metriche di Graduatoria}
+\label{subsec:natura-discreta-metriche}
+In un problema convenzionale di Machine Learning (come la predizione del prezzo di una casa o la stima del tempo di transito), l'obiettivo \`e la minimizzazione della deviazione numerica continua: l'errore $y - \hat{y}$ \`e liscio e convesso.  
+Nel ranking, invece, \textbf{la grandezza numerica assoluta dello score predetto non ha alcuna importanza diretta}:
+\begin{itemize}
+    \item Se i punteggi predetti per due documenti passano da $\{s_1 = 10, s_2 = 8\}$ a $\{s_1 = 1000, s_2 = 0.1\}$, la graduatoria finale rimane rigorosamente $[d_1, d_2]$ e l'NDCG non subisce alcuna alterazione;
+    \item Le metriche di riferimento (MAP, MRR, NDCG@$k$) sono funzioni a gradino (\textit{step functions}): piatte ovunque eccetto nei punti di transizione dove due documenti si scambiano di posto.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Non Convessit\`a e Non Derivabilit\`a dell'Operatore di Ordinamento}
+\label{subsec:non-convessita-non-derivabilita}
+L'operatore matematico che trasforma il vettore dei punteggi continui $\mathbf{s} \in \mathbb{R}^n$ nella permutazione discreta $\pi = \text{sort}(\mathbf{s})$ \`e una funzione non lineare non convessa a variazione non continua:
+\begin{equation}
+\nabla_{\mathbf{s}} \text{sort}(\mathbf{s}) = \mathbf{0} \quad \text{quasi ovunque}.
+\end{equation}
+La conseguenza teorica \`e drammatica:
+\begin{theorem}[Intrattabilit\`a dell'Ottimizzazione Diretta di Metriche di Ranking]
+L'ottimizzazione diretta delle metriche di ranking non continue (quali MAP e NDCG) \`e un problema computazionale \textbf{NP-difficile}~\cite{bruch2023}. Non esiste alcun algoritmo di discesa di gradiente standard in grado di operare direttamente su tali obiettivi senza introdurre approssimazioni o surrogati lisci.
+\end{theorem}
+
+Di fronte a tale barriera, la comunit\`a scientifica ha sviluppato due linee di ricerca complementari:
+\begin{enumerate}
+    \item Progettare funzioni di perdita lisce surrogate differenziabili (approcci Pointwise, Pairwise e ListNet);
+    \item Sfruttare modelli non parametrici basati su insiemi di alberi decisionali addestrati tramite \textbf{Gradient Boosted Regression Trees (GBRT)} guidati da gradienti virtuali (\textit{Lambda-MART}), che hanno dominato incontrastati le competizioni mondiali di Information Retrieval (Yahoo! Learning to Rank Challenge).
+\end{enumerate}
+
+\FloatBarrier
+\section{Modelli ad Albero per il Ranking: Regression Trees}
+\label{sec:regression-trees-ranking}
+
+Per catturare le complesse interazioni non lineari tra centinaia di feature dense ed eterogenee (PageRank, BM25, click rate, finestre di prossimit\`a) senza dover specificare formule chiuse manuali, la classe di modelli predittivi pi\`u efficace \`e costituita dagli \textbf{Alberi di Regressione} (\textit{Regression Trees}).
+
+\FloatBarrier
+\subsection{Anatomia di un Albero di Regressione}
+\label{subsec:anatomia-regression-tree}
+A differenza di un albero di classificazione (che assegna etichette discrete categoriche), un \textbf{albero di regressione} partiziona lo spazio multidimensionale delle feature $\mathbb{R}^D$ in $J$ regioni ortogonali disgiunte $\mathcal{R}_1, \mathcal{R}_2, \dots, \mathcal{R}_J$, assegnando a ciascuna regione un valore scalare continuo costante $\gamma_j \in \mathbb{R}$:
+\begin{equation}
+T(\mathbf{x}) = \sum_{j=1}^J \gamma_j \cdot \mathbb{I}(\mathbf{x} \in \mathcal{R}_j).
+\label{eq:regression-tree-formulation}
+\end{equation}
+
+La struttura dell'albero si articola in:
+\begin{itemize}
+    \item \textbf{Nodi Interni (Decision Nodes):} Contengono un test logico binario su una specifica feature continua:
+    \begin{equation}
+    x_k \le \theta,
+    \end{equation}
+    dove $k \in \{1, \dots, D\}$ \`e l'indice della feature e $\theta \in \mathbb{R}$ \`e la soglia di divisione;
+    \item \textbf{Rami (Branches):} Instradano l'istanza verso il sotto-albero sinistro (se la condizione \`e vera) o verso il sotto-albero destro (se falsa);
+    \item \textbf{Foglie (Leaf Nodes):} Ciascuna foglia corrisponde univocamente a una regione $\mathcal{R}_j$ e memorizza il valore reale costante predetto $\gamma_j$.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.90\linewidth}{!}{%
+\begin{tikzpicture}[
+    level 1/.style={sibling distance=6.4cm, level distance=2.2cm},
+    level 2/.style={sibling distance=3.2cm, level distance=2.2cm},
+    node_dec/.style={rectangle, rounded corners=4pt, draw=navy!85!black, fill=codebackground, thick,
+                     font=\small\bfseries, align=center, inner sep=5pt},
+    leaf/.style={rectangle, rounded corners=4pt, draw=darkgreen!85!black, fill=darkgreen!10, thick,
+                 font=\small, align=center, inner sep=5pt},
+    edge from parent/.style={draw, -Stealth, thick, navy!80!black},
+    edge from parent path={(\tikzparentnode.south) -- (\tikzchildnode.north)}
+]
+    % Radice
+    \node[node_dec] {BM25 $\le 4.2$}
+        child {
+            node[node_dec] {PageRank $\le 2.0$}
+            child {
+                node[leaf] {Foglia 1\\[2pt]$\gamma_1 = 0.25$}
+                edge from parent node[pos=0.5, above left=2pt, font=\scriptsize\bfseries, text=navy] {S\`\i}
+            }
+            child {
+                node[leaf] {Foglia 2\\[2pt]$\gamma_2 = 1.10$}
+                edge from parent node[pos=0.5, above right=2pt, font=\scriptsize\bfseries, text=navy] {No}
+            }
+            edge from parent node[pos=0.5, above left=2pt, font=\scriptsize\bfseries, text=navy] {S\`\i}
+        }
+        child {
+            node[node_dec] {Distanza Parole $\le 3$}
+            child {
+                node[leaf] {Foglia 3 (Top)\\[2pt]$\gamma_3 = 3.80$}
+                edge from parent node[pos=0.5, above left=2pt, font=\scriptsize\bfseries, text=navy] {S\`\i}
+            }
+            child {
+                node[leaf] {Foglia 4\\[2pt]$\gamma_4 = 2.45$}
+                edge from parent node[pos=0.5, above right=2pt, font=\scriptsize\bfseries, text=navy] {No}
+            }
+            edge from parent node[pos=0.5, above right=2pt, font=\scriptsize\bfseries, text=navy] {No}
+        };
+\end{tikzpicture}%
+}
+\caption{Struttura topologica di un albero di regressione con 4 foglie: i nodi interni eseguono test binari ortogonali sulle feature query-documento, instradando l'istanza verso il punteggio scalare predetto alla foglia.}
+\label{fig:regression-tree-structure}
+\end{figure}
+
+\FloatBarrier
+\subsection{Algoritmo di Costruzione e Criterio di Split (Minimizzazione MSE)}
+\label{subsec:costruzione-split-mse}
+La costruzione di un albero di regressione segue una strategia greedy top-down (\textit{Recursive Binary Splitting}). Partendo dall'insieme dei dati associati al nodo corrente $\mathcal{S}$, l'algoritmo valuta tutte le possibili feature $k \in \{1, \dots, D\}$ e tutte le possibili soglie di partizionamento $\theta$, suddividendo i dati nei sottoinsiemi:
+\begin{align}
+\mathcal{S}_L(k, \theta) &= \{ (\mathbf{x}_i, y_i) \in \mathcal{S} \mid x_{i,k} \le \theta \}, \\
+\mathcal{S}_R(k, \theta) &= \{ (\mathbf{x}_i, y_i) \in \mathcal{S} \mid x_{i,k} > \theta \}.
+\end{align}
+
+Il criterio ottimale sceglie la coppia $(k^*, \theta^*)$ che massimizza la \textbf{riduzione della somma dei quadrati degli errori} (\textit{Variance Reduction} o decrescita dell'MSE):
+\begin{equation}
+(k^*, \theta^*) = \arg\min_{k, \theta} \left[ \sum_{i \in \mathcal{S}_L(k, \theta)} \big( y_i - \hat{y}_L \big)^2 + \sum_{i \in \mathcal{S}_R(k, \theta)} \big( y_i - \hat{y}_R \big)^2 \right],
+\label{eq:mse-split-criterion}
+\end{equation}
+dove $\hat{y}_L$ e $\hat{y}_R$ rappresentano le medie empiriche dei target nei due rami.
+
+\FloatBarrier
+\subsection{Calcolo dei Valori alle Foglie}
+\label{subsec:calcolo-valori-foglie}
+Quando il processo di divisione ricorsiva si arresta (in base a criteri di profondit\`a massima, numero minimo di campioni per foglia o decadimento marginale della varianza), a ciascuna foglia $\mathcal{R}_j$ viene assegnato il valore costante $\gamma_j$ che minimizza l'errore quadratico sui campioni che ricadono in essa:
+\begin{equation}
+\gamma_j = \arg\min_{\gamma} \sum_{i \in \mathcal{R}_j} (y_i - \gamma)^2 = \frac{1}{|\mathcal{R}_j|} \sum_{i \in \mathcal{R}_j} y_i.
+\end{equation}
+Il valore predetto dalla foglia \`e semplicemente la \textbf{media aritmetica} dei valori target delle istanze che appartengono alla partizione.
+
+\FloatBarrier
+\subsection{Esempio Didattico Numerico di Partizionamento Spaziale}
+\label{subsec:esempio-didattico-split}
+Si consideri un nodo con $N = 4$ documenti aventi come feature $x_1 = \text{BM25}$ e target di rilevanza $y$:
+\begin{itemize}
+    \item $d_1$: $\text{BM25} = 1.0$, $y = 0$;
+    \item $d_2$: $\text{BM25} = 2.0$, $y = 1$;
+    \item $d_3$: $\text{BM25} = 4.0$, $y = 3$;
+    \item $d_4$: $\text{BM25} = 5.0$, $y = 4$.
+\end{itemize}
+La media complessiva \`e $\bar{y} = \frac{0 + 1 + 3 + 4}{4} = 2.0$. La somma degli errori quadratici iniziale (TSS) \`e:
+\begin{equation*}
+\text{TSS} = (0 - 2)^2 + (1 - 2)^2 + (3 - 2)^2 + (4 - 2)^2 = 4 + 1 + 1 + 4 = 10.0.
+\end{equation*}
+
+Valutiamo lo split alla soglia $\theta = 3.0$:
+\begin{itemize}
+    \item Ramo Sinistro $\mathcal{S}_L$ ($\text{BM25} \le 3.0$): documenti $\{d_1, d_2\}$, target $\{0, 1\}$.
+    Media: $\hat{y}_L = 0.5$. Errore: $(0 - 0.5)^2 + (1 - 0.5)^2 = 0.25 + 0.25 = 0.5$.
+    \item Ramo Destro $\mathcal{S}_R$ ($\text{BM25} > 3.0$): documenti $\{d_3, d_4\}$, target $\{3, 4\}$.
+    Media: $\hat{y}_R = 3.5$. Errore: $(3 - 3.5)^2 + (4 - 3.5)^2 = 0.25 + 0.25 = 0.5$.
+\end{itemize}
+L'errore residuo totale dopo lo split crolla a:
+\begin{equation*}
+\text{Errore Residuo} = 0.5 + 0.5 = 1.0.
+\end{equation*}
+La varianza spiegata dallo split \`e pari a $10.0 - 1.0 = 9.0$ ($90\%$ di riduzione dell'errore!). Le due foglie conterranno le predizioni costanti $\gamma_L = 0.5$ e $\gamma_R = 3.5$.
+
+\FloatBarrier
+\section[Gradient Boosted Regression Trees]{Gradient Boosted Regression Trees\\ (GBRT / MART)}
+\label{sec:gbrt-mart-ranking}
+
+Un singolo albero di regressione presenta un potere predittivo limitato e soffre di elevata varianza statistica (\textit{overfitting}). Per raggiungere prestazioni competitive al vertice dello stato dell'arte, l'Information Retrieval impiega gli ensemble additivi noti come \textbf{Gradient Boosted Regression Trees} (GBRT, storicamente noti come \textbf{MART}, \textit{Multiple Additive Regression Trees})~\cite{friedman2001,bruch2023}.
+
+\FloatBarrier
+\subsection{Il Principio del Boosting e Modelli Additivi}
+\label{subsec:principio-boosting-modelli-additivi}
+Il principio fondante del Boosting consiste nel combinare in modo iterativo una sequenza di modelli predittivi deboli (\textit{weak learners}, nel nostro caso alberi di regressione poco profondi con $J \approx 8\text{--}32$ foglie) per formare un predittore finale complessivo altamente accurato.
+
+Un modello GBRT \`e un'espansione additiva di $M$ alberi decisionali:
+\begin{equation}
+F_M(\mathbf{x}) = F_0(\mathbf{x}) + \sum_{m=1}^M \eta \cdot h_m(\mathbf{x}),
+\label{eq:gbrt-additive-model}
+\end{equation}
+dove:
+\begin{itemize}
+    \item $F_0(\mathbf{x})$ \`e il modello base iniziale (tipicamente una costante pari alla media dei target);
+    \item $h_m(\mathbf{x})$ \`e l'albero di regressione appreso all'iterazione $m$-esima;
+    \item $\eta \in (0, 1]$ rappresenta il tasso di apprendimento (\textit{learning rate} o \textit{shrinkage}), che modula il contributo di ciascun nuovo albero per prevenire il sovra-adattamento ai dati di training (tipicamente $\eta \in [0.05, 0.1]$).
+\end{itemize}
+
+\FloatBarrier
+\subsection[Gradiente Funzionale e Pseudo-Residui]{Discesa di Gradiente Funzionale\\ e Pseudo-Residui}
+\label{subsec:gradiente-funzionale-pseudo-residui}
+Come si addestrano gli alberi successivi? Nel lavoro fondazionale di Jerome Friedman~\cite{friedman2001}, il boosting viene formalizzato come una \textbf{discesa di gradiente numerica nello spazio delle funzioni}:
+\begin{enumerate}
+    \item Sia $\mathcal{L}(y, F(\mathbf{x}))$ una funzione di perdita differenziabile. Al passo $m$, vogliamo correggere gli errori commessi dall'ensemble parziale corrente $F_{m-1}(\mathbf{x})$;
+    \item Per ciascuna istanza di addestramento $i$, calcoliamo il \textbf{gradiente negativo} della funzione di perdita rispetto alla predizione corrente (chiamato \textbf{pseudo-residuo}):
+    \begin{equation}
+    r_{i,m} = - \left[ \frac{\partial \mathcal{L}(y_i, F(\mathbf{x}_i))}{\partial F(\mathbf{x}_i)} \right]_{F(\mathbf{x}) = F_{m-1}(\mathbf{x})};
+    \label{eq:pseudo-residuo-definizione}
+    \end{equation}
+    \item Nel caso particolare della perdita quadratica ($\mathcal{L} = \frac{1}{2}(y - F)^2$), lo pseudo-residuo coincide esattamente con il residuo algebrico standard:
+    \begin{equation}
+    r_{i,m} = y_i - F_{m-1}(\mathbf{x}_i);
+    \end{equation}
+    \item Il nuovo albero $h_m(\mathbf{x})$ viene costruito e fittato \textbf{utilizzando gli pseudo-residui $r_{i,m}$ come valori target}, approssimando la direzione di massima discesa del gradiente;
+    \item Si aggiornano le predizioni delle foglie e si integra l'albero nell'ensemble: $F_m(\mathbf{x}) = F_{m-1}(\mathbf{x}) + \eta \cdot h_m(\mathbf{x})$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=navy!80!black, fill=codebackground, thick,
+                font=\small, minimum width=6.6cm, text width=6.4cm, minimum height=1.05cm, align=center, inner sep=4pt},
+    treebox/.style={rectangle, rounded corners=4pt, draw=darkgreen!85!black, fill=darkgreen!10, thick,
+                    font=\small\bfseries, minimum width=6.6cm, text width=6.4cm, minimum height=1.05cm, align=center, inner sep=4pt},
+    resbox/.style={rectangle, rounded corners=4pt, draw=crimson!85!black, fill=crimson!8, thick,
+                   font=\small, minimum width=6.6cm, text width=6.4cm, minimum height=1.05cm, align=center, inner sep=4pt},
+    decbox/.style={diamond, aspect=1.8, draw=navy!90!black, fill=navy!10, thick,
+                   font=\scriptsize\bfseries, align=center, inner sep=3pt, minimum width=2.6cm, minimum height=1.3cm},
+    finalbox/.style={rectangle, rounded corners=4pt, draw=darkgreen!90!black, fill=darkgreen!15, thick,
+                     font=\small\bfseries, text=darkgreen!90!black, minimum width=6.6cm, text width=6.4cm, minimum height=1.05cm, align=center, inner sep=4pt},
+    arr/.style={-Stealth, thick, navy!80!black, shorten >= 2.5pt, shorten <= 2.5pt}
+]
+    % Colonna Sinistra (ancoraggio relativo per garantire assenza assoluta di sovrapposizioni)
+    \node[box] (f_prev) at (0, 0) {\textbf{Ensemble Corrente Passo $m$}\\[2pt]{\small $F_{m-1}(\mathbf{x})$}};
+    \node[box, above=0.85cm of f_prev] (f_init) {\textbf{Inizializzazione Modello Base}\\[2pt]{\scriptsize $F_0(\mathbf{x}) = \arg\min_\gamma \sum_{i=1}^N \mathcal{L}(y_i, \gamma)$}};
+
+    % Colonna Destra (distanziata di 2.6cm a destra di f_prev per centrare l'etichetta dell'iterazione)
+    \node[resbox, right=2.6cm of f_prev] (res) {\textbf{Calcolo Pseudo-Residui}\\[2pt]{\scriptsize $r_{i,m} = -\left[\frac{\partial \mathcal{L}(y_i, F(\mathbf{x}_i))}{\partial F(\mathbf{x}_i)}\right]_{F = F_{m-1}}$}};
+    \node[treebox, below=0.85cm of res] (tree) {\textbf{Fit Albero di Regressione}\\[2pt]{\scriptsize Regressione debole: $h_m(\mathbf{x}) \approx r_{i,m}$}};
+    \node[box, fill=navy!8, draw=navy!90!black, below=0.85cm of tree] (f_new) {\textbf{Aggiornamento Additivo (Shrinkage $\eta$)}\\[2pt]{\small $F_m(\mathbf{x}) = F_{m-1}(\mathbf{x}) + \eta \cdot h_m(\mathbf{x})$}};
+
+    % Decisione di Arresto e Modello Finale (perfettamente allineati su colonna sinistra)
+    \node[decbox] (stop) at (f_prev |- f_new) {Arresto?\\[1pt]{\scriptsize $m = M$?}};
+    \node[finalbox, below=1.0cm of stop] (f_final) {\textbf{Modello Finale di Ranking $F_M(\mathbf{x})$}\\[2pt]{\scriptsize Ensemble di $M$ alberi per inferenza online}};
+
+    % Flusso di Inizializzazione e Inizio Loop
+    \draw[arr] (f_init.south) -- (f_prev.north);
+    \draw[arr] (f_prev.east) -- node[midway, above=4pt, font=\scriptsize\itshape, text=navy!85!black] {Inizio iterazione $m$} (res.west);
+
+    % Catena Discendente di Apprendimento (Colonna Destra: frecce pulite e verticali)
+    \draw[arr] (res.south) -- node[midway, right=5pt, font=\tiny\itshape, text=crimson!85!black] {Target gradienti} (tree.north);
+    \draw[arr] (tree.south) -- node[midway, right=5pt, font=\tiny\itshape, text=darkgreen!85!black] {Nuovo albero $h_m$} (f_new.north);
+
+    % Trasferimento orizzontale da Aggiornamento a Controllo di Arresto
+    \draw[arr] (f_new.west) -- (stop.east);
+
+    % Decisione di Arresto: Retroazione "No" verso f_prev; Uscita "Sì" verso f_final
+    \draw[arr] (stop.north) -- node[midway, left=5pt, font=\scriptsize\bfseries, text=navy] {No ($m < M$)} (f_prev.south);
+    \draw[arr, darkgreen] (stop.south) -- node[midway, right=6pt, font=\scriptsize\bfseries, text=darkgreen] {S\`\i ($m = M$)} (f_final.north);
+\end{tikzpicture}%
+}
+\caption{Ciclo iterativo di Gradient Boosting (GBRT): a ogni passo viene calcolato il gradiente negativo della funzione di perdita (pseudo-residuo), viene fittato un nuovo albero di regressione su tali residui e l'ensemble viene aggiornato additivamente con shrinkage $\eta$~\cite{friedman2001}.}
+\label{fig:gbrt-functional-descent}
+\end{figure}
+
+\FloatBarrier
+\subsection{Perch\'e i GBRT Dominano l'Information Retrieval}
+\label{subsec:perche-gbrt-dominano-ir}
+Nei problemi di web search basati su vettori di feature tabulari dense, gli ensemble di alberi GBRT surclassano storicamente i modelli lineari e le reti neurali dense per una combinazione di fattori architetturali unici:
+\begin{enumerate}
+    \item \textbf{Invarianza Monotona di Scala:} I test binari $x_j \le \theta$ dipendono unicamente dall'ordinamento dei valori della feature, rendendo l'albero totalmente immune a scale eterogenee (es. confrontare un valore di PageRank $\approx 0.0001$ con un conteggio di clic $\approx 50\,000$ non richiede normalizzazione standard z-score o min-max);
+    \item \textbf{Robustezza Straordinaria a Valori Anomali (\textit{Outliers}):} Dati spuri o picchi eccezionali nei log di traffico vengono isolati in rami marginali senza distorcere le superfici di decisione globali;
+    \item \textbf{Cattura Spontanea delle Interazioni:} Ciascun percorso da radice a foglia rappresenta un termine congiuntivo di alto ordine (es. $\text{BM25} > 3.0 \land \text{PageRank} > 5.0 \land \text{Recency} < 7$), modellando naturalmente sinergie non lineari tra segnali lessicali e di autorit\`a;
+    \item \textbf{Gestione Nativi di Valori Mancanti (\textit{Missing Values}):} Nei motori web, molti documenti non possiedono tutte le feature (es. pagine orfane senza anchor text); gli alberi gestiscono i valori assenti assegnando una direzione di default a ogni split.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Dall'Errore Quadratico a LambdaMART: L'Approssimazione dei Gradienti NDCG}
+\label{subsec:lambda-mart-panoramica}
+Il limite di GBRT standard risiede nell'ottimizzare la perdita quadratica o la devianza, che come dimostrato non sono orientate alla graduatoria.
+Nel 2010, Chris Burges~\cite{burges2010} ha introdotto \textbf{LambdaMART}, fondendo la flessibilit\`a di GBRT con i gradienti virtuali $\lambda$:
+\begin{itemize}
+    \item Invece di addestrare gli alberi sui residui di regressione, LambdaMART calcola per ogni coppia di documenti $d_j \succ d_k$ uno pseudo-gradiente pesato sulla variazione marginale di NDCG:
+    \begin{equation}
+    \lambda_{jk} = \frac{-\sigma}{1 + e^{\sigma(s_j - s_k)}} \cdot |\Delta \text{NDCG}_{jk}|,
+    \end{equation}
+    dove $|\Delta \text{NDCG}_{jk}|$ rappresenta il guadagno o la perdita di NDCG che si otterrebbe scambiando le posizioni di $d_j$ e $d_k$ nella graduatoria corrente;
+    \item La somma algebrica $\lambda_j = \sum_k \lambda_{jk}$ definisce lo pseudo-residuo per il documento $j$: le coppie situate in cima alla classifica generano gradienti $\lambda$ enormemente pi\`u intensi rispetto a quelle in fondo;
+    \item GBRT fitta gli alberi direttamente sui $\lambda_j$, ottimizzando in modo quasi-diretto l'NDCG@$k$.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Librerie ad Alte Prestazioni: LightGBM e CatBoost}
+\label{subsec:librerie-lightgbm-catboost}
+In ambiente industriale, l'implementazione degli algoritmi GBRT e LambdaMART si avvale di librerie C++ ottimizzate a bassissimo livello per sfruttare l'hardware moderno (analizzato nel \chapref{chap:efficienza-cpu}):
+\begin{itemize}
+    \item \textbf{LightGBM (Microsoft):} Introduce il partizionamento a istogrammi discretizzati (\textit{Histogram-based GBRT}) a 256 bin (8 bit), consentendo la scansione continua in cache L1 e la vettorizzazione SIMD. Supporta nativamente la funzione obiettivo \texttt{lambdarank};
+    \item \textbf{CatBoost (Yandex):} Specializzato nella gestione avanzata di feature categoriche ad alta cardinalit\`a e nell'uso di alberi simmetrici oblunghi (\textit{oblivious trees}), che garantiscono un'inferenza istantanea branchless in produzione.
+\end{itemize}
+
+\FloatBarrier
+\section{Quadro Sinottico e Confronto delle Famiglie di Modelli}
+\label{sec:quadro-sinottico-modelli-ltr}
+
+A coronamento dell'analisi condotta nei \chapref{chap:learning-to-rank-fondamenti} e~\chapref{chap:learning-to-rank-avanzato}, la \tabref{tab:sinottico-modelli-ltr} fornisce una comparazione sistematica tra le principali famiglie di modelli impiegate per il ranking in Information Retrieval:
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash\bfseries}p{3.0cm} >{\raggedright\arraybackslash\hsize=0.9\hsize}X >{\raggedright\arraybackslash\hsize=1.1\hsize}X >{\raggedright\arraybackslash\hsize=1.0\hsize}X}
+\toprule
+Modello / Famiglia & Tipologia Ipotesi & Funzione Obiettivo & Vantaggi e Ambiti d'Uso \\
+\midrule
+Okapi BM25 & Formula analitica chiusa lessicale. & Nessuna (modello probabilistico bayesiano non appreso). & Baseline insuperabile per First-Stage Retrieval su indici invertiti; latenza $< 1\text{ ms}$. \\
+\addlinespace
+BM25F & Formula analitica multi-campo ($2S+1$ parametri). & Pairwise Loss (RankNet) su feature di campo. & Ottimale per pagine web con zone distinte (Titolo, Body, URL, Anchor). \\
+\addlinespace
+Classificatore Lineare & Iperpiano $\mathbf{w}^T \mathbf{x} + b$. & Cross-entropia o cerniera (SVM). & Semplicit\`a assoluta; non cattura interazioni non lineari tra segnali. \\
+\addlinespace
+Regression Tree Singolo & Partizione ortogonale dello spazio $\mathbb{R}^D$. & Minimizzazione varianza residua (MSE). & Altissima interpretabilit\`a; potere predittivo limitato e rischio overfitting. \\
+\addlinespace
+GBRT / MART & Modello additivo di alberi (Boosting). & Discesa di gradiente su MSE o devianza. & Eccellente gestione di feature tabulari eterogenee e assenza di normalizzazione. \\
+\addlinespace
+LambdaMART & GBRT guidato da gradienti virtuali $\lambda$. & Pseudo-gradiente pesato su $|\Delta \text{NDCG}|$. & \textbf{Stato dell'arte assoluto} per il secondo stadio di Web Search (Top Ranker). \\
+\bottomrule
+\end{tabularx}%
+}
+\caption{Quadro sinottico comparativo delle famiglie di modelli per il ranking in Information Retrieval.}
+\label{tab:sinottico-modelli-ltr}
+\end{table}

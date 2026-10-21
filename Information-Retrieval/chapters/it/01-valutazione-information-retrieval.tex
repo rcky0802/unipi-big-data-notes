@@ -2,296 +2,377 @@
 \label{chap:evaluation}
 
 \FloatBarrier
-\section{Architettura di un Motore di Ricerca}
-\label{sec:architettura-motore}
+\section{Valutare un Sistema di Information Retrieval: Metodologia e Obiettivi}
+\label{sec:metodologia-obiettivi-valutazione}
 
-Prima di affrontare la valutazione, è utile inquadrare l'architettura complessiva di un moderno motore di ricerca, che può essere schematizzata nel seguente diagramma a blocchi:
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-    node distance=1.1cm and 2.2cm,
-    offline/.style={rectangle, rounded corners=4pt, draw=blue!70!black, fill=blue!8,
-                    thick, minimum width=3.5cm, minimum height=0.9cm,
-                    text width=3.4cm, align=center, font=\small},
-    online/.style={rectangle, rounded corners=4pt, draw=teal!70!black, fill=teal!6,
-                   thick, minimum width=3.5cm, minimum height=0.9cm,
-                   text width=3.4cm, align=center, font=\small},
-    index/.style={rectangle, rounded corners=4pt, draw=orange!80!black, fill=orange!9,
-                  thick, minimum width=3.5cm, minimum height=0.9cm,
-                  text width=3.4cm, align=center, font=\small},
-    output/.style={rectangle, rounded corners=4pt, draw=green!60!black, fill=green!7,
-                   thick, minimum width=3.5cm, minimum height=0.9cm,
-                   text width=3.4cm, align=center, font=\small},
-    arr/.style={-Stealth, thick},
-    offcol/.style={arr, blue!70!black},
-    oncol/.style={arr, teal!70!black},
-    label/.style={font=\scriptsize\itshape, text=gray!70!black}
-]
-    %--- Colonna OFFLINE (sinistra) ---
-    \node[offline] (dc)  at (0, 0)    {\textbf{Document Collection}\\{\scriptsize Web Crawler}};
-    \node[offline, below=of dc]  (idx) {\textbf{Indexing}\\{\scriptsize Parsing · Tokeniz. · Stemming}};
-    \node[index,   below=of idx] (ii)  {\textbf{Inverted Index}};
-
-    %--- Colonna ONLINE (destra) ---
-    \node[online,  right=3.8cm of dc]  (q)   {\textbf{Query}\\{\scriptsize Input dell'utente}};
-    \node[online,  below=of q]         (qp)  {\textbf{Query Processing}\\{\scriptsize Query Expansion}};
-    \node[online,  below=of qp]        (fe)  {\textbf{Feature Extraction}\\{\scriptsize BM25 · PageRank · CTR}};
-    \node[online,  below=of fe]        (lr)  {\textbf{Learned Ranking (LtR)}\\{\scriptsize LambdaMART · Neural}};
-    \node[output,  below=of lr]        (serp){\textbf{SERP}\\{\scriptsize Top-10 risultati all'utente}};
-
-    %--- Etichette di colonna ---
-    \node[label, above=0.25cm of dc]  {\textbf{Fase Offline}};
-    \node[label, above=0.25cm of q]   {\textbf{Fase Online}};
-
-    %--- Frecce Offline ---
-    \draw[offcol] (dc.south)  -- (idx.north);
-    \draw[offcol] (idx.south) -- (ii.north);
-
-    %--- Frecce Online ---
-    \draw[oncol] (q.south)   -- (qp.north);
-    \draw[oncol] (qp.south)  -- (fe.north);
-    \draw[oncol] (fe.south)  -- (lr.north);
-    \draw[oncol] (lr.south)  -- (serp.north);
-
-    %--- Collegamento Inverted Index → Query Processing ---
-    \draw[arr, orange!80!black, dashed, thick]
-        (ii.east) -- ++(0.9,0) |- (qp.west)
-        node[pos=0.28, above, label] {candidate docs};
-
-\end{tikzpicture}
-\caption{Diagramma a blocchi dell'architettura di un motore di ricerca moderno: pipeline offline (indicizzazione) e pipeline online (elaborazione query e ranking).}
-\label{fig:architettura-motore}
-\end{figure}
-
-I componenti principali sono:
-\begin{itemize}
-    \item \textbf{Web Crawler (Document Collection):} Un agente automatico che percorre il Web seguendo i collegamenti ipertestuali e scarica i documenti da indicizzare. La collezione risultante è la base di lavoro del sistema.
-    \item \textbf{Indexing:} La pipeline di pre-elaborazione che trasforma i documenti grezzi in una rappresentazione indicizzabile: parsing HTML, tokenizzazione, normalizzazione, rimozione delle stopword e stemming\slash lemmatizzazione.
-    \item \textbf{Inverted Index:} La struttura dati centrale del motore di ricerca: per ogni termine mappa la lista dei documenti che lo contengono (posting list), consentendo un recupero efficiente.
-    \item \textbf{Query Processing e Query Expansion:} Il modulo che analizza la query dell'utente, la normalizza e — facoltativamente — la espande con sinonimi o termini correlati per aumentare il richiamo.
-    \item \textbf{Feature Extraction:} Estrazione di segnali numerici per ciascuna coppia query-documento (TF-IDF, BM25, PageRank, freschezza, segnali di click, ecc.).
-    \item \textbf{Learned Ranking Function (Learning to Rank):} Un modello statistico o di apprendimento automatico (ad es. LambdaMART, LambdaRank) addestrato a ordinare i documenti massimizzando una metrica di qualità, tipicamente NDCG.
-    \item \textbf{SERP (Search Engine Results Page):} La pagina dei risultati presentata all'utente, comprensiva di titolo, snippet, URL e, nei motori moderni, risposte generate (Featured Snippets, AI Overviews).
-\end{itemize}
+Un sistema di Information Retrieval (IR) \`e un'infrastruttura ingegneristica complessa progettata per connettere persone e bisogni informativi a collezioni estese di dati non strutturati~\cite{manning2008,buttcher2010}. La valutazione scientifica e industriale di tali sistemi costituisce una disciplina cardine dell'IR, affrontata storicamente a partire dagli esperimenti pionieristici di Cyril Cleverdon negli anni '60~\cite{cleverdon1967}.
 
 \FloatBarrier
-\section{Come Valutare la Qualità di un Motore di Ricerca}
-\label{sec:come-valutare-qualita-motore}
+\subsection{Efficienza, Servizi Accessori ed Efficacia Intrinseca}
+\label{subsec:tre-dimensioni-valutazione}
 
-Un sistema di Information Retrieval è un artefatto complesso che integra decine di componenti eterogenei: come si valuta qualcosa di così articolato? La risposta della comunità scientifica distingue nettamente due dimensioni complementari:
+Valutare la qualit\`a complessiva di un motore di ricerca richiede di disaccoppiare tre dimensioni di indagine complementari:
 
 \begin{enumerate}
-    \item \textbf{Metriche di Efficienza:}
+    \item \textbf{Metriche di Efficienza Operativa e di Sistema:}
     \begin{itemize}
-        \item \textit{Velocità di indicizzazione:} Quanti documenti per ora il sistema è in grado di processare e inserire nell'indice.
-        \item \textit{Indicizzazione incrementale:} Capacità di aggiornare l'indice con nuovi flussi documentali (ad es. $+10\,000$ prodotti al giorno in un e-commerce) senza interruzioni di servizio.
-        \item \textit{Velocità di ricerca (Latenza e Throughput):} Tempo di risposta (latenza al 95° o 99° percentile) e consumo di CPU/memoria nell'elaborazione di migliaia di query al secondo su collezioni di svariati milioni o miliardi di documenti.
+        \item \textit{Throughput di indicizzazione:} Velocit\`a di assorbimento e indicizzazione di una collezione documentale, misurata tipicamente in documenti elaborati per ora ($\text{doc}/\text{h}$).
+        \item \textit{Indicizzazione incrementale:} Capacit\`a del sistema di aggiornare l'indice con nuovi flussi di dati (ad esempio l'inserimento di $+10\,000$ nuovi prodotti al giorno in un portale e-commerce) senza interrompere la disponibilit\`a operativa né degradare i tempi di accesso.
+        \item \textit{Throughput e latenza di ricerca:} Tempo di risposta medio e percentili critici (95° e 99° percentile, tipicamente $< 50\text{--}100\text{ ms}$) unitamente all'impegno di CPU, memoria RAM e I/O per l'elaborazione contemporanea di decine di migliaia di query al secondo su collezioni di scala planetaria (decine di milioni o miliardi di documenti).
     \end{itemize}
-    \item \textbf{Metriche di Efficacia e Qualità dei Servizi Accessori:}
+    \item \textbf{Qualit\`a ed Efficacia dei Servizi Accessori:}
     \begin{itemize}
-        \item Qualità delle raccomandazioni correlate, accuratezza della correzione ortografica delle query (\textit{spell checking}) e chiarezza dei riassunti testuali visualizzati (\textit{snippet generation}).
-        \item \textbf{Efficacia intrinseca della graduatoria:} Misura la capacità fondamentale del motore di ricerca di soddisfare l'utente, ordinando i documenti pertinenti nelle prime posizioni della pagina dei risultati (\textit{Search Engine Results Page}, SERP).
+        \item Valutazione della precisione dei suggerimenti ortografici (\textit{query spelling correction} o \textit{``forse cercavi: ...''}), dell'espansione e riscrittura automatica delle query, della pertinenza delle raccomandazioni di prodotti o pagine correlate, e della leggibilit\`a e densit\`a informativa dei riassunti contestuali (\textit{result snippets}).
+        \item Sebbene questi servizi accessori migliorino l'esperienza d'uso, essi non certificano di per sé la bont\`a fondamentale dell'algoritmo di ranking.
+    \end{itemize}
+    \item \textbf{Efficacia Intrinseca della Graduatoria (Ranking Intrinseco):}
+    \begin{itemize}
+        \item Misura la capacit\`a fondamentale del motore di ricerca di soddisfare l'utente, preparando per ciascuna interrogazione una pagina dei risultati (\textit{Search Engine Results Page}, SERP) che posizioni i documenti pertinenti ai vertici della graduatoria.
+        \item L'obiettivo primario \`e massimizzare la soddisfazione complessiva dell'utente (\textit{User Happiness}).
     \end{itemize}
 \end{enumerate}
 
-\FloatBarrier
-\section{Misurare la Soddisfazione dell'Utente}
-\label{sec:misurare-soddisfazione-utente}
+La Figura~\ref{fig:architettura-valutazione} schematizza la duplice pipeline offline/online di un moderno motore di ricerca, evidenziando i punti di rilevazione delle metriche di efficienza e di efficacia.
 
-Nel contesto operativo dei motori di ricerca commerciali, l'obiettivo ultimo è massimizzare la soddisfazione dell'utente (\textit{User Happiness}). Poiché la felicità è uno stato cognitivo non osservabile direttamente, i sistemi di produzione ricorrono a proxy comportamentali online:
+\begin{figure}[H]
+\centering
+\resizebox{0.98\linewidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=navy!85!black, fill=codebackground, thick,
+                minimum width=3.4cm, minimum height=1.25cm, text width=3.3cm, align=center, font=\scriptsize, inner sep=6pt},
+    qbox/.style={rectangle, rounded corners=4pt, draw=navy!90!black, fill=navy!12, thick,
+                 minimum width=3.0cm, minimum height=1.05cm, text width=2.9cm, align=center, font=\scriptsize\bfseries, inner sep=4pt},
+    db/.style={cylinder, shape border rotate=90, aspect=0.22, draw=navy!80!black, fill=codebackground, thick,
+               minimum width=3.4cm, minimum height=1.25cm, text width=3.3cm, inner sep=4pt, align=center, font=\scriptsize, text=navy!90!black},
+    serpbox/.style={rectangle, rounded corners=4pt, draw=darkgreen!90!black, fill=darkgreen!12, thick,
+                    minimum width=3.0cm, minimum height=1.25cm, align=center, font=\scriptsize\bfseries, inner sep=5pt},
+    evaleff/.style={rectangle, rounded corners=4pt, draw=crimson!85!black, fill=crimson!8, thick,
+                    font=\tiny\bfseries, text=crimson!90!black, align=center, inner sep=5pt},
+    evalqual/.style={rectangle, rounded corners=4pt, draw=darkgreen!85!black, fill=darkgreen!8, thick,
+                     font=\tiny\bfseries, text=darkgreen!90!black, align=center, inner sep=5pt},
+    arr/.style={-Stealth, thick, navy!80!black, shorten >= 3pt, shorten <= 3pt}
+]
+    % Linea divisoria orizzontale nello spazio libero (y = 3.7)
+    \draw[navy!50!black, dashed, thick] (-7.6, 3.7) -- (16.6, 3.7);
+    \node[font=\bfseries\footnotesize, text=navy, anchor=south east] at (-2.4, 3.85) {PIPELINE ONLINE (Latenza \& Qualit\`a)};
+    \node[font=\bfseries\footnotesize, text=navy!70!black, anchor=north east] at (-2.4, 3.55) {PIPELINE OFFLINE (Throughput \& I/O)};
+
+    % Colonna 1: Query & Indexing (x = 0.0)
+    \node[qbox] (query) at (0.0, 8.1) {Query Utente $q$};
+    \node[qbox] (expquery) at (0.0, 6.6) {Expanded Query\\[2pt]{\tiny NLP / Intent}};
+    \node[box] (qproc) at (0.0, 5.1) {\textbf{Query Processing}\\[3pt]{\tiny Candidate Selection}};
+    \node[db] (invidx) at (0.0, 2.3) {\textbf{Inverted Index}\\[2pt]{\tiny Postings Compresse}};
+    \node[box] (indexing) at (0.0, -0.8) {\textbf{Indexing Pipeline}\\[3pt]{\tiny Parsing e Tokenizzazione}};
+    \node[db] (doccoll) at (0.0, -3.0) {\textbf{Document Collection}\\[2pt]{\tiny Web Crawl / Ingestion}};
+
+    % Colonna 2: Features (x = 5.4)
+    \node[box] (featlook) at (5.4, 5.1) {\textbf{Feature Lookup}\\[3pt]{\tiny Estrazione $\mathbf{x}_{q,d} \in \mathbb{R}^D$}};
+    \node[db] (docfeat) at (5.4, 2.3) {\textbf{Document Features}\\[2pt]{\tiny PageRank, Segnali Statici}};
+    \node[box] (featproc) at (5.4, -0.8) {\textbf{Feature Processor}\\[3pt]{\tiny Calcolo PageRank e Metadati}};
+
+    % Colonna 3: Learning to Rank & SERP (x = 10.8)
+    \node[box] (rankfunc) at (10.8, 5.1) {\textbf{Learned Ranker}\\[3pt]{\tiny Top-Score (GBRT/NN)}};
+    \node[serpbox] (serp) at (14.8, 5.1) {Ranked SERP\\[2pt]{\tiny Top-$k$ Risultati}};
+    \node[db] (ltrmodel) at (10.8, 2.3) {\textbf{Modello LtR}\\[2pt]{\tiny Parametri Addestrati}};
+    \node[box] (training) at (10.8, -0.8) {\textbf{Training Offline}\\[3pt]{\tiny Ottimizzazione della Loss}};
+    \node[db] (traindata) at (10.8, -3.0) {\textbf{Training Data}\\[2pt]{\tiny Query e Giudizi di Rilevanza}};
+
+    % Connessioni Online (flusso orizzontale continuo e lookup verticali)
+    \draw[arr] (query) -- (expquery);
+    \draw[arr] (expquery) -- (qproc);
+    \draw[arr] (invidx) -- (qproc);
+    \draw[arr] (qproc) -- node[above, font=\tiny\itshape] {$\sim 10^3$ doc} (featlook);
+    \draw[arr] (docfeat) -- (featlook);
+    \draw[arr] (featlook) -- node[above, font=\tiny\itshape] {$\mathbf{x}_{q,d}$} (rankfunc);
+    \draw[arr] (ltrmodel) -- (rankfunc);
+    \draw[arr] (rankfunc) -- node[above, font=\tiny\itshape] {Top-$k$} (serp);
+
+    % Connessioni Offline (ampio spazio e percorsi ariosi)
+    \draw[arr] (doccoll) -- (indexing);
+    \draw[arr] (indexing) -- (invidx);
+    \draw[arr] (doccoll.east) -- (2.7, -3.0) -- (2.7, -0.8)
+        node[midway, left=4pt, font=\tiny\itshape, text=navy!80!black] {Documenti grezzi}
+        -- (featproc.west);
+    \draw[arr] (featproc) -- node[pos=0.45, right=5pt, font=\tiny\itshape, text=navy!80!black] {PageRank / metadati} (docfeat);
+    \draw[arr] (traindata) -- (training);
+    \draw[arr] (training) -- (ltrmodel);
+
+    % Badge Metriche: colonna dedicata a sinistra per efficienza, a destra per efficacia
+    \node[evaleff] (ev_lat) at (-4.6, 5.1) {\textbf{Valutazione Efficienza:}\\[2pt]Latenza Query ($p_{95}, p_{99} < 50\text{ ms}$)\\[1pt]Throughput (QPS)};
+    \draw[crimson, thick, dashed] (ev_lat) -- (qproc);
+
+    \node[evaleff] (ev_idx) at (-4.6, -0.8) {\textbf{Valutazione Efficienza:}\\[2pt]Throughput Indicizzazione\\[1pt]($\text{doc}/\text{h}$, $\text{MB}/\text{s}$)};
+    \draw[crimson, thick, dashed] (ev_idx) -- (indexing);
+
+    \node[evalqual] (ev_eff) at (14.8, 2.3) {\textbf{Valutazione Efficacia:}\\[2pt]Precision@$k$, MAP, NDCG\\[1pt]User Happiness / CTR};
+    \draw[darkgreen, thick, dashed] (serp) -- (ev_eff);
+\end{tikzpicture}%
+}
+\caption{Architettura integrata di un moderno motore di ricerca e mappatura dei punti di rilevazione delle metriche di valutazione: efficienza offline (throughput di indicizzazione), efficienza online (latenza di query processing) ed efficacia qualitativa sulla SERP (NDCG, MAP, soddisfazione dell'utente).}
+\label{fig:architettura-valutazione}
+\end{figure}
+
+\FloatBarrier
+\subsection{Misurare la Soddisfazione dell'Utente (\textit{User Happiness})}
+\label{subsec:misurare-felicita-utente}
+
+Nel mondo operativo dei motori di ricerca commerciali, l'obiettivo finale consiste nel massimizzare la soddisfazione soggettiva dell'utente (\textit{User Happiness}). Poiché lo stato di appagamento cognitivo non \`e direttamente osservabile dall'infrastruttura hardware, i sistemi reali monitorano una combinazione di \textbf{proxy comportamentali online}:
 
 \begin{itemize}
-    \item \textbf{Clic e Click-Through Rate (CTR):} Il numero e la proporzione di clic ricevuti dai risultati restituiti.
+    \item \textbf{Clic e Click-Through Rate (CTR):} Proporzione di volte in cui un risultato presentato sulla SERP viene cliccato rispetto al numero totale di visualizzazioni.
     \begin{itemize}
-        \item \textit{Criticità:} Titoli sensazionalistici o riassunti ingannevoli (\textit{clickbait}) inducono clic elevati senza che il documento soddisfi realmente l'utente.
-        \item \textit{La ricerca a zero clic (\textit{Zero-Click Search}):} L'assenza di clic non è necessariamente un segnale negativo. Quando un utente cerca informazioni fattuali (ad es. il meteo, l'orario di un volo, una conversione di valuta o una definizione enciclopedica), la risposta visualizzata direttamente tramite \textit{Featured Snippet} o \textit{Knowledge Graph} soddisfa istantaneamente il bisogno senza richiedere alcun clic.
+        \item \textit{Criticit\`a dei titoli ingannevoli:} Titoli accattivanti o sintesi fuorvianti (\textit{clickbait}) generano un CTR artificialmente elevato, benché la pagina di destinazione si riveli completamente inutile per l'utente.
+        \item \textit{La ricerca a zero clic (\textit{Zero-Click Search}):} L'assenza di clic non costituisce sistematicamente un indice di fallimento. Quando la query esprime un bisogno informativo fattuale (ad esempio il meteo, una definizione dizionariale, il risultato di una partita o una conversione di valuta), la visualizzazione immediata della risposta corretta tramite \textit{Knowledge Card} o \textit{Featured Snippet} soddisfa perfettamente l'utente senza richiedere alcuna navigazione esterna.
     \end{itemize}
-    \item \textbf{Conversioni e Transazioni Economiche:} Negli e-commerce, la quota di sessioni di ricerca che sfociano nell'acquisto di un prodotto e l'ammontare monetario speso dall'utente costituiscono metriche primarie di business.
-    \item \textbf{Fidelizzazione e Visite Ripetute:} La percentuale di utenti che tornano ad adoperare il motore di ricerca entro un intervallo temporale predefinito (una settimana, un mese).
-    \item \textbf{Dwell Time (Tempo di Permanenza):} L'intervallo di tempo che intercorre tra il momento in cui l'utente clicca su un risultato della SERP e l'istante in cui fa ritorno alla pagina dei risultati (\textit{bouncing back}). Un Dwell Time prolungato indica generalmente che il documento ha catturato l'attenzione ed è risultato informativo, mentre un ritorno immediato alla SERP denota insoddisfazione.
+    \item \textbf{Acquisti e Conversioni Economiche:} Nei motori per l'e-commerce, la metrica suprema risiede nella quota di ricerche che sfociano in un acquisto effettivo e nel volume economico transato dall'utente.
+    \item \textbf{Fidelizzazione e Visite Ripetute:} Frequenza con cui gli utenti ritornano a impiegare la piattaforma nell'arco di una settimana o di un mese.
+    \item \textbf{Dwell Time (Tempo di Permanenza):} Intervallo temporale che intercorre tra il clic su un risultato e il ritorno dell'utente alla SERP (\textit{bouncing back}). Un Dwell Time prolungato segnala che la risorsa era ricca di contenuti utili, mentre un rimbalzo immediato sulla SERP testimonia che il documento era irrilevante o inadeguato.
 \end{itemize}
 
-\begin{alertblock}{La Valutazione nell'Era dei Motori Generativi e LLM}
-L'emergere di motori di ricerca generativi e assistenti basati su Large Language Models (LLM) ridefinisce radicalmente metriche consolidate come Dwell Time e CTR: l'utente non naviga pi\`u necessariamente attraverso una lista di link esterni, ma consuma sintesi testuali generate direttamente dal modello. In tale scenario, l'accuratezza fattuale, l'assenza di allucinazioni e la corretta attribuzione delle fonti rimpiazzano il conteggio dei clic tradizionali.
+\FloatBarrier
+\subsection{La Valutazione nell'Era dell'Agentic Search e dei Modelli Generativi}
+\label{subsec:valutazione-era-generativa}
 
-Il dibattito metodologico su come valutare questi sistemi solleva interrogativi cruciali:
+\begin{alertblock}{Riflessione Metodologica: La Felicit\`a dell'Utente con i Sistemi Generativi}
+L'affermazione di interfacce conversazionali avanzate basate su Large Language Model (quali ChatGPT o motori ibridi Agentic Search) mette in crisi l'impianto tradizionale fondato su CTR e Dwell Time: l'utente non scorre pi\`u una lista di link esterni, ma interagisce con un agente in grado di sintetizzare risposte complete e orchestrare chiamate a tool esterni.
+
+In tale orizzonte emergono nuove sfide e metriche di valutazione:
 \begin{itemize}
-    \item \textbf{Numero di turni conversazionali come proxy di insoddisfazione:} In un sistema conversazionale, un elevato numero di turni necessari per soddisfare un bisogno informativo pu\`o segnalare che il sistema non ha compreso l'intento iniziale dell'utente, costringendolo a continue riformulazioni. Il Dwell Time perde quindi centralit\`a, sostituito dall'analisi dell'efficienza e della lunghezza della sessione di dialogo.
-    \item \textbf{Varianza e instabilit\`a del prompting:} A differenza delle query lessicali dell'IR classico, lievi variazioni nella formulazione del prompt possono indurre forti discrepanze qualitative nella risposta dell'LLM. Questa elevata sensibilit\`a rende complessa la standardizzazione e la riproducibilit\`a sperimentale dei benchmark.
-    \item \textbf{Differenza ontologica tra recupero e sintesi:} Un motore tradizionale si limita a \textit{recuperare} e ordinare documenti preesistenti da un corpus noto; un modello generativo \textit{sintetizza} invece un testo originale probabilistico. Mentre nel primo caso la rilevanza \`e misurabile rispetto a un insieme oggettivo di documenti rilevanti (\textit{ground truth}), nel secondo la correttezza fattuale della sintesi richiede verifiche semantiche inedite.
-    \item \textbf{Il paradigma RAG (Retrieval-Augmented Generation):} L'architettura RAG vincola la generazione alla consultazione preventiva di documenti estratti da un indice IR tradizionale. In questo contesto, la valutazione diventa composita: occorre misurare separatamente e congiuntamente l'efficacia del recupero documentale e la fedelt\`a informativa del testo generato.
+    \item \textbf{Numero di turni conversazionali come proxy di insoddisfazione:} In un contesto dialogico, una sessione prolungata con molteplici iterazioni e raffinamenti non indica necessariamente un elevato gradimento, ma pu\`o denotare l'incapacit\`a del sistema di cogliere l'intento iniziale dell'utente, costringendolo a ripetuti chiarimenti correttivi.
+    \item \textbf{Sensibilit\`a al prompting e varianza statistica:} Mentre una query IR lessicale produce un comportamento deterministico sull'indice, lievi variazioni nella formulazione di un prompt o fluttuazioni probabilistiche della temperatura di campionamento possono stravolgere la completezza e la veridicit\`a dell'output generativo.
+    \item \textbf{Dicotomia tra reperimento e sintesi (Il Paradigma RAG):} Nei sistemi RAG (\textit{Retrieval-Augmented Generation}), la valutazione deve scorporare la qualit\`a del recupero documentale (accuratezza del retrieval top-$k$) dalla fedelt\`a della sintesi testuale generata (assenza di allucinazioni e rigorosa attribuzione alle fonti citate).
 \end{itemize}
 \end{alertblock}
 
 \FloatBarrier
-\section{Il Paradigma di Cranfield e le Collezioni Benchmark}
-\label{sec:paradigma-cranfield-benchmark}
+\section{Valutazione della Rilevanza e Metodologie di Annotazione}
+\label{sec:rilevanza-annotazione}
 
-Sebbene i segnali online forniscano un feedback prezioso, essi risultano rumorosi, soggetti a forti bias di posizionamento (\textit{Position Bias}) e non riproducibili sperimentalmente prima del rilascio in produzione.
-Per consentire valutazioni comparative controllate, la ricerca in IR adotta il \textbf{Paradigma di Cranfield}, sviluppato originariamente da Cyril Cleverdon negli anni '60~\cite{cleverdon1967}.
+Poiché i segnali online (clic, conversioni) risentono pesantemente del \textit{Position Bias} (gli utenti tendono a cliccare i primi risultati a prescindere dal loro effettivo valore) e non sono riproducibili sperimentalmente prima del rilascio in produzione di un nuovo modello, la misura regina per confrontare algoritmi di Information Retrieval rimane la \textbf{rilevanza intrinseca} dei documenti reperiti rispetto a un'esigenza informativa data~\cite{manning2008}.
 
-È importante contestualizzare il momento storico: Cleverdon lavorava su \textbf{biblioteche fisiche}, con schedari cartacei e cataloghi aeronautici. Il suo esperimento — condotto prima dell'avvento dei calcolatori elettronici diffusi — consisteva nel valutare manualmente quanto bene diversi sistemi di classificazione documentale riuscissero a soddisfare bisogni informativi reali. Eppure, il framework metodologico che ne derivò è rimasto il fondamento della valutazione in IR per oltre sessant'anni.
+\FloatBarrier
+\subsection{La Rilevanza come Proxy Fondamentale e gli Esperimenti di Cranfield}
+\label{subsec:cleverdon-cranfield}
 
-\begin{definition}[Collezione di Test (Test Collection)]
-Una collezione di test standard per l'Information Retrieval è una tripletta formale $\mathcal{T} = (\mathcal{D}, \mathcal{Q}, \mathcal{J})$ costituita da:
+L'idea di fondare la valutazione dell'IR su un banco di prova controllato fu introdotta da Cyril Cleverdon nei celebri \textbf{esperimenti di Cranfield} (Inghilterra, fine anni '50 e anni '60)~\cite{cleverdon1967}. 
+In quell'epoca pionieristica non esistevano motori Web né calcolatori elettronici interattivi: Cleverdon operava su collezioni cartacee specializzate in aeronautica, confrontando l'efficacia di diversi linguaggi di indicizzazione e schede perforate attraverso interrogazioni reali formulate da ingegneri.
+
+Il contributo concettuale di Cleverdon si \`e consolidato nella nozione di \textbf{Collezione di Test} (\textit{Test Collection}):
+
+\begin{definition}[Collezione di Test Benchmark]
+Una collezione di test standard per l'Information Retrieval \`e definita formalmente dalla tripletta:
+\begin{equation}
+\mathcal{T} = (\mathcal{D}, \mathcal{Q}, \mathcal{J})
+\end{equation}
+dove:
 \begin{enumerate}
-    \item Una collezione documentale benchmark $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$;
-    \item Una suite benchmark di bisogni informativi e query $\mathcal{Q} = \{q_1, q_2, \dots, q_M\}$;
-    \item Un insieme di giudizi di rilevanza (\textit{Relevance Judgments} o \textit{qrels}) $\mathcal{J} = \{ (q, d) \mapsto r_{q, d} \}$, che associa a ciascuna coppia query-documento un valore di rilevanza (binario o graduato).
+    \item $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ \`e la collezione finita di documenti benchmark.
+    \item $\mathcal{Q} = \{q_1, q_2, \dots, q_M\}$ \`e una suite rappresentativa di bisogni informativi e query di prova.
+    \item $\mathcal{J} \colon \mathcal{Q} \times \mathcal{D} \to \mathcal{S}$ \`e l'insieme dei giudizi di rilevanza (\textit{relevance judgments} o \textit{qrels}), che associa a ciascuna coppia query-documento un valore di pertinenza appartenente a un insieme discreto $\mathcal{S}$ (binario $\mathcal{S}=\{0, 1\}$ o graduato $\mathcal{S}=\{0, 1, \dots, m\}$).
 \end{enumerate}
 \end{definition}
 
-\subsection{La Sfida della Scalabilità Combinatoria}
-La realizzazione manuale esaustiva dei giudizi di rilevanza è materialmente impossibile per archivi realistici.
-Si consideri uno scenario benchmark con:
-\[
-|\mathcal{D}| = 5 \times 10^6 \text{ documenti}, \quad |\mathcal{Q}| = 50\,000 \text{ query}
-\]
-Lo spazio complessivo delle coppie ammonta a:
-\[
-|\mathcal{D}| \times |\mathcal{Q}| = 5 \times 10^6 \times 5 \times 10^4 = 2.5 \times 10^{11} \text{ coppie query-documento}
-\]
-Ipotizzando che un annotatore umano impieghi in media $2.5$ secondi per valutare la rilevanza di un documento:
-\begin{align*}
-\text{Tempo Totale} &= 2.5 \times 10^{11} \times 2.5\text{ s} = 6.25 \times 10^{11}\text{ secondi} \\
-&\approx 173\,611\,111 \text{ ore/persona}
-\end{align*}
-Un impegno titanico che richiederebbe decine di migliaia di anni di lavoro umano ininterrotto!
-Per ovviare a ciò, i benchmark limitano i giudizi a un sottoinsieme accuratamente campionato di documenti.
-
-\subsection{Origini delle Query di Test}
-\label{subsec:origini-query}
-
-Una questione metodologica fondamentale riguarda la provenienza delle query che compongono il benchmark $\mathcal{Q}$:
-
-\begin{itemize}
-    \item \textbf{Motori Web commerciali — Query Logs:} I grandi motori di ricerca (Google, Microsoft Bing) campionano le query di test direttamente dai propri \textit{query log}, cioè dai log di ricerca reali degli utenti. Dataset pubblici storici come l'AOL Query Log (2006) e i dataset Microsoft ORCAS/MIMICS contengono milioni di query reali. Questo approccio garantisce che le query riflettano bisogni informativi autentici con la distribuzione di frequenza reale (incluse le query rare della coda lunga).
-    \item \textbf{Scenario classico — Esperti a tavolino:} Nelle prime collezioni (Cranfield, TREC), esperti di dominio stilavano manualmente liste di \textit{information needs} plausibili, simulando i bisogni di un ipotetico utente. Il processo era deliberato e supervisionato, con attenzione a coprire diversi tipi di bisogno informativo (noto, esplorativo, transazionale).
-    \item \textbf{Perché non generare query casuali dai documenti:} Una strategia apparentemente ovvia — campionare termini o frasi dai documenti della collezione per costruire query sintetiche — è metodologicamente scorretta. Le query così generate non rifletterebbero gli intenti reali degli utenti, ma solo il vocabolario dei documenti, producendo una valutazione distorta e priva di validità ecologica.
-\end{itemize}
-
-\subsection{Crowdsourcing: Opportunità e Limiti}
-Una strategia economica consiste nel delegare la valutazione a lavoratori retribuiti su piattaforme online di crowdsourcing (come Amazon Mechanical Turk). Tuttavia, la letteratura scientifica evidenzia come tali giudizi siano affetti da:
-\begin{itemize}
-    \item Elevatissima varianza statistica;
-    \item Minore competenza e presenza di spammer;
-    \item Necessità di filtri rigorosi di consenso (ad es. votazione di maggioranza o calcolo dell'accordo inter-annotatore tramite coefficiente $\kappa$ di Cohen).
-\end{itemize}
-
-Una strategia più recente e sempre più diffusa è l'impiego di \textbf{LLM come Valutatori (\textit{LLM-as-a-Judge})}:
-\begin{itemize}
-    \item Modelli come GPT-4 vengono utilizzati con prompt strutturati per valutare la rilevanza di coppie query-documento, in sostituzione o affiancamento agli annotatori umani. La scalabilità economica è enormemente superiore al crowdsourcing tradizionale: il costo per giudizio scende di uno o due ordini di grandezza.
-    \item Tuttavia, questa metodologia presenta \textbf{bias intrinseci} documentati: preferenza per testi più lunghi (indipendentemente dalla qualità), \textit{self-preference bias} (i modelli tendono a valutare meglio testi simili ai propri output di addestramento) e sensibilità all'ordine di presentazione dei candidati. È quindi necessario progettare con cura i prompt di valutazione e condurre studi di calibrazione rispetto ai giudizi umani.
-\end{itemize}
-
-\subsection{L'Infrastruttura TREC (\textit{Text REtrieval Conference})}
-Promossa dal National Institute of Standards and Technology (NIST), la conferenza \textbf{TREC} rappresenta il punto di riferimento internazionale per la valutazione delle tecnologie di recupero dell'informazione.
-TREC è strutturata in tracce tematiche (\textit{Tracks}), ciascuna incentrata su specifici casi d'uso (ricerca Web, ricerca clinica, domande-risposte, deep retrieval).
-Il risultato prodotto da un sistema software che esegue un compito su una collezione di test prende il nome di \textbf{Run}.
-
-La Tabella~\ref{tab:test-corpora-it} documenta l'evoluzione dimensionale delle collezioni benchmark storiche utilizzate nella ricerca in Information Retrieval~\cite{manning2008}, evidenziando il salto di scala che ha reso indispensabile la nascita di TREC.
-
-\begin{table}[H]
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{l r r r r r}
-\toprule
-\textbf{Collezione} & \textbf{Documenti ($N$)} & \textbf{Query} & \textbf{Dimensione (MB)} & \textbf{Termini/Doc} & \textbf{Giudizi (Q-D)} \\
-\midrule
-ADI & 82 & 35 & --- & --- & --- \\
-AIT & 2\,109 & 14 & 2 & 400.0 & $> 10\,000$ \\
-CACM & 3\,204 & 64 & 2 & 24.5 & --- \\
-CISI & 1\,460 & 112 & 2 & 46.5 & --- \\
-\textbf{Cranfield} & 1\,400 & 225 & 2 & 53.1 & Completi \\
-LISA & 5\,872 & 35 & 3 & --- & --- \\
-Medline & 1\,033 & 30 & 1 & --- & --- \\
-NPL & 11\,429 & 93 & 3 & --- & --- \\
-OSHMED & 348\,566 & 106 & 400 & 250.0 & 16\,140 \\
-Reuters & 21\,578 & 672 & 28 & 131.0 & --- \\
-\midrule
-\textbf{TREC (Tipica)} & \textbf{740\,000} & \textbf{200} & \textbf{2\,000 (2 GB)} & \textbf{89--3\,543} & \textbf{$> 100\,000$} \\
-\bottomrule
-\end{tabular}%
-}
-\caption{Panoramica comparativa dei principali corpora benchmark storici di valutazione.}
-\label{tab:test-corpora-it}
-\end{table}
-
-Come si evince dai dati, nelle prime collezioni degli anni '60 e '70 (come Cranfield e Medline), le ridotte dimensioni (poche migliaia di record e 1--2 MB) consentivano un'annotazione esaustiva manuale. Con l'avvento di collezioni realistiche da centinaia di migliaia di documenti e gigabyte di testo come TREC, lo spazio combinatorio delle valutazioni è esploso, imponendo l'adozione di metodologie di campionamento selettivo.
-
-\subsection{La Tecnica del Pooling}
-Per campionare i documenti da sottoporre ad annotazione umana senza dover valutare l'intera collezione, nei benchmark TREC si adotta la tecnica del \textbf{Pooling} (Figura~\ref{fig:pooling-process}):
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-    box/.style={rectangle, rounded corners=4pt, draw=blue!75!black, fill=blue!6, thick, minimum width=2.3cm, minimum height=0.85cm, text width=2.2cm, align=center, font=\small},
-    pool/.style={rectangle, rounded corners=5pt, draw=orange!85!black, fill=orange!8, thick, minimum width=3.5cm, minimum height=2.2cm, text width=3.3cm, align=center, font=\small, inner sep=5pt},
-    eval/.style={rectangle, rounded corners=5pt, draw=teal!80!black, fill=teal!6, thick, minimum width=3.1cm, minimum height=2.2cm, text width=3.0cm, align=center, font=\small, inner sep=5pt}
-]
-    \node[box] (sys1) at (-5.55, 1.5) {Sistema $S_1$\\\footnotesize (Run 1)};
-    \node[box] (sys2) at (-5.55, 0.0) {Sistema $S_2$\\\footnotesize (Run 2)};
-    \node[box] (sysk) at (-5.55, -1.5) {Sistema $S_m$\\\footnotesize (Run $m$)};
-
-    \node[pool] (poolbox) at (-0.75, 0.0) {
-        \textbf{Pool dei}\\[1pt]
-        \textbf{Candidati $\mathcal{P}$}\\[4pt]
-        $\mathcal{P} = \bigcup_{i=1}^m \text{Top-}k(S_i)$\\[4pt]
-        \footnotesize\textcolor{black!65}{(senza duplicati)}
-    };
-
-    \node[eval] (assess) at (5.15, 0.0) {
-        \textbf{Giudici Umani}\\[4pt]
-        Valutazione manuale\\
-        della rilevanza\\[4pt]
-        \footnotesize\textit{(Relevant / Non-rel)}
-    };
-
-    \draw[-Stealth, thick, blue!75!black] (sys1.east) -- node[above, sloped, font=\scriptsize] {Top-$k$} (poolbox.155);
-    \draw[-Stealth, thick, blue!75!black] (sys2.east) -- node[above, font=\scriptsize] {Top-$k$} (poolbox.west);
-    \draw[-Stealth, thick, blue!75!black] (sysk.east) -- node[below, sloped, font=\scriptsize] {Top-$k$} (poolbox.205);
-    \draw[-Stealth, very thick, orange!85!black] (poolbox.east) -- node[above=2pt, font=\tiny\bfseries, text=orange!90!black, align=center] {Solo documenti\\del pool $\mathcal{P}$} (assess.west);
-\end{tikzpicture}
-\caption{Processo di Pooling per la selezione controllata dei documenti da annotare.}
-\label{fig:pooling-process}
-\end{figure}
-
-\begin{enumerate}
-    \item Si raccolgono le risposte fornite da $m$ sistemi di recupero eterogenei per una determinata query.
-    \item Si estraggono i primi $k$ documenti restituiti da ciascun sistema (tipicamente $k = 50$ o $k = 100$).
-    \item Si calcola l'\textbf{unione} di tali insiemi eliminando i duplicati, formando il pool $\mathcal{P}$.
-    \item Gli annotatori umani valutano la rilevanza unicamente per i documenti appartenenti a $\mathcal{P}$.
-\end{enumerate}
-
-\begin{alertblock}{L'Assunzione Fondamentale del Pooling}
-Tutti i documenti dell'archivio che non compaiono nel pool (\textit{unpooled}) vengono assunti convenzionalmente come \textbf{non rilevanti} ($r = 0$).
-Sebbene tale assunzione introduca un potenziale bias a sfavore di algoritmi futuri con paradigmi radicalmente differenti, studi empirici condotti da NIST confermano che, a fronte di un pool formato da sistemi sufficientemente diversificati, le conclusioni comparative tra motori di ricerca rimangono stabili e affidabili.
-\end{alertblock}
-
 \FloatBarrier
-\section{Bisogno Informativo vs. Query}
-\label{sec:bisogno-informativo-vs-query}
+\subsection[Bisogno Informativo vs. Query]{Bisogno Informativo\\
+(\textit{Information Need}) vs. Query}
+\label{subsec:information-need-vs-query}
 
-Una distinzione concettuale decisiva riguarda il divario tra bisogno informativo e formulazione della query:
+Un principio metodologico assoluto della teoria dell'IR risiede nella netta demarcazione tra l'intento mentale dell'essere umano e la sequenza di simboli immessa nella macchina:
+
 \begin{itemize}
-    \item \textbf{Bisogno Informativo (\textit{Information Need}):} Rappresenta lo stato cognitivo e l'obiettivo reale dell'utente. Ad esempio: \textit{``Il fondo della mia piscina sta diventando nero e necessita di essere ripulito''}.
-    \item \textbf{Query:} L'espressione testuale sintetica digitata nel box di ricerca. Ad esempio: \texttt{``pulitore piscina''}.
+    \item \textbf{Bisogno Informativo (\textit{Information Need}):} \`E lo stato cognitivo dell'utente, l'esigenza o la lacuna di conoscenza che egli intende colmare. Esempio reale: \textit{``Il fondo della mia piscina si sta macchiando di nero e desidero capire come pulirlo senza svuotarla''}.
+    \item \textbf{Query:} \`E la stringa di testo sintetica e spesso imperfetta che l'utente compone nel campo di ricerca per estrinsecare il proprio bisogno. Esempio: \texttt{``pulitore piscina fondo''}.
 \end{itemize}
+
 \begin{property}[Principio di Valutazione della Rilevanza]
-La rilevanza di un documento deve essere sempre stimata rispetto all'\textbf{Information Need} sottostante, mai rispetto alla mera sequenza di caratteri che compone la query.
+La rilevanza di un documento deve essere rigorosamente valutata rispetto all'\textbf{Information Need} originario dell'utente, e \textbf{mai} rispetto alla mera rispondenza letterale dei token presenti nella query. Un documento che ripete ossessivamente le parole chiave della query ma non risponde al quesito sottostante \`e da considerarsi irrilevante.
 \end{property}
 
 \FloatBarrier
-\section{Metriche di Valutazione Non Ordinate (\textit{Unranked Measures})}
-\label{sec:metriche-non-ordinate}
+\subsection{La Sfida della Scalabilit\`a Combinatoria}
+\label{subsec:scalabilita-combinatoria}
 
-Nel contesto del reperimento non ordinato (come nel modello booleano classico), il sistema restituisce un insieme non graduato di documenti. La valutazione si fonda sulla suddivisione dell'universo documentale mediante la matrice di contingenza (Tabella~\ref{tab:contingency-evaluation}):
+Nelle collezioni Web e aziendali contemporanee, l'annotazione esaustiva della funzione $\mathcal{J}$ si scontra con una barriera combinatoria insormontabile. Si consideri uno scenario operativo standard:
+\begin{equation}
+|\mathcal{D}| = 5 \times 10^6 \text{ documenti}, \quad |\mathcal{Q}| = 50\,000 \text{ query}
+\end{equation}
+Il numero totale di coppie query-documento da esaminare risulta:
+\begin{equation}
+|\mathcal{D}| \times |\mathcal{Q}| = 5 \times 10^6 \times 50\,000 = 2.5 \times 10^{11} = 0.25 \times 10^{12} \text{ coppie}
+\end{equation}
+ovvero \textbf{un quarto di trilione di giudizi}!
+
+Ipotizzando che un annotatore umano impieghi in media $2.5\text{ secondi}$ per leggere e qualificare la pertinenza di ciascun documento rispetto al topic:
+\begin{align}
+\text{Tempo Complessivo} &= 2.5 \times 10^{11} \times 2.5\text{ s} = 6.25 \times 10^{11}\text{ secondi} \nonumber \\
+&\approx 173\,611\,111\text{ ore/persona} \nonumber \\
+&\approx 20\,000\text{ anni/uomo continuativi!}
+\end{align}
+Questo vincolo fisico dimostra l'impossibilit\`a teorica e pratica di procedere a una valutazione esaustiva dell'intero archivio, rendendo obbligatorio restringere il giudizio a un sottoinsieme accuratamente campionato di documenti per ciascuna query.
+
+\FloatBarrier
+\subsection{Provenienza e Rappresentativit\`a delle Query di Test}
+\label{subsec:provenienza-query-test}
+
+La scelta della suite $\mathcal{Q}$ deve garantire che le interrogazioni rispecchino la reale distribuzione delle esigenze informative degli utenti finali~\cite{manning2008}:
+
+\begin{itemize}
+    \item \textbf{Campionamento da Query Log Reali (Motori Web Moderni):} Sistemi commerciali quali Google, Microsoft Bing e Yahoo campionano le query di test direttamente dai propri log di transazione storici (come l'AOL Query Log o collezioni Microsoft ORCAS). Tale strategia preserva la validit\`a ecologica del test, catturando sia le query generiche ad altissimo traffico (\textit{head queries}) sia le ricerche complesse della coda lunga (\textit{tail queries}).
+    \item \textbf{Definizione Manuale da Esperti di Dominio (Approccio Classico):} Nelle collezioni in cui non si dispone di registrazioni d'uso massive (o in contesti iperspecialistici), specialisti del settore redigono a tavolino scenari strutturati d'uso (\textit{topics}) e le correlate espressioni di ricerca.
+    \item \textbf{Fallacia del Campionamento Sintetico:} Generare query campionando casualmente sequenze di termini o frasi dai documenti della collezione costituisce un errore metodologico gravissimo: le stringhe risultanti riflettono unicamente il lessico dei testi archiviati e non l'intento di ricerca umano, distorcendo irreparabilmente la valutazione del ranking.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Metodologie di Annotazione: Crowdsourcing ed Esperti}
+\label{subsec:metodologie-annotazione}
+
+La compilazione dei giudizi di rilevanza può seguire diverse strategie operative:
+
+\begin{itemize}
+    \item \textbf{Annotatori Esperti Dedicati:} Professionisti formati specificamente sul dominio di applicazione. Garantiscono la massima coerenza e precisione, ma comportano costi elevatissimi e bassa scalabilit\`a.
+    \item \textbf{Piattaforme di Crowdsourcing (es. Amazon Mechanical Turk):} Sottomettono coppie query-documento a una moltitudine di lavoratori distribuiti a basso costo. Sebbene abbatta i costi monetari, la letteratura evidenzia una \textbf{varianza statistica molto elevata}, dovuta alla presenza di utenti frettolosi, incompetenti o spammer. Per ottenere dati stabili occorre sottoporre ogni coppia a molteplici valutatori indipendenti e applicare metriche di accordo inter-annotatore (quali la $\kappa$ di Cohen o la $\kappa$ di Fleiss) e filtri di maggioranza.
+    \item \textbf{Valutazione Tramite LLM (\textit{LLM-as-a-Judge}):} L'impiego di modelli linguistici di frontiera per annotare la pertinenza query-documento sta rivoluzionando la velocit\`a di generazione dei benchmark. Tuttavia, occorre monitorare e correggere i noti \textit{bias intrinseci} degli LLM: il \textit{length bias} (tendenza a premiare testi verbosi e lunghi a prescindere dal contenuto), il \textit{self-preference bias} (preferenza per risposte stilisticamente affini a quelle del modello stesso) e il \textit{position bias} nel prompt.
+\end{itemize}
+
+\FloatBarrier
+\section{Evoluzione Storica e Iniziative Attuali: Il Framework TREC}
+\label{sec:storia-trec-benchmark}
+
+\FloatBarrier
+\subsection{Dalle Collezioni Pioniere all'Esplosione Dimensionale}
+\label{subsec:corpora-storici}
+
+La Tabella~\ref{tab:test-corpora-it} documenta l'evoluzione storica dei principali benchmark di valutazione in Information Retrieval, evidenziando il drastico passaggio di scala avvenuto negli anni '90.
 
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\textwidth}{l >{\centering\arraybackslash}X >{\centering\arraybackslash}X}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l r r r r r}
+\toprule
+\textbf{Collezione} & \textbf{Documenti ($N$)} & \textbf{Query ($M$)} & \textbf{Dimensione} & \textbf{Termini/Doc} & \textbf{Valutazioni (Q-D)} \\
+\midrule
+ADI & 82 & 35 & $< 1\text{ MB}$ & --- & Esaustive \\
+AIT & 2\,109 & 14 & 2 MB & 400.0 & $> 10\,000$ \\
+CACM & 3\,204 & 64 & 2 MB & 24.5 & Parziali \\
+CISI & 1\,460 & 112 & 2 MB & 46.5 & Parziali \\
+\textbf{Cranfield} & \textbf{1\,400} & \textbf{225} & \textbf{2 MB} & \textbf{53.1} & \textbf{Esaustive ($100\%$)} \\
+LISA & 5\,872 & 35 & 3 MB & --- & Parziali \\
+Medline & 1\,033 & 30 & 1 MB & --- & Esaustive \\
+NPL & 11\,429 & 93 & 3 MB & --- & Parziali \\
+OSHMED & 348\,566 & 106 & 400 MB & 250.0 & 16\,140 \\
+Reuters-21578 & 21\,578 & 672 & 28 MB & 131.0 & Parziali \\
+\midrule
+\textbf{TREC (Tipica)} & \textbf{740\,000} & \textbf{200} & \textbf{2\,000 MB (2 GB)} & \textbf{89--3\,543} & \textbf{$> 100\,000$ (Pool)} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Panoramica dimensionale dei corpora benchmark storici e raffronto con l'architettura TREC~\cite{manning2008}.}
+\label{tab:test-corpora-it}
+\end{table}
+
+Nelle collezioni pioniere degli anni '60 e '70 (come Cranfield e Medline), le ridotte dimensioni (poche migliaia di articoli scientifici e meno di $2\text{ MB}$ di dati) permettevano agli annotatori di analizzare fisicamente ogni singolo documento della collezione per ciascuna query, compilando una matrice di rilevanza completa al $100\%$. Con l'avvento di archivi da centinaia di migliaia di documenti e gigabyte di testo, questo approccio \`e divenuto impraticabile, determinando la nascita della Text REtrieval Conference.
+
+\FloatBarrier
+\subsection{L'Infrastruttura TREC (\textit{Text REtrieval Conference})}
+\label{subsec:infrastruttura-trec}
+
+Istituita nel 1992 e sponsorizzata congiuntamente dal National Institute of Standards and Technology (NIST) e dal Dipartimento della Difesa statunitense (DARPA), la conferenza \textbf{TREC} ha fornito alla comunit\`a scientifica internazionale l'infrastruttura metodologica e computazionale per testare sistemi IR su grandissima scala~\cite{manning2008}.
+
+L'organizzazione di TREC si fonda su tre pilastri:
+\begin{enumerate}
+    \item \textbf{Tracce Tematiche (\textit{Tracks}):} Aree di ricerca focalizzate su specifici compiti operativi o domini applicativi (ricerca Web, e-discovery legale, genomica e biomedicina, question answering, deep retrieval, enterprise search).
+    \item \textbf{Definizione Formale dei Topic:} A differenza delle brevi query del Web, un \textbf{Topic TREC} descrive formalmente l'esigenza informativa mediante tre campi distinti:
+    \begin{itemize}
+        \item \textbf{Title:} Una brevissima sequenza di parole chiave (simile a una query Web reale, es. \texttt{``acquisizione idrocarburi artico''}).
+        \item \textbf{Description:} Una frase che sintetizza l'obiettivo del bisogno informativo (es. \textit{``Identificare accordi commerciali per lo sfruttamento di giacimenti di petrolio o gas nel Mare Glaciale Artico''}).
+        \item \textbf{Narrative:} Un testo esplicativo redatto dal committente che specifica in dettaglio cosa renda un documento rilevante e cosa debba essere rigorosamente escluso (es. \textit{``I documenti pertinenti devono citare trattati o contratti stipulati tra governi o corporazioni. Sono esclusi studi meramente geologici o ambientali privi di risvolti economici diretti''}).
+    \end{itemize}
+    \item \textbf{Il Concetto di Run:} Il file contenente i risultati (tipicamente i primi $1\,000$ documenti per ciascun topic, ordinati per punteggio decrescente) inviato da ciascun gruppo di ricerca prima della scadenza della gara prende il nome di \textbf{Run}.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{La Tecnica del Pooling e l'Ipotesi dei Documenti Non Giudicati}
+\label{subsec:tecnica-pooling}
+
+Per risolvere l'impasse combinatoria senza rinunciare all'affidabilit\`a statistica, le prime edizioni di TREC hanno introdotto la tecnica del \textbf{Pooling} (Figura~\ref{fig:pooling-process}):
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, 
+                minimum width=2.4cm, minimum height=0.85cm, text width=2.3cm, align=center, font=\small},
+    pool/.style={rectangle, rounded corners=5pt, draw=navy!90!black, fill=navy!10, thick, 
+                 minimum width=3.6cm, minimum height=2.3cm, text width=3.4cm, align=center, font=\small, inner sep=5pt},
+    eval/.style={rectangle, rounded corners=5pt, draw=darkgreen, fill=darkgreen!10, thick, 
+                 minimum width=3.2cm, minimum height=2.3cm, text width=3.1cm, align=center, font=\small, inner sep=5pt}
+]
+    \node[box] (sys1) at (-5.6, 1.5)  {Sistema $S_1$\\\footnotesize (Run 1)};
+    \node[box] (sys2) at (-5.6, 0.0)  {Sistema $S_2$\\\footnotesize (Run 2)};
+    \node[box] (sysk) at (-5.6, -1.5) {Sistema $S_m$\\\footnotesize (Run $m$)};
+
+    \node[pool] (poolbox) at (-0.7, 0.0) {
+        \textbf{Pool di Candidati $\mathcal{P}$}\\[3pt]
+        $\mathcal{P} = \bigcup_{i=1}^m \text{Top-}k(S_i)$\\[4pt]
+        \footnotesize\textcolor{navy!80!black}{(unione priva di duplicati)}
+    };
+
+    \node[eval] (assess) at (5.2, 0.0) {
+        \textbf{Annotatori Umani}\\[4pt]
+        Valutazione manuale\\
+        della rilevanza\\[4pt]
+        \footnotesize\textit{(Relevant / Non-Relevant)}
+    };
+
+    \draw[-Stealth, thick, navy] (sys1.east) -- node[above, sloped, font=\scriptsize] {Top-$k$} (poolbox.155);
+    \draw[-Stealth, thick, navy] (sys2.east) -- node[above, font=\scriptsize] {Top-$k$} (poolbox.west);
+    \draw[-Stealth, thick, navy] (sysk.east) -- node[below, sloped, font=\scriptsize] {Top-$k$} (poolbox.205);
+    \draw[-Stealth, very thick, darkgreen] (poolbox.east) -- node[above=2pt, font=\scriptsize\bfseries, text=darkgreen, align=center] {Solo documenti\\di $\mathcal{P}$} (assess.west);
+\end{tikzpicture}%
+}
+\caption{Architettura operativa del processo di Pooling: i primi $k$ documenti estratti da ciascuna run indipendente confluiscono nel pool deduplicato $\mathcal{P}$ sottoposto ad annotazione umana.}
+\label{fig:pooling-process}
+\end{figure}
+
+Il workflow operativo del pooling procede come segue:
+\begin{enumerate}
+    \item Si ricevono le run prodotte da un insieme variegato di $m$ sistemi partecipanti (costruiti con paradigmi algoritmici eterogenei: booleano esteso, BM25, vettoriale VSM, modelli probabilistici e di espansione query).
+    \item Per ogni query, si prelevano i primi $k$ documenti restituiti da ciascun sistema (tipicamente $k = 50$ o $k = 100$).
+    \item Si calcola l'unione insiemistica di questi elenchi, rimuovendo tutti i duplicati per costituire il pool dei candidati:
+    \begin{equation}
+    \mathcal{P}(q) = \bigcup_{i=1}^m \text{Top-}k(S_i, q)
+    \end{equation}
+    \item Gli annotatori umani del NIST esaminano e giudicano la pertinenza \textbf{soltanto} dei documenti compresi nel pool $\mathcal{P}(q)$.
+\end{enumerate}
+
+\begin{alertblock}{L'Assunzione dei Documenti Non Giudicati (\textit{Unpooled Documents})}
+Tutti i documenti dell'archivio $\mathcal{D}$ che non compaiono nel pool $\mathcal{P}(q)$ vengono considerati convenzionalmente \textbf{non rilevanti} ($r = 0$).
+
+\textbf{Validit\`a empirica e limiti:}
+Sebbene questa assunzione introduca un potenziale \textit{pooling bias} a sfavore di algoritmi innovativi futuri che dovessero recuperare documenti rilevanti non intercettati da alcuno dei sistemi originari, le verifiche sperimentali condotte da NIST hanno dimostrato che:
+\begin{itemize}
+    \item La stragrande maggioranza dei documenti pertinenti della collezione viene intercettata purché il pool includa run generate da modelli sufficientemente diversificati.
+    \item Sebbene le metriche assolute di un nuovo sistema possano risultare leggermente sottostimate, il \textbf{ranking comparativo} tra sistemi rimane eccezionalmente stabile ed equo.
+\end{itemize}
+\end{alertblock}
+
+\FloatBarrier
+\section{Metriche di Valutazione Binarie per Insiemi Non Ordinati}
+\label{sec:metriche-binarie-non-ordinate}
+
+Nel paradigma dell'\textit{Unranked Retrieval} (tipico dei sistemi booleani esatti), il motore restituisce un insieme piatto di documenti privo di ordinamento qualitativo. Ciascun documento della collezione \`e bipartito rispetto alla rilevanza effettiva e allo stato di recupero.
+
+\FloatBarrier
+\subsection{Matrice di Contingenza e Spazio delle Decisioni}
+\label{subsec:matrice-contingenza}
+
+La valutazione si fonda sulla scomposizione dello spazio campionario nella classica \textbf{matrice di contingenza $2 \times 2$} (Tabella~\ref{tab:contingency-evaluation}):
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{0.88\columnwidth}{l >{\centering\arraybackslash}X >{\centering\arraybackslash}X}
 \toprule
 & \textbf{Documento Rilevante} & \textbf{Documento Non Rilevante} \\
 \midrule
@@ -300,174 +381,209 @@ Nel contesto del reperimento non ordinato (come nel modello booleano classico), 
 \textbf{Documento Non Reperito} & False Negative ($FN$) & True Negative ($TN$) \\
 \bottomrule
 \end{tabularx}
-\caption{Matrice di contingenza per la classificazione binaria query-documento.}
+\caption{Matrice di contingenza per la classificazione query-documento.}
 \label{tab:contingency-evaluation}
 \end{table}
 
+La Figura~\ref{fig:venn-retrieval} offre una chiara lettura insiemistica mediante diagramma di Eulero-Venn.
+
 \begin{figure}[H]
 \centering
-\resizebox{0.88\textwidth}{!}{%
+\resizebox{0.85\columnwidth}{!}{%
 \begin{tikzpicture}
-    % Document Collection Rectangle (Universe)
-    \draw[thick, fill=gray!4, draw=gray!45, rounded corners=6pt] (-5.8, -3.3) rectangle (5.8, 3.7);
-    \node[anchor=north west, font=\bfseries\small, text=gray!75!black] at (-5.5, 3.48) {Universo $\mathcal{D}$ (Collezione Documentale)};
+    % Universo D
+    \draw[thick, fill=codebackground, draw=navy!40, rounded corners=8pt] (-6.4, -4.2) rectangle (6.4, 4.2);
+    \node[anchor=north west, font=\bfseries\small, text=navy] at (-6.0, 3.9) {Universo $\boldsymbol{\mathcal{D}}$ \normalfont\footnotesize\textcolor{navy!75!black}{(Collezione Documentale)}};
 
-    % Circles (Rilevanti e Reperiti)
-    \draw[thick, fill=blue!15, draw=blue!75!black, fill opacity=0.55] (-1.35, -0.15) circle (2.25cm);
-    \draw[thick, fill=orange!20, draw=orange!80!black, fill opacity=0.55] (1.35, -0.15) circle (2.25cm);
+    % Insiemi Rilevanti e Reperiti (centri a y = -0.35, raggio 2.2cm, sommita a y = 1.85)
+    \draw[thick, fill=navy!15, draw=navy, fill opacity=0.6] (-1.45, -0.35) circle (2.2cm);
+    \draw[thick, fill=darkgreen!18, draw=darkgreen, fill opacity=0.6] (1.45, -0.35) circle (2.2cm);
 
-    % Circle Set Titles (Above the circles with ample margin)
-    \node[font=\bfseries\normalsize, blue!85!black] at (-2.2, 2.42) {Rilevanti ($\mathcal{R}$)};
-    \node[font=\bfseries\normalsize, orange!90!black] at (2.2, 2.42) {Reperiti ($\mathcal{A}$)};
+    % Titoli insiemi (ancorati a south a y = 2.15: base a 3mm sopra la sommita dei cerchi e oltre 7mm sotto il titolo dell'Universo)
+    \node[anchor=south, font=\bfseries\normalsize, text=navy, align=center] at (-1.8, 2.15) {Rilevanti ($\mathcal{R}$)\\[2pt]\scriptsize\textit{(Pertinenti al bisogno)}};
+    \node[anchor=south, font=\bfseries\normalsize, text=darkgreen, align=center] at (1.8, 2.15) {Reperiti ($\mathcal{A}$)\\[2pt]\scriptsize\textit{(Restituiti dal motore)}};
 
-    % Region Labels (Centered and well-spaced)
-    \node[align=center] at (-2.2, -0.15) {\textbf{\Large FN}\\[3pt]\footnotesize Rilevanti\\[1.5pt]\footnotesize non reperiti};
-    \node[align=center] at (0, -0.15) {\textbf{\Large TP}\\[3pt]\normalsize $\mathcal{R} \cap \mathcal{A}$};
-    \node[align=center] at (2.2, -0.15) {\textbf{\Large FP}\\[3pt]\footnotesize Reperiti\\[1.5pt]\footnotesize non rilevanti};
+    % Regioni interne (solo sigla metrica e formula insiemistica pulita)
+    \node[align=center, text=navy!90!black] at (-2.5, -0.35) {\textbf{\Large FN}\\[4pt]\normalsize $\mathcal{R} \setminus \mathcal{A}$};
+    \node[align=center, text=navy!90!black] at (0, -0.35) {\textbf{\Large TP}\\[4pt]\normalsize $\mathcal{R} \cap \mathcal{A}$};
+    \node[align=center, text=darkgreen!90!black] at (2.5, -0.35) {\textbf{\Large FP}\\[4pt]\normalsize $\mathcal{A} \setminus \mathcal{R}$};
     
-    % True Negative label (Spacious bottom-left corner with ample clearance)
-    \node[anchor=south west, font=\footnotesize, text=gray!75!black] at (-5.5, -3.2) {\textbf{TN} (True Negative): Documenti non rilevanti e non reperiti};
+    % Legenda descrittiva delle regioni (disposta a y = -3.05, 5mm sotto i cerchi)
+    \node[font=\scriptsize, text=navy!90!black, align=center] at (-3.7, -3.05) {\textbf{FN}: Rilevanti non reperiti};
+    \node[font=\scriptsize, text=black, align=center] at (0, -3.05) {\textbf{TP}: Reperiti rilevanti};
+    \node[font=\scriptsize, text=darkgreen!90!black, align=center] at (3.7, -3.05) {\textbf{FP}: Reperiti non rilevanti};
+
+    % True Negative (disposto a y = -3.75, perfettamente allineato sulla riga base)
+    \node[font=\scriptsize, text=gray!80!black, align=center] at (0, -3.75) {\textbf{TN (True Negative)}: Documenti non rilevanti e non reperiti dal motore \quad $(\mathcal{D} \setminus (\mathcal{R} \cup \mathcal{A}))$};
 \end{tikzpicture}%
 }
-\caption{Rappresentazione insiemistica del reperimento documentale e delle regioni della matrice di confusione.}
+\caption{Rappresentazione insiemistica del reperimento documentale e partizione delle regioni della matrice di confusione.}
 \label{fig:venn-retrieval}
 \end{figure}
 
+\FloatBarrier
 \subsection{Precisione, Richiamo e loro Trade-off}
+\label{subsec:precision-recall-tradeoff}
+
 \begin{definition}[Precisione (\textit{Precision}, $P$)]
-La frazione dei documenti restituiti dal sistema che risultano effettivamente rilevanti:
+Frazione dei documenti restituiti dal motore che risultano effettivamente rilevanti rispetto al bisogno informativo:
 \begin{equation}
 P = \frac{TP}{TP + FP} = P(\text{rilevante} \mid \text{reperito})
 \end{equation}
 \end{definition}
 
 \begin{definition}[Richiamo (\textit{Recall}, $R$)]
-La frazione dei documenti rilevanti complessivamente presenti nella collezione che il sistema è riuscito a reperire:
+Frazione dei documenti rilevanti complessivamente presenti nella collezione che il sistema \`e stato in grado di individuare ed estrarre:
 \begin{equation}
 R = \frac{TP}{TP + FN} = P(\text{reperito} \mid \text{rilevante})
 \end{equation}
 \end{definition}
 
-Esiste un intrinseco \textbf{trade-off} tra Precisione e Richiamo:
+Tra Precisione e Richiamo sussiste un \textbf{trade-off intrinseco}:
 \begin{itemize}
-    \item Un sistema che restituisce l'intera collezione documentale ($\text{Retrieved} = \mathcal{D}$) ottiene banalmente un richiamo perfetto $R = 100\%$, ma la sua precisione crolla a livelli minimi ($P \approx 0$).
-    \item Viceversa, un sistema conservativo che restituisce unicamente il singolo documento più sicuro può conseguire $P = 100\%$, pagando il prezzo di un richiamo trascurabile.
+    \item Un sistema banale che restituisce l'intero archivio documentale ($\mathcal{A} = \mathcal{D}$) raggiunge un richiamo perfetto $R = 1.0$ ($100\%$), ma la sua precisione collassa a valori irrisori ($P \approx 0$).
+    \item All'opposto, un sistema iper-selettivo che restituisce esclusivamente il singolo documento in assoluto pi\`u probabile può ottenere $P = 1.0$ ($100\%$), sacrificando quasi integralmente il richiamo ($R \approx 0$).
 \end{itemize}
 
-\subsection{\texorpdfstring{La Media Armonica: F-Measure ($F_1$-Score)}{La Media Armonica: F-Measure (F1-Score)}}
-Per sintetizzare Precisione e Richiamo in un unico valore scalare che premi l'equilibrio tra le due grandezze, si adotta la \textbf{F-Measure} (o $F_1$-score), definita come la \textbf{media armonica} di $P$ ed $R$:
+\FloatBarrier
+\subsection{La Media Armonica: F-Measure ($F_1$-Score)}
+\label{subsec:f-measure-armonica}
+
+Per sintetizzare la bont\`a di un sistema in un indicatore scalare unico bilanciando $P$ ed $R$, si definisce la \textbf{F-Measure} (o $F_1$-score) come la \textbf{media armonica} di Precisione e Richiamo:
 \begin{equation}
 F_1 = \frac{2}{\frac{1}{P} + \frac{1}{R}} = \frac{2 \cdot P \cdot R}{P + R} = \frac{2 \cdot TP}{2 \cdot TP + FP + FN}
 \end{equation}
 
-\begin{property}[Proprietà della Media Armonica]
-La media armonica gode di proprietà matematiche fondamentali per la valutazione:
+\begin{property}[Propriet\`a della Media Armonica e Superiorit\`a rispetto alla Media Aritmetica]
+La media armonica si rivela l'unica scelta rigorosa per la valutazione congiunta in virtù delle sue propriet\`a:
 \begin{enumerate}
-    \item È sempre minore o uguale alla media geometrica e alla media aritmetica:
-    \[
-    \frac{2}{\frac{1}{a} + \frac{1}{b}} \le \sqrt{a \cdot b} \le \frac{a + b}{2}
-    \]
-    \item Quando i due argomenti differiscono notevolmente, la media armonica collassa verso il \textbf{valore minimo} anziché posizionarsi a metà strada.
+    \item \`E sempre dominata dalla media geometrica e dalla media aritmetica:
+    \begin{equation}
+    \frac{2}{\frac{1}{P} + \frac{1}{R}} \le \sqrt{P \cdot R} \le \frac{P + R}{2}
+    \end{equation}
+    \item Quando i due parametri divergono in modo marcato, la media armonica collassa verso il \textbf{minimo} tra i due valori, punendo severamente ogni squilibrio algoritmico.
 \end{enumerate}
 \end{property}
 
-\begin{example}[Comportamento Limite dell'F-Measure]
-Si consideri un sistema banale che restituisce l'intera collezione: $R = 1.0$ e $P = 0.0001$.
+\begin{example}[La Fallacia della Media Aritmetica]
+Si consideri il motore banale che restituisce l'intera collezione: $R = 1.0$ e $P = 0.0001$.
 \begin{itemize}
-    \item La media aritmetica assegna un punteggio fuorviante pari a:
-    \[
-    \frac{1.0 + 0.0001}{2} \approx 0.50 \quad (50\%)
-    \]
-    \item La media armonica ($F_1$) demolisce giustamente la valutazione:
-    \[
+    \item La media aritmetica assegna un punteggio assurdo superiore al $50\%$:
+    \begin{equation}
+    \text{Media Aritmetica} = \frac{1.0 + 0.0001}{2} \approx 0.50005 \quad (50.0\%)
+    \end{equation}
+    permettendo a un sistema totalmente inservibile di apparire mediocremente efficace.
+    \item La media armonica ($F_1$) demolisce immediatamente il sistema:
+    \begin{equation}
     F_1 = \frac{2 \cdot 1.0 \cdot 0.0001}{1.0 + 0.0001} \approx 0.0002 \quad (0.02\%)
-    \]
+    \end{equation}
+    restituendo una misura realistica dell'inutilit\`a del recupero.
 \end{itemize}
-Ciò dimostra per quale motivo la media aritmetica sia inadeguata e l'F-measure costituisca la scelta corretta.
 \end{example}
 
-\subsection{\texorpdfstring{La Misura $F_\beta$ Pesata}{La Misura F-beta Pesata}}
-Qualora si desideri attribuire pesi differenziati a Precisione e Richiamo, si introduce un parametro di ponderazione $\alpha \in [0, 1]$:
+\FloatBarrier
+\subsection{La Misura Pesata $F_\beta$}
+\label{subsec:f-beta-pesata}
+
+Se l'applicazione impone di dare priorit\`a asimmetrica a una delle due grandezze, si introduce un fattore di ponderazione $\alpha \in [0, 1]$:
 \begin{equation}
 F = \frac{1}{\alpha \frac{1}{P} + (1 - \alpha) \frac{1}{R}}
 \end{equation}
-Esprimendo $\alpha$ in funzione di un parametro $\beta$ tale che $\alpha = \frac{1}{1 + \beta^2}$, si ricava la formulazione classica di \textbf{$F_\beta$}:
+Ponendo convenientemente $\alpha = \frac{1}{1 + \beta^2}$, si ricava la formulazione canonica di \textbf{$F_\beta$}:
 \begin{equation}
 F_\beta = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R}
 \end{equation}
+
+Il parametro $\beta \in [0, +\infty)$ controlla il bilanciamento relativo:
 \begin{itemize}
-    \item Valori di $\beta < 1$ (ad es. $\beta = 0.5$) enfatizzano la \textbf{Precisione} rispetto al Richiamo (utile nelle ricerche su Web generico).
-    \item Valori di $\beta > 1$ (ad es. $\beta = 2.0$) enfatizzano il \textbf{Richiamo} rispetto alla Precisione (fondamentale nelle ricerche brevettuali, legali e mediche, dove omettere un documento rilevante comporta danni gravi).
+    \item $\beta = 1.0$: Si riottiene la classica $F_1$ a pesatura identica.
+    \item $\beta < 1.0$ (ad esempio $\beta = 0.5$): Il modello valorizza la \textbf{Precisione} rispetto al Richiamo. Tipico della ricerca Web generica, dove all'utente interessa trovare immediatamente pochi documenti perfetti.
+    \item $\beta > 1.0$ (ad esempio $\beta = 2.0$): Il modello valorizza il \textbf{Richiamo} rispetto alla Precisione. Imprescindibile nelle ricerche brevettuali (\textit{patent search}), nelle perizie medico-legali e nell'e-discovery giuridico, dove mancare anche un solo documento rilevante comporta danni irreparabili.
 \end{itemize}
 
 \FloatBarrier
 \section{Metriche Basate sul Ranking (\textit{Ranked Measures} - Rilevanza Binaria)}
-\label{sec:metriche-ranked-binarie}
+\label{sec:metriche-ranking-binarie}
 
-Nei motori di ricerca moderni i documenti non vengono restituiti come insiemi informi, ma ordinati in base a uno score di rilevanza decrescente. Inoltre, gli utenti Web raramente oltrepassano la prima pagina dei risultati (i primi $10$ o $20$ elementi).
+Nei motori di ricerca operativi i documenti non formano insiemi caotici, ma vengono presentati in una graduatoria ordinata in base al punteggio decrescente di rilevanza stimata. Poiché gli utenti esaminano quasi esclusivamente i primissimi risultati della SERP, la valutazione deve premiare la concentrazione dei documenti pertinenti in cima alla lista.
 
-\subsection{\texorpdfstring{Precision@k ($P@k$) e Recall@k ($R@k$)}{Precision@k e Recall@k}}
-\begin{definition}[Precision@k]
-Fissata una soglia di rango $k \in \mathbb{N}^+$, la Precision@k corrisponde alla proporzione di documenti rilevanti presenti nei primi $k$ posti della graduatoria:
+\FloatBarrier
+\subsection{Precision@k e Recall@k: Valutazione alla Soglia di Rango}
+\label{subsec:precision-at-k}
+
+\begin{definition}[Precision@k ($P@k$)]
+Data una soglia di rango $k \in \mathbb{N}^+$, $P@k$ corrisponde alla proporzione di documenti rilevanti presenti nei primi $k$ posti della graduatoria restituita:
 \begin{equation}
 P@k = \frac{1}{k} \sum_{i=1}^k \mathrm{rel}_i
 \end{equation}
-dove $\mathrm{rel}_i \in \{0, 1\}$ denota la rilevanza binaria del documento al rango $i$.
+dove $\mathrm{rel}_i \in \{0, 1\}$ rappresenta l'esito binario di rilevanza del documento collocato al rango $i$.
 \end{definition}
 
-\begin{example}[Calcolo di Precision@k]
-Si consideri una lista ordinata in cui la sequenza di rilevanza binaria dei primi 5 documenti è data da $\langle 1, 1, 0, 0, 1 \rangle$:
+\begin{example}[Calcolo Discreto di $P@k$ ed Evidenza del Comportamento Non Monotono]
+Sia data la graduatoria ordinata dei primi 5 documenti con rilevanze $\mathbf{r} = \langle 1, 1, 0, 0, 1 \rangle$:
 \begin{itemize}
     \item $P@1 = \frac{1}{1} = 1.00$
     \item $P@2 = \frac{2}{2} = 1.00$
-    \item $P@3 = \frac{2}{3} \approx 0.66$
-    \item $P@4 = \frac{2}{4} = 0.50$ (si noti che $P@4 < P@3$)
-    \item $P@5 = \frac{3}{5} = 0.60$
+    \item $P@3 = \frac{2}{3} \approx 0.67$
+    \item $P@4 = \frac{2}{4} = 0.50$ \quad (\textbf{si noti come $P@4 < P@3$})
+    \item $P@5 = \frac{3}{5} = 0.60$ \quad (\textbf{la precisione torna a crescere})
 \end{itemize}
 \end{example}
 
-\begin{alertblock}{La Distorsione di $P@k$ nella Media tra Query}
-Sebbene $P@k$ sia intuitivo per stimare la qualità della prima pagina, presenta un difetto metodologico critico quando viene mediato su insiemi di query eterogenee:
-\begin{itemize}
-    \item Se per una query specifica $q_A$ esistono solo $R_A = 2$ documenti rilevanti nell'intera collezione, il valore massimo teoricamente raggiungibile per $P@10(q_A)$ è pari a $\frac{2}{10} = 0.20$, anche qualora il motore collochi perfettamente entrambi i documenti ai primi due ranghi!
-    \item Calcolando la media aritmetica di $P@10$ tra query, il motore viene ingiustamente penalizzato dalla rarità intrinseca dei documenti rilevanti di alcune query, e non da un errore dell'algoritmo di ranking.
-\end{itemize}
-In modo analogo, la metrica complementare $Recall@k$ ($R@k$) calcola la frazione dei documenti rilevanti complessivi reperiti entro il rango $k$:
+In modo complementare, $Recall@k$ ($R@k$) calcola la frazione dei documenti rilevanti complessivi $R$ recuperati entro la soglia $k$:
 \begin{equation}
-Recall@k = \frac{1}{R} \sum_{i=1}^k \mathrm{rel}_i
+R@k = \frac{1}{R} \sum_{i=1}^k \mathrm{rel}_i
 \end{equation}
+
+\FloatBarrier
+\subsection{Limiti Metodologici di $P@k$ nella Media tra Query}
+\label{subsec:limiti-precision-at-k}
+
+\begin{alertblock}{La Distorsione di $P@k$ nella Media Macro}
+Sebbene $P@k$ fornisca un'indicazione immediata della pulizia della prima schermata, presenta un difetto metodologico strutturale quando viene mediato su insiemi di query eterogenee:
+\begin{itemize}
+    \item Il numero totale $R$ di documenti rilevanti presenti nella collezione varia sensibilmente da query a query.
+    \item Se per la query $q_A$ esistono soltanto $R_A = 2$ documenti rilevanti nell'intera collezione, il punteggio massimo teorico di $P@10(q_A)$ \`e pari a $\frac{2}{10} = 0.20$, persino qualora il motore sia infallibile e collochi entrambi i documenti esattamente ai primi due posti!
+    \item Viceversa, per una query generica $q_B$ con $R_B = 100$, il sistema può conseguire comodamente $P@10(q_B) = 1.0$.
+    \item Mediando aritmeticamente $P@10$, l'algoritmo viene penalizzato dalla scarsit\`a oggettiva dei documenti rilevanti di talune query e non da deficienze del proprio ordinamento.
+\end{itemize}
 \end{alertblock}
 
+\FloatBarrier
 \subsection{Average Precision (AP)}
-L'\textbf{Average Precision} (AP) sintetizza l'intera curva Precision-Recall in un singolo indicatore scalare per una specifica query, valutando la precisione istantanea in corrispondenza di ogni posizione in cui il richiamo aumenta.
+\label{subsec:average-precision-ap}
+
+L'\textbf{Average Precision} (AP) risolve i limiti delle metriche a soglia rigida, sintetizzando l'intera curva Precision-Recall per una singola query in un indicatore scalare unitario.
 
 \begin{definition}[Average Precision]
-Dato un ordinamento di $N$ documenti per una query con $R$ documenti rilevanti totali presenti nella collezione, l'AP è definita come:
+Dato un ordinamento di $N$ documenti per una query avente $R$ documenti rilevanti totali presenti nell'archivio, l'AP \`e la media delle precisioni istantanee $P@k$ calcolate in corrispondenza di ciascuna posizione $k$ in cui si incontra un documento rilevante (ovvero dove il richiamo subisce un incremento):
 \begin{equation}
-AP = \frac{1}{R} \sum_{k=1}^N P@k \cdot \mathrm{rel}_k
+AP = \frac{1}{R} \sum_{k=1}^N P@k \cdot \mathrm{rel}_k = \frac{1}{R} \sum_{k \in \{K_1, K_2, \dots, K_R\}} P@k
 \end{equation}
+dove $K_1, K_2, \dots, K_R$ indicano i ranghi dei documenti rilevanti reperiti.
 \end{definition}
 
-\begin{property}[Interpretazione Geometrica e Ruolo di $1/R$]
-L'Average Precision possiede una chiara interpretazione analitica:
+\begin{property}[Interpretazione Geometrica dell'Average Precision]
+L'Average Precision possiede un solido fondamento matematico:
 \begin{enumerate}
-    \item Ogni volta che si incontra un documento rilevante al rango $k$, il richiamo compie un gradino discreto di ampiezza $\Delta Recall = \frac{1}{R}$. L'AP calcola la somma delle aree dei rettangoli $P@k \cdot \Delta Recall$, rappresentando l'\textbf{approssimazione numerica dell'Area Sotto la Curva Precision-Recall} (AUC-PR).
-    \item La normalizzazione per $R$ (il numero totale di documenti rilevanti nella collezione) garantisce che i documenti rilevanti non recuperati entro i primi $N$ ranghi contribuiscano implicitamente con precisione pari a $0$, penalizzando severamente i sistemi affetti da scarso richiamo.
+    \item In corrispondenza di ogni documento rilevante al rango $k$, il richiamo cresce di un incremento discreto pari a $\Delta R = \frac{1}{R}$. Pertanto, la sommatoria calcola la somma delle aree dei rettangoli $P@k \cdot \Delta R$, rappresentando l'esatta \textbf{Area Sotto la Curva Precision-Recall} (AUC-PR).
+    \item La normalizzazione per $R$ (il totale assoluto dei documenti rilevanti nell'intera collezione, e non solo quelli estratti) impone che tutti i rilevanti non compresi nei primi $N$ ranghi concorrano implicitamente con precisione pari a $0$, penalizzando severamente i sistemi a basso richiamo.
 \end{enumerate}
 \end{property}
+
+La Figura~\ref{fig:ap-blocks} illustra graficamente la sequenza di computazione dell'AP.
 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    scale=0.85,
-    docrel/.style={rectangle, rounded corners=2pt, draw=teal!80!black, fill=teal!20, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize\bfseries},
-    docnon/.style={rectangle, rounded corners=2pt, draw=red!70!black, fill=red!10, thick, minimum width=1.1cm, minimum height=0.65cm, font=\footnotesize},
+    scale=0.88,
+    docrel/.style={rectangle, rounded corners=3pt, draw=darkgreen, fill=darkgreen!15, thick, minimum width=1.15cm, minimum height=0.65cm, font=\footnotesize\bfseries},
+    docnon/.style={rectangle, rounded corners=3pt, draw=crimson, fill=crimson!12, thick, minimum width=1.15cm, minimum height=0.65cm, font=\footnotesize},
     lbl/.style={font=\scriptsize, align=center}
 ]
-    % Document ranking blocks
-    \node[lbl] at (-1.5, 0.35) {Posizione (Rango):};
-    \node[lbl] at (-1.5, -0.35) {Documento:};
-    \node[lbl] at (-1.5, -1.05) {Precision@k:};
+    \node[lbl] at (-1.6, 0.35) {Posizione ($k$):};
+    \node[lbl] at (-1.6, -0.35) {Valutazione:};
+    \node[lbl] at (-1.6, -1.05) {Precision@k:};
 
     \foreach \k/\rel/\p/\type in {
         1/1/1.00/docrel,
@@ -476,45 +592,35 @@ L'Average Precision possiede una chiara interpretazione analitica:
         4/0/---/docnon,
         5/1/0.60/docrel%
     } {
-        \node[font=\footnotesize\bfseries] at (\k*1.6, 0.35) {$k=\k$};
-        \node[\type] (b\k) at (\k*1.6, -0.35) {\ifnum\rel=1 Rel\else NonRel\fi};
-        \node[font=\footnotesize] at (\k*1.6, -1.05) {\ifnum\rel=1 \textbf{\p}\else \color{gray!60}--- \fi};
+        \node[font=\footnotesize\bfseries] at (\k*1.65, 0.35) {$k=\k$};
+        \node[\type] at (\k*1.65, -0.35) {\ifnum\rel=1 Rel\else NonRel\fi};
+        \node[font=\footnotesize] at (\k*1.65, -1.05) {\ifnum\rel=1 \textbf{\p}\else \color{gray!60}--- \fi};
     }
 
-    \draw[-Stealth, thick, blue!80!black] (0.5, 0.7) -- node[above, font=\scriptsize] {Ordinamento del Motore di Ricerca} (8.5, 0.7);
+    \draw[-Stealth, thick, navy] (0.4, 0.72) -- node[above, font=\scriptsize] {Ordinamento del Motore di Ricerca} (8.8, 0.72);
 \end{tikzpicture}
-\caption{Rappresentazione schematica del calcolo di Average Precision su 5 documenti con $R=3$ rilevanti totali.}
+\caption{Calcolo passo-passo di Average Precision per un ordinamento di 5 elementi con $R=3$ documenti rilevanti totali.}
 \label{fig:ap-blocks}
 \end{figure}
 
-\begin{example}[Calcolo di Base con $R=3$ Rilevanti]
-Si consideri lo scenario di Figura~\ref{fig:ap-blocks} con $R=3$ documenti rilevanti totali, posizionati ai ranghi $k_1 = 1$, $k_2 = 3$ e $k_3 = 5$:
-\[
-P@1 = \frac{1}{1} = 1.00, \quad P@3 = \frac{2}{3} \approx 0.667, \quad P@5 = \frac{3}{5} = 0.60
-\]
-L'Average Precision risulta:
-\begin{equation}
-AP = \frac{1}{3} \left( 1.00 + \frac{2}{3} + \frac{3}{5} \right) = \frac{1}{3} \left( 2.267 \right) \approx 0.756 \quad (75.6\%)
-\end{equation}
-\end{example}
-
-\begin{example}[Confronto Comparativo tra Due Ordinamenti]
-Si consideri una query per la quale esistono $R = 6$ documenti rilevanti nella collezione. Due motori di ricerca alternativi restituiscono i seguenti primi 10 documenti:
+\begin{example}[Studio Comparativo tra Due Ordinamenti Alternativi]
+Si consideri una query avente $R = 6$ documenti rilevanti nella collezione. Due motori alternativi producono i seguenti primi 10 documenti:
 \begin{itemize}
-    \item \textbf{Ranking \#1:} Rilevanti concentrati nelle prime posizioni:
+    \item \textbf{Ranking \#1 (Rilevanti concentrati in cima):}
     \[
     \langle \text{Rel}, \text{NonRel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{NonRel}, \text{NonRel}, \text{NonRel}, \text{Rel} \rangle
     \]
-    \item \textbf{Ranking \#2:} Rilevanti dispersi e ritardati:
+    \item \textbf{Ranking \#2 (Rilevanti ritardati e dispersi):}
     \[
     \langle \text{NonRel}, \text{Rel}, \text{NonRel}, \text{NonRel}, \text{Rel}, \text{Rel}, \text{Rel}, \text{NonRel}, \text{Rel}, \text{Rel} \rangle
     \]
 \end{itemize}
-La Tabella~\ref{tab:ap-comparison} traccia l'evoluzione rango per rango di Precisione e Richiamo per entrambi i sistemi.
+La Tabella~\ref{tab:ap-comparison} traccia l'evoluzione di Precisione e Richiamo rango per rango.
 
 \begin{table}[H]
 \centering
-\resizebox{\textwidth}{!}{%
+\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{c c c c c c c}
 \toprule
 & \multicolumn{3}{c}{\textbf{Ranking \#1}} & \multicolumn{3}{c}{\textbf{Ranking \#2}} \\
@@ -536,214 +642,308 @@ La Tabella~\ref{tab:ap-comparison} traccia l'evoluzione rango per rango di Preci
 \bottomrule
 \end{tabular}%
 }
-\caption{Calcolo comparativo dettagliato di Average Precision tra Ranking \#1 e Ranking \#2.}
+\caption{Confronto di Average Precision: Ranking \#1 premia la reattivit\`a posizionale anticipando i rilevanti.}
 \label{tab:ap-comparison}
 \end{table}
 
-I rispettivi valori di AP risultano:
-\begin{align*}
+I rispettivi punteggi analitici valgono:
+\begin{align}
 AP(\text{Ranking \#1}) &= \frac{1.00 + 0.67 + 0.75 + 0.80 + 0.83 + 0.60}{6} = \frac{4.65}{6} \approx \mathbf{0.78} \\
 AP(\text{Ranking \#2}) &= \frac{0.50 + 0.40 + 0.50 + 0.57 + 0.56 + 0.60}{6} = \frac{3.13}{6} \approx \mathbf{0.52}
-\end{align*}
-Sebbene entrambi i motori raggiungano un richiamo finale identico ($R=100\%$ sui 10 documenti), Ranking \#1 ottiene un punteggio nettamente superiore ($0.78$ vs $0.52$) poiché premia la densità di documenti rilevanti nella parte alta della graduatoria.
+\end{align}
+Sebbene entrambi i motori recuperino tutti e 6 i documenti rilevanti entro il decimo rango ($R=100\%$), Ranking \#1 distanzia nettamente il concorrente ($0.78$ contro $0.52$), premiando il risparmio di sforzo visivo garantito all'utente.
 \end{example}
 
+\FloatBarrier
 \subsection{Mean Average Precision (MAP)}
-Quando si valuta un motore di ricerca su un banco di prova comprendente $|\mathcal{Q}|$ bisogni informativi distinti, si calcola la \textbf{Mean Average Precision} (MAP) come media aritmetica dei valori di AP:
+\label{subsec:mean-average-precision-map}
+
+Quando si valuta l'efficacia di un algoritmo sull'intera suite di query benchmark $\mathcal{Q}$, si adotta la \textbf{Mean Average Precision} (MAP):
 
 \begin{definition}[Mean Average Precision]
+Media aritmetica dei valori di Average Precision calcolati su tutte le query del benchmark:
 \begin{equation}
-MAP = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} AP(q)
+MAP = \frac{1}{|\mathcal{Q}|} \sum_{j=1}^{|\mathcal{Q}|} AP(q_j)
 \end{equation}
 \end{definition}
 
-\begin{property}[Macro-Averaging vs. Micro-Averaging]
-Il MAP adotta formalmente una procedura di \textbf{Macro-Averaging}: ciascuna query possiede un peso identico pari a $1/|\mathcal{Q}|$.
+\begin{property}[Macro-Averaging e Tutela della Coda Lunga]
+Il calcolo di MAP costituisce una procedura formale di \textbf{Macro-Averaging}: a ciascuna query viene assegnato esattamente lo stesso peso pari a $1/|\mathcal{Q}|$.
 \begin{itemize}
-    \item Se si adottasse il \textit{Micro-Averaging} (ovvero sommare tutte le precisioni istantanee e dividere per il numero totale di documenti rilevanti dell'intera collezione), la misura verrebbe totalmente monopolizzata da pochissime query iper-generiche (ad es. \texttt{``film''} o \texttt{``notizie''}, aventi decine di migliaia di documenti rilevanti), mascherando il fallimento del motore sulle query rare e specifiche (\textit{long-tail}).
-    \item Il Macro-Averaging garantisce che ogni singola esigenza informativa dell'utente riceva pari dignità nella valutazione finale.
+    \item Se si impiegasse il \textit{Micro-Averaging} (sommare tutti i contributi di precisione dell'intero benchmark dividendo per il totale cumulativo dei documenti rilevanti esistenti), il punteggio globale verrebbe cannibalizzato da pochissime query ad altissima densit\`a documentale (es. \texttt{``sport''} o \texttt{``notizie''}, con decine di migliaia di rilevanti).
+    \item Il Macro-Averaging preserva la parit\`a di rappresentanza: l'insuccesso su una query specialistica di coda lunga (\textit{tail query}) incide sul punteggio finale con la medesima gravit\`a del fallimento su una query comune.
 \end{itemize}
 \end{property}
 
-\begin{example}[Calcolo di MAP su Due Query]
-Si consideri la valutazione congiunta di due query $q_1$ e $q_2$:
+\begin{example}[Calcolo di MAP su Due Query Distinte]
+Si consideri un testbed con due bisogni informativi $q_1$ e $q_2$:
 \begin{itemize}
-    \item \textbf{Query 1 ($R_1 = 5$ rilevanti totali):} Il sistema restituisce 5 rilevanti ai ranghi $k \in \{1, 3, 6, 9, 10\}$ con precisioni istantanee pari a $1.00$, $0.67$, $0.50$, $0.44$ e $0.50$:
-    \[
+    \item \textbf{Query $q_1$ ($R_1 = 5$ rilevanti totali):} Reperiti 5 rilevanti ai ranghi $\{1, 3, 6, 9, 10\}$ con precisioni istantanee $1.00$, $0.67$, $0.50$, $0.44$, $0.50$:
+    \begin{equation}
     AP(q_1) = \frac{1.00 + 0.67 + 0.50 + 0.44 + 0.50}{5} = \frac{3.11}{5} \approx \mathbf{0.62}
-    \]
-    \item \textbf{Query 2 ($R_2 = 3$ rilevanti totali):} Il sistema restituisce i 3 rilevanti ai ranghi $k \in \{2, 5, 7\}$ con precisioni istantanee pari a $0.50$, $0.40$ e $0.43$:
-    \[
+    \end{equation}
+    \item \textbf{Query $q_2$ ($R_2 = 3$ rilevanti totali):} Reperiti 3 rilevanti ai ranghi $\{2, 5, 7\}$ con precisioni istantanee $0.50$, $0.40$, $0.43$:
+    \begin{equation}
     AP(q_2) = \frac{0.50 + 0.40 + 0.43}{3} = \frac{1.33}{3} \approx \mathbf{0.44}
-    \]
+    \end{equation}
 \end{itemize}
-Il valore di Mean Average Precision del motore sui due compiti ammonta a:
+Il valore di Mean Average Precision del sistema su questo benchmark \`e:
 \begin{equation}
 MAP = \frac{AP(q_1) + AP(q_2)}{2} = \frac{0.62 + 0.44}{2} = \mathbf{0.53}
 \end{equation}
 \end{example}
 
+\FloatBarrier
 \subsection{Metriche Troncate per il Web e Recommender Systems: AP@k e MAP@k}
-Nei moderni motori di ricerca su Web e nei sistemi di raccomandazione, calcolare l'AP sull'intera collezione risulta impraticabile (perché il numero totale $R$ di rilevanti non è noto a priori) e poco rilevante per l'esperienza utente.
-Si adotta pertanto la variante troncata a soglia fissa $K$ (\textbf{MAP@K}):
+\label{subsec:ap-map-at-k}
+
+Nell'architettura del Web search moderno e nei sistemi di raccomandazione, calcolare l'AP sull'intero archivio \`e impraticabile: il numero totale $R$ di documenti rilevanti sparsi nel Web \`e ignoto, e all'utente finale non interessa ciò che accade oltre la ventesima posizione.
+
+Si definiscono pertanto le versioni troncate a una soglia prestabilita $K$ (tipicamente $K=10$ o $K=20$):
 
 \begin{definition}[AP@K e MAP@K]
-Fissata la soglia di taglio $K$ (tipicamente $K=10$ o $K=20$), l'Average Precision at $K$ per la query $q_i$ è definita come:
+Data la profondit\`a di taglio $K$, l'Average Precision at $K$ per la query $q_i$ \`e:
 \begin{equation}
 AP@K(q_i) = \frac{1}{K_i} \sum_{k=1}^K P@k(q_i) \cdot \mathrm{rel}(q_i, k)
 \end{equation}
-dove il fattore di normalizzazione $K_i$ è dato dal numero di documenti rilevanti presenti nei primi $K$ posti:
+dove il fattore di normalizzazione $K_i$ corrisponde al numero effettivo di documenti rilevanti reperibili entro la soglia:
 \begin{equation}
-K_i = \sum_{k=1}^K \mathrm{rel}(q_i, k) \quad \left(\text{oppure } K_i = \min(R_i, K)\right)
+K_i = \min(R_i, K) \quad \left(\text{oppure } K_i = \sum_{k=1}^K \mathrm{rel}(q_i, k)\right)
 \end{equation}
-La metrica globale \textbf{MAP@K} su un insieme di query $\mathcal{Q}$ corrisponde alla media:
+La metrica globale \textbf{MAP@K} su $\mathcal{Q}$ corrisponde alla media aritmetica:
 \begin{equation}
 MAP@K(\mathcal{Q}) = \frac{1}{|\mathcal{Q}|} \sum_{q_i \in \mathcal{Q}} AP@K(q_i)
 \end{equation}
 \end{definition}
-Questa formulazione risolve brillantemente il limite di $P@K$: normalizzando per $K_i$ anziché rigidamente per $K$, una query con soli 2 rilevanti che li colloca ai primi 2 posti ottiene $AP@10 = 1.0$ anziché essere artificialmente limitata a $0.20$.
 
+Normalizzando per $\min(R_i, K)$ anziché per il valore rigido $K$, una query con soli 2 rilevanti totali che li collochi ai primi due posti consegue $AP@10 = 1.0$, eliminando la distorsione strutturale di $P@10$.
+
+\FloatBarrier
 \subsection{Mean Reciprocal Rank (MRR)}
-In scenari quali le ricerche di elementi noti (\textit{Known-Item Search}), le query navigazionali (ad es. cercare l'home page di un ateneo) o il reperimento di risposte fattuali, l'utente è interessato unicamente a individuare la \textbf{prima risposta corretta}. Lo sforzo cognitivo e il tempo speso dall'utente sono inversamente proporzionali alla posizione occupata dal primo risultato rilevante:
+\label{subsec:mean-reciprocal-rank-mrr}
+
+In contesti applicativi quali:
+\begin{itemize}
+    \item \textit{Known-Item Search:} L'utente cerca una pagina o un file specifico di cui conosce l'esistenza;
+    \item \textit{Query Navigazionali:} Ricerca dell'accesso o della homepage di un servizio (ad es. \texttt{``portale studenti unipi''});
+    \item \textit{Factoid Question Answering:} Domande che ammettono una singola risposta esatta,
+\end{itemize}
+l'utente non ha alcun interesse a esaminare dieci documenti rilevanti, ma desidera localizzare unicamente la \textbf{prima risposta corretta}. Lo sforzo cognitivo e il tempo speso dall'utente sono inversamente proporzionali alla posizione di rango del primo risultato utile:
 
 \begin{definition}[Reciprocal Rank e MRR]
-Sia $\mathrm{rank}_1(q)$ la posizione del primo documento rilevante restituito per la query $q$. Il \textbf{Reciprocal Rank} (RR) è dato da:
+Sia $\mathrm{rank}_1(q)$ la posizione ordinale del primo documento rilevante restituito per la query $q$. Il \textbf{Reciprocal Rank} (RR) \`e definito come:
 \begin{equation}
 RR(q) = \frac{1}{\mathrm{rank}_1(q)}
 \end{equation}
-Il \textbf{Mean Reciprocal Rank} (MRR) è la media aritmetica su tutte le query:
+Il \textbf{Mean Reciprocal Rank} (MRR) \`e la media aritmetica di $RR$ sull'insieme delle query benchmark:
 \begin{equation}
-MRR = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} \frac{1}{\mathrm{rank}_1(q)}
+MRR = \frac{1}{|\mathcal{Q}|} \sum_{i=1}^{|\mathcal{Q}|} \frac{1}{\mathrm{rank}_1(q_i)}
 \end{equation}
 \end{definition}
-Se per una query il primo documento rilevante si trova al rango 1, il punteggio è $1.0$; se scende al rango 2 diviene $0.5$; se scende al rango 10 crolla a $0.1$.
+
+Se il primo documento rilevante si trova al rango 1, il punteggio vale $1.0$; se scende al rango 2 diviene $0.5$; se scende al rango 10 crolla a $0.1$. Qualora la graduatoria non contenga alcun documento utile entro la finestra considerata, si pone convenzionalmente $RR = 0$.
 
 \FloatBarrier
 \section{Oltre la Rilevanza Binaria: Rilevanza Graduata e NDCG}
 \label{sec:rilevanza-graduata-ndcg}
 
-Nelle applicazioni Web reali, l'ipotesi che un documento sia puramente rilevante ($1$) o non rilevante ($0$) risulta insufficiente. Si consideri la seguente query reale:
+Nelle applicazioni Web e commerciali, l'assunzione che un documento sia categoricamente rilevante ($1$) o non rilevante ($0$) si rivela eccessivamente semplicistica. 
+
+Si consideri a titolo esemplificativo la query reale:
 \begin{center}
 \texttt{Query: ``information retrieval unipi''}
 \end{center}
-Una tipica SERP commerciale restituisce risultati con livelli qualitativi marcatamente differenti:
+I risultati reperibili presentano sfumature qualitative nettamente distinte:
 \begin{enumerate}
-    \item \textbf{DidaWiki del Corso (Docente, CFU, Programma, Materiale didattico):} Rappresenta la pagina principale che soddisfa pienamente l'intento dell'utente $\implies$ \textbf{Altamente Rilevante ($r = 3$)}.
-    \item \textbf{Portale Ufficiale UniPi Valutami (Scheda d'esame e requisiti istituzionali):} Pagina autorevole ma meno ricca di dispense didattiche $\implies$ \textbf{Rilevante ($r = 2$)}.
-    \item \textbf{Brochure PDF del Corso di Laurea Magistrale:} Contiene solo una breve menzione del corso $\implies$ \textbf{Marginalmente Rilevante ($r = 1$)}.
-    \item \textbf{Articoli di cronaca o pagine non correlate:} $\implies$ \textbf{Irrilevante ($r = 0$)}.
-\end{enumerate}
-Tutti i primi tre documenti sono in qualche misura attinenti, ma un utente sarà soddisfatto solo se la pagina più informativa compare in cima. Per catturare questa granularità, la letteratura adotta scale a più livelli (tipicamente $r \in \{0, 1, 2, 3\}$ o $\{0, \dots, 4\}$).
-
-L'approccio del \textbf{Discounted Cumulative Gain} (DCG), introdotto da J\"arvelin e Kek\"al\"ainen~\cite{jarvelin2002}, poggia su due assunzioni fondamentali:
-\begin{enumerate}
-    \item I documenti altamente rilevanti apportano un'utilità (\textit{gain}) di gran lunga superiore rispetto a documenti solo marginalmente rilevanti.
-    \item Minore è la posizione ordinale (rango) di un documento nella graduatoria, minore è la probabilità che l'utente lo esamini; pertanto, il guadagno deve essere progressivamente scontato (\textit{discounted}) verso il basso.
+    \item \textbf{DidaWiki del Corso (Docente, CFU, programma didattico, dispense ufficiali):} Risponde integralmente e perfettamente all'intento dell'utente $\implies$ \textbf{Altamente Rilevante ($r = 3$)}.
+    \item \textbf{Pagina Valutami UniPi (Scheda descrittiva e requisiti istituzionali d'esame):} Fonte autorevole e attinente, ma priva di materiale didattico operativo $\implies$ \textbf{Rilevante ($r = 2$)}.
+    \item \textbf{Guida Generale del Corso di Laurea Magistrale:} Cita brevemente il corso nel piano di studi $\implies$ \textbf{Marginalmente Rilevante ($r = 1$)}.
+    \item \textbf{Articoli di cronaca generale o pagine esterne slegate:} $\implies$ \textbf{Irrilevante ($r = 0$)}.
 \end{enumerate}
 
-\subsection{Cumulative Gain (CG) e Discounted Cumulative Gain (DCG)}
-\begin{definition}[Cumulative Gain a Rango $p$]
-Dato il vettore delle rilevanze graduate $\mathbf{r} = [r_1, r_2, \dots, r_p]$, il Cumulative Gain è la somma lineare dei guadagni:
+Tutti i primi tre documenti presentano un legame tematico con la query, ma l'utente percepisce una soddisfazione radicalmente diversa. Per modellare questa granularit\`a, la letteratura adotta scale discrete di giudizio a pi\`u livelli (tipicamente $\mathcal{S} = \{0, 1, 2, 3\}$ o $\{0, 1, 2, 3, 4\}$).
+
+\FloatBarrier
+\subsection{I Fondamenti del Discounted Cumulative Gain (DCG)}
+\label{subsec:fondamenti-dcg}
+
+La formulazione del \textbf{Discounted Cumulative Gain} (DCG), introdotta da J\"arvelin e Kek\"al\"ainen~\cite{jarvelin2002}, poggia su due assunzioni comportamentali cardine:
+\begin{enumerate}
+    \item I documenti altamente rilevanti arrecano all'utente un'utilit\`a informativa (\textit{gain}) enormemente superiore rispetto a documenti solo marginalmente pertinenti.
+    \item Minore \`e la posizione ordinale (rango) di un documento nella SERP, minore \`e la probabilit\`a che l'utente lo esamini; pertanto, il guadagno apportato deve essere progressivamente scontato (\textit{discounted}) verso il basso con il crescere del rango.
+\end{enumerate}
+
+\begin{definition}[Cumulative Gain a Rango $p$ ($CG_p$)]
+Dato il vettore delle rilevanze graduate $\mathbf{r} = [r_1, r_2, \dots, r_p]$ fino al rango di taglio $p$, il Cumulative Gain \`e la somma lineare dei singoli guadagni:
 \begin{equation}
 CG_p = \sum_{i=1}^p r_i
 \end{equation}
-Il $CG_p$ è insensibile alla posizione: scambiare un documento altamente rilevante al rango 1 con uno al rango 10 non altera il valore di $CG_p$.
+\textit{Limite strutturale:} $CG_p$ \`e del tutto insensibile all'ordinamento posizionale: scambiare un documento con $r=3$ tra il primo e il decimo posto non altera minimamente il valore di $CG_p$.
 \end{definition}
 
-\begin{definition}[Discounted Cumulative Gain (Formulazione Standard)]
-Il DCG applica uno sconto logaritmico basato sul rango della posizione $i$:
+\FloatBarrier
+\subsection{Formulazione Standard vs. Formulazione Esponenziale}
+\label{subsec:dcg-standard-vs-exp}
+
+Per modellare il decadimento dell'attenzione visiva dell'utente, il DCG introduce un fattore di sconto posizionale:
+
+\begin{definition}[DCG Standard (J\"arvelin e Kek\"al\"ainen)]
+Applica uno sconto logaritmico in base al rango $i$:
 \begin{equation}
 DCG_p = r_1 + \sum_{i=2}^p \frac{r_i}{\log_2(i)}
-\label{eq:dcg-standard-it}
+\label{eq:dcg-standard}
 \end{equation}
 \end{definition}
 
-\begin{alertblock}{Significato Comportamentale dello Sconto Logaritmico}
-Lo sconto $\frac{1}{\log_2(i)}$ riflette il decadimento esponenziale dell'attenzione visiva dell'utente secondo il modello di lettura a cascata:
+\begin{property}[Significato Fisico dello Sconto Logaritmico]
+Il divisore $\log_2(i)$ modella la progressione dello sguardo lungo la pagina:
 \begin{itemize}
-    \item Al rango $i = 4$, il fattore di sconto è $\frac{1}{\log_2(4)} = \frac{1}{2}$: il valore informativo percepito si dimezza rispetto alla prima posizione.
-    \item Al rango $i = 8$, il fattore è $\frac{1}{\log_2(8)} = \frac{1}{3}$.
-    \item Al rango $i = 16$, il fattore scende a $\frac{1}{\log_2(16)} = \frac{1}{4}$.
+    \item Al rango $i = 4$, il fattore vale $\frac{1}{\log_2(4)} = \frac{1}{2}$: il valore del documento si dimezza rispetto alla prima posizione.
+    \item Al rango $i = 8$, il fattore scende a $\frac{1}{\log_2(8)} = \frac{1}{3}$.
+    \item Al rango $i = 16$, il fattore si riduce a $\frac{1}{\log_2(16)} = \frac{1}{4}$.
 \end{itemize}
-\end{alertblock}
+\end{property}
 
-Nei motori di ricerca commerciali (Google, Bing) si impiega frequentemente la \textbf{formulazione esponenziale}:
+Nei motori di ricerca commerciali Web (Google, Microsoft Bing) si adotta prevalentemente la \textbf{formulazione esponenziale}:
 \begin{equation}
 DCG_p^{\text{exp}} = \sum_{i=1}^p \frac{2^{r_i} - 1}{\log_2(i + 1)}
-\label{eq:dcg-exp-it}
+\label{eq:dcg-exp}
 \end{equation}
-\begin{noteblock}{Chiarimento sulla Notazione degli Indici}
-Si noti la differenza nell'argomento del logaritmo:
-\begin{itemize}
-    \item Nell'Equazione~\eqref{eq:dcg-standard-it} il primo termine $r_1$ viene estratto per evitare $\log_2(1) = 0$ al denominatore, mentre la sommatoria parte da $i=2$ con $\log_2(i)$.
-    \item Nell'Equazione~\eqref{eq:dcg-exp-it} la sommatoria include direttamente il rango $i=1$ adottando $\log_2(i+1)$ al denominatore ($\log_2(1+1) = \log_2(2) = 1$).
-    \item Inoltre, il numeratore $2^{r_i} - 1$ enfatizza in modo non lineare i documenti di massima rilevanza ($r=3 \implies 2^3 - 1 = 7$, mentre $r=1 \implies 2^1 - 1 = 1$), penalizzando aspramente il loro mancato posizionamento nei primi ranghi.
-\end{itemize}
+
+\begin{noteblock}{Differenze Chiave tra le Formulazioni di DCG}
+\begin{enumerate}
+    \item \textbf{Gestione del primo rango:} Nell'Equazione~\eqref{eq:dcg-standard} il termine $r_1$ \`e scorporato per evitare $\log_2(1) = 0$ a denominatore, facendo partire la sommatoria da $i=2$. Nell'Equazione~\eqref{eq:dcg-exp} l'indice parte direttamente da $i=1$ adottando $\log_2(i+1)$ ($\log_2(1+1) = \log_2(2) = 1$).
+    \item \textbf{Guadagno non lineare:} Il numeratore $2^{r_i} - 1$ dilata esponenzialmente il peso dei documenti eccellenti: un documento con $r=3$ conferisce un guadagno $2^3 - 1 = 7$, mentre un documento con $r=1$ vale solo $2^1 - 1 = 1$. Questo premia in modo aggressivo il recupero dei documenti a massima pertinenza ai primissimi ranghi.
+\end{enumerate}
 \end{noteblock}
 
+\FloatBarrier
 \subsection{Normalized Discounted Cumulative Gain (NDCG)}
-Poiché query differenti presentano un numero variabile di documenti rilevanti, il valore grezzo di $DCG_p$ non è confrontabile tra query diverse. Si ricorre quindi all'\textbf{Ideal DCG} ($IDCG_p$), ottenuto calcolando il DCG della graduatoria ideale che ordina tutti i documenti per rilevanza decrescente:
+\label{subsec:normalized-dcg}
+
+Poiché query diverse presentano un numero variabile di documenti rilevanti (e con differenti gradi di pertinenza massima), il valore assoluto di $DCG_p$ non \`e confrontabile né mediabile tra query eterogenee. 
+
+Si definisce l'\textbf{Ideal DCG} ($IDCG_p$) come il valore di DCG calcolato sulla graduatoria ideale (\textit{perfect ranking}), ottenuta ordinando tutti i documenti della collezione in senso decrescente di rilevanza:
+
+\begin{definition}[Normalized Discounted Cumulative Gain]
 \begin{equation}
 NDCG_p = \frac{DCG_p}{IDCG_p} \quad \in [0, 1]
 \end{equation}
+dove:
+\begin{equation}
+IDCG_p = r_1^* + \sum_{i=2}^p \frac{r_i^*}{\log_2(i)} \quad \text{con } r_1^* \ge r_2^* \ge \dots \ge r_p^*
+\end{equation}
+\end{definition}
 
-\subsection{Esempio Numerico Completo: Calcolo Passo-Passo}
-Si consideri la seguente graduatoria di 10 documenti, valutati su scala $0$--$3$:
-\[
+La normalizzazione garantisce che un ordinamento perfetto consegua $NDCG = 1.0$ per qualsiasi query, rendendo la metrica idonea alla media macroscopica su ampie suite di benchmark.
+
+\FloatBarrier
+\subsection{Esempio Numerico Completo: Traccia a 10 Documenti}
+\label{subsec:esempio-numerico-dcg-ndcg}
+
+Si consideri la seguente graduatoria di 10 documenti, valutata su scala $r \in \{0, 1, 2, 3\}$:
+\begin{equation}
 \mathbf{r} = [3, \, 2, \, 3, \, 0, \, 0, \, 1, \, 2, \, 2, \, 3, \, 0]
-\]
-La sequenza ideale ottenuta ordinando per rilevanza non crescente è:
-\[
+\end{equation}
+Ordinando i valori di rilevanza in senso non crescente si ottiene la graduatoria ideale:
+\begin{equation}
 \mathbf{r}^* = [3, \, 3, \, 3, \, 2, \, 2, \, 2, \, 1, \, 0, \, 0, \, 0]
-\]
-La Tabella~\ref{tab:ndcg-step-by-step} riporta l'evoluzione dettagliata di ogni singolo termine posizionale.
+\end{equation}
+
+La Tabella~\ref{tab:ndcg-step-by-step} riporta l'evoluzione analitica dettagliata di ogni singolo termine posizionale secondo la formulazione standard.
 
 \begin{table}[H]
 \centering
-\resizebox{\textwidth}{!}{%
+\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{c c l c >{\bfseries}c c c >{\bfseries}c >{\bfseries}c}
 \toprule
-$i$ & $r_i$ & Sconto & Guadagno Scontato & $DCG@i$ & $r_i^*$ & Guadagno Ideale & $IDCG@i$ & $NDCG@i$ \\
+$i$ & $r_i$ & Divisore Sconto & Guadagno Scontato & $DCG@i$ & $r_i^*$ & Guadagno Ideale & $IDCG@i$ & $NDCG@i$ \\
 \midrule
-1 & 3 & 1.000 & 3.00 & 3.00 & 3 & 3.00 & 3.00 & 1.00 \\
-2 & 2 & $\log_2(2) = 1.000$ & 2.00 & 5.00 & 3 & 3.00 & 6.00 & 0.83 \\
-3 & 3 & $\log_2(3) = 1.585$ & 1.89 & 6.89 & 3 & 1.89 & 7.89 & 0.87 \\
-4 & 0 & $\log_2(4) = 2.000$ & 0.00 & 6.89 & 2 & 1.00 & 8.89 & 0.76 \\
-5 & 0 & $\log_2(5) = 2.322$ & 0.00 & 6.89 & 2 & 0.86 & 9.75 & 0.71 \\
-6 & 1 & $\log_2(6) = 2.585$ & 0.39 & 7.28 & 2 & 0.77 & 10.52 & 0.69 \\
-7 & 2 & $\log_2(7) = 2.807$ & 0.71 & 7.99 & 1 & 0.36 & 10.88 & 0.73 \\
-8 & 2 & $\log_2(8) = 3.000$ & 0.67 & 8.66 & 0 & 0.00 & 10.88 & 0.80 \\
-9 & 3 & $\log_2(9) = 3.170$ & 0.95 & 9.61 & 0 & 0.00 & 10.88 & 0.88 \\
-10 & 0 & $\log_2(10) = 3.322$ & 0.00 & 9.61 & 0 & 0.00 & 10.88 & 0.88 \\
+1  & 3 & $1.000$              & 3.00 & 3.00 & 3 & 3.00 & 3.00  & \textbf{1.00} \\
+2  & 2 & $\log_2(2) = 1.000$  & 2.00 & 5.00 & 3 & 3.00 & 6.00  & \textbf{0.83} \\
+3  & 3 & $\log_2(3) \approx 1.585$ & 1.89 & 6.89 & 3 & 1.89 & 7.89  & \textbf{0.87} \\
+4  & 0 & $\log_2(4) = 2.000$  & 0.00 & 6.89 & 2 & 1.00 & 8.89  & \textbf{0.76} \\
+5  & 0 & $\log_2(5) \approx 2.322$ & 0.00 & 6.89 & 2 & 0.86 & 9.75  & \textbf{0.71} \\
+6  & 1 & $\log_2(6) \approx 2.585$ & 0.39 & 7.28 & 2 & 0.77 & 10.52 & \textbf{0.69} \\
+7  & 2 & $\log_2(7) \approx 2.807$ & 0.71 & 7.99 & 1 & 0.36 & 10.88 & \textbf{0.73} \\
+8  & 2 & $\log_2(8) = 3.000$  & 0.67 & 8.66 & 0 & 0.00 & 10.88 & \textbf{0.80} \\
+9  & 3 & $\log_2(9) \approx 3.170$ & 0.95 & 9.61 & 0 & 0.00 & 10.88 & \textbf{0.88} \\
+10 & 0 & $\log_2(10) \approx 3.322$ & 0.00 & 9.61 & 0 & 0.00 & 10.88 & \textbf{0.88} \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Tracciamento dettagliato del calcolo di $DCG@i$, $IDCG@i$ e $NDCG@i$ per $i=1,\dots,10$.}
+\caption{Computazione analitica passo-passo di $DCG@i$, $IDCG@i$ e $NDCG@i$ per i 10 documenti dell'esempio canonico.}
 \label{tab:ndcg-step-by-step}
 \end{table}
 
+\FloatBarrier
 \subsection{Confronto tra Funzioni di Ranking Alternative}
-Si consideri il caso studio di 4 documenti $\{d_1, d_2, d_3, d_4\}$ con gradi di rilevanza:
-\[
+\label{subsec:confronto-funzioni-ranking}
+
+Per comprendere la sensibilit\`a di NDCG alle inversioni di rango, si analizzi un caso di studio con 4 documenti $\{d_1, d_2, d_3, d_4\}$ aventi gradi di rilevanza:
+\begin{equation}
 r(d_1) = 0, \quad r(d_2) = 1, \quad r(d_3) = 2, \quad r(d_4) = 2
-\]
+\end{equation}
+
+Si pongano a confronto due funzioni di ranking concorrenti con la graduatoria di riferimento (\textit{Ground Truth}):
+
 \begin{itemize}
-    \item \textbf{Ground Truth ($GT$):} Ordinamento $\langle d_4, d_3, d_2, d_1 \rangle$ con vettori di rilevanza $[2, 2, 1, 0]$:
-    \begin{align*}
-    IDCG_4 &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} + 0 = 2 + 2 + 0.6309 = 4.6309 \\
-    NDCG_{GT} &= 1.00
-    \end{align*}
-    \item \textbf{Ranking Function 1 ($RF_1$):} Ordinamento $\langle d_3, d_4, d_2, d_1 \rangle$ con rilevanze $[2, 2, 1, 0]$.
-    Poiché i primi due documenti possiedono il medesimo grado ($r=2$), l'inversione non produce alcuna penalità posizionale:
-    \begin{align*}
-    DCG_{RF_1} &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} = 4.6309 \\
-    NDCG_{RF_1} &= \frac{4.6309}{4.6309} = 1.00
-    \end{align*}
-    \item \textbf{Ranking Function 2 ($RF_2$):} Ordinamento $\langle d_3, d_2, d_4, d_1 \rangle$ con rilevanze $[2, 1, 2, 0]$.
-    In questo caso, il documento $d_2$ ($r=1$) scavalca erroneamente $d_4$ ($r=2$):
-    \begin{align*}
-    DCG_{RF_2} &= 2 + \frac{1}{\log_2(2)} + \frac{2}{\log_2(3)} + 0 = 2 + 1 + \frac{2}{1.585} = 4.2619 \\
-    NDCG_{RF_2} &= \frac{DCG_{RF_2}}{IDCG_4} = \frac{4.2619}{4.6309} \approx 0.9203
-    \end{align*}
+    \item \textbf{Ground Truth ($GT$):} Ordinamento $\langle d_4, d_3, d_2, d_1 \rangle$ con vettore $\mathbf{r}^* = [2, 2, 1, 0]$:
+    \begin{align}
+    IDCG_4 &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} + 0 \nonumber \\
+    &= 2 + 2 + \frac{1}{1.5850} \approx 4 + 0.6309 = 4.6309 \nonumber \\
+    NDCG_{GT} &= \frac{4.6309}{4.6309} = \mathbf{1.00}
+    \end{align}
+    \item \textbf{Ranking Function 1 ($RF_1$):} Ordinamento $\langle d_3, d_4, d_2, d_1 \rangle$ con vettore $\mathbf{r} = [2, 2, 1, 0]$.
+    Sebbene $d_3$ e $d_4$ siano scambiati tra loro, poiché possiedono esattamente lo stesso grado di rilevanza ($r=2$), l'inversione non genera alcuna penalizzazione:
+    \begin{align}
+    DCG_{RF_1} &= 2 + \frac{2}{\log_2(2)} + \frac{1}{\log_2(3)} = 4.6309 \nonumber \\
+    NDCG_{RF_1} &= \frac{4.6309}{4.6309} = \mathbf{1.00}
+    \end{align}
+    \item \textbf{Ranking Function 2 ($RF_2$):} Ordinamento $\langle d_3, d_2, d_4, d_1 \rangle$ con vettore $\mathbf{r} = [2, 1, 2, 0]$.
+    In questo ordinamento, il documento subottimale $d_2$ ($r=1$) scavalca indebitamente $d_4$ ($r=2$) alla seconda posizione:
+    \begin{align}
+    DCG_{RF_2} &= 2 + \frac{1}{\log_2(2)} + \frac{2}{\log_2(3)} + 0 \nonumber \\
+    &= 2 + 1 + \frac{2}{1.5850} \approx 3 + 1.2618 = 4.2618 \nonumber \\
+    NDCG_{RF_2} &= \frac{DCG_{RF_2}}{IDCG_4} = \frac{4.2618}{4.6309} \approx \mathbf{0.9203}
+    \end{align}
 \end{itemize}
-Questo calcolo dimostra con precisione matematica come la metrica NDCG penalizzi le inversioni di rango proporzionalmente alla gravità dello scambio di rilevanza.
+
+Questo esempio dimostra con rigore la propriet\`a fondamentale di NDCG: la funzione punisce proporzionalmente le discrepanze qualitative, distinguendo gli scambi neutri tra elementi paritari dalle inversioni penalizzanti tra documenti di rilevanza eterogenea.
+
+\FloatBarrier
+\subsection{Quadro Sinottico Comparativo delle Metriche di Valutazione}
+\label{subsec:quadro-sinottico-metriche}
+
+La Tabella~\ref{tab:sinottico-metriche} riassume sinotticamente l'intero panorama delle metriche esaminate nel capitolo, evidenziandone la natura matematica, il focus operativo e gli ambiti d'uso raccomandati.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l l l l l}
+\toprule
+\textbf{Metrica} & \textbf{Rilevanza} & \textbf{Focus Principale} & \textbf{Punto di Forza} & \textbf{Limite Strutturale} \\
+\midrule
+\textbf{Precision ($P$)} & Binaria & Purezza insieme & Intuitiva, definita su insiemi & Ignora richiamo e ranking \\
+\textbf{Recall ($R$)} & Binaria & Completezza estrazione & Misura copertura assoluta & Ignora rumore ($FP$) e ranking \\
+\textbf{$F_1$-Score} & Binaria & Equilibrio armonico & Punisce forti asimmetrie & Ignora la graduatoria \\
+\textbf{$F_\beta$-Score} & Binaria & Ponderazione flessibile & Regolabile per dominio & Ignora la graduatoria \\
+\midrule
+\textbf{P@k} & Binaria & Qualit\`a top-$k$ & Rispecchia la prima SERP & Non media bene se $R$ varia \\
+\textbf{Recall@k} & Binaria & Frazione $R$ nei top-$k$ & Valuta richiamo locale & Dipende fortemente da $k$ \\
+\textbf{AP} & Binaria & Area curva PR singola query & Sintesi globale dell'ordinamento & Complessa da calcolare su Web \\
+\textbf{MAP} & Binaria & Macro-media su query suite & Tutela query di coda lunga & Assume rilevanza binaria \\
+\textbf{MAP@K} & Binaria & Top-$K$ su Web e RecSys & Elimina distorsione di $P@k$ & Tronca la coda dei risultati \\
+\textbf{MRR} & Binaria & Primo risultato utile & Ideale per factoid/known-item & Ignora tutti i risultati successivi \\
+\midrule
+\textbf{CG} & Graduata & Somma guadagni cumulativi & Supporta scale multi-livello & Cieca rispetto all'ordinamento \\
+\textbf{DCG} & Graduata & Sconto posizionale logaritmico & Modella attenzione visiva reale & Non normalizzato tra query \\
+\textbf{NDCG} & Graduata & Normalizzazione $DCG/IDCG$ & Standard assoluto ranking Web & Sensibile alla scelta del log/gain \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo delle metriche di valutazione per l'Information Retrieval.}
+\label{tab:sinottico-metriche}
+\end{table}

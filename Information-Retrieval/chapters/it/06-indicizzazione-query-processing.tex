@@ -5,45 +5,59 @@
 \section{Architettura di Sistema e Paradigma a Due Stadi}
 \label{sec:architettura-due-stadi}
 
-Un motore di ricerca su scala Web deve conciliare requisiti architetturali apparentemente inconciliabili: processare collezioni testuali non strutturate di dimensioni sterminate garantendo al contempo una latenza di risposta interattiva ($< 50\text{--}100\text{ ms}$) per ciascuna interrogazione utente. Per soddisfare tali vincoli, il flusso computazionale viene rigidamente ripartito tra processi asincroni massivi (\textbf{fase offline}) e processi sincroni a latenza vincolata (\textbf{fase online}), come schematizzato nella Sezione~\ref{sec:architettura-due-stadi}.
+Un motore di ricerca su scala Web deve conciliare requisiti architetturali apparentemente inconciliabili: memorizzare e scansionare collezioni testuali non strutturate di dimensioni sterminate garantendo al contempo una latenza di risposta rigorosamente interattiva ($\le 50\text{--}100\text{ ms}$) per ciascuna interrogazione utente~\cite{tonellotto2018}. Per soddisfare tali vincoli sotto volumi elevatissimi di traffico concorrente (migliaia di query al secondo, o QPS), il flusso computazionale viene rigidamente disaccoppiato tra processi asincroni massivi ad alto throughput (\textbf{fase offline}) e processi sincroni a latenza vincolata (\textbf{fase online}).
 
-\subsection[Pipeline Offline: Ingestione e Indicizzazione]{Pipeline Offline: Ingestione,\\ Indicizzazione e Compressione}
-La pipeline offline opera sulla collezione documentale $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$ attraverso tre macro-fasi:
+\FloatBarrier
+\subsection{Architettura Distribuita del Motore di Ricerca}
+\label{subsec:architettura-distribuita}
+Nessun singolo server fisico possiede una capacit\`a di memoria o di calcolo sufficiente per gestire l'intero Web. Come formalizzato da Tonellotto et al.~\cite{tonellotto2018}, un moderno motore di ricerca adotta un'infrastruttura di calcolo distribuita organizzata secondo uno schema \textbf{document-partitioned} (partizionamento orizzontale della collezione):
+\begin{itemize}
+    \item L'immensa collezione documentale $\mathcal{D}$ ($N \sim 10^9\text{--}10^{11}$ documenti) viene suddivisa in $S$ frammenti indipendenti denominati \textbf{shards} (o partizioni).
+    \item Ciascun server di indice (\textit{index server}) ospita un sottoinsieme di documenti e mantiene il relativo indice invertito locale.
+    \item Un coordinatore centrale, denominato \textbf{Query Broker}, riceve l'interrogazione dell'utente, la distribuisce in parallelo a tutti gli index shards, raccoglie i risultati parziali prodotti da ciascun nodo ed esegue la fusione dei candidati (\textit{Results Merging}) per estrarre la graduatoria globale.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Pipeline Offline: Indicizzazione e Compressione}
+\label{subsec:pipeline-offline}
+La pipeline offline opera in background e a intervalli periodici sulla collezione documentale attraverso tre macro-fasi:
 \begin{enumerate}
-    \item \textbf{Text Processing e Parsing:} I flussi testuali grezzi raccolti tramite web crawling vengono ripuliti dal markup, tokenizzati e normalizzati secondo le pipeline analizzate nella Sezione~\ref{sec:tokeniz-splitting}.
-    \item \textbf{Generazione del Vocabolario e dell'Indice:} Viene estratto il lessico $\mathcal{V} = \{t_1, \dots, t_M\}$ e costruita la struttura associativa che mappa ciascun termine alle relative occorrenze nei documenti.
-    \item \textbf{Compressione Numerica Lossless:} Poich\'e l'overhead dimensionale dell'indice grezzo pu\`o eguagliare o superare la dimensione del corpus di partenza, vengono applicati algoritmi di compressione per interi volti a massimizzare la residenza dei dati nei livelli alti della gerarchia di memoria (RAM e cache di sistema, come approfondito nel Capitolo~\ref{chap:efficienza-cpu}).
+    \item \textbf{Text Processing e Parsing:} I documenti raccolti tramite crawler vengono ripuliti dai marcatori HTML/XML, tokenizzati, normalizzati e depurati da caratteri non informativi secondo le pipeline esaminate nel \chapref{chap:nlp-preprocessing}.
+    \item \textbf{Generazione del Vocabolario e dell'Indice:} Viene estratto il lessico $\mathcal{V} = \{t_1, \dots, t_{|\mathcal{V}|}\}$ e costruita la struttura associativa che mappa ciascun termine alle relative occorrenze nei documenti.
+    \item \textbf{Compressione Numerica Lossless:} Poich\'e l'overhead dimensionale dell'indice grezzo pu\`o eguagliare o superare la dimensione del testo originario, vengono applicati algoritmi di compressione per interi ($d$-gaps, codici a byte variabile, Elias-Fano, PForDelta) volti a massimizzare la residenza dei dati nei livelli alti della gerarchia di memoria (RAM e cache CPU, come analizzato nel \chapref{chap:efficienza-cpu}).
 \end{enumerate}
 
+\FloatBarrier
 \subsection{Pipeline Online e Paradigma di Retrieval a Due Stadi}
-L'architettura moderna di risoluzione delle query adotta una pipeline a due stadi (\textit{Two-Stage Retrieval Pipeline}), volta a bilanciare l'efficienza computazionale del recupero lessicale con l'elevata accuratezza semantica dei modelli predittivi complessi:
+\label{subsec:pipeline-online-two-stage}
+L'elaborazione delle interrogazioni online adotta una rigida \textbf{Two-Stage Retrieval Pipeline} (o architettura a imbuto), volta a massimizzare l'efficienza senza sacrificare l'accuratezza semantica:
 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    node distance=0.8cm and 1.5cm,
-    block/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6, thick,
-                  font=\small, minimum width=4.8cm, minimum height=0.8cm, align=center},
-    stage1/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8, thick,
-                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
-    stage2/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!8, thick,
-                   font=\small, minimum width=4.8cm, minimum height=0.9cm, align=center},
-    output/.style={rectangle, rounded corners=3pt, draw=green!60!black, fill=green!8, thick,
-                   font=\small\bfseries, minimum width=4.8cm, minimum height=0.8cm, align=center},
+    node distance=0.7cm and 1.2cm,
+    block/.style={rectangle, rounded corners=3pt, draw=navy!80!black, fill=navy!8, thick,
+                  font=\small, minimum width=5.0cm, minimum height=0.8cm, align=center},
+    stage1/.style={rectangle, rounded corners=3pt, draw=darkgreen!80!black, fill=darkgreen!8, thick,
+                   font=\small, minimum width=5.0cm, minimum height=0.9cm, align=center},
+    stage2/.style={rectangle, rounded corners=3pt, draw=crimson!80!black, fill=crimson!8, thick,
+                   font=\small, minimum width=5.0cm, minimum height=0.9cm, align=center},
+    output/.style={rectangle, rounded corners=3pt, draw=navy!90!black, fill=navy!15, thick,
+                   font=\small\bfseries, minimum width=5.0cm, minimum height=0.8cm, align=center},
     data/.style={cylinder, shape border rotate=90, draw=gray!70!black, fill=gray!10, thick,
-                 font=\footnotesize, aspect=0.25, minimum width=2.4cm, minimum height=1.2cm, align=center},
-    arr/.style={-Stealth, thick, gray!80!black}
+                 font=\footnotesize, aspect=0.25, minimum width=2.4cm, minimum height=1.1cm, align=center},
+    arr/.style={-Stealth, thick, navy!80!black}
 ]
     % Componenti Online
     \node[block] (query) {Query Utente $q$};
     \node[block, below=of query] (rewrite) {Query Expansion \& Riscrittura\\{\scriptsize Correzione refusi, sinonimi, acronimi}};
-    \node[stage1, below=of rewrite] (s1) {\textbf{1$^\circ$ Stadio: Candidate Retrieval}\\{\scriptsize Scoring additivo lineare (BM25)}\\{\scriptsize Indice Invertito residente}};
-    \node[stage2, below=of s1] (s2) {\textbf{2$^\circ$ Stadio: Re-Ranking (LtR)}\\{\scriptsize Modelli ad alta complessit\`a (LambdaMART, Neural)}\\{\scriptsize Centinaia/migliaia di feature dense}};
+    \node[stage1, below=of rewrite] (s1) {\textbf{1$^\circ$ Stadio: Candidate Retrieval}\\{\scriptsize Scoring additivo veloce (BM25, WAND)}\\{\scriptsize Indice Invertito residente}};
+    \node[stage2, below=of s1] (s2) {\textbf{2$^\circ$ Stadio: Re-Ranking (LtR)}\\{\scriptsize Modelli complessi (LambdaMART, Transformer)}\\{\scriptsize Centinaia/migliaia di feature dense}};
     \node[output, below=of s2] (serp) {SERP Finale (Top-$k$, $k \approx 10$)};
 
     % Sorgenti Dati Offline
-    \node[data, left=2.0cm of s1] (invidx) {Indice\\Invertito\\{\scriptsize Compresso}};
-    \node[data, left=2.0cm of s2] (featdb) {Feature\\Store\\{\scriptsize PageRank, CTR...}};
+    \node[data, left=1.8cm of s1] (invidx) {Indice\\Invertito\\{\scriptsize Compresso}};
+    \node[data, left=1.8cm of s2] (featdb) {Feature\\Store\\{\scriptsize PageRank, CTR...}};
 
     % Collegamenti
     \draw[arr] (query) -- (rewrite);
@@ -53,16 +67,16 @@ L'architettura moderna di risoluzione delle query adotta una pipeline a due stad
     \draw[arr] (featdb) -- (s2);
     \draw[arr] (s2) -- (serp);
 \end{tikzpicture}
-\caption{Architettura del paradigma di retrieval a due stadi: filtraggio massivo ad alta efficienza (primo stadio) e riordinamento semantico ad alta accuratezza (secondo stadio).}
+\caption{Architettura della Two-Stage Retrieval Pipeline: filtraggio massivo ad alta efficienza nel primo stadio ed estrazione dei candidati, seguito da riordinamento fine supervisionato nel secondo stadio~\cite{tonellotto2018}.}
 \label{fig:two-stage-pipeline}
 \end{figure}
 
 \begin{enumerate}
-    \item \textbf{Primo Stadio (Candidate Retrieval):} opera sull'intera collezione ($N \sim 10^9\text{--}10^{10}$ documenti). Impiega funzioni di scoring additive veloci (tipicamente Okapi BM25) per estrarre rapidamente un sottoinsieme ristretto di candidati promettenti:
+    \item \textbf{Primo Stadio (Candidate Retrieval / Top-$k$):} opera sull'intera collezione ($N \sim 10^9\text{--}10^{11}$ documenti). Impiega algoritmi di dynamic pruning altamente ottimizzati (es. WAND o MaxScore, trattati nel \chapref{chap:elaborazione-topk-wand-maxscore}) su funzioni di scoring additive e scalari (Okapi BM25). L'obiettivo primario \`e l'altissimo throughput con tempo di risposta sub-millisecondo per shard, estraendo un insieme compatto di candidati:
     \begin{equation}
     \mathcal{C} \subset \mathcal{D}, \quad |\mathcal{C}| \approx 1\,000 \text{--} 10\,000 \text{ documenti}.
     \end{equation}
-    \item \textbf{Secondo Stadio (Re-Ranking / Heavy Scoring):} opera esclusivamente sull'insieme $\mathcal{C}$. Applica modelli di Machine Learning complessi (\textit{Learning-to-Rank}, quali LambdaMART~\cite{burges2010} o reti neurali basate su Transformer) valutando feature contestuali, grafiche, storiche e di autorit\`a documentale per produrre la graduatoria finale Top-$k$ ($k \approx 10$).
+    \item \textbf{Secondo Stadio (Re-Ranking / Heavy Scoring):} opera esclusivamente sull'insieme $\mathcal{C}$. Interroga un archivio di metadati (\textit{Document Features Repository}) per recuperare centinaia di segnali eterogenei (qualit\`a del dominio, PageRank, freschezza temporale, click-through rate storico, prossimit\`a spaziale, affinit\`a densa neurale). Tali feature alimentano modelli di Machine Learning supervisionati (\textit{Learning-to-Rank}, approfonditi nel \chapref{chap:learning-to-rank-fondamenti}) per produrre la graduatoria finale Top-$k$ visualizzata all'utente ($k \approx 10\text{--}20$).
 \end{enumerate}
 
 \FloatBarrier
@@ -71,12 +85,15 @@ L'architettura moderna di risoluzione delle query adotta una pipeline a due stad
 
 L'elaborazione delle interrogazioni richiede una metrica algebrica solida per graduare i documenti in base alla loro aderenza al bisogno informativo. Questa sezione riesamina i limiti del modello booleano e del coefficiente di Jaccard, dimostrando come il prodotto scalare su vettori pesati costituisca la base unificante sia del retrieval sparso classico sia del moderno dense retrieval neurale.
 
+\FloatBarrier
 \subsection{Richiamo dei Limiti del Modello Booleano e di Jaccard}
 \label{subsec:limiti-booleano-jaccard}
-Nei sistemi delle prime generazioni, il reperimento dei documenti poggiava sul modello booleano esatto. Come formalizzato nella Sezione~\ref{sec:boolean-vs-ranked}, tale approccio soffre della grave anomalia del \textit{Feast or Famine}: una congiunzione stringente (\texttt{AND}) svuota l'insieme soluzione, mentre una disgiunzione (\texttt{OR}) restituisce centinaia di migliaia di risultati non graduati. Analogamente, l'applicazione ingenua del coefficiente insiemistico di Jaccard (analizzato in Sezione~\ref{sec:jaccard-scoring}) fallisce poich\'e penalizza arbitrariamente i documenti lunghi e non discrimina tra parole comuni e parole altamente informative.
+Nei sistemi di prima generazione, il recupero dei documenti poggiava sul modello booleano esatto. Come formalizzato nella \secref{sec:boolean-vs-ranked}, tale approccio soffre della grave anomalia del \textit{Feast or Famine}: una congiunzione stringente (\texttt{AND}) rischia di svuotare l'insieme soluzione, mentre una disgiunzione (\texttt{OR}) restituisce centinaia di migliaia di risultati non graduati. Analogamente, l'applicazione ingenua del coefficiente insiemistico di Jaccard (analizzato nella \secref{sec:jaccard-scoring}) fallisce poich\'e penalizza arbitrariamente i documenti lunghi e non discrimina tra parole comuni e parole altamente informative.
 
+\FloatBarrier
 \subsection{Il Prodotto Scalare come Misura Unificante di Rilevanza}
-Per superare tali limitazioni, lo Spazio Vettoriale (VSM) e i moderni schemi di ponderazione (formalizzati nel Capitolo~\ref{chap:retrieval-vsm-bm25}) proiettano documenti e query in vettori pesati, trasformando la misura di pertinenza nel calcolo di un \textbf{prodotto scalare}:
+\label{subsec:dot-product-misura-unificante}
+Per superare tali limitazioni, lo Spazio Vettoriale (VSM) e i moderni schemi di ponderazione (formalizzati nel \chapref{chap:retrieval-vsm-bm25}) proiettano documenti e query in vettori pesati, trasformando la misura di pertinenza nel calcolo di un \textbf{prodotto scalare}:
 \begin{equation}
 \text{Score}(q, d) = \mathbf{q} \cdot \mathbf{d} = \sum_{t \in \mathcal{V}} w(t, q) \cdot w(t, d).
 \label{eq:dot-product-general}
@@ -89,13 +106,13 @@ Poich\'e per una query standard i termini non menzionati hanno peso $w(t, q) = 0
 
 Questa formulazione evidenzia una profonda convergenza concettuale tra l'Information Retrieval lessicale classico e il moderno retrieval neurale:
 \begin{itemize}
-    \item \textbf{Lexical Sparse Retrieval:} I vettori appartengono allo spazio $\mathbb{R}^{|\mathcal{V}|}$, dove ciascuna dimensione corrisponde a un lessema univoco del vocabolario ($|\mathcal{V}| \sim 10^7$). I vettori sono fortemente sparsi e lo score \`e calcolato tramite pesi statistici (TF-IDF, BM25).
-    \item \textbf{Dense Neural Retrieval:} Modelli basati su Transformer (es. bi-encoder, Sentence-BERT) mappano testi e query in vettori continui densi di dimensionalit\`a ridotta $\mathbf{v}_q, \mathbf{v}_d \in \mathbb{R}^k$ ($k \approx 768 \text{ o } 1\,536$). La rilevanza semantica \`e determinata dal prodotto scalare o similarit\`a coseno:
+    \item \textbf{Lexical Sparse Retrieval:} I vettori appartengono allo spazio $\mathbb{R}^{|\mathcal{V}|}$, dove ciascuna dimensione corrisponde a un lessema univoco del vocabolario ($|\mathcal{V}| \sim 10^7$). I vettori sono fortemente sparsi e lo score \`e calcolato tramite pesi statistici (TF-IDF, Okapi BM25).
+    \item \textbf{Dense Neural Retrieval:} Modelli basati su Transformer (es. bi-encoder neurali) mappano testi e query in vettori continui densi di dimensionalit\`a ridotta $\mathbf{v}_q, \mathbf{v}_d \in \mathbb{R}^k$ ($k \approx 768 \text{ o } 1\,536$). La rilevanza semantica \`e determinata dal prodotto scalare o similarit\`a coseno:
     \begin{equation}
     \text{Score}_{\text{neural}}(q, d) = \mathbf{v}_q \cdot \mathbf{v}_d = \sum_{i=1}^{k} v_{q,i} \cdot v_{d,i}.
     \end{equation}
 \end{itemize}
-In entrambi i paradigmi, l'operazione fondamentale a runtime \`e l'aggregazione di prodotti scalari su collezioni su larga scala.
+In entrambi i paradigmi, l'operazione fondamentale a runtime consiste nell'aggregazione efficiente di prodotti scalari su collezioni documentali su larga scala.
 
 \FloatBarrier
 \section{Strutture Dati ad Alte Prestazioni: Forward Index vs. Indice Invertito}
@@ -103,13 +120,14 @@ In entrambi i paradigmi, l'operazione fondamentale a runtime \`e l'aggregazione 
 
 Per gestire la sparsit\`a estrema dello spazio termini--documenti, l'architettura del motore di ricerca deve abbandonare le matrici dense a favore di strutture di memorizzazione compressa. Questa sezione confronta le due modalit\`a canoniche di organizzazione dei dati (Forward Index e Indice Invertito), motivando la centralit\`a dell'indice invertito per la risoluzione rapida delle interrogazioni online.
 
+\FloatBarrier
 \subsection{La Matrice Termini--Documenti e il Problema della Sparsit\`a}
 \label{subsec:matrice-termini-documenti-sparsita}
 Consideriamo la matrice globale termini--documenti $M \in \mathbb{R}^{|\mathcal{V}| \times |\mathcal{D}|}$. I parametri dimensionali di un motore di ricerca web reale evidenziano l'impossibilit\`a fisica di allocare e scansionare tale struttura in forma densa:
 \begin{itemize}
     \item Dimensione del lessico: $|\mathcal{V}| \sim 10^7$ termini unici.
-    \item Dimensione della collezione: $|\mathcal{D}| \sim 10^9 \text{--} 10^{10}$ documenti web.
-    \item Numero totale di celle: $|\mathcal{V}| \times |\mathcal{D}| \approx 10^{16} \text{--} 10^{17}$ posizioni.
+    \item Dimensione della collezione: $|\mathcal{D}| \sim 10^9 \text{--} 10^{11}$ documenti web.
+    \item Numero totale di celle: $|\mathcal{V}| \times |\mathcal{D}| \approx 10^{16} \text{--} 10^{18}$ posizioni.
 \end{itemize}
 Poich\'e un documento medio contiene tra $10^2$ e $10^3$ vocaboli distinti, la densit\`a di elementi non nulli \`e infinitesima:
 \begin{equation}
@@ -117,11 +135,13 @@ Poich\'e un documento medio contiene tra $10^2$ e $10^3$ vocaboli distinti, la d
 \end{equation}
 Oltre il $99.99\%$ delle celle contiene il valore zero. Memorizzare la matrice in formato denso comporterebbe la saturazione immediata della memoria secondaria e una complessit\`a temporale di valutazione query proibitiva, pari a $\BigO{|\mathcal{V}| \cdot |\mathcal{D}|}$, costringendo la CPU a esaminare miliardi di documenti irrilevanti.
 
+\FloatBarrier
 \subsection{Rappresentazione tramite Vettori Sparsi: Forward Index vs. Indice Invertito}
+\label{subsec:vettori-sparsi-fwd-inv}
 Per eliminare gli zeri, la matrice viene memorizzata come un insieme di vettori sparsi composti da coppie $(\text{Identificatore}, \text{Valore})$. L'orientamento di serializzazione determina due strutture complementari, sintetizzate nella Tabella~\ref{tab:fwd-vs-inv}:
 \begin{itemize}
-    \item \textbf{Forward Index (Column-Wise / Document-Oriented):} memorizza per ciascun documento la lista dei termini che vi compaiono, ad esempio $d_1 \to [(t_2, w_2), (t_7, w_7)]$.
-    \item \textbf{Indice Invertito (Row-Wise / Term-Oriented):} memorizza per ciascun termine la lista dei documenti in cui ricorre, ad esempio $t_1 \to [(d_2, w_1), (d_5, w_5)]$.
+    \item \textbf{Forward Index (Column-Wise / Document-Oriented):} memorizza per ciascun documento la lista ordinata dei termini che vi compaiono, ad esempio $d_1 \to [(t_2, w_2), (t_7, w_7)]$.
+    \item \textbf{Indice Invertito (Row-Wise / Term-Oriented):} memorizza per ciascun termine la lista ordinata dei documenti in cui ricorre, ad esempio $t_1 \to [(d_2, w_1), (d_5, w_5)]$.
 \end{itemize}
 
 \begin{table}[H]
@@ -148,45 +168,44 @@ Per eliminare gli zeri, la matrice viene memorizzata come un insieme di vettori 
 \section{Anatomia, Layout di Memoria e Compressione dell'Indice Invertito}
 \label{sec:anatomia-compressione-indice}
 
-Un indice invertito di livello industriale si articola in due componenti fisiche distinte: il \textbf{Dizionario} (o Lessico) e l'insieme delle \textbf{Posting List}.
+Un indice invertito di livello industriale si articola in due componenti fisiche distinte: il \textbf{Dizionario} (o Lessico $\mathcal{V}$) e l'insieme delle \textbf{Posting List}.
 
 \begin{figure}[H]
 \centering
 \resizebox{0.95\linewidth}{!}{%
 \begin{tikzpicture}[
-    node distance=0.6cm and 1.2cm,
-    lex/.style={rectangle, rounded corners=2pt, draw=blue!70!black, fill=blue!6, thick,
-                font=\small, minimum width=4.5cm, align=left},
-    post/.style={rectangle, rounded corners=2pt, draw=orange!80!black, fill=orange!8, thick,
-                 font=\small, minimum width=6.2cm, align=left},
-    arr/.style={-Stealth, thick, blue!70!black}
+    lex/.style={rectangle, rounded corners=3pt, draw=navy!80!black, fill=navy!6, thick,
+                font=\small, minimum width=4.6cm, minimum height=1.15cm, align=left},
+    post/.style={rectangle, rounded corners=3pt, draw=darkgreen!80!black, fill=darkgreen!6, thick,
+                 font=\small, minimum width=6.8cm, minimum height=1.15cm, align=left},
+    arr/.style={-Stealth, thick, navy!85!black}
 ]
-    % Dizionario
-    \node[lex] (l1) {\textbf{``caesar''} \hfill $df=3$ \hfill $\bullet$};
-    \node[lex, below=of l1] (l2) {\textbf{``mercy''} \hfill $df=3$ \hfill $\bullet$};
-    \node[lex, below=of l2] (l3) {\textbf{``worser''} \hfill $df=2$ \hfill $\bullet$};
+    % Titoli allineati sulla medesima quota verticale
+    \node[font=\footnotesize\bfseries, text=navy!90!black, align=center] at (-3.2, 1.2) {DIZIONARIO LESSICALE\\[2pt]\scriptsize (In RAM / B-Tree / Trie)};
+    \node[font=\footnotesize\bfseries, text=darkgreen!90!black, align=center] at (3.2, 1.2) {POSTING LISTS (Stream Disaccoppiati)\\[2pt]\scriptsize (Su Disco / File Invertito / Memoria Secondaria)};
 
-    % Titolo Dizionario
-    \node[above=0.2cm of l1, font=\footnotesize\bfseries, text=blue!80!black] {DIZIONARIO (In RAM / B-Tree)};
-
-    % Posting Lists
-    \node[post, right=1.5cm of l1] (p1) {
+    % Riga 1: caesar
+    \node[lex] (l1) at (-3.2, 0.0) {\textbf{``caesar''} \hfill $df=3$ \hfill $\bullet$};
+    \node[post] (p1) at (3.2, 0.0) {
         \textbf{DocIDs:} $[1, 2, 4]$ \quad $\to \Delta = [1, 1, 2]$\\
         \textbf{TFs:} \phantom{Doc} $[232, 227, 2]$
     };
-    \node[post, right=1.5cm of l2] (p2) {
+
+    % Riga 2: mercy
+    \node[lex] (l2) at (-3.2, -1.6) {\textbf{``mercy''} \hfill $df=3$ \hfill $\bullet$};
+    \node[post] (p2) at (3.2, -1.6) {
         \textbf{DocIDs:} $[1, 3, 4]$ \quad $\to \Delta = [1, 2, 1]$\\
         \textbf{TFs:} \phantom{Doc} $[2, 3, 5]$
     };
-    \node[post, right=1.5cm of l3] (p3) {
+
+    % Riga 3: worser
+    \node[lex] (l3) at (-3.2, -3.2) {\textbf{``worser''} \hfill $df=2$ \hfill $\bullet$};
+    \node[post] (p3) at (3.2, -3.2) {
         \textbf{DocIDs:} $[1, 3]$ \quad\quad $\to \Delta = [1, 2]$\\
         \textbf{TFs:} \phantom{Doc} $[2, 1]$
     };
 
-    % Titolo Posting List
-    \node[above=0.2cm of p1, font=\footnotesize\bfseries, text=orange!90!black] {POSTING LISTS (Stream Disaccoppiati)};
-
-    % Collegamenti
+    % Collegamenti rigorosamente orizzontali
     \draw[arr] (l1.east) -- (p1.west);
     \draw[arr] (l2.east) -- (p2.west);
     \draw[arr] (l3.east) -- (p3.west);
@@ -196,11 +215,15 @@ Un indice invertito di livello industriale si articola in due componenti fisiche
 \label{fig:inverted-index-anatomy}
 \end{figure}
 
+\FloatBarrier
 \subsection{Il Dizionario (Lexicon)}
-Il dizionario memorizza il vocabolario $\mathcal{V}$. Per ciascun termine $t$, registra la stringa lessicale, la Document Frequency $df_t$ (utilizzata per ricavare l'IDF precalcolato) e il puntatore di memoria o l'offset su storage secondario che localizza la corrispondente posting list.
-Dato che $|\mathcal{V}|$ \`e dell'ordine di milioni di lessemi, il dizionario viene mantenuto interamente residente in \textbf{RAM}, indicizzato tramite strutture di accesso rapido come B-Tree, Trie compressi o tabelle hash.
+\label{subsec:dizionario-lexicon}
+Il dizionario memorizza il vocabolario $\mathcal{V}$. Per ciascun termine $t$, registra la stringa lessicale, la Document Frequency $df_t$ (utilizzata per ricavare l'IDF precalcolato), la Collection Frequency $F_t$ e il puntatore di memoria o l'offset su storage secondario che localizza la corrispondente posting list.
+Dato che $|\mathcal{V}|$ \`e dell'ordine di milioni di lessemi, il dizionario viene mantenuto interamente residente in \textbf{RAM}, indicizzato tramite strutture di accesso rapido come B-Tree, Trie compressi o tabelle hash perfette.
 
+\FloatBarrier
 \subsection{Le Posting List: Disaccoppiamento Fisico degli Stream}
+\label{subsec:disaccoppiamento-stream}
 Concettualmente, la posting list associata al termine $t$ \`e una sequenza di tuple:
 \begin{equation}
 \mathcal{L}(t) = \big[ \langle d_1, \text{tf}_{t,d_1} \rangle, \langle d_2, \text{tf}_{t,d_2} \rangle, \dots \big].
@@ -225,7 +248,9 @@ A livello implementativo, memorizzare array continui di strutture composte (es. 
     Le frequenze locali non godono di ordinamento; tuttavia, per la legge di Zipf, la loro distribuzione empirica \`e fortemente concentrata su valori minimi ($1, 2, 3$). Esse vengono compresse simmetricamente tramite codici a lunghezza variabile senza richiedere la differenziazione delta.
 \end{enumerate}
 
+\FloatBarrier
 \subsection{Trade-Off Architetturale: Interi Compressi vs. Float Precalcolati}
+\label{subsec:trade-off-interi-float}
 Una decisione progettuale critica consiste nello stabilire se memorizzare nell'indice il punteggio finale precalcolato $w(t, d) \in \mathbb{R}$ a virgola mobile oppure l'intero grezzo $\text{tf}(t, d) \in \mathbb{N}$:
 
 \begin{table}[H]
@@ -249,7 +274,7 @@ Una decisione progettuale critica consiste nello stabilire se memorizzare nell'i
 \end{table}
 
 \begin{noteblock}{Risoluzione del Vincolo Memory-Bound}
-Come analizzato nel Capitolo~\ref{chap:efficienza-cpu}, i sistemi di Information Retrieval su larga scala sono rigorosamente \textbf{memory-bound}: il vero fattore limitante delle prestazioni \`e la banda di trasferimento dalla memoria principale (DRAM) ai registri della CPU ($\approx 80\text{ ns}$ di latenza), non il throughput dell'unit\`a aritmetica (ALU, $0.5\text{ ns}$). Ridurre la dimensione dei posting attraverso la compressione degli interi abbatte il volume di byte trasferiti sul bus di memoria; il modesto costo computazionale richiesto per valutare la formula a runtime (es. BM25) viene ampiamente compensato dal risparmio di banda.
+Come analizzato nel \chapref{chap:efficienza-cpu}, i sistemi di Information Retrieval su larga scala sono rigorosamente \textbf{memory-bound}: il vero fattore limitante delle prestazioni \`e la banda di trasferimento dalla memoria principale (DRAM) ai registri della CPU ($\approx 80\text{ ns}$ di latenza), non il throughput dell'unit\`a aritmetica (ALU, $0.5\text{ ns}$). Ridurre la dimensione dei posting attraverso la compressione degli interi abbatte il volume di byte trasferiti sul bus di memoria; il modesto costo computazionale richiesto per valutare la formula a runtime (es. BM25) viene ampiamente compensato dal risparmio di banda.
 \end{noteblock}
 
 \FloatBarrier
@@ -258,6 +283,7 @@ Come analizzato nel Capitolo~\ref{chap:efficienza-cpu}, i sistemi di Information
 
 L'indice invertito essenziale a sole frequenze $(\text{DocID}, \text{tf})$ non \`e sufficiente per supportare ricerche complesse che richiedono la contiguit\`a delle parole o la riscrittura semantica delle interrogazioni. Questa sezione approfondisce la struttura dell'indice posizionale per l'elaborazione delle \textit{phrase queries} e illustra le tecniche di \textit{query expansion} e normalizzazione a tempo di esecuzione.
 
+\FloatBarrier
 \subsection{Phrase Queries e la Necessit\`a dell'Indice Posizionale}
 \label{subsec:phrase-queries-indice-posizionale}
 Nelle ricerche per frase esatta (\textit{Phrase Queries}), la query \`e racchiusa tra virgolette (es. \texttt{"neural network architecture"}). L'utente impone che i termini compaiano nel medesimo documento, nello stesso ordine e in posizioni adiacenti:
@@ -279,7 +305,9 @@ L'algoritmo esegue l'intersezione su $\text{DocID} = 14$ e confronta le liste po
 \end{example}
 \textit{Overhead spaziale:} L'inclusione delle posizioni incrementa l'impronta complessiva su disco dell'indice invertito di un fattore compreso tra $2\times$ e $3\times$.
 
+\FloatBarrier
 \subsection{Moduli di Query Expansion e il Caso Studio ``Babbo Francesco''}
+\label{subsec:query-expansion-babbo-francesco}
 I motori di ricerca industriali intercettano la query grezza dell'utente attraverso un modulo di \textbf{Query Expansion} e riscrittura, con l'obiettivo di correggere refusi, risolvere acronimi ed espandere sinonimi contestuali. 
 
 Tuttavia, espansioni lessicali non supervisionate basate su matrici di co-occorrenza o regole euristiche possono innescare gravi derive semantiche (\textit{semantic drift}), come illustrato dal celebre caso riscontrato nei motori commerciali in lingua italiana:
@@ -292,12 +320,15 @@ Tuttavia, espansioni lessicali non supervisionate basate su matrici di co-occorr
     \item \textbf{Risultato Top-1 Restituito:} La SERP collassa restituendo in prima posizione la voce enciclopedica su \textit{Papa Francesco (Jorge Mario Bergoglio)}, stravolgendo completamente l'intento informativo dell'utente.
 \end{enumerate}
 
+\FloatBarrier
 \subsection{Stemming vs. Query Expansion}
+\label{subsec:stemming-vs-expansion}
 \`E fondamentale chiarire la linea di demarcazione tra normalizzazione morfologica ed espansione semantica:
 \begin{itemize}
-    \item \textbf{Stemming e Lemmatizzazione:} Operano riduzioni sintattiche all'interno della medesima radice etimologica (es. \textit{running}, \textit{runs} $\to$ \textit{run}, come descritto in Sezione~\ref{sec:stemming-lemmatizzazione}). Non possono collegare vocaboli con radici distinte aventi identico significato (es. \textit{babbo} e \textit{pap\`a}).
+    \item \textbf{Stemming e Lemmatizzazione:} Operano riduzioni sintattiche all'interno della medesima radice etimologica (es. \textit{running}, \textit{runs} $\to$ \textit{run}, come descritto in Sezione~\ref{subsec:stemming-lemmatizzazione}). Non possono collegare vocaboli con radici distinte aventi identico significato (es. \textit{babbo} e \textit{pap\`a}).
     \item \textbf{Approccio Moderno:} I sistemi scalabili contemporanei riducono l'uso di stemming aggressivo in fase di indicizzazione (per preservare la specificit\`a semantica dei termini nell'indice) e gestiscono le varianti flessive e sinonimiche a runtime tramite modelli linguistici neurali di espansione contestuale.
 \end{itemize}
+
 \begin{noteblock}{Dall'Indicizzazione al Query Processing}
-Costruite le strutture dati dell'indice e definite le modalit\`a di rappresentazione delle interrogazioni, il motore deve eseguire il recupero dei documenti rilevanti in tempo reale ($\le 50\text{--}100\text{ ms}$). I modelli teorici e i paradigmi algoritmici per l'attraversamento delle posting list, l'aggregazione dei punteggi e l'ottimizzazione tramite salti rapidi (\textit{Term-at-a-Time} e \textit{Document-at-a-Time}) sono formalizzati e analizzati esaustivamente nel Capitolo~\ref{chap:indici-inversi-query-processing}.
+Costruite le strutture dati dell'indice e definite le modalit\`a di rappresentazione delle interrogazioni, il motore deve eseguire il recupero dei documenti rilevanti in tempo reale ($\le 50\text{--}100\text{ ms}$). I modelli teorici e i paradigmi algoritmici per l'attraversamento delle posting list, l'aggregazione dei punteggi, l'ottimizzazione tramite salti rapidi (\textit{Term-at-a-Time} e \textit{Document-at-a-Time}) e la loro realizzazione empirica in Python sono formalizzati e analizzati esaustivamente nel Capitolo~\ref{chap:indici-inversi-query-processing}.
 \end{noteblock}

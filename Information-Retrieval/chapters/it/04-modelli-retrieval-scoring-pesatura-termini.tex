@@ -1,24 +1,179 @@
-\chapter{Modelli di Retrieval, Scoring e Ponderazione TF-IDF}
+\chapter{Rappresentazioni del Testo, Modello Booleano ed Evoluzione del Retrieval}
 \label{chap:modelli-retrieval-tfidf}
+\label{chap:text-representations-boolean}
+
+Dopo aver esaminato le propriet\`a linguistiche e la pipeline di pulizia del testo nel \chapref{chap:nlp-preprocessing}, questo capitolo affronta il passaggio cruciale dalle sequenze di caratteri a una loro formalizzazione strutturata. Si analizzano le operazioni cardine sulle collezioni documentali, i modelli di rappresentazione (Bag of Words, $N$-grammi di parole e di caratteri), la necessit\`a di una rappresentazione computazionale tramite vettori one-hot, il paradigma classico del reperimento Booleano con i suoi limiti intrinseci, e infine la transizione verso il Ranked Retrieval attraverso una panoramica storica dell'evoluzione della letteratura~\cite{manning2008,buttcher2010}.
 
 \FloatBarrier
-\section{Evoluzione dei Paradigmi di Information Retrieval}
-\label{sec:evoluzione-ir}
+\section{Operazioni Fondamentali su Collezioni di Testo}
+\label{sec:operazioni-collezioni-testo}
 
-La storia dell'Information Retrieval si articola attraverso quattro grandi ere architetturali:
-
+Nelle collezioni documentali reali (costituite da milioni di pagine Web o documenti eterogenei), la manipolazione del testo non pu\`o prescindere da tre operazioni computazionali ad alto impatto:
 \begin{enumerate}
-    \item \textbf{Era Statistica (Anni '60 -- Met\`a anni '90):} i motori computavano la rilevanza poggiando unicamente sulla frequenza statistica dei termini all'interno dei documenti ($tf$) e del corpus ($idf$). Questa impostazione soffriva di estrema permeabilit\`a al \textit{keyword stuffing}: era sufficiente ripetere artificialmente parole chiave nel corpo della pagina web per scalarne indebitamente la graduatoria.
-    \item \textbf{Era Strutturale e PageRank (1998):} Sergey Brin e Larry Page affrontano il collasso del ranking puramente statistico sfruttando la topologia del Web Graph. Un collegamento ipertestuale in ingresso (\textit{incoming link}) funge da voto di autorevolezza conferito dalla pagina sorgente. Modificare la struttura del grafo globale \`e esponenzialmente pi\`u costoso rispetto all'alterazione del testo locale.
-    \item \textbf{Era del Machine Learning e Learning-to-Rank (Anni 2000):} la rilevanza viene stimata aggregando centinaia di segnali disomogenei tramite modelli supervisionati: salienza testuale, reputazione topologica, e metriche comportamentali dell'utente (CTR, frequenza di riformulazione, Dwell Time).
-    \item \textbf{Era Neurale e dei Modelli Densi (2018 -- Oggi):} l'avvento dell'architettura Transformer consente la cattura contestuale profonda della semantica. I documenti vengono proiettati in spazi di incorporamento continuo (\textit{dense embeddings}) o tramite rappresentazioni sparse apprese (\textit{learned sparse representations}).
+    \item \textbf{Stemming:} Troncamento euristico dei suffissi e prefissi morfologici per ricondurre parole derivate alla medesima radice (es. \textit{``connected''}, \textit{``connecting''}, \textit{``connection''} $\to$ \textit{``connect''}). Riduce drasticamente la dimensionalit\`a del vocabolario, ma pu\`o introdurre conflitti di \textit{over-stemming} (fusione scorretta di parole semanticamente distinte) o \textit{under-stemming} (mancata unificazione).
+    \item \textbf{Lemmatizzazione:} Analisi morfosintattica completa basata su dizionari grammaticali e riconoscimento del contesto (\textit{Part-of-Speech tag}), volta a ricondurre ciascuna forma flessa al suo lemma autentico (es. \textit{``was''}, \textit{``is''} $\to$ \textit{``be''}). Garantisce rigore semantico a fronte di un costo computazionale superiore.
+    \item \textbf{Rimozione delle Stopwords:} Filtraggio dei termini ad altissima frequenza e scarso contenuto informativo discriminante (articoli, preposizioni, congiunzioni). Riduce la dimensione fisica dell'indice invertito fino al $30\text{--}40\%$ e accelera l'elaborazione delle interrogazioni congiuntive.
 \end{enumerate}
 
 \FloatBarrier
-\section{Boolean Retrieval vs. Ranked Retrieval}
+\section{Rappresentazioni del Testo: Dal Testo alle Feature}
+\label{sec:rappresentazioni-testo}
+
+Dalla sequenza temporale di token ripuliti, il sistema IR deve costruire una rappresentazione computazionale adatta a confrontare documenti e interrogazioni.
+
+\FloatBarrier
+\subsection{Il Modello Bag of Words (BoW): Esempi, Vantaggi e Svantaggi}
+\label{subsec:bag-of-words}
+
+Nel modello \textbf{Bag of Words} (Sacco di Parole), un documento viene modellato prescindendo totalmente dalla sintassi, dalla punteggiatura e dall'ordine relativo con cui i termini si susseguono, trattenendo unicamente l'insieme (\textit{set}) o il multinsieme (\textit{multiset}) dei vocaboli presenti~\cite{manning2008}:
+
+\begin{lstlisting}[style=pythoncode,caption={Costruzione del Bag of Words in Python.}]
+from nltk.tokenize import word_tokenize
+
+text = 'the president of the united states of america'
+tokens = word_tokenize(text)
+bow_set = set(tokens)
+print(f"Numero token: {len(tokens)} -> Dimensione BoW: {len(bow_set)}")
+# Output: Numero token: 8 -> Dimensione BoW: 6
+# bow_set: {'america', 'of', 'president', 'states', 'the', 'united'}
+\end{lstlisting}
+
+\paragraph{Vantaggi e Svantaggi del Bag of Words (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):}
+    \begin{enumerate}
+        \item \textit{Semplicit\`a Computazionale ed Efficienza:} Riduce la complessit\`a del linguaggio a operazioni insiemistiche o vettoriali elementari;
+        \item \textit{Bassa Impronta di Memoria:} Consente l'indicizzazione scalabile tramite posting list disaccoppiate dalla posizione;
+        \item \textit{Efficacia Statistica:} Cattura la focalizzazione tematica primaria del documento nella maggioranza dei compiti di ricerca per parole chiave.
+    \end{enumerate}
+    \item \textbf{Svantaggi (Cons):}
+    \begin{enumerate}
+        \item \textit{Perdita Totale dell'Ordine Sintattico e Semantico:} Due frasi con significati diametralmente opposti risultano identiche se condividono gli stessi termini:
+        \begin{align*}
+        t_1 &= \text{\texttt{set(word\_tokenize('I won, and thus you lose.'))}} \\
+        t_2 &= \text{\texttt{set(word\_tokenize('I lose, and thus you won.'))}}
+        \end{align*}
+        In Python \texttt{t1 == t2} restituisce \texttt{True}, cancellando la contrapposizione semantica tra vittoria e sconfitta.
+        \item \textit{Perdita della Frequenza nei Set Puri:} Nella formulazione booleana, la parola ripetuta dieci volte non si distingue da quella presente una volta sola.
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Word N-Grammi: Preservazione dell'Ordine Locale, Pro e Contro}
+\label{subsec:word-ngrams}
+
+Per preservare le relazioni di prossimit\`a e le locuzioni idiomatiche senza dover ricorrere a complessi analizzatori sintattici ad albero, l'IR estrae sequenze ordinate di $n$ parole adiacenti, denominate \textbf{Word N-Grammi}:
+\begin{itemize}
+    \item $n = 1$: Unigrammi (equivalente al vocabolario canonico delle singole parole);
+    \item $n = 2$: Bigrammi di parole (es. \textit{``united states''}, \textit{``machine learning''});
+    \item $n = 3$: Trigrammi di parole (es. \textit{``natural language processing''}).
+\end{itemize}
+
+\begin{lstlisting}[style=pythoncode,caption={Preservazione dell'ordine locale tramite bigrammi di parole in Python.}]
+import nltk
+
+t1_bigrams = set(nltk.ngrams(word_tokenize('I won, and thus you lose.'), 2))
+t2_bigrams = set(nltk.ngrams(word_tokenize('I lose, and thus you won.'), 2))
+print(t1_bigrams == t2_bigrams) # Output: False!
+\end{lstlisting}
+Il testo $t_1$ genera le feature \texttt{('won', 'and')} e \texttt{('you', 'lose')}, mentre $t_2$ produce \texttt{('lose', 'and')} e \texttt{('you', 'won')}: la discriminazione semantica viene ripristinata con successo.
+
+\paragraph{Vantaggi e Svantaggi dei Word N-Grammi (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):} Preservano il contesto locale, discriminano concetti composti e locuzioni fisse, eliminano l'ambiguit\`a delle parole polisemiche.
+    \item \textbf{Svantaggi (Cons):} Comportano un'esplosione combinatoria del vocabolario (fino a $\mathcal{O}(|\mathcal{V}|^n)$), determinando matrici enormemente pi\`u sparse e problemi di sovradattamento statistico per $n \ge 3$.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Character N-Grammi: Tolleranza ai Refusi, Pro e Contro}
+\label{subsec:character-ngrams}
+
+I \textbf{Character N-Grammi} scompongono il testo in sequenze scorrevoli di $n$ caratteri continui a livello subword, attraversando i confini delle parole. Questa rappresentazione \`e cruciale per conferire al sistema tolleranza rispetto a refusi di digitazione (\textit{typos}) e flessioni morfologiche:
+
+\begin{lstlisting}[style=pythoncode,caption={Tolleranza agli errori di digitazione con trigrammi di caratteri in Python.}]
+# Confronto tra parola corretta ('rainbow') e refuso ('rainbaw')
+t1_char = set(nltk.ngrams('rainbow', 3))
+t2_char = set(nltk.ngrams('rainbaw', 3))
+
+print("Trigrammi rainbow:", t1_char)
+# {'r-a-i', 'a-i-n', 'i-n-b', 'n-b-o', 'b-o-w'}
+print("Intersezione:", t1_char.intersection(t2_char))
+# Output: {'r-a-i', 'a-i-n', 'i-n-b'} (3 trigrammi condivisi su 5!)
+\end{lstlisting}
+Nonostante l'errore di battitura invalidi il matching esatto della parola, la condivisione di 3 trigrammi su 5 consente al motore di quantificare la vicinanza ortografica e attivare il modulo dei suggerimenti (\textit{``Forse cercavi: rainbow''}).
+
+\paragraph{Vantaggi e Svantaggi dei Character N-Grammi (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):} Tolleranza ai refusi e rumore OCR; gestione nativa di parole fuori vocabolario (OOV); indipendenza da regole morfologiche in lingue agglutinanti (es. tedesco, turco, finlandese).
+    \item \textbf{Svantaggi (Cons):} Perdita della semantica lessicale di alto livello; generazione di indici di grandi dimensioni con un numero altissimo di posting list corte.
+\end{itemize}
+
+\FloatBarrier
+\section{Perch\'e Serve una Rappresentazione Documentale: Verso il Vector Space Model}
+\label{sec:perche-rappresentazione-vsm}
+
+L'estrazione delle feature testuali solleva una domanda teorica fondamentale: \textbf{perch\'e un motore di ricerca non pu\`o operare direttamente sulle stringhe grezze e necessita di una rappresentazione formale del documento?}
+\begin{enumerate}
+    \item \textbf{Efficienza di Calcolo:} La scansione sequenziale di stringhe su collezioni di milioni di testi (\textit{grep}) richiede tempi lineari insostenibili ($\mathcal{O}(|D| \cdot |q|)$), incompatibili con il vincolo di latenza interattiva sub-secondo.
+    \item \textbf{Spazio Matematico Comune:} Query e documenti appartengono originariamente a domini eterogenei (una query \`e una stringa breve e telegrafica di 2--3 parole; un documento \`e un testo strutturato di migliaia di parole). È indispensabile proiettare entrambe le entit\`a all'interno di uno spazio geometrico condiviso.
+    \item \textbf{Base Computazionale per lo Scoring:} Una rappresentazione algebrica permette di definire funzioni continue di similarit\`a basate su prodotti scalari e proiezioni vettoriali.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Binary One-Hot Encoding e la Sparsit\`a Vettoriale}
+\label{subsec:one-hot-encoding}
+
+Dato l'universo delle feature lessicali distinte $\mathcal{F} = \{f_1, f_2, \dots, f_{|\mathcal{F}|}\}$, ciascuna feature $f_j$ viene mappata sull'asse ortogonale $j$-esimo mediante un vettore \textbf{One-Hot}:
+\begin{equation}
+\mathbf{e}_j = [0, \, \dots, \, 0, \, \underbrace{1}_{j\text{-esima coordinata}}, \, 0, \, \dots, \, 0]^T \in \{0, 1\}^{|\mathcal{F}|}.
+\end{equation}
+Un generico documento $d$ viene conseguentemente rappresentato come combinazione lineare ponderata dei suoi vettori di feature:
+\begin{equation}
+\mathbf{v}(d) = \sum_{f_j \in d} w_{f_j, d} \, \mathbf{e}_j.
+\end{equation}
+In virt\`u della vastit\`a del lessico ($|\mathcal{F}| \ge 10^5\text{--}10^6$) e della brevit\`a relativa del singolo testo, oltre il $\mathbf{99.9\%}$ delle componenti del vettore documentale \`e rigorosamente pari a zero: la gestione efficiente di tale estrema sparsit\`a costituisce il fondamento dell'Information Retrieval moderno.
+
+\FloatBarrier
+\section{Il Modello Booleano Tradizionale (Boolean Retrieval)}
+\label{sec:boolean-retrieval}
 \label{sec:boolean-vs-ranked}
 
-Il confronto sistematico tra il modello logico tradizionale e il paradigma moderno a punteggio graduato evidenzia differenze profonde:
+Il primo e pi\`u longevo modello formale di reperimento documentale \`e il \textbf{Modello Booleano}, fondato sulla teoria proposizionale classica e sull'algebra degli insiemi~\cite{manning2008}.
+
+\paragraph{Sintassi e Criterio di Soddisfacibilit\`a.}
+Le query sono espressioni logiche costituite da termini uniti tramite gli operatori booleani fondamentali: \texttt{AND} (intersezione insiemistica $\cap$), \texttt{OR} (unione insiemistica $\cup$) e \texttt{NOT} (complemento insiemistico $\setminus$).  
+Il criterio di selezione \`e deterministico e proposizionale:
+\begin{equation}
+\text{Matching}(q, d) = d \models q \implies \{0, \, 1\}.
+\end{equation}
+Un documento appartiene all'insieme dei risultati se e solo se valuta a \texttt{True} la formula logica dell'interrogazione; in caso contrario, esso viene escluso.
+
+\paragraph{Vantaggi e Svantaggi del Modello Booleano (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):}
+    \begin{enumerate}
+        \item \textit{Semantica Precisa e Prevedibile:} Gli operatori logici non ammettono ambiguit\`a: un utente esperto sa esattamente perch\'e un documento \`e stato incluso o scartato;
+        \item \textit{Efficienza Implementativa:} Si mappa direttamente su operazioni logiche bitwise a livello hardware sui vettori di incidenza o su fusioni ordinate delle posting list;
+        \item \textit{Ideale per Esperti di Dominio:} Costituisce tuttora lo standard nei sistemi informativi giuridici, nei repertori brevettuali e nella ricerca bibliografica accademica (PubMed).
+    \end{enumerate}
+    \item \textbf{Svantaggi e Limiti Strutturali (Cons):}
+    \begin{enumerate}
+        \item \textit{Assenza di Punteggio di Rilevanza (Graduatoria):} Il modello restituisce un insieme piatto e non ordinato di documenti conformi. Non vi \`e modo di identificare quale documento risponda meglio al bisogno informativo;
+        \item \textit{Incapacit\`a di Riconoscere Match Parziali:} Se una query richiede tre termini in \texttt{AND} e un documento ne contiene due in modo brillante ma manca del terzo, esso viene scartato con punteggio zero;
+        \item \textit{Complessit\`a per l'Utente Comune:} Gli utenti ordinari del Web formulano query in linguaggio naturale libero (\textit{free-text}) e non possiedono le competenze per strutturare espressioni logiche nidificate con parentesi;
+        \item \textit{La Patologia del ``Feast or Famine'' (Banchetto o Carestia):} L'interazione con il modello booleano conduce quasi sistematicamente a due estremi disfunzionali:
+        \begin{itemize}
+            \item \textbf{Carestia (\textit{Famine}):} L'operatore \texttt{AND} restringe rigidamente i requisiti logici; un sinonimo imprevisto porta frequentemente a restituire $0$ risultati;
+            \item \textbf{Banchetto (\textit{Feast}):} L'operatore \texttt{OR} allarga eccessivamente la selezione, restituendo decine di migliaia di documenti senza alcun ordine di priorit\`a qualitativa.
+        \end{itemize}
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\section{Come Estendere il Modello Booleano: Verso il Ranked Retrieval}
+\label{sec:estensione-booleano-ranked}
+
+Per superare la patologia del \textit{Feast or Famine}, la disciplina dell'IR ha introdotto il concetto di \textbf{Ranked Retrieval}: abbandonare il giudizio binario proposizionale a favore di un \textbf{punteggio scalare continuo} $\text{Score}(q, d) \in \mathbb{R}$, ordinando i documenti per stima decrescente di pertinenza (Tabella~\ref{tab:boolean-vs-ranked}).
 
 \begin{table}[H]
 \centering
@@ -29,308 +184,57 @@ Il confronto sistematico tra il modello logico tradizionale e il paradigma moder
 \midrule
 \textbf{Criterio di Matching} & Esatto, proposizionale e binario ($d \models q \implies \{0, 1\}$). & Continuo e scalare su numeri reali: $\text{Score}(q, d) \in \mathbb{R}$. \\
 \addlinespace
-\textbf{Formulazione Query} & Espressioni logiche vincolanti (\texttt{AND}, \texttt{OR}, \texttt{NOT}). & Linguaggio naturale libero (\textit{free-text query}). \\
+\textbf{Formulazione Query} & Espressioni logiche booleane vincolanti (\texttt{AND}, \texttt{OR}, \texttt{NOT}). & Linguaggio naturale libero (\textit{free-text query}). \\
 \addlinespace
-\textbf{Output fornito} & Insieme non ordinato di documenti conformi. & Lista ordinata in modo decrescente per score stimato. \\
+\textbf{Output Fornito} & Insieme piatto non ordinato di documenti conformi. & Graduatoria ordinata in modo decrescente per score stimato. \\
 \addlinespace
-\textbf{Esperienza Utente} & Sindrome di \textit{Feast or Famine} (Banchetto o Carestia). & Restituzione istantanea dei primi $k$ elementi (top-$k$, tipicamente $k \approx 10$). \\
+\textbf{Esperienza Utente} & Sindrome patologica di \textit{Feast or Famine} (Banchetto o Carestia). & Restituzione istantanea e ordinata dei migliori $k$ risultati (top-$k$, tipicamente $k \approx 10$). \\
 \addlinespace
-\textbf{Destinatari Tipici} & Utenti specialisti (documentalisti, legali, brevettisti). & Utenti generici del Web. \\
+\textbf{Destinatari Tipici} & Documentalisti professionisti, bibliotecari, giuristi, brevettisti. & Utenti generici del Web. \\
 \bottomrule
 \end{tabularx}
-\caption{Confronto analitico tra Boolean Retrieval e Ranked Retrieval.}
+\caption{Confronto analitico tra il modello Booleano classico e il modello Ranked Retrieval~\cite{manning2008}.}
 \label{tab:boolean-vs-ranked}
 \end{table}
 
-\begin{noteblock}{La Patologia del ``Feast or Famine''}
-L'interazione ordinaria con il modello booleano si rivela ostica a causa di due estremi indesiderati:
-\begin{itemize}
-    \item \textbf{Carestia (\textit{Famine}):} l'uso dell'operatore congiuntivo \texttt{AND} restringe rigidamente i vincoli. Se un solo termine della query manca nel testo (ad esempio per una lieve variazione sinonimica), il documento viene escluso, producendo frequentemente zero risultati.
-    \item \textbf{Banchetto (\textit{Feast}):} l'operatore disgiuntivo \texttt{OR} rilassa eccessivamente la selezione, restituendo decine di migliaia di documenti senza alcuna prioritizzazione qualitativa.
-\end{itemize}
-\end{noteblock}
-
 \FloatBarrier
-\section{Misure di Similarit\`a Set-Based: Il Coefficiente di Jaccard}
-\label{sec:jaccard-coefficient}
-\label{sec:jaccard-scoring}
+\subsection{Landscape della Letteratura: Le Grandi Ere dell'Information Retrieval}
+\label{subsec:landscape-letteratura-ere}
 
-Un primo tentativo di formalizzare un ordinamento continuo senza impiegare algebra vettoriale complessa consiste nell'impiego del coefficiente di sovrapposizione insiemistica di Jaccard:
-
-\begin{definition}[Coefficiente di Jaccard]
-Dati due insiemi di termini $A$ e $B$, la somiglianza di Jaccard \`e il rapporto tra la cardinalit\`a della loro intersezione e la cardinalit\`a della loro unione:
-\begin{equation}
-J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}.
-\end{equation}
-\textit{Propriet\`a:} \`e confinato nell'intervallo $[0, 1]$, dove $J(A, A) = 1$ e $J(A, B) = 0 \iff A \cap B = \emptyset$.
-\end{definition}
-
-\subsection{Esempio Guidato Svolto a Lezione e il Paradosso della Lunghezza}
-
-Si consideri la query $q$ e due documenti candidati:
-\begin{itemize}
-    \item \textbf{Query $q$:} \textit{``ides of march''}\\
-    $Q = \{\text{ides}, \text{of}, \text{march}\}$, $|Q| = 3$.
-    \item \textbf{Documento $d_1$:} \textit{``caesar died in march''}\\
-    $D_1 = \{\text{caesar}, \text{died}, \text{in}, \text{march}\}$, $|D_1| = 4$.
-    \item \textbf{Documento $d_2$:} \textit{``the long march''}\\
-    $D_2 = \{\text{the}, \text{long}, \text{march}\}$, $|D_2| = 3$.
-\end{itemize}
-
-\paragraph{Calcolo analitico:}
-\begin{align}
-Q \cap D_1 &= \{\text{march}\} \implies |Q \cap D_1| = 1, \\
-J(q, d_1) &= \frac{1}{3 + 4 - 1} = \frac{1}{6} \approx 0.166. \\[0.2cm]
-Q \cap D_2 &= \{\text{march}\} \implies |Q \cap D_2| = 1, \\
-J(q, d_2) &= \frac{1}{3 + 3 - 1} = \frac{1}{5} = 0.200.
-\end{align}
-
-\begin{alertblock}{Il Paradosso di Rilevanza nel Coefficiente di Jaccard}
-Poich\'e $J(q, d_2) = 0.200 > J(q, d_1) = 0.166$, l'algoritmo decreta che $d_2$ sia pi\`u rilevante di $d_1$.
-Tuttavia, sotto il profilo semantico e storico, $d_1$ tratta esattamente della morte di Cesare (avvenuta alle idi di marzo), mentre $d_2$ descrive un evento storico disconnesso (la ``lunga marcia'' cinese). Il documento $d_2$ riceve uno score superiore unicamente perch\'e \`e pi\`u breve, subendo una minore espansione del denominatore $|A \cup B|$.
-\end{alertblock}
-
-\subsection{Limiti Strutturali del Coefficiente di Jaccard per l'IR}
+L'evoluzione dei modelli di calcolo del punteggio continuo ha attraversato quattro grandi ere concettuali ed architetturali~\cite{manning2008,buttcher2010}:
 \begin{enumerate}
-    \item \textbf{Ignora la frequenza locale ($tf$):} un termine presente $50$ volte in un testo viene contato nell'intersezione esattamente come un termine presente una volta sola.
-    \item \textbf{Ignora la rarit\`a globale ($df$):} vocaboli frequentissimi come la preposizione \textit{``of''} godono del medesimo peso di termini rari e discriminanti come \textit{``ides''}.
-    \item \textbf{Penalizzazione ingiustificata dei documenti ampi:} testi esaustivi e pertinenti che contengono molti termini addizionali subiscono un rigonfiamento dell'unione, vedendo collassare artificiosamente il proprio punteggio.
+    \item \textbf{Era Statistica (Anni '60 -- Met\`a anni '90):} La rilevanza viene computata fondandosi puramente sulla statistica lessicale locale nei testi (\textit{Term Frequency}, $tf$) e globale nel corpus (\textit{Inverse Document Frequency}, $idf$), formalizzata nel Vector Space Model e nei primi modelli probabilistici. Vulnerabile al \textit{keyword stuffing} sui dati Web aperti.
+    \item \textbf{Era Strutturale e PageRank (1998):} Con l'esplosione del Web, Brin e Page introducono l'analisi topologica dell'ipertesto (Web Graph). I link in ingresso vengono interpretati come voti di autorevolezza democratica, neutralizzando le manomissioni testuali locali.
+    \item \textbf{Era del Machine Learning e Learning-to-Rank (Anni 2000):} La complessit\`a industriale impone di combinare centinaia di segnali eterogenei (rilevanza lessicale BM25, PageRank, freschezza temporale, click-through rate, dwell time) tramite modelli supervisionati addestrati su graduatorie reali.
+    \item \textbf{Era Neurale e dei Modelli Densi (2018 -- Oggi):} L'avvento dei Transformer e dei Large Language Model abilita il superamento del vocabolario lessicale discreto attraverso spazi di incorporamento denso (\textit{dense retrieval} bi-encoder e cross-encoder) o modelli sparsi appresi (SPLADE).
 \end{enumerate}
 
 \FloatBarrier
-\section{Dalle Matrici di Incidenza alle Matrici di Conteggio}
-\label{sec:matrici-incidenza-conteggio}
+\section{Quadro Sinottico Comparativo}
+\label{sec:quadro-sinottico-booleano}
 
-Per superare la rigidit\`a insiemistica, la modellazione documentale evolve verso l'algebra lineare.
-
-\subsection{Matrice Binaria Termine-Documento (Incidence Matrix)}
-Dato un vocabolario $V = \{t_1, \dots, t_{|V|}\}$ e un corpus $D = \{d_1, \dots, d_N\}$, la matrice di incidenza $M \in \{0, 1\}^{|V| \times N}$ mappa la presenza binaria:
-\begin{equation}
-M_{t, d} = \begin{cases} 1 & \text{se } t \in d, \\ 0 & \text{altrimenti.} \end{cases}
-\end{equation}
-
-\subsection[Matrice di Conteggio Termine-Documento]{Matrice di Conteggio Termine-Documento\\ (Count Matrix)}
-Riconoscendo che la frequenza di occorrenza riflette il grado di enfasi tematica, si passa alla matrice dei conteggi grezzi $C \in \mathbb{N}^{|V| \times N}$ in cui $C_{t, d} = \text{count}(t, d) = tf_{t,d}$.
+La Tabella~\ref{tab:sinottico-modelli-rappresentazione} riassume le caratteristiche distintive delle rappresentazioni testuali e del modello di reperimento booleano esaminate in questo capitolo.
 
 \begin{table}[H]
 \centering
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{l cccccc}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l l l l}
 \toprule
-\textbf{Termine} & \textbf{Antony \& Cleo.} & \textbf{Julius Caesar} & \textbf{The Tempest} & \textbf{Hamlet} & \textbf{Othello} & \textbf{Macbeth} \\
+\textbf{Rappresentazione / Modello} & \textbf{Unit\`a Lessicale Fondamentale} & \textbf{Vantaggio Principale} & \textbf{Criticit\`a / Limite} \\
 \midrule
-\textbf{Antony}    & 157 & 73  & 0 & 0 & 0 & 0 \\
-\textbf{Brutus}    & 4   & 157 & 0 & 1 & 0 & 0 \\
-\textbf{Caesar}    & 232 & 227 & 0 & 2 & 1 & 1 \\
-\textbf{Calpurnia} & 0   & 10  & 0 & 0 & 0 & 0 \\
-\textbf{Cleopatra} & 57  & 0   & 0 & 0 & 0 & 0 \\
-\textbf{mercy}     & 2   & 0   & 3 & 5 & 5 & 1 \\
-\textbf{worser}    & 2   & 0   & 1 & 1 & 1 & 0 \\
+\textbf{Bag of Words (BoW)} & Unigrammi di termini ($n=1$) & Semplicit\`a ed efficienza lineare & Perdita totale della sintassi e dell'ordine \\
+\textbf{Word N-Grammi} & Sequenze di $n$ parole adiacenti & Preservazione del contesto locale & Esplosione combinatoria del vocabolario \\
+\textbf{Character N-Grammi} & Frammenti subword di $n$ caratteri & Tolleranza ai refusi e alle forme OOV & Perdita del significato lessicale integro \\
+\textbf{Binary One-Hot Vector} & Vettore ortogonale in $\mathbb{R}^{|\mathcal{F}|}$ & Formalizzazione geometrica rigorosa & Estrema sparsit\`a ($>99.9\%$ coordinate nulle) \\
+\textbf{Boolean Retrieval} & Proposizioni logiche (\texttt{AND, OR, NOT}) & Trasparenza e controllo formale assoluto & Nessuna graduatoria (\textit{Feast or Famine}) \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Matrice di conteggio dei termini su una selezione di opere di Shakespeare.}
-\label{tab:shakespeare-counts}
+\caption{Quadro sinottico comparativo delle rappresentazioni testuali e del modello booleano.}
+\label{tab:sinottico-modelli-rappresentazione}
 \end{table}
 
-\FloatBarrier
-\section[Ponderazione della Frequenza: Log-Frequency Weighting]{Ponderazione della Frequenza dei Termini:\\ Log-Frequency Weighting}
-\label{sec:log-frequency-weighting}
-
-La semplice presenza o il conteggio lineare delle occorrenze di una parola non riflettono fedelmente il valore informativo del testo. Questa sezione esamina i limiti della frequenza grezza e formalizza la trasformazione logaritmica ($wf$) come meccanismo matematico per modellare il principio dell'utilit\`a marginale decrescente.
-
-\subsection{Perch\'e il Conteggio Lineare ($tf$) \`e Inadeguato}
-\label{subsec:conteggio-lineare-inadeguato}
-La rilevanza semantica percepita dall'utente non cresce in modo proporzionale al conteggio puro delle parole:
-\begin{itemize}
-    \item Un testo in cui un termine compare $10$ volte \`e plausibilmente pi\`u attinente di uno in cui compare $1$ volta sola, ma certamente \textbf{non \`e $10$ volte pi\`u rilevante}.
-    \item Ogni occorrenza successiva dello stesso termine apporta un incremento marginale di informazione progressivamente decrescente (\textit{legge dei rendimenti decrescenti}).
-\end{itemize}
-
-\subsection[Formulazione Logaritmica di tf]{Formulazione Logaritmica di $tf$}
-Per smorzare l'effetto di frequenze grezze sproporzionate, si introduce la trasformazione logaritmica:
-\begin{equation}
-w_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{se } tf_{t,d} > 0, \\ 0 & \text{altrimenti.} \end{cases}
-\end{equation}
-
-\paragraph{Progressione dei Pesi:}
-\begin{itemize}
-    \item $tf = 0 \implies w = 0$
-    \item $tf = 1 \implies w = 1 + \log_{10}(1) = 1.0$
-    \item $tf = 2 \implies w = 1 + \log_{10}(2) \approx 1.301$
-    \item $tf = 10 \implies w = 1 + \log_{10}(10) = 2.0$
-    \item $tf = 100 \implies w = 1 + \log_{10}(100) = 3.0$
-    \item $tf = 1000 \implies w = 1 + \log_{10}(1000) = 4.0$
-\end{itemize}
-In contesti computazionali continui, si adotta frequentemente la variante continua $\log(1 + tf_{t,d})$, che evita la discontinuit\`a in zero poich\'e $\log(1 + 0) = 0$.
-
-Se il ranking viene calcolato unicamente in base alla frequenza dei termini condivisi:
-\begin{equation}
-\text{Score}(q, d) = \sum_{t \in q \cap d} \left( 1 + \log_{10}(tf_{t,d}) \right).
-\end{equation}
-
-\FloatBarrier
-\section[Document Frequency (df) e Inverse Document Frequency (idf)]{Document Frequency ($df$) e\\ Inverse Document Frequency ($idf$)}
-\label{sec:df-idf}
-
-Accanto alla frequenza locale del termine all'interno del singolo documento, \`e necessario quantificare la rarit\`a complessiva della parola nell'intero corpus di riferimento. Questa sezione formalizza la metrica dell'\textit{Inverse Document Frequency} (IDF), ne analizza le propriet\`a matematiche di neutralizzazione delle parole vuote e ne illustra l'impatto sul ranking delle query composte da pi\`u termini.
-
-\subsection{L'Informativit\`a Semantica e la Rarit\`a Globale}
-\label{subsec:informativita-semantica-rarita}
-La salienza locale di una parola all'interno di un documento ($tf$) non ne misura la specificit\`a tematica nella collezione globale:
-\begin{itemize}
-    \item Un termine ubiquo presente in quasi tutti i documenti (es. \textit{increase}, \textit{high}, o le congiunzioni) possiede un potere discriminante pressoch\'e nullo.
-    \item Un termine presente in un numero ristrettissimo di testi (es. \textit{Calpurnia}, \textit{arachnocentric}) possiede un altissimo potere discriminante: la sua comparsa segnala una pertinenza probabilistica quasi certa.
-\end{itemize}
-
-\subsection{Definizione Matematica dell'IDF}
-Sia $N = |D|$ la dimensione totale della collezione e sia $df_t$ (\textit{Document Frequency}) il numero di documenti contenenti almeno un'occorrenza del termine $t$.
-L'\textbf{Inverse Document Frequency (IDF)} \`e formalizzato come:
-\begin{equation}
-idf_t = \log_{10}\left( \frac{N}{df_t} \right).
-\end{equation}
-Il logaritmo smorza l'ampiezza dell'argomento $N / df_t$, evitando che su corpus di milioni di pagine i pesi assumano valori ingestibili.
-
-\subsection[Esempio Completo Svolto a Lezione (N = 1 000 000)]{Esempio Completo Svolto\\ a Lezione ($N = 1\,000\,000$)}
-
-Si consideri un corpus composto da un milione di documenti:
-
-\begin{table}[H]
-\centering
-\begin{tabular}{l ccc}
-\toprule
-\textbf{Termine ($t$)} & \textbf{$df_t$} & \textbf{Rapporto $N / df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
-\midrule
-\textbf{Calpurnia} & 1         & $10^6$ & $6.0$ \\
-\textbf{animal}    & 100       & $10^4$ & $4.0$ \\
-\textbf{sunday}    & $1\,000$   & $10^3$ & $3.0$ \\
-\textbf{fly}       & $10\,000$  & $10^2$ & $2.0$ \\
-\textbf{under}     & $100\,000$ & $10^1$ & $1.0$ \\
-\textbf{the}       & $1\,000\,000$ & $1$  & $0.0$ \\
-\bottomrule
-\end{tabular}
-\caption{Calcolo analitico dell'IDF al variare della Document Frequency su $N = 10^6$.}
-\label{tab:idf-values}
-\end{table}
-
-\begin{noteblock}{Propriet\`a Chiave dell'IDF}
-\begin{enumerate}
-    \item \textbf{Neutralizzazione automatica dei termini onnipresenti:} se una parola compare in ogni documento ($df_t = N$), si ha $idf_t = \log_{10}(1) = 0$. Il termine si auto-annulla nel calcolo del punteggio, agendo come filtro naturale per le stopwords.
-    \item \textbf{Precomputazione Offline Disaccoppiata:} il valore $idf_t$ dipende unicamente dalla statistica della collezione e \textbf{non dalla query}. Di conseguenza, tutti gli $idf_t$ vengono calcolati offline durante l'indicizzazione e memorizzati nelle tabelle del vocabolario, richiedendo solo un tempo di accesso $\BigO{1}$ a tempo di query.
-\end{enumerate}
+\begin{noteblock}{Dalla Logica Proposizionale alla Geometria dello Spazio Vettoriale}
+Accertata l'insostenibilit\`a del recupero binario booleano per compiti di ricerca general-purpose, il successivo \chapref{chap:vsm-smart} affronta la formulazione matematica di \textbf{come} assegnare un punteggio continuo alle coppie query-documento, partendo dalle matrici di conteggio, dal coefficiente di Jaccard, dalla ponderazione TF-IDF, fino alla formalizzazione geometrica del Vector Space Model, al fallimento della distanza euclidea e alla similarit\`a cosenica con la notazione SMART.
 \end{noteblock}
-
-\subsection{L'Effetto dell'IDF sull'Ordinamento: Query a Termine Singolo vs. Multi-Termine}
-
-\paragraph{Per query monoremiche ($|q| = 1$).}
-L'IDF \textbf{non altera l'ordinamento relativo} tra i documenti.
-\begin{proof}
-Sia la query $q = \{t\}$. Lo score ponderato da solo IDF per un documento $d$ che contiene $t$ \`e:
-\begin{equation}
-\text{Score}(q, d) = \log_{10}\left(\frac{N}{df_t}\right).
-\end{equation}
-Poich\'e questo valore \`e identico per qualunque documento contenente $t$, l'IDF agisce come una costante moltiplicativa uniforme. L'ordinamento dipender\`a unicamente dal termine $tf_{t,d}$.
-\end{proof}
-
-\paragraph{Per query multi-termine ($|q| \ge 2$).}
-L'IDF diviene il \textbf{fattore cardine di ri-pesatura}: in una query come \textit{``capricious person''}, il termine generico \textit{``person''} (basso $idf$) viene pesato pochissimo, mentre il termine raro \textit{``capricious''} (alto $idf$) domina la graduatoria, premiando i documenti mirati.
-
-\subsection[Collection Frequency (cf) vs. Document Frequency (df)]{Collection Frequency ($cf_t$) vs. Document Frequency ($df_t$)}
-\begin{itemize}
-    \item \textbf{Collection Frequency ($cf_t$):} numero totale di occorrenze di $t$ nel corpus: $cf_t = \sum_d tf_{t,d}$.
-    \item \textbf{Document Frequency ($df_t$):} numero di documenti unici contenenti $t$ almeno una volta.
-\end{itemize}
-
-\begin{example}[Confronto tra ``insurance'' e ``try'']
-Nel corpus d'esame:
-\begin{itemize}
-    \item \textit{``try''}: $cf = 10\,422$, distribuito su $df = 8\,760$ documenti.
-    \item \textit{``insurance''}: $cf = 10\,440$, concentrato in soli $df = 3\,997$ documenti.
-\end{itemize}
-Nonostante la frequenza complessiva $cf$ sia pressoch\'e identica, \textit{``insurance''} \`e nettamente pi\`u informativa e discriminante, e riceve un $idf$ marcatamente superiore.
-\end{example}
-
-\FloatBarrier
-\section{Lo Schema di Ponderazione TF-IDF Completo}
-\label{sec:schema-tfidf}
-
-L'integrazione congiunta della frequenza logaritmica locale ($tf$) e della rarit\`a inversa globale ($idf$) converge nello schema di pesatura pi\`u celebre e influente dell'Information Retrieval classico. Questa sezione presenta la formalizzazione del peso TF-IDF, ne sviluppa una simulazione analitica dettagliata e introduce la matrice termine--documento ponderata.
-
-\subsection{Formulazione Matematica}
-\label{subsec:formulazione-matematica-tfidf}
-La combinazione tra salienza locale del termine ($tf$) e specificit\`a globale nel corpus ($idf$) definisce il peso \textbf{tf-idf}:
-\begin{equation}
-w_{t,d} = \text{tf-idf}_{t,d} = wf_{t,d} \times idf_t,
-\end{equation}
-dove:
-\begin{equation}
-wf_{t,d} = \begin{cases} 1 + \log_{10}(tf_{t,d}) & \text{se } tf_{t,d} > 0, \\ 0 & \text{altrimenti,} \end{cases} \qquad idf_t = \log_{10}\left( \frac{N}{df_t} \right).
-\end{equation}
-
-Lo score preliminare tra una query non ponderata $q$ e un documento $d$ \`e:
-\begin{equation}
-\text{Score}(q, d) = \sum_{t \in q \cap d} \text{tf-idf}_{t,d}.
-\end{equation}
-
-\subsection{Esercizio Numerico Svolto alla Lavagna}
-
-\paragraph{Dati di partenza:}
-$N = 806\,791$, Query: \textit{``car auto insurance best''}.
-
-\begin{table}[H]
-\centering
-\resizebox{0.92\linewidth}{!}{%
-\begin{tabular}{l ccccc}
-\toprule
-\textbf{Termine ($t$)} & \textbf{$tf$ Doc 1} & \textbf{$tf$ Doc 2} & \textbf{$tf$ Doc 3} & \textbf{$df_t$} & \textbf{$idf_t = \log_{10}(N / df_t)$} \\
-\midrule
-\textbf{car}       & 27 & 4  & 24 & $18\,165$ & $1.65$ \\
-\textbf{auto}      & 3  & 33 & 0  & $6\,723$  & $2.08$ \\
-\textbf{insurance} & 0  & 33 & 29 & $19\,241$ & $1.62$ \\
-\textbf{best}      & 14 & 0  & 17 & $25\,235$ & $1.50$ \\
-\bottomrule
-\end{tabular}%
-}
-\caption{Dati dell'esercizio alla lavagna: conteggi locali e statistiche di collezione.}
-\label{tab:board-exercise-data}
-\end{table}
-
-\paragraph{Caso A: Calcolo con conteggio grezzo ($tf_{t,d} \times idf_t$).}
-Per \textbf{Doc 1}:
-\begin{itemize}
-    \item car: $27 \times 1.65 = 44.55$
-    \item auto: $3 \times 2.08 = 6.24$
-    \item insurance: $0 \times 1.62 = 0.0$
-    \item best: $14 \times 1.50 = 21.0$
-\end{itemize}
-Per \textbf{Doc 2}:
-\begin{itemize}
-    \item car: $4 \times 1.65 = 6.60$
-    \item auto: $33 \times 2.08 = 68.64$
-    \item insurance: $33 \times 1.62 = 53.46$
-    \item best: $0 \times 1.50 = 0.0$
-\end{itemize}
-Per \textbf{Doc 3}:
-\begin{itemize}
-    \item car: $24 \times 1.65 = 39.60$
-    \item auto: $0 \times 2.08 = 0.0$
-    \item insurance: $29 \times 1.62 = 46.98$
-    \item best: $17 \times 1.50 = 25.50$
-\end{itemize}
-
-\paragraph{Caso B: Calcolo con smorzamento logaritmico $\log_{10}(1 + tf_{t,d}) \times idf_t$.}
-Applicando la compressione logaritmica su \textbf{Doc 1}:
-\begin{itemize}
-    \item car: $\log_{10}(1 + 27) = \log_{10}(28) \approx 1.447 \implies 1.447 \times 1.65 \approx \mathbf{2.39}$
-    \item auto: $\log_{10}(1 + 3) = \log_{10}(4) \approx 0.602 \implies 0.602 \times 2.08 \approx \mathbf{1.25}$
-    \item insurance: $\log_{10}(1 + 0) = 0 \implies 0 \times 1.62 = \mathbf{0.0}$
-    \item best: $\log_{10}(1 + 14) = \log_{10}(15) \approx 1.176 \implies 1.176 \times 1.50 \approx \mathbf{1.76}$
-\end{itemize}
-Lo smorzamento logaritmico impedisce ai singoli conteggi estremi di sopraffare la rilevanza informativa globale veicolata dall'IDF.
-
-\subsection{La Matrice Termine-Documento Ponderata}
-Sostituendo i valori di conteggio con i pesi reali $\text{tf-idf}_{t,d}$, la collezione documentale viene proiettata in una matrice reale:
-\begin{equation}
-W \in \mathbb{R}^{|V| \times N}.
-\end{equation}
-Ciascun documento della collezione corrisponde ora a un vettore geometrico $\vec{d} \in \mathbb{R}^{|V|}$, ponendo le fondamenta per l'analisi geometrica dello spazio vettoriale.

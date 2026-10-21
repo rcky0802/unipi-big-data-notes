@@ -1,286 +1,487 @@
-\chapter{Il Modello a Spazio Vettoriale (VSM), la Notazione SMART e Okapi BM25}
+\chapter{Vector Space Model, Ponderazione TF-IDF e Similarit\`a Coseno}
 \label{chap:vsm-smart}
 \label{chap:retrieval-vsm-bm25}
+\label{chap:vsm-tfidf-cosine}
+
+Nel \chapref{chap:modelli-retrieval-tfidf} si \`e evidenziata l'esigenza di superare la rigidit\`a binaria del Modello Booleano. Questo capitolo affronta la costruzione analitica del punteggio di rilevanza continuo: partendo dalle matrici di incidenza binaria e dalle misure su insiemi (coefficiente di Jaccard), si formalizza il legame tra frequenza dei termini, rarit\`a statistica e pertinenza attraverso lo schema ponderato \textbf{TF-IDF}. Si introduce quindi la trattazione geometrica del \textbf{Vector Space Model} (VSM), dimostrando il fallimento della distanza euclidea e derivando analiticamente la \textbf{Cosine Similarity} con la normalizzazione $L_2$, la notazione SMART e i relativi casi di studio numerici~\cite{manning2008}.
 
 \FloatBarrier
-\section[Fondamenti del Vector Space Model (VSM)]{Fondamenti del Vector\\ Space Model (VSM)}
+\section{Dall'Estensione del Booleano alla Matrice di Incidenza Binaria}
+\label{sec:matrice-incidenza-binaria}
+
+Per assegnare un punteggio a un documento, il primo passo evolutivo consiste nel superare la scansione testuale sequenziale strutturando la collezione in una rappresentazione matriciale esplicita~\cite{manning2008}.
+
+\begin{definition}[Matrice di Incidenza Binaria]
+Dato un vocabolario di termini unici $\mathcal{V} = \{t_1, t_2, \dots, t_M\}$ e un corpus di $N$ documenti $\mathcal{D} = \{d_1, d_2, \dots, d_N\}$, la \textbf{Matrice di Incidenza Termine-Documento} $M \in \{0, 1\}^{M \times N}$ \`e definita come:
+\begin{equation}
+M_{t, d} = \begin{cases} 1 & \text{se il termine } t \text{ compare nel documento } d, \\ 0 & \text{altrimenti.} \end{cases}
+\end{equation}
+\end{definition}
+In tale matrice, ciascuna riga rappresenta il vettore di presenza di una parola su tutti i documenti, mentre ciascuna colonna rappresenta il profilo lessicale binario del singolo testo in $\{0, 1\}^{|\mathcal{V}|}$. Le interrogazioni booleane corrispondono a veloci operazioni logiche bitwise (\texttt{AND}, \texttt{OR}, \texttt{NOT}) tra le righe.
+
+\FloatBarrier
+\section{Misure di Similarit\`a Set-Based: Il Coefficiente di Jaccard}
+\label{sec:jaccard-coefficient}
+\label{sec:jaccard-scoring}
+
+Un primo tentativo intuitivo di calcolare un punteggio continuo senza ricorrere a complessi spazi geometrici consiste nell'applicare il coefficiente di sovrapposizione insiemistica di Jaccard~\cite{manning2008}:
+
+\begin{definition}[Coefficiente di Jaccard]
+Dati due insiemi di parole $A$ e $B$ (ad esempio i vocaboli distinti di una query $q$ e di un documento $d$), la somiglianza di Jaccard \`e definita come:
+\begin{equation}
+J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}.
+\end{equation}
+Il coefficiente \`e strettamente confinato nell'intervallo continuo $[0, 1]$, dove $J(A, A) = 1$ e $J(A, B) = 0 \iff A \cap B = \emptyset$.
+\end{definition}
+
+\FloatBarrier
+\subsection{Esempio Guidato: Il Paradosso della Lunghezza Documentale}
+\label{subsec:esempio-jaccard-paradosso}
+
+Si consideri l'esempio didattico canonico:
+\begin{itemize}
+    \item \textbf{Query $q$:} \textit{``ides of march''}\\
+    $Q = \{\text{ides}, \text{of}, \text{march}\}, \quad |Q| = 3$.
+    \item \textbf{Documento $d_1$:} \textit{``caesar died in march''}\\
+    $D_1 = \{\text{caesar}, \text{died}, \text{in}, \text{march}\}, \quad |D_1| = 4$.
+    \item \textbf{Documento $d_2$:} \textit{``the long march''}\\
+    $D_2 = \{\text{the}, \text{long}, \text{march}\}, \quad |D_2| = 3$.
+\end{itemize}
+
+Entrambi i testi condividono con la query un'unica parola comune (\texttt{march}):
+\begin{align}
+Q \cap D_1 &= \{\text{march}\} \implies |Q \cap D_1| = 1, \quad J(q, d_1) = \frac{1}{3 + 4 - 1} = \frac{1}{6} \approx \mathbf{0.166}, \\
+Q \cap D_2 &= \{\text{march}\} \implies |Q \cap D_2| = 1, \quad J(q, d_2) = \frac{1}{3 + 3 - 1} = \frac{1}{5} = \mathbf{0.200}.
+\end{align}
+
+\begin{alertblock}{Il Paradosso di Rilevanza del Coefficiente di Jaccard}
+Poiché $J(q, d_2) = 0.200 > J(q, d_1) = 0.166$, l'algoritmo dichiara $d_2$ pi\`u rilevante di $d_1$. Tuttavia, sotto il profilo tematico, $d_1$ descrive l'assassinio di Cesare (avvenuto storicamente alle idi di marzo), mentre $d_2$ tratta un evento completamente estraneo (la Lunga Marcia cinese). Il documento $d_2$ vince unicamente perch\'e \`e pi\`u breve, subendo una minore espansione del denominatore dell'unione!
+\end{alertblock}
+
+\paragraph{Vantaggi e Svantaggi del Coefficiente di Jaccard (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):} Estremamente intuitivo; computazionalmente immediato; restituisce un punteggio normalizzato continuo in $[0, 1]$.
+    \item \textbf{Svantaggi e Limiti (Cons):}
+    \begin{enumerate}
+        \item \textit{Ignora la frequenza locale ($tf$):} un termine che ricorre cinquanta volte riceve lo stesso peso di uno presente una volta sola;
+        \item \textit{Ignora la rarit\`a globale ($df$):} parole comuni e prive di valore informativo (es. \textit{``of''}) pesano esattamente quanto termini discriminanti (es. \textit{``ides''});
+        \item \textit{Penalizza severamente i documenti lunghi ed esaustivi:} testi ricchi di dettagli gonfiano il denominatore $|A \cup B|$, venendo ingiustamente penalizzati rispetto a testi sintetici.
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\section{Frequenza dei Termini e Rilevanza: Term Frequency e Matrice di Conteggio}
+\label{sec:term-frequency-conteggi}
+
+Per superare i limiti degli insiemi puri, la rappresentazione documentale evolve riconoscendo che la \textbf{frequenza di occorrenza} di una parola riflette la focalizzazione tematica del testo.
+
+\FloatBarrier
+\subsection{Matrice di Conteggio Termine-Documento (\textit{Count Matrix})}
+\label{subsec:matrice-conteggio}
+
+Si definisce la matrice dei conteggi grezzi $C \in \mathbb{N}^{|\mathcal{V}| \times N}$, dove ogni cella contiene la frequenza locale:
+\begin{equation}
+C_{t, d} = \text{tf}_{t, d} = \text{numero di occorrenze del termine } t \text{ nel documento } d.
+\end{equation}
+La Tabella~\ref{tab:shakespeare-counts} riporta il celebre esempio shakespeariano analizzato nel testo di riferimento~\cite{manning2008}.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l cccccc}
+\toprule
+\textbf{Termine} & \textbf{Antony \& Cleopatra} & \textbf{Julius Caesar} & \textbf{The Tempest} & \textbf{Hamlet} & \textbf{Othello} & \textbf{Macbeth} \\
+\midrule
+\textbf{Antony}    & 157 & 73  & 0 & 0 & 0 & 0 \\
+\textbf{Brutus}    & 4   & 157 & 0 & 1 & 0 & 0 \\
+\textbf{Caesar}    & 232 & 227 & 0 & 2 & 1 & 1 \\
+\textbf{Calpurnia} & 0   & 10  & 0 & 0 & 0 & 0 \\
+\textbf{Cleopatra} & 57  & 0   & 0 & 0 & 0 & 0 \\
+\textbf{mercy}     & 2   & 0   & 3 & 5 & 5 & 1 \\
+\textbf{worser}    & 2   & 0   & 1 & 1 & 1 & 0 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Matrice di conteggio dei termini (\textit{Count Matrix}) su una selezione di opere di Shakespeare~\cite{manning2008}.}
+\label{tab:shakespeare-counts}
+\end{table}
+
+\FloatBarrier
+\subsection{Rendimenti Marginali Decrescenti e Ponderazione Log-TF}
+\label{subsec:log-tf-diminishing-returns}
+
+La rilevanza non cresce linearmente con la frequenza grezza: un testo con $10$ occorrenze di una parola chiave non \`e dieci volte pi\`u rilevante di uno con $1$ sola occorrenza. La prima comparsa attesta il tema trattato; le successive ne confermano la centralit\`a con un apporto informativo marginale decrescente.  
+Per modellare tale principio, la letteratura adotta la trasformazione sublineare logaritmica:
+
+\begin{definition}[Ponderazione Log-Frequency ($wf$)]
+\begin{equation}
+wf_{t, d} = \begin{cases} 1 + \log_{10}(\text{tf}_{t, d}) & \text{se } \text{tf}_{t, d} > 0, \\ 0 & \text{altrimenti.} \end{cases}
+\label{eq:log-tf}
+\end{equation}
+\end{definition}
+L'offset unitario $+1$ garantisce la continuit\`a della metrica per $\text{tf}=1$ ($wf = 1 + \log_{10}(1) = 1.0$), scalando con dolcezza: $\text{tf}=10 \implies wf=2.0$, $\text{tf}=100 \implies wf=3.0$, $\text{tf}=1\,000 \implies wf=4.0$.
+
+\FloatBarrier
+\section{Frequenza Documentale e Rarit\`a: DF vs. CF e Inverse Document Frequency (IDF)}
+\label{sec:df-vs-cf-idf}
+
+La sola frequenza locale $tf$ non basta: parole ubiquitarie nel corpus possiedono un valore discriminante nullo, mentre parole rare identificano con precisione l'argomento cercato.
+
+\FloatBarrier
+\subsection{Collection Frequency ($cf_t$) contro Document Frequency ($df_t$)}
+\label{subsec:collection-vs-document-frequency}
+
+È essenziale distinguere formalmente tra due metriche di frequenza globale:
+\begin{itemize}
+    \item \textbf{Collection Frequency ($cf_t$):} Numero totale di occorrenze del termine $t$ sull'intera collezione, contando tutte le ripetizioni;
+    \item \textbf{Document Frequency ($df_t$):} Numero di documenti distinti che contengono almeno una volta il termine $t$.
+\end{itemize}
+
+\begin{example}[Perch\'e $df$ \`e preferibile a $cf$ nell'Information Retrieval]
+Si consideri un corpus di $10^6$ testi e due termini con identica $\text{cf} = 10\,000$:
+\begin{itemize}
+    \item Termine A (\textit{``insurance''}): compare $10\,000$ volte distribuito uniformemente in $10\,000$ documenti distinti ($df = 10\,000$);
+    \item Termine B (\textit{``tryptophan''}): compare $10\,000$ volte concentrato quasi integralmente in $5$ trattati di biochimica ($df = 5$).
+\end{itemize}
+Sebbene abbiano la stessa $cf$, il Termine B \`e immensamente pi\`u discriminante: la sua presenza in un documento circoscrive la ricerca a una frazione microscopica della collezione. La Document Frequency $df_t$ misura l'informativit\`a in modo assai pi\`u affidabile della frequenza grezza nella collezione.
+\end{example}
+
+\FloatBarrier
+\subsection{Formula Matematica dell'Inverse Document Frequency (IDF)}
+\label{subsec:definizione-idf}
+
+Poich\'e l'utilit\`a informativa \`e inversamente proporzionale alla frequenza documentale $df_t$, si definisce:
+
+\begin{definition}[Inverse Document Frequency]
+Dato un corpus di $N$ documenti, l'IDF del termine $t$ \`e:
+\begin{equation}
+\text{idf}_t = \log_{10} \left( \frac{N}{df_t} \right).
+\label{eq:idf-standard}
+\end{equation}
+\end{definition}
+
+\paragraph{Effetto dell'IDF sull'Ordinamento: Query a Singolo Termine vs. Multi-Termine.}
+\begin{itemize}
+    \item \textbf{Query Monotermine ($q = \{t\}$):} L'IDF \`e una costante moltiplicativa identica per tutti i documenti contenenti $t$. Essa non altera l'ordinamento relativo dei risultati (che dipende solo da $tf$), ma agisce solo come fattore di scala globale;
+    \item \textbf{Query Multi-Termine ($q = \{t_1, t_2, \dots, t_m\}$):} L'IDF gioca un ruolo decisivo: ribilancia la rilevanza assegnando un peso preponderante alle parole rare e specifiche (es. \textit{``Arachnocampa''}) rispetto alle parole diffuse (es. \textit{``caves''}).
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l r r}
+\toprule
+\textbf{Termine} & \textbf{Document Frequency ($df_t$)} & \textbf{$\text{idf}_t = \log_{10}(10^6 / df_t)$} \\
+\midrule
+\texttt{calpurnia} & 1 & 6.00 \\
+\texttt{animal}     & 100 & 4.00 \\
+\texttt{sunday}     & 1\,000 & 3.00 \\
+\texttt{fly}        & 10\,000 & 2.00 \\
+\texttt{under}      & 100\,000 & 1.00 \\
+\texttt{the}        & 1\,000\,000 & 0.00 \\
+\bottomrule
+\end{tabular}
+\caption{Valori di IDF calcolati su una collezione di $N = 1\,000\,000$ documenti~\cite{manning2008}.}
+\label{tab:idf-values}
+\end{table}
+
+\FloatBarrier
+\section{Lo Schema di Ponderazione TF-IDF Completo}
+\label{sec:schema-tfidf}
+
+Moltiplicando la frequenza locale logaritmica per la rarit\`a globale si ottiene la celebre ponderazione \textbf{TF-IDF}:
+\begin{equation}
+w_{t, d} = \big(1 + \log_{10}(\text{tf}_{t, d})\big) \cdot \log_{10}\left(\frac{N}{df_t}\right).
+\label{eq:tfidf-complete}
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio Numerico Svolto alla Lavagna}
+\label{subsec:esercizio-lavagna-tfidf}
+
+Si consideri una collezione di $N = 806\,791$ documenti e i conteggi grezzi per quattro termini:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{l r r r r}
+\toprule
+\textbf{Termine} & $\text{tf}_{\text{raw}}$ & $df_t$ & $\text{Log-TF} = 1 + \log_{10}(\text{tf})$ & $\text{IDF} = \log_{10}(N / df_t)$ \\
+\midrule
+\texttt{auto}      & 19 & 3\,665  & $1 + \log_{10}(19) = \mathbf{2.28}$ & $\log_{10}(806\,791 / 3\,665) = \mathbf{2.34}$ \\
+\texttt{best}      & 14 & 20\,288 & $1 + \log_{10}(14) = \mathbf{2.15}$ & $\log_{10}(806\,791 / 20\,288) = \mathbf{1.60}$ \\
+\texttt{car}       & 27 & 10\,282 & $1 + \log_{10}(27) = \mathbf{2.43}$ & $\log_{10}(806\,791 / 10\,282) = \mathbf{1.89}$ \\
+\texttt{insurance} & 34 & 560     & $1 + \log_{10}(34) = \mathbf{2.53}$ & $\log_{10}(806\,791 / 560) = \mathbf{3.16}$ \\
+\bottomrule
+\end{tabular}
+\caption{Dati dell'esercizio svolto alla lavagna per il calcolo dei pesi TF-IDF.}
+\label{tab:board-exercise-data}
+\end{table}
+
+I pesi composti finali risultano:
+\begin{align}
+w(\texttt{auto})      &= 2.28 \cdot 2.34 = \mathbf{5.34}, \\
+w(\texttt{best})      &= 2.15 \cdot 1.60 = \mathbf{3.44}, \\
+w(\texttt{car})       &= 2.43 \cdot 1.89 = \mathbf{4.59}, \\
+w(\texttt{insurance}) &= 2.53 \cdot 3.16 = \mathbf{8.00}.
+\end{align}
+Sebbene \texttt{car} abbia una frequenza locale grezza doppia rispetto a \texttt{best}, il termine pi\`u determinante per la pertinenza \`e \texttt{insurance}, la cui eccezionale rarit\`a nel corpus ne eleva drasticamente il peso finale ($8.00$).
+
+\FloatBarrier
+\section[Documenti e Query come Vettori N-dimensionali]{Documenti e Query come Vettori\\$N$-dimensionali nello Spazio Vettoriale}
 \label{sec:vsm-fondamenti}
 
-Nel \textbf{Vector Space Model} (VSM), la collezione documentale e le query dell'utente vengono modellate come punti e vettori geometrici immersi in uno spazio vettoriale reale a dimensionalit\`a finita:
+Nel \textbf{Vector Space Model} (VSM), introdotto da Gerard Salton~\cite{manning2008}, l'intera collezione documentale e le interrogazioni dell'utente vengono modellate come punti e vettori geometrici immersi in uno spazio vettoriale continuo a dimensionalit\`a finita:
 \begin{equation}
-\text{Dimensione dello spazio} = |V|,
+\text{Dimensione dello Spazio} = |\mathcal{V}|,
 \end{equation}
-dove ogni asse ortogonale corrisponde a un termine unico del vocabolario $V$.
+dove ogni asse ortogonale corrisponde a un termine unico del vocabolario $\mathcal{V}$.  
+Sia la query $q$ sia il documento $d$ sono rappresentati come vettori multidimensionali di pesi continui:
+\begin{equation}
+\vec{v}(q) \in \mathbb{R}^{|\mathcal{V}|}, \qquad \vec{v}(d) \in \mathbb{R}^{|\mathcal{V}|}.
+\end{equation}
 
-Sia la query $q$ sia il documento $d$ sono rappresentati come vettori multidimensionali:
-\begin{equation}
-\vec{v}(q) \in \mathbb{R}^{|V|}, \qquad \vec{v}(d) \in \mathbb{R}^{|V|}.
-\end{equation}
-
-\subsection{Sparsit\`a Estrema dei Vettori Reali}
-In contesti applicativi reali, la cardinalit\`a del vocabolario $|V|$ raggiunge facilmente l'ordine di $10^6$ vocaboli. Un tipico documento web contiene da qualche centinaio a poche migliaia di parole distinte:
-\begin{equation}
-\frac{|\{i \mid v_i(d) \ne 0\}|}{|V|} \le \frac{10^3}{10^6} = 0.001 = 0.1\%.
-\end{equation}
-Oltre il \textbf{99.9\%} delle coordinate di ciascun vettore documentale \`e identicamente pari a zero. Pertanto, la memorizzazione e le operazioni algebriche vengono implementate tramite strutture dati per vettori sparsi (\textit{sparse vectors}) e liste d'inversione (\textit{posting lists}).
+\begin{property}[Estrema Sparsit\`a Vettoriale]
+Nelle collezioni reali, la cardinalit\`a $|\mathcal{V}|$ raggiunge facilmente $10^6$ vocaboli. Un tipico documento Web contiene poche centinaia di parole distinte: oltre il $\mathbf{99.9\%}$ delle componenti del vettore \`e pari a zero. Sia la memorizzazione fisica sia i prodotti algebrici poggiano su strutture per vettori sparsi (\textit{sparse vectors}) e liste invertite (\textit{inverted index}).
+\end{property}
 
 \FloatBarrier
-\section{Perch\'e la Distanza Euclidea Fallisce: L'Esperimento di Duplicazione}
+\section{Come Rispondere a una Query nello Spazio Vettoriale: Distanza $L_2$ (Pro e Contro)}
 \label{sec:fallimento-distanza-euclidea}
 
-La misura geometrica pi\`u naturale per quantificare la prossimit\`a tra due vettori nello spazio euclideo \`e la distanza euclidea ($L_2$):
+La metrica geometrica pi\`u immediata per quantificare la prossimit\`a tra due vettori nello spazio cartesiano \`e la distanza euclidea ($L_2$):
 \begin{equation}
-\text{dist}_{L_2}(\vec{q}, \vec{d}) = \|\vec{q} - \vec{d}\|_2 = \sqrt{\sum_{i=1}^{|V|} (q_i - d_i)^2}.
+\text{dist}_{L_2}(\vec{q}, \vec{d}) = \|\vec{q} - \vec{d}\|_2 = \sqrt{\sum_{i=1}^{|\mathcal{V}|} (q_i - d_i)^2}.
 \end{equation}
 
-Tuttavia, tale metrica risulta inadatta per l'Information Retrieval a causa della sensibilit\`a alla lunghezza estrinseca del testo.
+\paragraph{Vantaggi e Svantaggi della Distanza Euclidea (Pros and Cons):}
+\begin{itemize}
+    \item \textbf{Vantaggi (Pros):} Metrica rigorosa e intuitiva nello spazio reale continuo; soddisfa tutte le propriet\`a di distanza metrica (disuguaglianza triangolare, simmetria, non negativit\`a).
+    \item \textbf{Svantaggi e Limiti Critici (Cons):} Risente fortemente della lunghezza assoluta del documento anzich\'e del suo contenuto semantico.
+\end{itemize}
 
-\subsection[L'Esperimento Mentale del Documento Concatenato]{L'Esperimento Mentale del Documento Concatenato ($d' = d \circ d$)}
-Si consideri un documento $d$ e se ne crei una replica concatenata a se stessa, denominata $d'$, in cui ogni enunciato \`e ripetuto due volte:
-\begin{enumerate}
-    \item \textbf{Contenuto Semantico:} $d'$ e $d$ sono identici sotto il profilo del contenuto informativo e della distribuzione tematica.
-    \item \textbf{Magnitudo del Vettore:} ogni frequenza locale raddoppia ($tf_{t, d'} = 2 \cdot tf_{t, d}$), provocando un raddoppio della norma del vettore ($\|\vec{d'}\|_2 \approx 2\|\vec{d}\|_2$).
-    \item \textbf{Esplosione della Distanza Euclidea:} la distanza euclidea tra la query $\vec{q}$ (tipicamente corta) e $\vec{d'}$ diviene notevolmente maggiore rispetto a quella tra $\vec{q}$ e $\vec{d}$:
-    \begin{equation}
-    \|\vec{q} - \vec{d'}\|_2 \gg \|\vec{q} - \vec{d}\|_2.
-    \end{equation}
-    Ordinando per distanza euclidea crescente, il documento pi\`u esaustivo $d'$ viene fortemente penalizzato.
-    \item \textbf{Direzione Angolare Immutata:} entrambi i vettori $\vec{d}$ e $\vec{d'}$ giacciono \textbf{esattamente sulla stessa semiretta} uscente dall'origine degli assi. L'angolo compreso $\theta$ tra di essi \`e rigorosamente pari a $0^\circ$.
-\end{enumerate}
+\FloatBarrier
+\subsection{L'Esperimento Mentale del Documento Concatenato ($d' = d \circ d$)}
+\label{subsec:esperimento-documento-concatenato}
+
+Si consideri un documento ideale $d$, rilevante rispetto alla query $q$. Si costruisca un documento duplicato $d'$ concatenando due copie integrali di $d$: $d' = d \circ d$.
+\begin{itemize}
+    \item Il profilo tematico, l'argomento e la densit\`a semantica di $d'$ sono \textbf{rigorosamente identici} a quelli di $d$;
+    \item Tuttavia, le frequenze raddoppiano: $\text{tf}_{t, d'} = 2 \cdot \text{tf}_{t, d}$, comportando approssimativamente il raddoppio delle coordinate: $\vec{v}(d') \approx 2 \cdot \vec{v}(d)$.
+\end{itemize}
 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[scale=1.1, >=Stealth]
-    % Assi coordinati
-    \draw[->, thick, gray!70!black] (0,0) -- (6.5,0) node[below] {\small Dimensione 1 ($t_1$)};
-    \draw[->, thick, gray!70!black] (0,0) -- (0,5.0) node[left] {\small Dimensione 2 ($t_2$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (6.8, 0) node[right, font=\small] {Termine 1 ($t_1$)};
+    \draw[->, thick, gray!70!black] (0,0) -- (0, 5.2) node[above, font=\small] {Termine 2 ($t_2$)};
 
-    % Semiretta dei documenti
-    \draw[dashed, blue!40!black] (0,0) -- (5.2, 4.16);
+    \draw[thick, navy, ->] (0,0) -- (2.0, 3.2) node[above left, font=\small\bfseries] {$\vec{q}$ (Query)};
+    \draw[thick, crimson, ->] (0,0) -- (5.0, 3.2) node[right, font=\small\bfseries] {$\vec{d}' = 2\vec{d}$ (Doc duplicato)};
+    \draw[very thick, darkgreen, ->] (0,0) -- (2.5, 1.6) node[below right=2pt, font=\small\bfseries] {$\vec{d}$ (Doc originale)};
 
-    % Vettore d
-    \draw[->, very thick, blue!80!black] (0,0) -- (2.5, 2.0) node[above left] {\small $\vec{d}$ (documento)};
-    % Vettore d' duplicato
-    \draw[->, very thick, teal!80!black] (0,0) -- (5.0, 4.0) node[above left] {\small $\vec{d'}$ (duplicato $d \circ d$)};
+    \draw[dashed, darkgreen!70!black, thick] (2.0, 3.2) -- (2.5, 1.6)
+        node[midway, left=2pt, font=\scriptsize, text=darkgreen!80!black] {$\|\vec{q} - \vec{d}\|_2$ (Piccola)};
 
-    % Vettore query q
-    \draw[->, very thick, red!80!black] (0,0) -- (4.0, 1.2) node[right] {\small $\vec{q}$ (query)};
+    \draw[dashed, crimson, thick] (2.0, 3.2) -- (5.0, 3.2)
+        node[midway, above=2pt, font=\scriptsize, text=crimson] {$\|\vec{q} - \vec{d}'\|_2$ (Elevata)};
 
-    % Angolo theta
-    \draw[orange!90!black, thick] (1.3, 1.04) arc[start angle=38.6, end angle=16.7, radius=1.65];
-    \node[orange!90!black] at (2.0, 0.75) {\small $\theta$};
-
-    % Linee di distanza euclidea
-    \draw[dotted, thick, gray!80!black] (4.0, 1.2) -- (2.5, 2.0) node[midway, left=2pt] {\scriptsize $\|\vec{q} - \vec{d}\|$};
-    \draw[dotted, thick, purple!80!black] (4.0, 1.2) -- (5.0, 4.0) node[midway, right=2pt] {\scriptsize $\|\vec{q} - \vec{d'}\|$ (molto maggiore)};
+    \draw[dotted, gray!60!black] (5.0, 3.2) -- (5.8, 3.71);
+    \node[below right=2pt, font=\scriptsize, text=black] at (4.2, 2.3) {Stessa direzione: $\theta_d = \theta_{d'}$};
 \end{tikzpicture}
-\caption{Fallimento della distanza euclidea: $d$ e $d'$ condividono la stessa direzione ($\theta = 0^\circ$), ma $d'$ ha distanza euclidea molto maggiore da $q$.}
+\caption{Fallimento della distanza euclidea nello Spazio Vettoriale: il documento duplicato $\vec{d}'$ giace sulla medesima retta di $\vec{d}$, ma la distanza euclidea da $\vec{q}$ cresce artificiosamente a causa della magnitudo.}
 \label{fig:vsm-euclidean-failure}
 \end{figure}
 
-\begin{noteblock}{Direzione vs. Magnitudo}
-La vicinanza tematica tra un testo e un bisogno informativo deve essere invariante rispetto alla prolissit\`a del testo. La rilevanza risiede nella \textbf{direzione angolare} dei vettori, non nella lunghezza delle frecce nello spazio.
-\end{noteblock}
+Come illustrato graficamente nella Figura~\ref{fig:vsm-euclidean-failure}:
+\begin{equation}
+\|\vec{q} - \vec{d}'\|_2 \gg \|\vec{q} - \vec{d}\|_2.
+\end{equation}
+La distanza euclidea penalizza ingiustamente il documento pi\`u esaustivo a causa della sua lunghezza fisica (magnitudo del vettore).
 
 \FloatBarrier
-\section[Dagli Angoli alla Cosine Similarity e Normalizzazione L2]{Dagli Angoli alla Cosine Similarity e Normalizzazione $L_2$}
+\section{Dagli Angoli alla Cosine Similarity e Normalizzazione L2}
 \label{sec:cosine-similarity-l2}
 
-Ordinare i documenti per angolo $\theta$ crescente (angolo piccolo $\implies$ alta affinit\`a tematica) equivale a ordinarli per \textbf{coseno decrescente} di $\theta$, poich\'e nell'intervallo $[0, \pi/2]$ la funzione coseno \`e strettamente decrescente:
-\begin{align}
-\theta = 0^\circ &\implies \cos(0^\circ) = 1 \quad \text{(massima affinit\`a, vettori collineari)}, \\
-\theta = 90^\circ &\implies \cos(90^\circ) = 0 \quad \text{(vettori ortogonali, nessun termine comune)}.
-\end{align}
-Poich\'e i pesi TF-IDF sono non negativi, lo spazio di ricerca \`e interamente confinato al primo iper-ottante positivo: $\cos(\theta) \in [0, 1]$.
-
-\subsection{Derivazione Analitica della Cosine Similarity}
-Dalla definizione geometrica del prodotto scalare (\textit{dot product}):
-\begin{equation}
-\vec{q} \cdot \vec{d} = \|\vec{q}\|_2 \|\vec{d}\|_2 \cos(\theta),
-\end{equation}
-dove la norma euclidea ($L_2$) \`e:
-\begin{equation}
-\|\vec{x}\|_2 = \sqrt{\sum_{i=1}^{|V|} x_i^2}.
-\end{equation}
-
-Esplicitando $\cos(\theta)$, si ottiene la formula cardine della \textbf{Cosine Similarity}:
-\begin{equation}
-\text{Sim}_{\cos}(\vec{q}, \vec{d}) = \cos(\theta) = \frac{\vec{q} \cdot \vec{d}}{\|\vec{q}\|_2 \|\vec{d}\|_2} = \frac{\sum_{t \in q \cap d} q_t d_t}{\sqrt{\sum_{t \in q} q_t^2} \, \sqrt{\sum_{t \in d} d_t^2}}.
-\end{equation}
-
-\subsection[Normalizzazione L2 e Proiezione sull'Ipersfera Unitaria]{Normalizzazione $L_2$ e Proiezione sull'Ipersfera Unitaria}
-Dividere un vettore per la propria norma euclidea equivale a proiettarlo sulla superficie dell'\textbf{ipersfera unitaria} multidimensionale:
-\begin{equation}
-\vec{v}_{\text{norm}} = \frac{\vec{v}}{\|\vec{v}\|_2} \implies \|\vec{v}_{\text{norm}}\|_2 = 1.
-\end{equation}
-Quando tutti i vettori sono preventivamente normalizzati a lunghezza unitaria, la similarit\`a coseno collassa in un banale prodotto scalare:
-\begin{equation}
-\cos(\vec{q}, \vec{d}) = \vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}} = \sum_{t \in q \cap d} q_{\text{norm}, t} \cdot d_{\text{norm}, t}.
-\end{equation}
-
-\subsection{Architettura di Calcolo: Disaccoppiamento Offline vs. Online}
+Poich\'e la magnitudo del vettore distorce la stima, l'intuizione geometrica fondamentale dell'IR consiste nel quantificare la pertinenza misurando \textbf{l'angolo $\theta$ compreso tra i vettori}, anzich\'e la loro distanza metrica:
 \begin{itemize}
-    \item \textbf{Fase Offline (Indicizzazione):} la norma $\|\vec{d}\|_2 = \sqrt{\sum_t d_t^2}$ dipende unicamente dal documento. Viene calcolata una sola volta per ciascun documento e memorizzata in una tabella d'accesso diretto (o nel doc-index).
-    \item \textbf{Fase Online (Query Processing):} all'arrivo della query $q$, si computa $\|\vec{q}\|_2$. Durante la scansione congiunta delle posting list, il motore accumula il prodotto scalare parziale sui soli termini condivisi $t \in q \cap d$ e normalizza il punteggio finale:
-    \begin{equation}
-    \text{Score}(q, d) = \frac{1}{\|\vec{q}\|_2} \sum_{t \in q \cap d} \frac{q_t d_t}{\|\vec{d}\|_2}.
-    \end{equation}
+    \item Il documento originale $\vec{d}$ e il duplicato $\vec{d}'$ possiedono esattamente la medesima direzione: formano con la query $\vec{q}$ lo stesso identico angolo $\theta$;
+    \item Pi\`u l'angolo si avvicina a $0^\circ$, pi\`u i vettori condividono le proporzioni lessicali;
+    \item Poich\'e il coseno decresce monotonicamente tra $0^\circ$ e $90^\circ$ (da $1$ a $0$), esso funge da metrica ideale di rilevanza.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Derivazione Analitica della Cosine Similarity}
+\label{subsec:derivazione-cosine-similarity}
+
+Dal teorema del prodotto scalare:
+\begin{equation}
+\vec{q} \cdot \vec{d} = \|\vec{q}\|_2 \cdot \|\vec{d}\|_2 \cdot \cos \theta,
+\end{equation}
+da cui si ricava la formula canonica della \textbf{Cosine Similarity}:
+\begin{equation}
+\text{Score}_{\text{cos}}(q, d) = \cos \theta = \frac{\vec{q} \cdot \vec{d}}{\|\vec{q}\|_2 \|\vec{d}\|_2} = \frac{\sum_{t \in q \cap d} w_{t, q} \cdot w_{t, d}}{\sqrt{\sum_{t \in q} w_{t, q}^2} \cdot \sqrt{\sum_{t \in d} w_{t, d}^2}}.
+\label{eq:cosine-similarity-def}
+\end{equation}
+
+\FloatBarrier
+\subsection{Normalizzazione $L_2$ e Proiezione sull'Ipersfera Unitaria}
+\label{subsec:normalizzazione-l2-ipersfera}
+
+La formula del coseno equivale al prodotto scalare tra vettori preventivamente riscalati a norma unitaria (\textbf{Normalizzazione $L_2$}):
+\begin{equation}
+\vec{v}_{\text{norm}} = \frac{\vec{v}}{\|\vec{v}\|_2} = \frac{\vec{v}}{\sqrt{\sum_i v_i^2}} \implies \|\vec{v}_{\text{norm}}\|_2 = 1.
+\end{equation}
+Sotto il profilo geometrico, la normalizzazione proietta ogni punto sulla superficie dell'ipersfera unitaria a $|\mathcal{V}|$ dimensioni, azzerando le differenze dovute alla lunghezza fisica dei testi.
+
+\FloatBarrier
+\subsection{Architettura di Calcolo: Disaccoppiamento Offline vs. Online}
+\label{subsec:disaccoppiamento-calcolo-coseno}
+
+Nei motori in produzione, il denominatore della formula~\eqref{eq:cosine-similarity-def} non viene ricalcolato a runtime:
+\begin{itemize}
+    \item \textbf{Fase Offline (Indicizzazione):} Per ogni documento $d$, la norma $\|\vec{d}\|_2$ (o i vettori gi\`a normalizzati) viene calcolata una sola volta e memorizzata nell'indice;
+    \item \textbf{Fase Online (Query Processing):} All'arrivo della query, il sistema calcola la norma della sola query $\|\vec{q}\|_2$ ed esegue il prodotto scalare rapido $\vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}}$ unicamente sui documenti che condividono termini con $q$.
 \end{itemize}
 
 \FloatBarrier
 \section{Esercizio Pratico Completo: Confronto Stilistico tra Tre Romanzi}
 \label{sec:esercizio-tre-romanzi}
 
-Il docente ha guidato l'analisi comparativa tra tre capolavori della letteratura inglese:
-\begin{enumerate}
-    \item \textbf{SaS:} \textit{Sense and Sensibility} (Jane Austen, 1811)
-    \item \textbf{PaP:} \textit{Pride and Prejudice} (Jane Austen, 1813)
-    \item \textbf{WH:} \textit{Wuthering Heights} (Emily Bront\"e, 1847)
-\end{enumerate}
-L'obiettivo \`e verificare se la geometria del VSM riconosca una vicinanza stilistica superiore tra le due opere della medesima autrice rispetto all'opera di un'autrice differente.
-
-\subsection{Passo 1: Matrice dei Conteggi Grezzi ($tf$)}
+Per osservare il funzionamento completo del modello su dati reali, si consideri l'analisi didattica di Manning et al.~\cite{manning2008} su tre celebri capolavori della letteratura inglese:
+\begin{itemize}
+    \item $D_1$: \textit{Sense and Sensibility} (Jane Austen, 1811);
+    \item $D_2$: \textit{Pride and Prejudice} (Jane Austen, 1813);
+    \item $D_3$: \textit{Wuthering Heights} (Emily Bront\"e, 1847);
+\end{itemize}
+focalizzata su tre termini-chiave del vocabolario: \texttt{affection}, \texttt{jealous} e \texttt{gossip}.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{l ccc}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrr}
 \toprule
-\textbf{Termine} & \textbf{SaS ($d_1$)} & \textbf{PaP ($d_2$)} & \textbf{WH ($d_3$)} \\
+\textbf{Termine} & \textbf{$D_1$ (Sense \& Sensibility)} & \textbf{$D_2$ (Pride \& Prejudice)} & \textbf{$D_3$ (Wuthering Heights)} \\
 \midrule
-\textbf{affection} & 115 & 58 & 20 \\
-\textbf{jealous}   & 10  & 7  & 11 \\
-\textbf{gossip}    & 2   & 0  & 6  \\
-\textbf{wuthering} & 0   & 0  & 38 \\
+\texttt{affection} & 115 & 58 & 20 \\
+\texttt{jealous}   & 10  & 7  & 11 \\
+\texttt{gossip}    & 2   & 0  & 6  \\
 \bottomrule
-\end{tabular}
-\caption{Frequenze grezze dei termini nei tre romanzi.}
+\end{tabular}%
+}
+\caption{Frequenze grezze assolute ($\text{tf}_{\text{raw}}$) nei tre romanzi.}
 \label{tab:novels-raw}
 \end{table}
 
-\subsection{Passo 2: Ponderazione Log-TF ($1 + \log_{10}(tf)$)}
-Applicando la trasformazione sublineare $w = 1 + \log_{10}(tf)$ se $tf > 0$, e $0$ altrimenti:
+\paragraph{Passo 1: Ponderazione Log-TF ($1 + \log_{10}(tf)$):}
 \begin{itemize}
-    \item \textbf{SaS:}
-    \begin{itemize}
-        \item affection: $1 + \log_{10}(115) \approx 1 + 2.0607 = 3.06$
-        \item jealous: $1 + \log_{10}(10) = 1 + 1.0 = 2.00$
-        \item gossip: $1 + \log_{10}(2) \approx 1 + 0.3010 = 1.30$
-        \item wuthering: $0.00$
-    \end{itemize}
-    \item \textbf{PaP:}
-    \begin{itemize}
-        \item affection: $1 + \log_{10}(58) \approx 1 + 1.7634 = 2.76$
-        \item jealous: $1 + \log_{10}(7) \approx 1 + 0.8451 = 1.85$
-        \item gossip: $0.00$
-        \item wuthering: $0.00$
-    \end{itemize}
-    \item \textbf{WH:}
-    \begin{itemize}
-        \item affection: $1 + \log_{10}(20) \approx 1 + 1.3010 = 2.30$
-        \item jealous: $1 + \log_{10}(11) \approx 1 + 1.0414 = 2.04$
-        \item gossip: $1 + \log_{10}(6) \approx 1 + 0.7782 = 1.78$
-        \item wuthering: $1 + \log_{10}(38) \approx 1 + 1.5798 = 2.58$
-    \end{itemize}
+    \item \textit{Sense and Sensibility ($D_1$):}
+    \begin{align*}
+    w_{\texttt{affection}, D_1} &= 1 + \log_{10}(115) \approx 1 + 2.0607 = \mathbf{3.06}, \\
+    w_{\texttt{jealous}, D_1}   &= 1 + \log_{10}(10) = 1 + 1.0000 = \mathbf{2.00}, \\
+    w_{\texttt{gossip}, D_1}    &= 1 + \log_{10}(2) \approx 1 + 0.3010 = \mathbf{1.30}.
+    \end{align*}
+    \item \textit{Pride and Prejudice ($D_2$):}
+    \begin{align*}
+    w_{\texttt{affection}, D_2} &= 1 + \log_{10}(58) \approx 1 + 1.7634 = \mathbf{2.76}, \\
+    w_{\texttt{jealous}, D_2}   &= 1 + \log_{10}(7) \approx 1 + 0.8451 = \mathbf{1.85}, \\
+    w_{\texttt{gossip}, D_2}    &= \mathbf{0.00}.
+    \end{align*}
+    \item \textit{Wuthering Heights ($D_3$):}
+    \begin{align*}
+    w_{\texttt{affection}, D_3} &= 1 + \log_{10}(20) \approx 1 + 1.3010 = \mathbf{2.30}, \\
+    w_{\texttt{jealous}, D_3}   &= 1 + \log_{10}(11) \approx 1 + 1.0414 = \mathbf{2.04}, \\
+    w_{\texttt{gossip}, D_3}    &= 1 + \log_{10}(6) \approx 1 + 0.7782 = \mathbf{1.78}.
+    \end{align*}
 \end{itemize}
 
-\subsection{Passo 3: Calcolo delle Norme Euclidee e Vettori Unitari}
-Calcolo delle norme $L_2$:
+\paragraph{Passo 2: Calcolo delle Norme Euclidee $L_2$:}
 \begin{align}
-\|\vec{v}_{\text{SaS}}\|_2 &= \sqrt{3.06^2 + 2.00^2 + 1.30^2 + 0^2} = \sqrt{15.0536} \approx \mathbf{3.88}, \\
-\|\vec{v}_{\text{PaP}}\|_2 &= \sqrt{2.76^2 + 1.85^2 + 0^2 + 0^2} = \sqrt{11.0401} \approx \mathbf{3.32}, \\
-\|\vec{v}_{\text{WH}}\|_2  &= \sqrt{2.30^2 + 2.04^2 + 1.78^2 + 2.58^2} = \sqrt{19.2764} \approx \mathbf{4.39}.
+\|\vec{d}_1\|_2 &= \sqrt{3.06^2 + 2.00^2 + 1.30^2} \nonumber \\
+                &= \sqrt{9.3636 + 4.0000 + 1.6900} = \sqrt{15.0536} \approx \mathbf{3.88}, \\
+\|\vec{d}_2\|_2 &= \sqrt{2.76^2 + 1.85^2 + 0.00^2} \nonumber \\
+                &= \sqrt{7.6176 + 3.4225 + 0.0000} = \sqrt{11.0401} \approx \mathbf{3.32}, \\
+\|\vec{d}_3\|_2 &= \sqrt{2.30^2 + 2.04^2 + 1.78^2} \nonumber \\
+                &= \sqrt{5.2900 + 4.1616 + 3.1684} = \sqrt{12.6200} \approx \mathbf{3.55}.
 \end{align}
 
-Dividendo ciascuna colonna per la relativa norma, si ottengono i vettori unitari normalizzati:
+Dividendo ciascuna coordinata per la rispettiva norma si ricavano i vettori normalizzati:
 
 \begin{table}[H]
 \centering
-\begin{tabular}{l ccc}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrr}
 \toprule
-\textbf{Termine} & \textbf{SaS ($\vec{v} / 3.88$)} & \textbf{PaP ($\vec{v} / 3.32$)} & \textbf{WH ($\vec{v} / 4.39$)} \\
+\textbf{Termine} & \textbf{$D_1$ (Sense \& Sensibility)} & \textbf{$D_2$ (Pride \& Prejudice)} & \textbf{$D_3$ (Wuthering Heights)} \\
 \midrule
-\textbf{affection} & $3.06 / 3.88 \approx \mathbf{0.789}$ & $2.76 / 3.32 \approx \mathbf{0.832}$ & $2.30 / 4.39 \approx \mathbf{0.524}$ \\
-\textbf{jealous}   & $2.00 / 3.88 \approx \mathbf{0.515}$ & $1.85 / 3.32 \approx \mathbf{0.555}$ & $2.04 / 4.39 \approx \mathbf{0.465}$ \\
-\textbf{gossip}    & $1.30 / 3.88 \approx \mathbf{0.335}$ & $0.00 / 3.32 = \mathbf{0.000}$       & $1.78 / 4.39 \approx \mathbf{0.405}$ \\
-\textbf{wuthering} & $0.00 / 3.88 = \mathbf{0.000}$       & $0.00 / 3.32 = \mathbf{0.000}$       & $2.58 / 4.39 \approx \mathbf{0.588}$ \\
+\texttt{affection} & $3.06 / 3.88 = \mathbf{0.789}$ & $2.76 / 3.32 = \mathbf{0.831}$ & $2.30 / 3.55 = \mathbf{0.648}$ \\
+\texttt{jealous}   & $2.00 / 3.88 = \mathbf{0.515}$ & $1.85 / 3.32 = \mathbf{0.557}$ & $2.04 / 3.55 = \mathbf{0.575}$ \\
+\texttt{gossip}    & $1.30 / 3.88 = \mathbf{0.335}$ & $0.00 / 3.32 = \mathbf{0.000}$ & $1.78 / 3.55 = \mathbf{0.501}$ \\
 \bottomrule
-\end{tabular}
-\caption{Vettori di documento normalizzati a norma euclidea unitaria ($L_2$).}
+\end{tabular}%
+}
+\caption{Vettori di peso normalizzati con norma euclidea unitaria ($\|\vec{v}_{\text{norm}}\|_2 = 1$).}
 \label{tab:novels-normalized}
 \end{table}
 
-\subsection{Passo 4: Calcolo delle Similarit\`a Coseno}
+\paragraph{Passo 3: Similarit\`a Coseno tra le Opere:}
 \begin{align}
-\cos(\text{SaS}, \text{PaP}) &= (0.789 \cdot 0.832) + (0.515 \cdot 0.555) \approx \mathbf{0.94}, \\[0.2cm]
-\cos(\text{SaS}, \text{WH})  &= (0.789 \cdot 0.524) + (0.515 \cdot 0.465) + (0.335 \cdot 0.405) \approx \mathbf{0.79}, \\[0.2cm]
-\cos(\text{PaP}, \text{WH})  &= (0.832 \cdot 0.524) + (0.555 \cdot 0.465) \approx \mathbf{0.69}.
+\cos(D_1, D_2) &= (0.789 \cdot 0.831) + (0.515 \cdot 0.557) + (0.335 \cdot 0.000) \nonumber \\
+               &= 0.6557 + 0.2869 + 0 = \mathbf{0.9426} \approx \mathbf{0.94}, \\[0.2cm]
+\cos(D_1, D_3) &= (0.789 \cdot 0.648) + (0.515 \cdot 0.575) + (0.335 \cdot 0.501) \nonumber \\
+               &= 0.5113 + 0.2961 + 0.1678 = \mathbf{0.9752} \approx \mathbf{0.97}, \\[0.2cm]
+\cos(D_2, D_3) &= (0.831 \cdot 0.648) + (0.557 \cdot 0.575) + (0.000 \cdot 0.501) \nonumber \\
+               &= 0.5385 + 0.3203 + 0 = \mathbf{0.8588} \approx \mathbf{0.86}.
 \end{align}
-
-\begin{noteblock}{Interpretazione dei Risultati}
-\begin{equation}
-\cos(\text{SaS}, \text{PaP}) \approx 0.94 > \cos(\text{SaS}, \text{WH}) \approx 0.79 > \cos(\text{PaP}, \text{WH}) \approx 0.69.
-\end{equation}
-La Cosine Similarity rileva correttamente che le due opere di Jane Austen condividono un'affinit\`a lessicale molto elevata ($94\%$), nettamente superiore rispetto all'opera di Emily Bront\"e.
-\end{noteblock}
+I risultati confermano la straordinaria affinit\`a stilistica dei romanzi di Jane Austen ($\cos \approx 0.94$), differenziandoli chiaramente dalla drammaticit\`a gotica di Emily Bront\"e.
 
 \FloatBarrier
 \section{Varianti di Ponderazione e la Notazione SMART}
 \label{sec:notazione-smart}
 
-Per catalogare sistematicamente le decine di combinazioni possibili nella ponderazione vettoriale, Gerard Salton e i progettisti del sistema SMART hanno introdotto una convenzione mnemonica a due terne di caratteri:
+Nei sistemi applicativi, le componenti di Term Frequency ($t$), Document Frequency ($d$) e Normalizzazione ($n$) ammettono molteplici varianti algebriche, codificate nello standard \textbf{SMART} (Gerard Salton, Cornell University):
 \begin{equation}
-\text{Schema SMART} \implies ddd.qqq,
+\textbf{ddd.qqq}
 \end{equation}
-in cui la prima terna $ddd$ specifica la pesatura del documento e la seconda terna $qqq$ quella della query.
+dove i primi tre caratteri descrivono la pesatura del \textbf{documento} e gli ultimi tre quella della \textbf{query}.
 
 \begin{table}[H]
 \centering
-\resizebox{\linewidth}{!}{%
+\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{l l l l l l}
 \toprule
-\multicolumn{2}{c}{\textbf{Term Frequency ($tf$)}} & \multicolumn{2}{c}{\textbf{Document Frequency ($df$)}} & \multicolumn{2}{c}{\textbf{Normalizzazione}} \\
+\multicolumn{2}{c}{\textbf{Term Frequency ($t$)}} & \multicolumn{2}{c}{\textbf{Document Frequency ($d$)}} & \multicolumn{2}{c}{\textbf{Normalizzazione ($n$)}} \\
 \midrule
-\texttt{n} & $tf$ (natural) & \texttt{n} & $1$ (nessun idf) & \texttt{n} & Nessuna ($1$) \\
-\addlinespace
-\texttt{l} & $1 + \log_{10}(tf)$ & \texttt{t} & $\log_{10}(N / df)$ & \texttt{c} & Coseno ($1 / \|\vec{w}\|_2$) \\
-\addlinespace
-\texttt{a} & $0.5 + 0.5 \frac{tf}{\max(tf)}$ & \texttt{p} & $\max\left(0, \log \frac{N - df}{df}\right)$ & \texttt{u} & Pivoted unique \\
-\addlinespace
-\texttt{b} & $1$ se $tf>0$, altr. $0$ & & & \texttt{b} & Byte size ($1 / \text{len}^\alpha$) \\
+\texttt{n} (none)   & $\text{tf}$ & \texttt{n} (none) & $1$ & \texttt{n} (none) & $1$ \\
+\texttt{l} (log)    & $1 + \ln(\text{tf})$ & \texttt{t} (idf)  & $\ln(N/df)$ & \texttt{c} (cosine) & $1 / \sqrt{\sum w_i^2}$ \\
+\texttt{a} (aug)    & $0.5 + \frac{0.5 \text{tf}}{\max(\text{tf})}$ & \texttt{p} (prob) & $\max(0, \ln\frac{N-df}{df})$ & \texttt{u} (pivoted) & $1 / (u + a \cdot \text{len})$ \\
+\texttt{b} (bool)   & $\mathbb{I}(\text{tf} > 0)$ & & & \texttt{b} (byte) & $1 / \text{char\_len}^\alpha$ \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Tassonomia delle componenti di ponderazione nella notazione SMART.}
+\caption{Tassonomia delle varianti di ponderazione nella notazione SMART~\cite{manning2008}.}
 \label{tab:smart-taxonomy}
 \end{table}
 
-\subsection{Lo Schema Industriale Standard: \texttt{lnc.ltc}}
-Una delle configurazioni pi\`u accreditate ed efficaci \`e la combinazione asimmetrica \textbf{\texttt{lnc.ltc}}:
+\paragraph{Il Protocollo Industriale Standard: \texttt{lnc.ltc}.}
+Nella configurazione standard:
 \begin{itemize}
-    \item \textbf{Per il Documento (\texttt{lnc}):}
-    \begin{itemize}
-        \item \texttt{l}: Term Frequency logaritmica ($1 + \log_{10} tf$).
-        \item \texttt{n}: Nessun fattore IDF applicato al documento.
-        \item \texttt{c}: Normalizzazione coseno ($L_2$).
-    \end{itemize}
-    \item \textbf{Per la Query (\texttt{ltc}):}
-    \begin{itemize}
-        \item \texttt{l}: Term Frequency logaritmica ($1 + \log_{10} tf$).
-        \item \texttt{t}: Fattore IDF classico $\log_{10}(N / df)$.
-        \item \texttt{c}: Normalizzazione coseno ($L_2$).
-    \end{itemize}
+    \item \textbf{Documento (\texttt{lnc}):} Log-TF (\texttt{l}), nessuna IDF (\texttt{n}, poich\'e l'IDF del termine \`e identica per tutti i documenti e risulterebbe ridondante moltiplicarla due volte), normalizzazione coseno (\texttt{c});
+    \item \textbf{Query (\texttt{ltc}):} Log-TF (\texttt{l}), IDF inclusa (\texttt{t}), normalizzazione coseno (\texttt{c}).
 \end{itemize}
 
-\begin{noteblock}{Razionale Architetturale dell'Asimmetria}
-Non applicare l'IDF al documento (\texttt{n}) evita di alterare l'indice invertito globale con pesi che dipendono da corpus statici e previene penalizzazioni distorsive all'interno di testi ampi. Il compito di discriminare la specificit\`a informativa dei termini cercati viene interamente delegato alla query (\texttt{t}).
-\end{noteblock}
+\FloatBarrier
+\subsection{Esercizio Numerico Completo: Configurazione \texttt{lnc.ltc}}
+\label{subsec:esercizio-lnc-ltc}
 
-\subsection{Esercizio Numerico Completo \texttt{lnc.ltc} Svolto a Lezione}
-
-\paragraph{Dati di configurazione:}
+Si analizzi il seguente esercizio applicativo:
 \begin{itemize}
-    \item \textbf{Documento:} \textit{``car insurance auto insurance''}
-    \item \textbf{Query:} \textit{``best car insurance''}
+    \item \textbf{Documento $d$:} \textit{``car insurance auto insurance''}
+    \item \textbf{Query $q$:} \textit{``best car insurance''}
     \item $N = 1\,000\,000$. Frequenze documentali:
     \begin{itemize}
         \item \texttt{auto}: $df = 5\,000 \implies idf = \log_{10}(10^6 / 5000) = \log_{10}(200) \approx 2.3$
@@ -290,14 +491,16 @@ Non applicare l'IDF al documento (\texttt{n}) evita di alterare l'indice inverti
     \end{itemize}
 \end{itemize}
 
-\subsubsection{Passo 1: Elaborazione del Vettore Query (\texttt{ltc})}
+\paragraph{Passo 1: Elaborazione del Vettore Query (\texttt{ltc}).}
+La Tabella~\ref{tab:query-ltc} riporta il calcolo del vettore di query pesato e normalizzato:
 
 \begin{table}[H]
 \centering
+\small
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{l cccccc}
 \toprule
-\textbf{Termine} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$df$} & \textbf{$idf$} & \textbf{Peso non norm.} & \textbf{Peso norm. ($w / \|\vec{q}\|$)} \\
+\textbf{Termine} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$df$} & \textbf{$idf$} & \textbf{Peso grezzo ($tf \cdot idf$)} & \textbf{Peso norm. ($w / \|\vec{q}\|$)} \\
 \midrule
 \textbf{auto}      & 0 & 0.0 & $5\,000$  & 2.3 & $0.0 \times 2.3 = 0.0$ & \textbf{0.00} \\
 \textbf{best}      & 1 & 1.0 & $50\,000$ & 1.3 & $1.0 \times 1.3 = 1.3$ & $1.3 / 3.84 \approx \mathbf{0.34}$ \\
@@ -306,23 +509,25 @@ Non applicare l'IDF al documento (\texttt{n}) evita di alterare l'indice inverti
 \bottomrule
 \end{tabular}%
 }
-\caption{Calcolo del vettore di query secondo lo schema \texttt{ltc}.}
+\caption{Computazione del vettore di query secondo lo schema \texttt{ltc}.}
 \label{tab:query-ltc}
 \end{table}
 
 Norma euclidea del vettore query:
 \begin{equation}
-\|\vec{q}\|_2 = \sqrt{0^2 + 1.3^2 + 2.0^2 + 3.0^2} = \sqrt{0 + 1.69 + 4.0 + 9.0} = \sqrt{14.69} \approx \mathbf{3.84}.
+\|\vec{q}\|_2 = \sqrt{0^2 + 1.3^2 + 2.0^2 + 3.0^2} = \sqrt{1.69 + 4.0 + 9.0} = \sqrt{14.69} \approx \mathbf{3.84}.
 \end{equation}
 
-\subsubsection{Passo 2: Elaborazione del Vettore Documento (\texttt{lnc})}
+\paragraph{Passo 2: Elaborazione del Vettore Documento (\texttt{lnc}).}
+La Tabella~\ref{tab:doc-lnc} riporta il calcolo del vettore documentale (senza fattore IDF):
 
 \begin{table}[H]
 \centering
+\small
 \resizebox{0.92\linewidth}{!}{%
 \begin{tabular}{l ccccc}
 \toprule
-\textbf{Termine} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$idf$ (nullo per \texttt{n})} & \textbf{Peso non norm.} & \textbf{Peso norm. ($w / \|\vec{d}\|$)} \\
+\textbf{Termine} & \textbf{$tf$ raw} & \textbf{$tf$-wt ($1+\log tf$)} & \textbf{$idf$ (omesso per \texttt{n})} & \textbf{Peso grezzo} & \textbf{Peso norm. ($w / \|\vec{d}\|$)} \\
 \midrule
 \textbf{auto}      & 1 & 1.0 & --- & 1.0 & $1.0 / 1.92 \approx \mathbf{0.52}$ \\
 \textbf{best}      & 0 & 0.0 & --- & 0.0 & \textbf{0.00} \\
@@ -331,7 +536,7 @@ Norma euclidea del vettore query:
 \bottomrule
 \end{tabular}%
 }
-\caption{Calcolo del vettore di documento secondo lo schema \texttt{lnc}.}
+\caption{Computazione del vettore di documento secondo lo schema \texttt{lnc}.}
 \label{tab:doc-lnc}
 \end{table}
 
@@ -340,12 +545,12 @@ Norma euclidea del vettore documento:
 \|\vec{d}\|_2 = \sqrt{1.0^2 + 0^2 + 1.0^2 + 1.30^2} = \sqrt{1.0 + 0 + 1.0 + 1.69} = \sqrt{3.69} \approx \mathbf{1.92}.
 \end{equation}
 
-\subsubsection{Passo 3: Calcolo del Punteggio Finale di Ranking}
-Il punteggio \`e il prodotto scalare tra i vettori normalizzati:
+\paragraph{Passo 3: Calcolo del Punteggio Finale di Ranking.}
+Il punteggio di similarit\`a \`e dato dal prodotto scalare tra i due vettori normalizzati:
 \begin{align}
 \text{Score}(q, d) &= \vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}} \nonumber \\
                    &= (0.00 \cdot 0.52) + (0.34 \cdot 0.00) + (0.52 \cdot 0.52) + (0.78 \cdot 0.68) \nonumber \\
-                   &= 0 + 0 + 0.2704 + 0.5304 \approx \mathbf{0.80}.
+                   &= 0 + 0 + 0.2704 + 0.5304 = \mathbf{0.8008} \approx \mathbf{0.80}.
 \end{align}
 
 \FloatBarrier
@@ -354,7 +559,7 @@ Il punteggio \`e il prodotto scalare tra i vettori normalizzati:
 
 \begin{enumerate}
     \item \textbf{Perch\'e il coefficiente di Jaccard assegna talvolta un punteggio superiore a documenti meno pertinenti?}
-    Opera su insiemi puri, trascurando la frequenza locale dei termini ($tf$) e la rarit\`a globale nella collezione ($idf$). Inoltre penalizza eccessivamente i documenti lunghi a causa dell'espansione dell'unione al denominatore.
+    Opera su insiemi puri, trascurando la frequenza locale dei termini ($tf$) e la rarit\`a globale nella collezione ($idf$). Inoltre penalizza eccessivamente i documenti lunghi ed esaustivi a causa dell'espansione dell'unione al denominatore.
     \item \textbf{Perch\'e non si adotta la distanza euclidea nello Spazio Vettoriale per ordinare i documenti?}
     La distanza euclidea risente della magnitudo: un documento duplicato con identico contenuto ha una norma doppia, risultando geometricamente lontanissimo dalla query pur avendo angolo zero ($\theta = 0^\circ$).
     \item \textbf{Che cosa rappresenta geometricamente la normalizzazione $L_2$?}
@@ -364,143 +569,80 @@ Il punteggio \`e il prodotto scalare tra i vettori normalizzati:
 \end{enumerate}
 
 \FloatBarrier
-\section{Best Match 25 (Okapi BM25)}
-\label{sec:bm25-deep}
-
-Sviluppato negli anni '80 e '90 da Stephen Robertson e Karen Sp\"arck Jones all'interno del sistema sperimentale Okapi presso la City University di Londra, \textbf{BM25} (\textit{Best Match 25}) \`e una funzione di ranking non-lineare basata sul modello probabilistico di reperimento. Costituisce tuttora la baseline di riferimento pi\`u solida e performante per il reperimento lessicale primario (\textit{first-stage retrieval}) nei motori di ricerca industriali.
-
-\subsection{Formulazione Matematica di BM25}
-
-Dato un documento $D$ e una query a testo libero $Q = \{q_1, q_2, \dots, q_n\}$, il punteggio BM25 \`e:
-\begin{equation}
-\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^{n} \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \dfrac{|D|}{\text{avgdl}}\right)},
-\label{eq:bm25-full}
-\end{equation}
-dove l'IDF probabilistico di Robertson-Sp\"arck Jones \`e formulato come:
-\begin{equation}
-\text{IDF}(q_i) = \ln\left( \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5} + 1 \right),
-\end{equation}
-con le seguenti variabili operative:
-\begin{itemize}
-    \item $N$: numero totale di documenti nell'intera collezione $\mathcal{D}$,
-    \item $n(q_i)$: numero di documenti contenenti il termine di query $q_i$ (equivalente a $df_{q_i}$),
-    \item $f(q_i, D)$: frequenza grezza del termine $q_i$ nel documento $D$ (pari a $\text{tf}_{q_i, D}$),
-    \item $|D|$: lunghezza complessiva del documento misurata in numero di token,
-    \item $\text{avgdl}$: lunghezza media dei documenti nell'intera collezione (\textit{average document length}).
-\end{itemize}
-
-\subsection{Ruolo e Calibrazione degli Iperparametri}
-
-\begin{figure}[H]
-\centering
-\resizebox{0.82\linewidth}{!}{%
-\begin{tikzpicture}[scale=1.1, >=Stealth]
-    % Assi
-    \draw[->, thick, gray!70!black] (0,0) -- (8.5, 0) node[below] {\small Term Frequency ($f(q_i, D)$)};
-    \draw[->, thick, gray!70!black] (0,0) -- (0, 4.2) node[left] {\small Term Weight};
-
-    % TF Lineare
-    \draw[dashed, blue!70!black, thick] (0,0) -- (6.5, 3.8) node[above right] {\footnotesize TF Lineare (senza limiti)};
-
-    % Log-TF
-    \draw[domain=0.1:8.0, smooth, variable=\x, orange!80!black, thick] 
-        plot ({\x}, {0.8 + 0.9*ln(\x)}) node[right] {\footnotesize Log-TF: $1 + \log(tf)$};
-
-    % BM25 TF Curve (k1=1.5, saturazione a k1+1 = 2.5)
-    \draw[domain=0.0:8.0, smooth, variable=\x, red!85!black, very thick] 
-        plot ({\x}, {(\x * 2.5) / (\x + 1.5)}) node[right] {\footnotesize BM25: saturazione a $k_1 + 1$};
-
-    % Asintoto orizzontale
-    \draw[dotted, gray!60!black, thick] (0, 2.5) -- (8.0, 2.5) node[above left, font=\scriptsize] {Asintoto: $k_1 + 1$};
-\end{tikzpicture}%
-}
-\caption{Confronto qualitativo tra crescita del TF lineare, TF logaritmico e saturazione asintotica in BM25.}
-\label{fig:bm25-saturation-curve}
-\end{figure}
-
-\begin{enumerate}
-    \item \textbf{Parametro $k_1 \in [1.2, 2.0]$ (Saturazione della frequenza):}
-    Controlla la rapidit\`a con cui il contributo della Term Frequency converge asintoticamente al proprio limite superiore. Al tendere della frequenza locale all'infinito:
-    \begin{equation}
-    \lim_{f(q_i, D) \to \infty} \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + \dots} = k_1 + 1.
-    \end{equation}
-    A differenza del modello TF-IDF classico in cui il peso continua a salire indefinitamente, in BM25 il contributo informativo di un singolo termine \`e rigorosamente limitato superiormente da $k_1 + 1$. 
-    \textit{Caso limite:} se $k_1 = 0$, la componente di frequenza si annulla e il modello degenera in un ranking puramente binario basato unicamente su presenza/assenza e IDF.
-    
-    \item \textbf{Parametro $b \in [0, 1]$ (Penalizzazione della lunghezza documentale):}
-    Regola l'incidenza della lunghezza del documento rispetto alla media della collezione:
-    \begin{equation}
-    B = \left(1 - b + b \cdot \frac{|D|}{\text{avgdl}}\right).
-    \end{equation}
-    \begin{itemize}
-        \item Se $b = 1$, la normalizzazione \`e totale: un documento lungo il doppio rispetto alla media deve presentare il doppio delle occorrenze del termine per vedersi riconosciuto lo stesso score.
-        \item Se $b = 0$, la normalizzazione \`e disattivata ($B = 1$ costante): la lunghezza del documento viene totalmente ignorata.
-        \item Valore standard consigliato in letteratura: $b \approx 0.75$.
-    \end{itemize}
-\end{enumerate}
-
-\begin{noteblock}{Valutazione di BM25 su Larga Scala}
-La formula di Okapi BM25 definisce la funzione analitica di scoring per ciascuna coppia query--documento. Tuttavia, nei moderni motori di ricerca con miliardi di documenti, la valutazione non pu\`o avvenire scansionando l'intera collezione. L'esecuzione ottimizzata di BM25 tramite liste invertite e gli algoritmi di query processing (\textit{Term-at-a-Time} e \textit{Document-at-a-Time} con tecniche di pruning dinamico come WAND) vengono trattati in dettaglio nel Capitolo~\ref{chap:indicizzazione-query-processing}.
-\end{noteblock}
-
-\FloatBarrier
-\section{Mappa Concettuale Riassuntiva}
+\section{Mappa Concettuale Riassuntiva e Verso il Query Processing}
 \label{sec:mappa-concettuale-vsm}
 
-La Figura~\ref{fig:nlp-vsm-workflow} offre una visione d'insieme del flusso completo di elaborazione: dall'acquisizione della risorsa web grezza fino alle funzioni di scoring vettoriale e probabilistico.
+La Figura~\ref{fig:nlp-vsm-workflow} offre una visione sinottica dell'intero flusso di trasformazione: dall'acquisizione della risorsa Web grezza fino alla rappresentazione vettoriale e al calcolo della similarit\`a cosenica.
 
 \begin{figure}[H]
 \centering
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     node distance=0.8cm and 1.2cm,
-    raw/.style={rectangle, rounded corners=3pt, draw=gray!70!black, fill=gray!8,
-                thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
-    stepb/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!6,
-                  thick, font=\small, minimum width=4.5cm, minimum height=0.7cm, align=center},
-    splitb/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!6,
-                   thick, font=\footnotesize, minimum width=3.5cm, minimum height=0.7cm, align=center},
-    modelb/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!8,
-                   thick, font=\small\bfseries, minimum width=4.5cm, minimum height=0.7cm, align=center},
-    finalb/.style={rectangle, rounded corners=3pt, draw=red!70!black, fill=red!6,
-                   thick, font=\footnotesize, minimum width=4.8cm, minimum height=0.8cm, align=center},
-    arr/.style={-Stealth, thick, gray!80!black}
+    raw/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground,
+                thick, font=\small\bfseries, minimum width=5.0cm, minimum height=0.75cm, align=center},
+    stepb/.style={rectangle, rounded corners=4pt, draw=navy!85!black, fill=codebackground,
+                  thick, font=\small, minimum width=5.0cm, minimum height=0.75cm, align=center},
+    splitb/.style={rectangle, rounded corners=4pt, draw=darkgreen, fill=darkgreen!10,
+                   thick, font=\footnotesize, minimum width=3.8cm, minimum height=0.8cm, align=center},
+    modelb/.style={rectangle, rounded corners=4pt, draw=navy, fill=navy!12,
+                   thick, font=\small\bfseries, minimum width=5.6cm, minimum height=0.8cm, align=center},
+    finalb/.style={rectangle, rounded corners=4pt, draw=crimson, fill=crimson!10,
+                   thick, font=\footnotesize, minimum width=5.2cm, minimum height=0.9cm, align=center},
+    arr/.style={-Stealth, thick, navy}
 ]
     \node[raw] (raw) {Testo Web Grezzo};
     \node[stepb, below=of raw] (parse) {Testo Estratto\\{\scriptsize urllib + BeautifulSoup (rimozione markup)}};
     \node[stepb, below=of parse] (prep) {Pulizia e Segmentazione\\{\scriptsize Tokenization · Stopword Filtering · Sentence Splitting}};
 
     \node[splitb, below left=0.8cm and -0.8cm of prep] (stem) {\textbf{Stemming (Porter)}\\{\scriptsize Euristico / Veloce}};
-    \node[splitb, below right=0.8cm and -0.8cm of prep] (lemma) {\textbf{Lemmatizzazione (WordNet)}\\{\scriptsize Morfosintattico (POS) / Pesante}};
+    \node[splitb, below right=0.8cm and -0.8cm of prep] (lemma) {\textbf{Lemmatizzazione (WordNet)}\\{\scriptsize Morfosintattico (POS) / Con Dizionario}};
 
-    \node[modelb, below=2.4cm of prep] (vocab) {Vocabolario Collezione ($V$)\\{\scriptsize Dimensione dello spazio $|V|$}};
+    \node[modelb, below=2.7cm of prep] (vocab) {Vocabolario Collezione ($\mathcal{V}$)\\{\scriptsize Dimensione dello spazio $|\mathcal{V}|$}};
 
-    \node[splitb, below left=0.8cm and -0.8cm of vocab] (bow) {\textbf{Bag of Words (BoW)}\\{\scriptsize Perde frequenza e sintassi}};
-    \node[splitb, below right=0.8cm and -0.8cm of vocab] (ngram) {\textbf{Estensioni N-gram}\\{\scriptsize Word n-gram (ordine locale)}\\{\scriptsize Char n-gram (tolleranza typo)}};
+    \node[splitb, below left=0.8cm and -0.8cm of vocab] (bow) {\textbf{Bag of Words (BoW)}\\{\scriptsize Perde ordine e sintassi, preserva le frequenze}};
+    \node[splitb, below right=0.8cm and -0.8cm of vocab] (ngram) {\textbf{Estensioni N-gram}\\{\scriptsize Word n-gram (ordine locale) · Char n-gram}};
 
-    \node[modelb, below=2.4cm of vocab] (vsm) {Vector Space Model (VSM)\\{\scriptsize Vettori sparsi in $\mathbb{R}^{|V|}$ (combinazione lineare One-Hot)}};
+    \node[modelb, below=2.7cm of vocab] (vsm) {Vector Space Model (VSM)\\{\scriptsize Vettori sparsi in $\mathbb{R}^{|\mathcal{V}|}$ (combinazione lineare One-Hot)}};
 
-    \node[finalb, below left=0.8cm and -0.9cm of vsm] (tfidf) {\textbf{TF-IDF / Notazione SMART}\\{\scriptsize Log-TF + IDF ($\log(N/df)$)}\\{\scriptsize Normalizzazione Coseno ($L_2$)}};
-    \node[finalb, below right=0.8cm and -0.9cm of vsm] (bm25) {\textbf{Okapi BM25}\\{\scriptsize Saturazione asintotica TF ($k_1$)}\\{\scriptsize Normalizzazione lunghezza ($b$, avgdl)}};
+    \node[finalb, below left=0.9cm and -0.9cm of vsm] (smart) {\textbf{Ponderazione Termini (SMART)}\\
+        {\scriptsize Log-TF: $1 + \ln(\text{tf})$ se $\text{tf} \ge 1$}\\
+        {\scriptsize Document Frequency \& IDF ($\ln(N/df)$)}};
+    \node[finalb, below right=0.9cm and -0.9cm of vsm] (cosine) {\textbf{Cosine Similarity \& Ranking}\\
+        {\scriptsize Normalizzazione Euclidea ($L_2$)}\\
+        {\scriptsize Similarit\`a angolare: $\vec{q}_{\text{norm}} \cdot \vec{d}_{\text{norm}}$}};
 
+    % Coordinate di innesto bilanciate
+    \coordinate (v_in1) at ([xshift=-1.4cm]vocab.north);
+    \coordinate (v_in2) at ([xshift=1.4cm]vocab.north);
+    \coordinate (vsm_in1) at ([xshift=-1.5cm]vsm.north);
+    \coordinate (vsm_in2) at ([xshift=1.5cm]vsm.north);
+
+    % Connessioni sequenziali
     \draw[arr] (raw) -- (parse);
     \draw[arr] (parse) -- (prep);
-    \draw[arr] (prep.south) -- ++(0,-0.2) -| (stem.north);
-    \draw[arr] (prep.south) -- ++(0,-0.2) -| (lemma.north);
-    \draw[arr] (stem.south) |- (vocab.west);
-    \draw[arr] (lemma.south) |- (vocab.east);
-    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (bow.north);
-    \draw[arr] (vocab.south) -- ++(0,-0.2) -| (ngram.north);
-    \draw[arr] (bow.south) |- (vsm.west);
-    \draw[arr] (ngram.south) |- (vsm.east);
-    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (tfidf.north);
-    \draw[arr] (vsm.south) -- ++(0,-0.2) -| (bm25.north);
+
+    % Biforcazione e riconvergenza fluida verso Vocabolario
+    \draw[arr] (prep.south) -- ++(0,-0.25) -| (stem.north);
+    \draw[arr] (prep.south) -- ++(0,-0.25) -| (lemma.north);
+    \draw[arr] (stem.south)  -- ++(0,-0.3) -| (v_in1);
+    \draw[arr] (lemma.south) -- ++(0,-0.3) -| (v_in2);
+
+    % Biforcazione e riconvergenza fluida verso VSM
+    \draw[arr] (vocab.south) -- ++(0,-0.25) -| (bow.north);
+    \draw[arr] (vocab.south) -- ++(0,-0.25) -| (ngram.north);
+    \draw[arr] (bow.south)   -- ++(0,-0.3) -| (vsm_in1);
+    \draw[arr] (ngram.south) -- ++(0,-0.3) -| (vsm_in2);
+
+    % Modelli di scoring finali
+    \draw[arr] (vsm.south) -- ++(0,-0.25) -| (smart.north);
+    \draw[arr] (vsm.south) -- ++(0,-0.25) -| (cosine.north);
 \end{tikzpicture}%
 }
-\caption{Mappa concettuale integrata della pipeline di IR: dall'acquisizione del testo ai modelli di recupero vettoriali e probabilistici.}
+\caption{Mappa concettuale integrata della pipeline di IR: dall'acquisizione e pre-elaborazione del testo alla rappresentazione geometrica nello Spazio Vettoriale e alla stima della similarit\`a cosenica.}
 \label{fig:nlp-vsm-workflow}
 \end{figure}
 
 \begin{noteblock}{Dallo Scoring Matematico all'Architettura di Sistema}
-Con la formalizzazione dello Spazio Vettoriale, degli schemi SMART e del modello probabilistico BM25 si conclude la trattazione teorica di \textit{cosa} calcolare. Il Capitolo~\ref{chap:indicizzazione-query-processing} affronta la dimensione ingegneristica di \textit{come} eseguire tali calcoli in pochi millisecondi tramite l'architettura a due stadi, gli indici invertiti compressi e gli algoritmi di query processing TAAT e DAAT.
+Con la formalizzazione dello Spazio Vettoriale, degli schemi SMART e della similarit\`a cosenica si conclude la trattazione teorica dei modelli di reperimento lineari. Nei successivi capitoli sull'indicizzazione (\chapref{chap:indicizzazione-query-processing}, \chapref{chap:indici-inversi-query-processing} e \chapref{chap:elaborazione-topk-wand-maxscore}) si affronta l'esecuzione efficiente delle interrogazioni mediante indici invertiti, mentre l'evoluzione probabilistica (Okapi BM25 e BM25F) e i modelli non lineari di ranking basati su machine learning vengono approfonditi nel \chapref{chap:learning-to-rank-fondamenti} e nel \chapref{chap:learning-to-rank-gbrt}.
 \end{noteblock}
