@@ -31,8 +31,12 @@ In questo capitolo vengono esaminati i fondamenti di...
 ```
 
 Linee guida di stile per il corpo del testo:
+- **Standard Tipografici e Divieto Sintassi Markdown nei `.tex`**:
+  - Non inserire mai righe separatrici Markdown `---` o divisori orizzontali arbitrari nei file `.tex`.
+  - Il grassetto deve essere codificato rigorosamente con `\textbf{...}`, mai con asterischi `**...**` (che verrebbero stampati letteralmente).
+  - Il corsivo deve essere codificato con `\textit{...}` o `\emph{...}`, mai con `*...*`.
 - **Formalismo Matematico**: definisci sempre insiemi, vettori e dimensioni con chiarezza ($X = \langle x_1, \dots, x_n \rangle \in \mathbb{R}^n$).
-- **Figure TikZ**: usa la palette `navy`, `darkgreen`, `crimson`, `codebackground` con nodi `rounded corners`. Posiziona sempre le etichette a lato degli archi o con sfondo per non nascondere le frecce.
+- **Figure TikZ**: usa la palette `navy`, `darkgreen`, `crimson`, `codebackground` con nodi `rounded corners`. Posiziona sempre le etichette a lato degli archi o con sfondo per non nascondere le frecce. Garantisci adeguata spaziatura orizzontale fra nodi fratelli (`sibling distance`) per evitare che i bordi delle caselle si tocchino o si fondano.
 - **Confinamento Float**: usa sempre `\begin{figure}[H]` e `\begin{table}[H]`, e anteponi `\FloatBarrier` ad ogni `\section` e `\subsection` affinché nessuna figura o tabella oltrepassi il proprio paragrafo.
 - **Tabelle**: usa `booktabs` (`\toprule`, `\midrule`, `\bottomrule`), font `\small` e layout compatto racchiuso ove opportuno in `\resizebox{\columnwidth}{!}{...}`.
 - **Box e Teoremi**: usa gli ambienti `definition`, `theorem`, `example` per evidenziare i passaggi teorici cardine.

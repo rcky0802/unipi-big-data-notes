@@ -1,0 +1,670 @@
+\chapter{Alberi Digitali per Stringhe: Trie, MSD Radix Sort e Trie Compatti}
+\label{chap:trie-compatti-msd-radix-sort-autocompletamento}
+
+\FloatBarrier
+\section{Relazione Fondamentale tra MSD Radix Sort e Trie}
+\label{sec:dualita-msd-radix-trie}
+
+Nel contesto dell'Algorithm Engineering applicato alle sequenze di simboli, emerge un principio unificante di fondamentale eleganza formale: la \textbf{dualit\`a biunivoca} tra l'esecuzione top-down dell'algoritmo di ordinamento \textit{MSD Radix Sort} (\textit{Most Significant Digit}) e la topologia logica dell'albero digitale dei prefissi, noto in letteratura come \textbf{Trie}~\cite{fredkin1960, knuth1998vol3}.
+
+\FloatBarrier
+\subsection{Dualità tra Algoritmo e Struttura Dati}
+\label{subsec:dualita-algoritmo-struttura}
+
+L'algoritmo MSD Radix Sort ordina una collezione di chiavi alfanumeriche scansionando i caratteri progressivamente da sinistra verso destra ($\rightarrow$), a partire dalla componente pi\`u significativa. A ogni passo ricorsivo su una specifica posizione $i$:
+\begin{itemize}
+  \item L'insieme corrente delle chiavi viene ripartito in un insieme di sotto-secchielli (\textit{bucket}), ciascuno associato a un simbolo distinto dell'alfabeto finito ed ordinato $\Sigma$ di dimensione $\sigma = |\Sigma|$.
+  \item Tutti gli elementi che condividono il medesimo carattere in posizione $i$ confluiscono nello stesso bucket.
+  \item Ciascun bucket contenente almeno due elementi innesca una chiamata ricorsiva indipendente per ordinare il sottoinsieme rispetto alla posizione successiva $i+1$.
+\end{itemize}
+
+Questo processo ricorsivo traccia nello spazio di computazione un albero delle chiamate che coincide strutturalmente con la definizione di un \textbf{Trie}:
+\begin{enumerate}
+  \item \textbf{Radice dell'Albero:} rappresenta l'insieme complessivo iniziale di tutte le chiavi $S$.
+  \item \textbf{Nodi Interni:} incarnano i prefissi comuni condivisi da due o pi\`u stringhe della collezione. La profondit\`a del nodo corrisponde alla lunghezza del prefisso validato.
+  \item \textbf{Archi Orientati:} ogni arco uscente da un nodo \`e contrassegnato dal simbolo discriminante dell'alfabeto $\Sigma$ che determina la transizione al carattere successivo.
+  \item \textbf{Foglie Terminali:} contengono le singole chiavi dell'insieme. Poich\'e gli archi uscenti da ciascun nodo sono naturalmente ordinati secondo l'ordine totale di $\Sigma$, una visita simmetrica anticipata (\textit{in-order traversal}) del Trie produce le chiavi nell'esatto ordine lessicografico.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio Guidato e Corrispondenza Grafica}
+\label{subsec:esempio-guidato-msd-trie}
+
+Si consideri un insieme didattico composto da $n = 5$ chiavi numeriche a lunghezza fissa uniforme $l = 3$ cifre, definite sull'alfabeto decimale $\Sigma = \{0, 1, 2, \dots, 9\}$ con $\sigma = |\Sigma| = 10$:
+\begin{equation}
+  S = \{ \text{"007"}, \; \text{"017"}, \; \text{"042"}, \; \text{"911"}, \; \text{"999"} \}
+\end{equation}
+
+\paragraph{Traccia di Esecuzione dell'MSD Radix Sort:}
+\begin{enumerate}
+  \item \textbf{Livello 1 (Ispezione della prima cifra, $i = 1$):}
+  \begin{itemize}
+    \item Il bucket per il simbolo \texttt{'0'} riceve:
+    \begin{equation*}
+      \{\text{"007"}, \; \text{"017"}, \; \text{"042"}\}
+    \end{equation*}
+    \item Il bucket per il simbolo \texttt{'9'} riceve:
+    \begin{equation*}
+      \{\text{"911"}, \; \text{"999"}\}
+    \end{equation*}
+    \item I restanti bucket (da \texttt{'1'} a \texttt{'8'}) rimangono vuoti ($\emptyset$).
+  \end{itemize}
+  \item \textbf{Livello 2 (Ispezione della seconda cifra, $i = 2$):}
+  \begin{itemize}
+    \item Il sottoinsieme del bucket \texttt{'0'} si suddivide ricorsivamente:
+    \begin{itemize}
+      \item Bucket \texttt{'0'} $\to \{\text{"007"}\}$ (singleton, isolato).
+      \item Bucket \texttt{'1'} $\to \{\text{"017"}\}$ (singleton, isolato).
+      \item Bucket \texttt{'4'} $\to \{\text{"042"}\}$ (singleton, isolato).
+    \end{itemize}
+    \item Il sottoinsieme del bucket \texttt{'9'} si suddivide ricorsivamente:
+    \begin{itemize}
+      \item Bucket \texttt{'1'} $\to \{\text{"911"}\}$ (singleton, isolato).
+      \item Bucket \texttt{'9'} $\to \{\text{"999"}\}$ (singleton, isolato).
+    \end{itemize}
+  \end{itemize}
+  \item \textbf{Livello 3 (Ispezione della terza cifra, $i = 3$):}
+  Tutte le chiavi raggiungono nodi foglia individuali, determinando l'ordinamento conclusivo:
+  \begin{equation}
+    [\text{"007"}, \; \text{"017"}, \; \text{"042"}, \; \text{"911"}, \; \text{"999"}]
+  \end{equation}
+\end{enumerate}
+
+La Figura~\ref{fig:trie-uncompacted-msd} visualizza la topologia dell'albero risultante, evidenziando come l'albero di ricorsione dell'MSD Radix Sort generi un Trie non compatto.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.4cm and 1.2cm,
+    rootnode/.style={draw=navy, fill=codebackground, thick, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=5pt},
+    intnode/.style={circle, draw=navy, fill=white, thick, minimum size=0.65cm, inner sep=0pt},
+    leafnode/.style={draw=darkgreen, fill=darkgreen!10, thick, rounded corners=3pt, font=\small\ttfamily\bfseries, align=center, inner sep=4pt},
+    edge_label/.style={font=\footnotesize\bfseries, text=navy, fill=white, inner sep=1.5pt}
+]
+  % Radice
+  \node[rootnode] (root) at (0, 0) {Radice: $S$};
+
+  % Livello 1: nodi per '0' e '9'
+  \node[intnode] (n0) at (-3.2, -1.5) {};
+  \node[intnode] (n9) at (3.2, -1.5) {};
+
+  \draw[->, thick, draw=navy] (root) -- (n0) node[midway, edge_label] {'0'};
+  \draw[->, thick, draw=navy] (root) -- (n9) node[midway, edge_label] {'9'};
+
+  % Livello 2 dal nodo '0': figli '0', '1', '4'
+  \node[intnode] (n00) at (-4.8, -3.2) {};
+  \node[intnode] (n01) at (-3.2, -3.2) {};
+  \node[intnode] (n04) at (-1.6, -3.2) {};
+
+  \draw[->, thick, draw=navy] (n0) -- (n00) node[midway, edge_label] {'0'};
+  \draw[->, thick, draw=navy] (n0) -- (n01) node[midway, edge_label] {'1'};
+  \draw[->, thick, draw=navy] (n0) -- (n04) node[midway, edge_label] {'4'};
+
+  % Livello 2 dal nodo '9': figli '1', '9'
+  \node[intnode] (n91) at (2.2, -3.2) {};
+  \node[intnode] (n99) at (4.2, -3.2) {};
+
+  \draw[->, thick, draw=navy] (n9) -- (n91) node[midway, edge_label] {'1'};
+  \draw[->, thick, draw=navy] (n9) -- (n99) node[midway, edge_label] {'9'};
+
+  % Livello 3: Foglie con le chiavi complete
+  \node[leafnode] (l007) at (-4.8, -4.8) {007};
+  \node[leafnode] (l017) at (-3.2, -4.8) {017};
+  \node[leafnode] (l042) at (-1.6, -4.8) {042};
+  \node[leafnode] (l911) at (2.2, -4.8) {911};
+  \node[leafnode] (l999) at (4.2, -4.8) {999};
+
+  \draw[->, thick, draw=darkgreen] (n00) -- (l007) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'7'};
+  \draw[->, thick, draw=darkgreen] (n01) -- (l017) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'7'};
+  \draw[->, thick, draw=darkgreen] (n04) -- (l042) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'2'};
+  \draw[->, thick, draw=darkgreen] (n91) -- (l911) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'1'};
+  \draw[->, thick, draw=darkgreen] (n99) -- (l999) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'9'};
+\end{tikzpicture}%
+}
+\caption{Rappresentazione del Trie non compatto corrispondente all'albero delle chiamate ricorsive dell'MSD Radix Sort per l'insieme $S = \{\text{"007"}, \text{"017"}, \text{"042"}, \text{"911"}, \text{"999"}\}$. Ciascun livello di profondit\`a corrisponde alla cifra esaminata; una visita anticipata da sinistra verso destra restituisce le foglie perfettamente ordinate.}
+\label{fig:trie-uncompacted-msd}
+\end{figure}
+
+\FloatBarrier
+\section{Implementazione Standard tramite Vettori (Array-Based Trie)}
+\label{sec:array-based-trie}
+
+\FloatBarrier
+\subsection{Architettura dei Nodi e Tabella dei Puntatori}
+\label{subsec:architettura-array-based}
+
+Nella classica implementazione canonica di un Trie per stringhe, ciascun nodo interno $u$ viene modellato come un array statico di puntatori di dimensione prefissata e pari all'ampiezza dell'alfabeto $\sigma = |\Sigma|$:
+\begin{equation}
+  \text{Node}[u] = \langle \text{child}[0], \; \text{child}[1], \; \dots, \; \text{child}[\sigma - 1] \rangle
+\end{equation}
+Ciascuna cella $c \in \{0, \dots, \sigma - 1\}$ contiene:
+\begin{itemize}
+  \item Il puntatore al nodo figlio raggiungibile tramite la transizione etichettata con il simbolo $c$.
+  \item Il puntatore nullo ($\texttt{NULL}$) qualora non esista alcuna chiave nell'insieme che prosegua con tale carattere da quel nodo.
+\end{itemize}
+
+Il pregio architetturale primario di questa rappresentazione risiede nella velocit\`a di lookup: l'accesso al nodo figlio dato un carattere $c$ avviene mediante una singola operazione di indicizzazione vettoriale diretta (\textit{direct table addressing}):
+\begin{equation}
+  \text{next\_node} = u.\text{child}[\text{rank}(c)]
+\end{equation}
+garantendo un tempo di transizione rigidamente deterministico $\mathcal{O}(1)$.
+
+\FloatBarrier
+\subsection{Problema dello Spreco di Memoria (Waste of Space)}
+\label{subsec:spreco-memoria-array-based}
+
+Nonostante l'eccellenza temporale delle transizioni, l'approccio basato su array soffre di una severa inefficienza di occupazione della memoria quando l'alfabeto \`e esteso (es. ASCII a 256 caratteri o lo spazio Unicode UTF-8/UTF-16) e l'insieme delle chiavi \`e sparso:
+\begin{itemize}
+  \item Se un nodo possiede un grado effettivo di uscita (\textit{out-degree}) $k_u \ll \sigma$, la quasi totalit\`a delle celle dell'array viene allocata inutilmente, rimanendo valorizzata a $\texttt{NULL}$.
+  \item Con riferimento all'esempio didattico precedente su cifre decimali ($\sigma = 10$):
+    - Al nodo radice risultano attive unicamente le transizioni per \texttt{'0'} e \texttt{'9'}.
+    - Le celle relative a \texttt{'1'}, \texttt{'2'}, \texttt{'3'}, \texttt{'4'}, \texttt{'5'}, \texttt{'6'}, \texttt{'7'}, \texttt{'8'} (l'80\% della tabella) rimangono azzerate, ma richiedono comunque 8 parole di memoria (64 bit ciascuna su architetture moderne).
+\end{itemize}
+
+\FloatBarrier
+\subsection{Analisi della Complessità: Spazio e Tempo di Ordinamento}
+\label{subsec:complessita-array-based}
+
+Sia dato un insieme $S$ composto da $n$ stringhe, dove $d_s = |s|$ rappresenta la lunghezza della generica stringa $s \in S$. Si definisca la \textbf{lunghezza complessiva cumulativa} di tutte le stringhe dell'insieme come:
+\begin{equation}
+  d = \sum_{s \in S} d_s = \sum_{s \in S} |s|
+\end{equation}
+
+\begin{theorem}[Complessit\`a dell'Array-Based Trie]
+\label{thm:complessita-array-based-trie}
+La rappresentazione di un Trie basata su array statici soddisfa i seguenti limiti computazionali:
+\begin{enumerate}
+  \item \textbf{Occupazione Spaziale (Worst Case):}
+  \begin{equation}
+    \text{Spazio} \le \mathcal{O}(d \cdot \sigma) = \left( \sum_{s \in S} d_s \right) \cdot \sigma
+  \end{equation}
+  \item \textbf{Tempo di Costruzione e Ordinamento (Sorting Time):}
+  \begin{equation}
+    \text{Tempo} = \mathcal{O}(d \cdot \sigma)
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Nel caso peggiore in cui le stringhe non condividano alcun prefisso comune significativo, ogni carattere di ogni stringa introduce un nodo interno distinto lungo il rispettivo percorso di discesa. Poich\'e il numero totale di caratteri \`e $d$, l'albero pu\`o contenere fino a $\mathcal{O}(d)$ nodi. Ciascun nodo interno alloca inderogabilmente un vettore di puntatori di dimensione $\sigma$, determinando un'occupazione complessiva di memoria pari a $\mathcal{O}(d \cdot \sigma)$ puntatori.
+
+Per quanto concerne il tempo di costruzione e ordinamento: l'allocazione e l'inizializzazione a $\texttt{NULL}$ di ciascun array di dimensione $\sigma$ richiede tempo proporzionale a $\sigma$. Inoltre, per estrarre le chiavi ordinate tramite una visita in-order, l'algoritmo \`e costretto a iterare su tutte le $\sigma$ posizioni di ciascun nodo interno per verificare quali puntatori siano attivi e quali nulli. Sommando su tutti gli $\mathcal{O}(d)$ nodi, il costo temporale globale \`e $\mathcal{O}(d \cdot \sigma)$.
+\end{proof}
+
+Quando $\sigma$ \`e elevato (si pensi a un dizionario su un alfabeto Unicode dove $\sigma \approx 65536$), il fattore moltiplicativo $\sigma$ degrada l'efficienza a livelli insostenibili, rendendo necessaria una progettazione data-aware pi\`u evoluta.
+
+\FloatBarrier
+\section{Ottimizzazione della Memoria: Trie Basato su Tabelle Hash}
+\label{sec:hash-based-trie}
+
+\FloatBarrier
+\subsection{Progettazione con Tabella Hash Locale}
+\label{subsec:progettazione-hash-trie}
+
+Per eliminare il fattore di spreco moltiplicativo $\sigma$, la soluzione ingegneristica d'elezione consiste nel sostituire l'array statico sovradimensionato di ciascun nodo con una \textbf{tabella hash locale}~\cite{knuth1998vol3}:
+\begin{itemize}
+  \item \textbf{Chiave:} il singolo carattere di transizione $c \in \Sigma$.
+  \item \textbf{Valore:} il puntatore al sottoalbero figlio corrispondente.
+\end{itemize}
+
+In questa configurazione (\textit{Hash-Based Trie}), ogni nodo interno memorizza esclusivamente le transizioni \textbf{effettivamente esistenti} ($k_u = \text{out-degree}(u)$), senza riservare alcuno spazio per i simboli assenti. 
+
+\begin{figure}[H]
+\centering
+\resizebox{0.78\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.8cm,
+    node_box/.style={draw=navy, fill=codebackground, thick, rounded corners=4pt, font=\small\bfseries, align=center, inner sep=6pt},
+    child_box/.style={draw=darkgreen, fill=darkgreen!10, thick, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=5pt},
+    hash_tab/.style={draw=navy!80!black, thick, fill=white, font=\footnotesize}
+]
+  % Nodo padre
+  \node[node_box] (parent) at (0, 0) {Nodo Interno $u$};
+
+  % Figli P1 e P2
+  \node[child_box] (p1) at (-2.4, -2.2) {Figlio $P_1$};
+  \node[child_box] (p2) at (2.4, -2.2) {Figlio $P_2$};
+
+  \draw[->, very thick, draw=navy] (parent) -- (p1) node[midway, above left=2pt, font=\small\bfseries, text=navy] {'0'};
+  \draw[->, very thick, draw=navy] (parent) -- (p2) node[midway, above right=2pt, font=\small\bfseries, text=navy] {'9'};
+
+  % Tabella Hash locale a lato
+  \node[right=2.0cm of parent, anchor=west] (ht) {%
+    \begin{tabular}{cc}
+    \toprule
+    \textbf{Chiave (Carattere)} & \textbf{Valore (Puntatore)} \\
+    \midrule
+    \texttt{'0'} & $P_1$ \\
+    \texttt{'9'} & $P_2$ \\
+    \bottomrule
+    \end{tabular}%
+  };
+
+  \node[above=0.2cm of ht, font=\footnotesize\bfseries, text=navy] {Tabella Hash Locale di $u$};
+\end{tikzpicture}%
+}
+\caption{Struttura di un nodo in un Hash-Based Trie: l'array statico di dimensione $\sigma$ \`e sostituito da una mappa hash locale che indicizza solo le transizioni attive (nell'esempio, unicamente i caratteri \texttt{'0'} e \texttt{'9'}).}
+\label{fig:hash-based-node}
+\end{figure}
+
+\FloatBarrier
+\subsection{Analisi di Complessità: Spazio e Ricerca}
+\label{subsec:complessita-spazio-ricerca-hash}
+
+\paragraph{Dimensione della Struttura Dati (Space):}
+La tabella hash $T_u$ associata al nodo generico $u$ impegna una quantit\`a di memoria proporzionale al numero di archi uscenti dal nodo stesso:
+\begin{equation}
+  \text{Size}(T_u) = \Theta(k_u) = \Theta(\#\text{outgoing edges})
+\end{equation}
+Sommando lo spazio occupato su tutti i nodi interni $u$ che compongono l'albero:
+\begin{equation}
+  \text{Spazio Totale} = \sum_{u} \mathcal{O}(k_u) = \mathcal{O}\left( \sum_{s \in S} d_s \right) = \mathcal{O}(d)
+\end{equation}
+Il consumo spaziale diviene pertanto \textbf{strettamente lineare} rispetto alla lunghezza totale dei caratteri $d$, risultando totalmente svincolato dalla dimensione dell'alfabeto $\sigma$.
+
+\paragraph{Tempo di Ricerca (Search Time):}
+Sia data una chiave interrogante di lunghezza $\ell$. A ciascun livello dell'albero viene effettuato un lookup nella tabella hash del nodo corrente rispetto al carattere corrispondente:
+\begin{itemize}
+  \item Sotto l'ipotesi di una funzione hash uniforme (e un fattore di carico controllato mediante chaining o open addressing), il lookup medio in tabella hash richiede tempo unitario $\mathcal{O}(1)$.
+  \item La discesa lungo il cammino di $\ell$ livelli comporta dunque:
+  \begin{equation}
+    \text{Tempo di Ricerca Medio} = \mathcal{O}(\ell)
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Tempo di Costruzione e Ordinamento (MSD Radix Sort con Hash)}
+\label{subsec:ordinamento-hash-trie}
+
+Quando si impiega l'Hash-Based Trie per completare l'ordinamento delle chiavi (secondo il paradigma dell'MSD Radix Sort), emergono due fasi operative distinte:
+
+\paragraph{Fase 1: Inserimento delle Chiavi nel Trie}
+L'inserimento di ogni singolo carattere richiede una ricerca ed eventuale inserimento nella tabella hash locale del nodo, con costo medio $\mathcal{O}(1)$. La costruzione completa di tutte le stringhe richiede pertanto tempo:
+\begin{equation}
+  T_{\text{costruzione}} = \mathcal{O}(d)
+\end{equation}
+
+\paragraph{Fase 2: Ordinamento degli Archi a Ciascun Nodo}
+Mentre nell'array statico i figli sono naturalmente memorizzati in ordine crescente di indice da $0$ a $\sigma - 1$, \textbf{la tabella hash non conserva alcun ordinamento intrinseco tra le proprie chiavi}. Di conseguenza, per estrarre le stringhe ordinate mediante visita anticipata, \`e indispensabile estrarre ed ordinare esplicitamente gli archi uscenti da ciascun nodo interno.
+
+\begin{theorem}[Costo di Ordinamento degli Archi nell'Hash Trie]
+\label{thm:costo-ordinamento-hash-trie}
+L'ordinamento totale delle transizioni su tutti i nodi interni dell'Hash-Based Trie richiede complessivamente tempo:
+\begin{equation}
+  T_{\text{ordinamento archi}} = \mathcal{O}(d \log_2 \sigma)
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Sia $u$ un generico nodo interno avente grado uscente $k_u \le \sigma$. L'estrazione e l'ordinamento degli archi di $u$ tramite un algoritmo di comparazione standard (come un introsort o mergesort compatto) richiede tempo:
+\begin{equation}
+  T(u) = \mathcal{O}(k_u \log_2 k_u)
+\end{equation}
+Poich\'e il grado uscente \`e superiormente delimitato dalla cardinalit\`a dell'alfabeto ($k_u \le \sigma$), si ha la maggiorazione monotona $\log_2 k_u \le \log_2 \sigma$. Sommando su tutti i nodi $u$ dell'albero:
+\begin{align}
+  \sum_{u} k_u \log_2 k_u &\le \sum_{u} k_u \log_2 \sigma \nonumber \\
+                          &= \log_2 \sigma \sum_{u} k_u \nonumber \\
+                          &= \mathcal{O}(d \log_2 \sigma)
+\end{align}
+in quanto la somma cumulativa dei gradi uscenti $\sum_u k_u$ coincide con il numero totale di archi del Trie, delimitato superiormente da $\mathcal{O}(d)$.
+\end{proof}
+
+\FloatBarrier
+\subsection{Quadro Comparativo delle Due Implementazioni}
+\label{subsec:quadro-comparativo-trie-standard}
+
+La Tabella~\ref{tab:trie-array-vs-hash} formalizza il compromesso computazionale fra l'implementazione su vettore statico e quella su mappa hash locale.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{0.92\linewidth}{!}{%
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metodologia di Rappresentazione} & \textbf{Complessit\`a Spaziale} & \textbf{Tempo di Ordinamento (Sort)} \\
+\midrule
+\textbf{Array-Based Trie} & $\mathcal{O}(d \cdot \sigma)$ & $\mathcal{O}(d \cdot \sigma)$ \\
+\textbf{Hash-Based Trie} & $\mathbf{\mathcal{O}(d)}$ & $\mathbf{\mathcal{O}(d \log_2 \sigma)}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Confronto di efficienza asintotica tra l'implementazione su array statico e l'implementazione su tabella hash locale per l'MSD Radix Sort.}
+\label{tab:trie-array-vs-hash}
+\end{table}
+
+\FloatBarrier
+\section{Trie Compatti (Compacted Trie o Patricia Trie)}
+\label{sec:trie-compatti-patricia}
+
+\FloatBarrier
+\subsection{Motivazione: Eliminazione dei Nodi Unari (Unary Nodes)}
+\label{subsec:motivazione-dropping-unary}
+
+Nel Trie convenzionale non compatto, l'esistenza di sequenze di caratteri prive di diramazioni alternative produce catene verticali allungate di nodi aventi un solo figlio:
+\begin{definition}[Nodo Unario / Unary Node]
+Un nodo interno $u$ di un albero si dice \textbf{unario} se il suo grado uscente \`e esattamente pari a uno:
+\begin{equation}
+  k_u = \text{out-degree}(u) = 1
+\end{equation}
+\end{definition}
+
+Questi nodi non svolgono alcuna funzione di partizionamento o discriminazione tra chiavi distinte: la loro unica funzione \`e quella di consumare sequenzialmente i caratteri del prefisso condiviso.
+L'architettura del \textbf{Trie Compatto} (introdotta da Donald R. Morrison con l'algoritmo \textbf{PATRICIA}~\cite{morrison1968}) risolve questa ridondanza attraverso il principio del \textit{"dropping unary nodes"}:
+\begin{itemize}
+  \item Ogni cammino lineare non ramificato composto da soli nodi unari viene contratto (\textit{path compression}).
+  \item Il cammino viene collassato in un \textbf{singolo arco composito}, la cui etichetta coincide con la concatenazione dei caratteri attraversati lungo la catena.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Esempio di Compattazione Passo per Passo}
+\label{subsec:esempio-compattazione}
+
+Si consideri un insieme didattico composto da $n = 4$ stringhe definite sull'alfabeto a 4 lettere $\Sigma = \{\text{A}, \text{B}, \text{C}, \text{D}\}$:
+\begin{equation}
+  S = \{ S_1: \text{"ABA"}, \; S_2: \text{"ABBB"}, \; S_3: \text{"ABBD"}, \; S_4: \text{"BA"} \}
+\end{equation}
+
+\paragraph{1. Struttura del Trie Non Compatto:}
+Analizzando le diramazioni carattere per carattere si riscontrano plurimi nodi unari:
+\begin{itemize}
+  \item La radice ramifica sui caratteri \texttt{'A'} e \texttt{'B'}.
+  \item Dal ramo \texttt{'B'}, si genera un nodo unario che transita obbligatoriamente su \texttt{'A'} per concludere la foglia $S_4 = \text{"BA"}$.
+  \item Dal ramo \texttt{'A'}, si genera un nodo unario che prosegue su \texttt{'B'}; da questo secondo nodo si dipartono due transizioni:
+  \begin{itemize}
+    \item Il ramo \texttt{'A'} conclude la stringa $S_1 = \text{"ABA"}$.
+    \item Il ramo \texttt{'B'} conduce a un ulteriore nodo che infine discrimina tra \texttt{'B'} (stringa $S_2 = \text{"ABBB"}$) e \texttt{'D'} (stringa $S_3 = \text{"ABBD"}$).
+  \end{itemize}
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    rootnode/.style={draw=navy, fill=codebackground, thick, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=5pt},
+    unarynode/.style={circle, draw=crimson, fill=crimson!12, very thick, minimum size=0.7cm, inner sep=0pt},
+    branchingnode/.style={circle, draw=navy, fill=white, thick, minimum size=0.65cm, inner sep=0pt},
+    leafnode/.style={draw=darkgreen, fill=darkgreen!10, thick, rounded corners=3pt, font=\small\ttfamily\bfseries, align=center, inner sep=4pt},
+    edge_label/.style={font=\footnotesize\bfseries, text=navy, fill=white, inner sep=1.5pt}
+]
+  % Radice
+  \node[rootnode] (r) at (0, 0) {Radice};
+
+  % Figli di livello 1
+  \node[unarynode] (uA) at (-3.0, -1.6) {};
+  \node[unarynode] (uB) at (3.0, -1.6) {};
+
+  \draw[->, thick, draw=navy] (r) -- (uA) node[midway, edge_label] {'A'};
+  \draw[->, thick, draw=navy] (r) -- (uB) node[midway, edge_label] {'B'};
+
+  % Figlio da uB: foglia S4
+  \node[leafnode] (lS4) at (3.0, -3.2) {$S_4$: "BA"};
+  \draw[->, thick, draw=darkgreen] (uB) -- (lS4) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'A'};
+
+  % Figlio da uA: nodo ramificato
+  \node[branchingnode] (b2) at (-3.0, -3.2) {};
+  \draw[->, thick, draw=navy] (uA) -- (b2) node[midway, edge_label] {'B'};
+
+  % Figli da b2: foglia S1 e nodo unario per S2/S3
+  \node[leafnode] (lS1) at (-5.0, -4.8) {$S_1$: "ABA"};
+  \node[branchingnode] (b3) at (-1.0, -4.8) {};
+
+  \draw[->, thick, draw=darkgreen] (b2) -- (lS1) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'A'};
+  \draw[->, thick, draw=navy] (b2) -- (b3) node[midway, edge_label] {'B'};
+
+  % Figli da b3: foglie S2 e S3 (distanziate adeguatamente per evitare collisioni)
+  \node[leafnode] (lS2) at (-2.6, -6.5) {$S_2$: "ABBB"};
+  \node[leafnode] (lS3) at (0.6, -6.5) {$S_3$: "ABBD"};
+
+  \draw[->, thick, draw=darkgreen] (b3) -- (lS2) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'B'};
+  \draw[->, thick, draw=darkgreen] (b3) -- (lS3) node[midway, font=\footnotesize\bfseries, text=darkgreen, fill=white, inner sep=1.5pt] {'D'};
+
+  % Indicazione visiva dei nodi unari
+  \node[left=0.2cm of uA, font=\scriptsize\bfseries, text=crimson] {unario ($k=1$)};
+  \node[right=0.2cm of uB, font=\scriptsize\bfseries, text=crimson] {unario ($k=1$)};
+\end{tikzpicture}%
+}
+\caption{Trie non compatto per $S = \{\text{"ABA"}, \text{"ABBB"}, \text{"ABBD"}, \text{"BA"}\}$. I nodi evidenziati in rosso sono nodi unari privi di ramificazione ($k_u = 1$), destinati a essere eliminati nella variante compatta.}
+\label{fig:trie-uncompacted-unary}
+\end{figure}
+
+\paragraph{2. Contrazione e Collasso dei Nodi Unari:}
+Eliminando i nodi unari intermedi ed etichettando ciascun arco con la concatenazione delle stringhe contratte:
+\begin{itemize}
+  \item L'arco diretto dalla Radice alla foglia $S_4$ riceve l'etichetta contratta \texttt{"BA"}.
+  \item L'arco dalla Radice al primo nodo ramificante (Nodo 2) assume l'etichetta \texttt{"AB"}.
+  \item Dal Nodo 2:
+  \begin{itemize}
+    \item Il ramo con etichetta \texttt{"A"} conduce direttamente a $S_1$.
+    \item Il ramo con etichetta \texttt{"B"} conduce al Nodo 3.
+  \end{itemize}
+  \item Dal Nodo 3:
+  \begin{itemize}
+    \item Il ramo con etichetta \texttt{"B"} conduce alla foglia $S_2$.
+    \item Il ramo con etichetta \texttt{"D"} conduce alla foglia $S_3$.
+  \end{itemize}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Rappresentazione ad Invarianza Spaziale tramite Indici}
+\label{subsec:rappresentazione-indici-tuple}
+
+Memorizzare esplicitamente le stringhe contratte (\texttt{"AB"}, \texttt{"BA"}, ecc.) all'interno degli archi causerebbe un consumo addizionale di memoria e richiederebbe allocazioni dinamiche non predicibili. 
+Per preservare un consumo di memoria rigidamente lineare, la letteratura algoritmica impiega una rappresentazione compatta basata su \textbf{puntatori al testo originario}: ciascun arco memorizza una tupla di tre valori interi:
+\begin{equation}
+  \text{Arco} = \langle S_i, \; \text{start\_index}, \; \text{end\_index} \rangle
+\end{equation}
+dove:
+\begin{itemize}
+  \item $S_i$ \`e l'indice (o puntatore) a una qualsiasi stringa della collezione che attraversa quell'arco.
+  \item $\text{start\_index}$ ed $\text{end\_index}$ delimitano la sottostringa lungo $S_i$ che definisce l'etichetta dell'arco.
+\end{itemize}
+
+Con indicizzazione posizionale 1-based, gli archi del Trie compatto didattico sono specificati in modo analitico:
+\begin{itemize}
+  \item $\text{Radice} \xrightarrow{\langle S_4, 1, 2 \rangle} S_4$: identifica la sottostringa $S_4[1 \dots 2] = \text{"BA"}$.
+  \item $\text{Radice} \xrightarrow{\langle S_1, 1, 2 \rangle} \text{Nodo 2}$: identifica la sottostringa $S_1[1 \dots 2] = \text{"AB"}$.
+  \item $\text{Nodo 2} \xrightarrow{\langle S_1, 3, 3 \rangle} S_1$: identifica la sottostringa $S_1[3 \dots 3] = \text{"A"}$.
+  \item $\text{Nodo 2} \xrightarrow{\langle S_2, 3, 3 \rangle} \text{Nodo 3}$: identifica la sottostringa $S_2[3 \dots 3] = \text{"B"}$.
+  \item $\text{Nodo 3} \xrightarrow{\langle S_2, 4, 4 \rangle} S_2$: identifica la sottostringa $S_2[4 \dots 4] = \text{"B"}$.
+  \item $\text{Nodo 3} \xrightarrow{\langle S_3, 4, 4 \rangle} S_3$: identifica la sottostringa $S_3[4 \dots 4] = \text{"D"}$.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.8cm,
+    rootnode/.style={draw=navy, fill=codebackground, thick, rounded corners=3pt, font=\small\bfseries, align=center, inner sep=5pt},
+    branchnode/.style={circle, draw=navy, fill=white, very thick, minimum size=0.9cm, font=\small\bfseries},
+    leafnode/.style={draw=darkgreen, fill=darkgreen!10, thick, rounded corners=3pt, font=\small\ttfamily\bfseries, align=center, inner sep=4pt},
+    tuple_label/.style={font=\footnotesize\bfseries, text=navy, fill=white, inner sep=2pt, align=center}
+]
+  % Radice
+  \node[rootnode] (r) at (0, 0) {Radice (Nodo 0)};
+
+  % Livello 1: Nodo 2 e Foglia S4
+  \node[branchnode] (n2) at (-2.8, -2.4) {2};
+  \node[leafnode] (s4) at (2.8, -2.4) {$S_4$};
+
+  \draw[->, very thick, draw=navy] (r) -- (n2) node[midway, tuple_label, above left=1pt] {$\langle S_1, 1, 2 \rangle$\\\textit{"AB"}};
+  \draw[->, very thick, draw=navy] (r) -- (s4) node[midway, tuple_label, above right=1pt] {$\langle S_4, 1, 2 \rangle$\\\textit{"BA"}};
+
+  % Livello 2 da Nodo 2: Foglia S1 e Nodo 3
+  \node[leafnode] (s1) at (-4.4, -4.8) {$S_1$};
+  \node[branchnode] (n3) at (-1.2, -4.8) {3};
+
+  \draw[->, very thick, draw=navy] (n2) -- (s1) node[midway, tuple_label, above left=1pt] {$\langle S_1, 3, 3 \rangle$\\\textit{"A"}};
+  \draw[->, very thick, draw=navy] (n2) -- (n3) node[midway, tuple_label, above right=1pt] {$\langle S_2, 3, 3 \rangle$\\\textit{"B"}};
+
+  % Livello 3 da Nodo 3: Foglie S2 e S3
+  \node[leafnode] (s2) at (-2.4, -7.0) {$S_2$};
+  \node[leafnode] (s3) at (0.0, -7.0) {$S_3$};
+
+  \draw[->, very thick, draw=navy] (n3) -- (s2) node[midway, tuple_label, left=2pt] {$\langle S_2, 4, 4 \rangle$\\\textit{"B"}};
+  \draw[->, very thick, draw=navy] (n3) -- (s3) node[midway, tuple_label, right=2pt] {$\langle S_3, 4, 4 \rangle$\\\textit{"D"}};
+\end{tikzpicture}%
+}
+\caption{Topologia finale del Compacted Trie (Patricia Trie) con indicizzazione esatta delle sottostringhe tramite tuple $\langle S_i, \text{start}, \text{end} \rangle$. I nodi interni unari sono completamente rimossi, garantendo che ciascun nodo interno abbia grado $\ge 2$.}
+\label{fig:trie-compacted-patricia}
+\end{figure}
+
+\FloatBarrier
+\subsection{Proprietà Strutturali e Analisi Asintotica}
+\label{subsec:proprieta-strutturali-compacted}
+
+L'eliminazione dei nodi unari conferisce al Trie compatto propriet\`a combinatorie straordinariamente potenti:
+
+\begin{theorem}[Propriet\`a Topologiche del Compacted Trie]
+\label{thm:proprieta-compacted-trie}
+Sia data una collezione di $n = |S|$ stringhe distinte. Nel Trie compatto valgono rigorosamente le seguenti relazioni:
+\begin{enumerate}
+  \item \textbf{Numero di Foglie:}
+  \begin{equation}
+    \#\text{foglie} = n
+  \end{equation}
+  \item \textbf{Numero di Nodi Interni:}
+  \begin{equation}
+    \#\text{nodi interni} \le n - 1
+  \end{equation}
+  \item \textbf{Numero Totale di Nodi:}
+  \begin{equation}
+    \#\text{nodi totali} \le 2n - 1
+  \end{equation}
+  \item \textbf{Numero Totale di Archi:}
+  \begin{equation}
+    \#\text{archi totali} \le 2n - 2
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Ogni stringa distinta della collezione identifica in modo univoco una foglia dell'albero, per cui $\#\text{foglie} = n$. Poich\'e tutti i nodi unari sono stati eliminati, ogni nodo interno $u$ possiede obbligatoriamente un grado di ramificazione minimo pari a due ($k_u \ge 2$).
+
+In qualunque albero ad arit\`a almeno 2, il numero massimo di nodi interni si registra nella configurazione massimamente profonda, ovvero nell'albero strettamente binario (in cui ciascun nodo interno possiede esattamente 2 figli). In un albero binario con $n$ foglie, il numero di nodi interni \`e noto essere esattamente pari a $n - 1$. Pertanto, in generale:
+\begin{equation}
+  \#\text{nodi interni} \le n - 1
+\end{equation}
+Sommando foglie e nodi interni:
+\begin{equation}
+  \#\text{nodi totali} = \#\text{foglie} + \#\text{nodi interni} \le n + (n - 1) = 2n - 1
+\end{equation}
+Infine, poich\'e in ogni grafo ad albero connesso con $V$ vertici il numero di archi \`e esattamente $E = V - 1$:
+\begin{equation}
+  \#\text{archi} = \#\text{nodi totali} - 1 \le (2n - 1) - 1 = 2n - 2
+\end{equation}
+\end{proof}
+
+\paragraph{Corollario Fondamentale sull'Occupazione Spaziale:}
+Poich\'e ciascun arco memorizza una tupla numerica di tre costanti intere $\langle S_i, \text{start}, \text{end} \rangle$ di dimensione fissa $\mathcal{O}(1)$:
+\begin{equation}
+  \text{Spazio Globale}(n) = \mathcal{O}(n) \quad \text{parole di memoria}
+\end{equation}
+La quantit\`a di memoria impegnata da un Compacted Trie dipende \textbf{esclusivamente dal numero di stringhe indicizzate ($n$)}, risultando completamente indipendente dalla loro lunghezza cumulativa $d = \sum |s|$ e dalla dimensione dell'alfabeto $\sigma$.
+
+\paragraph{Complessità della Ricerca di Pattern (Pattern Search):}
+Dato un pattern arbitrario di interrogazione $P$:
+\begin{itemize}
+  \item La navigazione scende lungo l'albero comparando i caratteri di $P$ con i caratteri del testo referenziati dalla tupla dell'arco corrente.
+  \item A ogni confronto positivo, l'indice di scansione sul pattern $P$ avanza in avanti di una posizione.
+  \item Pertanto, il tempo per validare la presenza o l'assenza del pattern \`e dominato linearmente dalla lunghezza del pattern stesso:
+  \begin{equation}
+    \text{Tempo di Ricerca} = \mathcal{O}(|P|)
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\section{Estensioni per Prefix Search con Frequenze (Autocompletamento)}
+\label{sec:autocompletamento-prefix-search}
+
+\FloatBarrier
+\subsection{Definizione Formale del Problema Top-1 Prefix Query}
+\label{subsec:definizione-top1-prefix}
+
+Nei moderni motori di ricerca, nelle piattaforme di e-commerce e negli ambienti di sviluppo integrati (IDE), il problema cardinale dell'autocompletamento algoritmico consiste nel suggerire all'utente la query o il simbolo pi\`u probabile durante la digitazione.
+
+Formalmente, si consideri una collezione di $n$ stringhe a ciascuna delle quali \`e associata una frequenza empirica d'uso o popolarit\`a:
+\begin{equation}
+  S = \{ S_1, S_2, \dots, S_n \}, \quad S_i \longleftrightarrow f_i \in \mathbb{R}^+ \quad \forall i \in \{1, \dots, n\}
+\end{equation}
+
+\begin{definition}[Query di Autocompletamento / Top-1 Prefix Query]
+Data una sequenza di input parziale $P[1 \dots q]$ (prefisso di interrogazione di lunghezza $q$), identificare in modo efficiente la stringa $S^* \in S$ che massimizza la frequenza di popolarit\`a tra tutte quelle che ammettono $P$ come prefisso iniziale:
+\begin{equation}
+  S^* = \arg\max_{\substack{S_i \in S \\ P[1 \dots q] \sqsubseteq S_i}} f_i
+\end{equation}
+dove $P \sqsubseteq S_i$ denota che $P$ \`e prefisso proprio o improprio di $S_i$.
+\end{definition}
+
+Una soluzione ingenua che localizzi il sottoalbero associato al prefisso $P$ per poi eseguire una visita esaustiva di tutte le foglie sottostanti richiederebbe tempo proporzionale al numero di elementi nel sottoalbero, introducendo una latenza inaccettabile per scenari interattivi in tempo reale.
+
+\FloatBarrier
+\subsection{Strategie Risolutive Accademiche}
+\label{subsec:strategie-autocompletamento}
+
+La teoria degli algoritmi introduce due paradigmi strutturali fondamentali per risolvere la Top-1 Prefix Query con latenza ottima:
+
+\paragraph{1. Trie Arricchito con Massimi Precalcolati nei Nodi Interni}
+\begin{itemize}
+  \item \textbf{Modello dei Dati:} Ciascun nodo interno $u$ del Trie viene arricchito con due campi informativi ausiliari precalcolati in fase di indicizzazione:
+  \begin{equation}
+    \text{max\_freq}[u] = \max \{ f_i \mid S_i \text{ \`e una foglia discendente di } u \}
+  \end{equation}
+  unitamente a un \textbf{puntatore diretto alla foglia} $\text{best\_leaf}[u] = S^*$ che realizza tale valore massimo.
+  \item \textbf{Elaborazione della Query:}
+  \begin{enumerate}
+    \item Si effettua la consueta discesa lungo il Trie guidati dai $q$ caratteri del prefisso $P$, con costo deterministico $\mathcal{O}(q) = \mathcal{O}(|P|)$.
+    \item Raggiunto il nodo $u_P$ corrispondente all'ultimo carattere di $P$, non \`e richiesta alcuna esplorazione del sottoalbero: \textbf{la risposta ottima $S^*$ viene letta in tempo $\mathcal{O}(1)$} dereferenziando il puntatore precalcolato $u_P.\text{best\_leaf}$.
+  \end{enumerate}
+  \item \textbf{Complessit\`a Complessiva:} $\mathcal{O}(|P|)$ tempo per interrogazione e un overhead di memoria costante per nodo $\mathcal{O}(1)$ puntatori.
+\end{itemize}
+
+\paragraph{2. Treap (Albero Ibrido Trie-Heap)}
+\begin{itemize}
+  \item \textbf{Modello dei Dati:} Il Treap per stringhe~\cite{seidel1996} unifica la semantica lessicografica di un albero digitale di prefissi (chiavi primarie) con la propriet\`a strutturale di \textbf{Max-Heap} governata dalle frequenze $f_i$ (chiavi di priorit\`a).
+  \item \textbf{Propriet\`a Strutturale:} Le chiavi caratterizzate da elevata frequenza d'accesso risalgono naturalmente verso i livelli pi\`u alti dell'albero mediante rotazioni bilanciate.
+  \item \textbf{Ottimizzazione della Query:} Quando si naviga l'albero per soddisfare una query di autocompletamento (o per estrarre le prime $k$ opzioni pi\`u frequenti, \textit{Top-$k$ Prefix Queries}), le priorit\`a dello heap consentono un \textbf{pruning anticipato}: qualsiasi sottoalbero la cui priorit\`a massima sia inferiore al miglior candidato gi\`a rilevato viene immediatamente potato senza essere visitato.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Quadro Sinottico Comparativo delle Strutture Dati per Stringhe}
+\label{subsec:quadro-sinottico-stringhe}
+
+La Tabella~\ref{tab:string-trees-comparative-summary} sintetizza le propriet\`a teoriche e pratiche delle principali architetture ad albero per la memorizzazione, ricerca e indicizzazione di collezioni di stringhe.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.2cm} >{\raggedright\arraybackslash}p{3.8cm} >{\raggedright\arraybackslash}p{3.8cm} >{\raggedright\arraybackslash}p{4.2cm}}
+\toprule
+\textbf{Struttura Dati} & \textbf{Occupazione Spaziale} & \textbf{Tempo di Ricerca} & \textbf{Caratteristiche Distintive e Uso} \\
+\midrule
+\textbf{Standard Trie (Array)} & $\mathcal{O}(d \cdot \sigma)$ \newline (severo spreco per $\sigma$ elevato) & $\mathcal{O}(|P|)$ \newline (transizione deterministica $\mathcal{O}(1)$) & Alfabeti molto piccoli (es. DNA $\sigma=4$) e insiemi densi \\
+\midrule
+\textbf{Hash-Based Trie} & $\mathcal{O}(d)$ \newline (svincolato da $\sigma$) & $\mathcal{O}(|P|)$ \newline (tempo medio atteso) & Dizionari generici su alfabeti estesi; ordinamento archi in $\mathcal{O}(d \log_2 \sigma)$ \\
+\midrule
+\textbf{Compacted Trie (Patricia)} & $\mathbf{\mathcal{O}(n)}$ \newline (indipendente dalla lunghezza $d$) & $\mathcal{O}(|P|)$ \newline (confronto su tuple $\langle S_i, s, e \rangle$) & Indicizzazione di testi lunghi, suffix trees e collezioni con lunghi prefissi \\
+\midrule
+\textbf{Ternary Search Tree (TST)} & $\mathcal{O}(n)$ nodi \newline ($\approx 3$ puntatori per nodo) & $\mathcal{O}(|P| + \log_2 n)$ medio \newline ($\mathcal{O}(|P| \cdot \sigma)$ worst case) & Nessun overhead di hash, preserva l'ordine lessicografico totale nativo \\
+\midrule
+\textbf{Augmented Trie / Treap} & $\mathcal{O}(n)$ oppure $\mathcal{O}(d)$ & Top-1 Query: $\mathbf{\mathcal{O}(|P|)}$ \newline (lookup $\mathcal{O}(1)$ alla fine del prefisso) & Motori di autocompletamento in tempo reale e query per frequenza \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo delle strutture dati ad albero per la ricerca e indicizzazione di stringhe.}
+\label{tab:string-trees-comparative-summary}
+\end{table}
+
+\begin{noteblock}{Regola di Selezione Architetturale per Stringhe}
+Nella progettazione ingegneristica di motori di ricerca e sistemi ad alte prestazioni:
+\begin{enumerate}
+  \item Se la priorit\`a \`e comprimere drasticamente il consumo di memoria indipendentemente dalla lunghezza delle stringhe (garantendo al contempo ricerche lineari in $\mathcal{O}(|P|)$), il \textbf{Compacted Trie} con indicizzazione a tuple rappresenta la soluzione teoricamente e praticamente ottimale.
+  \item Se il sistema richiede risposte immediate a query interattive di completamento su stringhe pesate, il \textbf{Trie arricchito con puntatori al massimo} risolve la Top-1 Prefix Query con costo $\mathcal{O}(|P|)$ senza dover esplorare i sottoalberi.
+  \item Se si richiede il supporto congiunto a ricerche lessicografiche per intervallo (\textit{range queries}) senza le complicazioni e l'overhead delle tabelle hash, il \textbf{Ternary Search Tree (TST)} costituisce l'alternativa compatta preferibile.
+\end{enumerate}
+\end{noteblock}

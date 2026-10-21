@@ -27,6 +27,12 @@ Questa regola definisce gli standard editoriali, tipografici e strutturali per t
   4. `\subsubsection{...}` o `\paragraph{...}`
 * Ogni sezione e sottosezione deve possedere una label univoca e descrittiva (`sec:...`, `subsec:...`).
 
+### 1.3 Standard Tipografici e Divieto di Sintassi Markdown nei Sorgenti
+* **Divieto Assoluto di Divisori Orizzontali**: Non inserire mai righe separatrici Markdown come `---` o comandi grafici arbitrari come `\hrule` nei file sorgente `.tex`. La gerarchia naturale dei titoli e delle sezioni garantisce la separazione tematica.
+* **Formattazione Rigorosa del Testo**:
+  - Il grassetto deve essere codificato esclusivamente tramite `\textbf{...}`, mai con asterischi Markdown `**...**` (che stamperebbero caratteri asterisco letterali nel documento compilato).
+  - Il corsivo per enfasi o terminologia tecnica deve essere codificato tramite `\textit{...}` o `\emph{...}`, mai con `*...*`.
+
 ---
 
 ## 2. Standard Grafici e Diagrammi TikZ
@@ -39,6 +45,7 @@ Questa regola definisce gli standard editoriali, tipografici e strutturali per t
 * **Stile dei Nodi ed Ergonomia Grafica**:
   - Utilizzare `rounded corners` e spessori di linea armonici (`line width=0.8pt` o `thick`).
   - Font leggibili e proporzionati all'interno dei nodi (`\small`, `\footnotesize`).
+  - **Spaziatura tra nodi adiacenti (Sibling Distance)**: calibrare attentamente le distanze orizzontali nei sottoalberi affinché i bordi di nodi fratelli o foglie contigue non siano mai a contatto diretto né fusi tra loro, preservando una netta spaziatura bianca (almeno 5--10 mm).
 * **Frecce ed Etichette TikZ**:
   - Garantire una spaziatura sufficiente tra i nodi (lunghezza degli archi adeguata) per una lettura pulita.
   - Le etichette lungo gli archi (es. simboli $<$, $=$, $>$) non devono **mai coprire o sovrapporsi al tratto o alla punta della freccia**: posizionarle a lato (`above left`, `above right`, `left`, `right`) oppure specificare un background opaco (`fill=white, inner sep=1.5pt`).
