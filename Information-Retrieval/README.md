@@ -157,7 +157,7 @@ latexmk -c
     - *Listwise*: ottimizzazione dell'intero elenco e teorema di non-derivabilità dell'operatore discreto di ordinamento ($\nabla_{\mathbf{\theta}} \text{sort} = \mathbf{0}$).
   - Quadro sinottico comparativo dei paradigmi di Learning to Rank.
 
-- **Capitolo 10: Learning to Rank II: Pipeline Industriale, BM25F e Modelli ad Albero GBRT** (`10`)
+- **Capitolo 10: Learning to Rank II: Pipeline Industriale, BM25F e Formulazione del Ranking** (`10`)
   - Architettura operativa end-to-end di una pipeline LtR: ricezione query, espansione NLP, candidate retrieval su indice invertito, feature extraction/lookup densa ($D \approx 100\text{--}1\,000$), valutazione del modello supervisionato e vincolo del Time Budget ($\le 15\text{--}25\text{ ms}$ per inferenza, $< 20\,\mu\text{s}$ per candidato).
   - Apprendere un classificatore per la rilevanza di coppie query-documento nell'ad-hoc search: formulazione probabilistica, limiti strutturali (class imbalance severo, simmetria dell'errore, assenza di competizione locale).
   - Formulazione matematica precisa degli approcci di ranking (Bruch, Lucchese, Nardini 2023): spazio delle permutazioni $\mathfrak{S}_n$, formulazioni formali di Pointwise (MSE e cross-entropy), Pairwise (probabilità logistica sigmoide e perdita di RankNet con fattore $1/2$) e Listwise (ListNet con proiezione softmax sul simplesso delle probabilità e cross-entropia tra distribuzioni).
@@ -166,17 +166,6 @@ latexmk -c
   - Inquadramento dell'ottimizzazione di BM25F in un problema di Learning to Rank: spazio delle ipotesi, training set e massimizzazione di NDCG@10; pro e contro dell'approccio LTR su BM25F.
   - Calibrazione dei parametri: confronto analitico tra Grid Search ($\mathcal{O}(G^{2S+1})$, impraticabile per $S \ge 4$) e Discesa di Gradiente; superamento della non-derivabilità di NDCG tramite funzione di perdita surrogata pairwise differenziabile (RankNet).
   - Problemi fondamentali dell'apprendimento del ranking: natura discreta a gradino delle metriche (MAP, NDCG), non convessità e non derivabilità dell'operatore di ordinamento ($\nabla_{\mathbf{s}} \text{sort}(\mathbf{s}) = \mathbf{0}$ quasi ovunque), intrattabilità teorica e NP-difficoltà dell'ottimizzazione diretta.
-  - Modelli ad albero per il ranking: anatomia di un Regression Tree, partizione dello spazio $\mathbb{R}^D$ in $J$ regioni ortogonali disgiunte, algoritmo di Recursive Binary Splitting con criterio di minimizzazione della varianza residua (MSE), calcolo analitico del valore costante predetto alle foglie come media empirica ed esempio numerico passo-passo.
-  - Gradient Boosted Regression Trees (GBRT / MART, Friedman 2001): espansione additiva $F_M(\mathbf{x}) = F_0(\mathbf{x}) + \sum \eta h_m(\mathbf{x})$, discesa di gradiente funzionale nello spazio delle funzioni, calcolo degli pseudo-residui come gradiente negativo della perdita e shrinkage $\eta$.
-  - Motivazioni della supremazia di GBRT su dati tabulari in IR: invarianza monotona di scala, isolamento degli outlier, cattura spontanea delle interazioni non lineari tra feature e gestione nativa dei valori mancanti.
-  - Da GBRT a LambdaMART (Burges 2010): addestramento di regression tree su pseudo-gradienti virtuali $\lambda$ pesati sulla variazione marginale $|\Delta \text{NDCG}|$. Librerie industriali ad alte prestazioni (LightGBM con istogrammi a 8 bit e CatBoost con alberi simmetrici branchless).
-  - Quadro sinottico comparativo: Okapi BM25, BM25F, Classificatore Lineare, Regression Tree singolo, GBRT/MART e LambdaMART.
-  - Problemi fondamentali dell'apprendimento del ranking: natura discreta a gradino delle metriche (MAP, NDCG), non convessità e non derivabilità dell'operatore di ordinamento ($\nabla_{\mathbf{s}} \text{sort}(\mathbf{s}) = \mathbf{0}$ quasi ovunque), intrattabilità teorica e NP-difficoltà dell'ottimizzazione diretta.
-  - Modelli ad albero per il ranking: anatomia di un Regression Tree, partizione dello spazio $\mathbb{R}^D$ in $J$ regioni ortogonali disgiunte, algoritmo di Recursive Binary Splitting con criterio di minimizzazione della varianza residua (MSE), calcolo analitico del valore costante predetto alle foglie come media empirica ed esempio numerico passo-passo.
-  - Gradient Boosted Regression Trees (GBRT / MART, Friedman 2001): espansione additiva $F_M(\mathbf{x}) = F_0(\mathbf{x}) + \sum \eta h_m(\mathbf{x})$, discesa di gradiente funzionale nello spazio delle funzioni, calcolo degli pseudo-residui come gradiente negativo della perdita e shrinkage $\eta$.
-  - Motivazioni della supremazia di GBRT su dati tabulari in IR: invarianza monotona di scala, isolamento degli outlier, cattura spontanea delle interazioni non lineari tra feature e gestione nativa dei valori mancanti.
-  - Da GBRT a LambdaMART (Burges 2010): addestramento di regression tree su pseudo-gradienti virtuali $\lambda$ pesati sulla variazione marginale $|\Delta \text{NDCG}|$. Librerie industriali ad alte prestazioni (LightGBM con istogrammi a 8 bit e CatBoost con alberi simmetrici branchless).
-  - Quadro sinottico comparativo: Okapi BM25, BM25F, Classificatore Lineare, Regression Tree singolo, GBRT/MART e LambdaMART.
 
 ```text
 Information-Retrieval/
