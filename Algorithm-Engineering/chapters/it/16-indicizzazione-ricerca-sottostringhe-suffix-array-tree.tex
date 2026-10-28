@@ -1,0 +1,830 @@
+\chapter{Indicizzazione e Ricerca di Sottostringhe: Suffix Array, Suffix Tree e Array LCP}
+\label{ch:indicizzazione-ricerca-sottostringhe-suffix-array-tree}
+
+\section{Dal Problema del Dizionario alla Ricerca di Sottostringhe}
+\label{sec:dizionario-vs-sottostringhe}
+
+\FloatBarrier
+\subsection{Il Problema del Dizionario su Stringhe e sue Limitazioni}
+\label{subsec:dizionario-stringhe-review}
+
+Nei capitoli precedenti (\autoref{chap:string-sorting-search}, \autoref{chap:strutture-dati-stringhe-tst-radix-sort}, \autoref{chap:trie-compatti-msd-radix-sort-autocompletamento} e \autoref{chap:ricerca-stringhe-memoria-gerarchica}) \`e stato affrontato il problema canonico del \textbf{dizionario su stringhe}, in cui una collezione finita di $m$ chiavi distinte:
+\begin{equation}
+  \mathcal{D} = \{S_1, S_2, \dots, S_m\} \subset \Sigma^*
+\end{equation}
+definita su un alfabeto ordinato $\Sigma$, viene organizzata in memoria centrale o gerarchica per supportare operazioni mirate:
+\begin{itemize}
+  \item \textbf{Exact Match (Ricerca Esatta):} Verificare se un pattern $P$ appartiene alla collezione ($P \in \mathcal{D}$).
+  \item \textbf{Prefix Search (Ricerca per Prefisso):} Identificare tutte le chiavi $S \in \mathcal{D}$ che ammettono $P$ come prefisso iniziale ($S[1 \dots |P|] = P$).
+  \item \textbf{Range Search e Ricerca Lessicografica:} Individuare le chiavi appartenenti a un intervallo $[P_1, P_2]$, oppure localizzare il predecessore e successore lessicografico.
+\end{itemize}
+
+Le strutture canoniche introdotte per risolvere tali query comprendono:
+\begin{enumerate}
+  \item \textbf{Trie Standard (Uncompacted Trie):} Albero digitale ad archi a carattere singolo (\autoref{sec:array-based-trie}), ottimale per chiavi corte ma soggetto a degenerazione lineare in profondit\`a.
+  \item \textbf{Compacted Trie (Patricia Tree / Radix Tree):} Compressione dei cammini privi di diramazioni mediante sottostringhe o tuple di indici (\autoref{sec:trie-compatti-patricia}), con tempo di ricerca $\mathcal{O}(|P|)$ e spazio $\mathcal{O}(m)$ nodi.
+  \item \textbf{Ternary Search Tree (TST):} Albero a tre vie con nodi bilanciati (\autoref{sec:tst-modello-teorico}), che sostituisce i vettori di puntatori con ramificazioni inferiori, uguali e superiori.
+  \item \textbf{Blind Trie (Patricia Trie Lossy):} Rappresentazione a compressione con perdita orientata alla memoria esterna (\autoref{sec:patricia-blind-trie}), che conserva unicamente interi di salto $\text{skip}(u)$ ed etichette a singolo carattere per eliminare l'overhead del testo in RAM.
+\end{enumerate}
+
+Tutte queste strutture si fondano tuttavia su un'assunzione rigida: \textbf{la collezione \`e partizionata in parole predeterminate e isolate}. Se l'obiettivo dell'applicazione \`e individuare le occorrenze di una sequenza arbitraria all'interno di un testo continuo privo di delimitatori lessicali, il modello del dizionario canonico risulta inadeguato.
+
+\FloatBarrier
+\subsection{La Ricerca di Sottostringhe in un Testo Generale}
+\label{subsec:substring-search-formalizzazione}
+
+Nel problema fondamentale del \textbf{Substring Search} (o ricerca a testo pieno, \textit{full-text pattern matching}), lo scenario applicativo muta radicalmente: non si dispone di un vocabolario di termini predefiniti, bens\`i di un unico testo continuo e non strutturato:
+\begin{equation}
+  T[1 \dots n] = T[1]T[2]\dots T[n] \in \Sigma^n
+\end{equation}
+di lunghezza $|T| = n$. Dato un generico pattern di interrogazione:
+\begin{equation}
+  P[1 \dots m] = P[1]P[2]\dots P[m] \in \Sigma^m
+\end{equation}
+di lunghezza $|P| = m \le n$, l'obiettivo consiste nel determinare:
+\begin{enumerate}
+  \item \textbf{Query di Esistenza / Conteggio:} Stabilire se $P$ compare all'interno di $T$ e contare il numero complessivo $t_{\text{occ}}$ di occorrenze:
+  \begin{equation}
+    \text{Occ}(P, T) = \{j \in \{1, \dots, n - m + 1\} \mid T[j \dots j + m - 1] = P\}
+  \end{equation}
+  \item \textbf{Query di Localizzazione (Reporting):} Restituire l'elenco esaustivo degli indici posizionali $\{j_1, j_2, \dots, j_{t_{\text{occ}}}\}$ in cui $P$ ha inizio all'interno di $T$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    text_strip/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, minimum width=12.2cm, minimum height=1.1cm},
+    pat_box/.style={rectangle, rounded corners=2pt, draw=crimson, fill=crimson!15, thick, font=\small\bfseries\sffamily, align=center, minimum width=1.8cm, minimum height=0.78cm},
+    annot/.style={font=\footnotesize, text=navy, align=center},
+    dot_label/.style={font=\small\ttfamily, text=gray!70}
+]
+
+% Barra del testo continuo T
+\node[text_strip] (T) at (0, 0) {};
+
+% Etichette di indice e nome testo con freccette di riferimento agli estremi
+\node[font=\small\bfseries\color{navy}, anchor=west] at (-5.9, 0) {$T$:};
+\node[font=\scriptsize\bfseries\color{navy}, anchor=south] (idx1) at (-5.7, 0.65) {Indice $1$};
+\node[font=\scriptsize\bfseries\color{navy}, anchor=south] (idxn) at (5.7, 0.65) {Indice $n$};
+\draw[->, >=Stealth, thin, navy] (idx1.south) -- (-5.7, 0.42);
+\draw[->, >=Stealth, thin, navy] (idxn.south) -- (5.7, 0.42);
+
+\node[font=\scriptsize\color{darkgray}, anchor=south] at (0, 0.6) {Testo continuo $T[1 \dots n]$ ($|T| = n$ caratteri)};
+
+% Segmenti con punti uniformi
+\node[dot_label] at (-4.4, 0) {$\dots\dots\dots$};
+\node[dot_label] at (-1.4, 0) {$\dots\dots\dots$};
+\node[dot_label] at (1.4, 0)  {$\dots\dots\dots$};
+\node[dot_label] at (4.4, 0)  {$\dots\dots\dots$};
+
+% Tre occorrenze del pattern (bande orizzontali evidenziate)
+\node[pat_box] (p1) at (-2.8, 0) {$P[1 \dots m]$};
+\node[pat_box] (p2) at (0.0, 0)  {$P[1 \dots m]$};
+\node[pat_box] (p3) at (2.8, 0)  {$P[1 \dots m]$};
+
+% Punti di inizio dell'intervallo (bordo sinistro del pattern)
+\coordinate (start1) at (-3.7, -0.39);
+\coordinate (start2) at (-0.9, -0.39);
+\coordinate (start3) at (1.9, -0.39);
+
+% Frecce posizionali verticali che puntano esattamente all'indice iniziale j_i
+\draw[->, thick, crimson] (-3.7, -0.95) -- (start1);
+\draw[->, thick, crimson] (-0.9, -0.95) -- (start2);
+\draw[->, thick, crimson] (1.9, -0.95)  -- (start3);
+
+% Etichette descrittive ariose (nessuna sovrapposizione)
+\node[annot] at (-3.7, -1.35) {\textbf{Occorrenza 1}\\[1pt]Indice $j_1$};
+\node[annot] at (-0.9, -1.35) {\textbf{Occorrenza 2}\\[1pt]Indice $j_2$};
+\node[annot] at (1.9, -1.35)  {\textbf{Occorrenza 3}\\[1pt]Indice $j_3$};
+
+\end{tikzpicture}%
+}
+\caption{Visualizzazione concettuale del problema di Substring Search: localizzazione di tutte le occorrenze arbitrarie di un pattern $P$ di lunghezza $m$ all'interno di un testo continuo $T[1 \dots n]$. Ciascuna freccia identifica l'indice di partenza $j_i$ del rispettivo intervallo continuo $T[j_i \dots j_i + m - 1] = P$.}
+\label{fig:substring-search-overview}
+\end{figure}
+
+\paragraph{Domini Applicativi Fondamentali.}
+La necessit\`a di ricercare pattern posizionati arbitrariamente all'interno di collezioni massive emerge in ambiti tecnologici critici:
+\begin{itemize}
+  \item \textbf{Bioinformatica e Analisi Genomica:} Sequenze di DNA, RNA e proteine non presentano separatori naturali tra geni o motivi funzionali. Con alfabeti biologici compatti (es. nucleotidi $\Sigma = \{A, C, G, T\}$ o 20 amminoacidi), le interrogazioni mirano a localizzare mutazioni, marcatori genetici o sottostringhe comuni tra organismi su testi composti da centinaia di milioni o miliardi di basi.
+  \item \textbf{Motori di Ricerca Web e Testi Non Strutturati:} Indicizzazione a testo pieno (\textit{full-text search}) su documenti digitali, codici sorgente o lingue naturali prive di spaziatori convenzionali tra vocaboli (come il cinese o il giapponese).
+  \item \textbf{Cybersecurity e Network Intrusion Detection:} Monitoraggio in tempo reale dei flussi di rete e ispezione profonda dei pacchetti (\textit{Deep Packet Inspection}, DPI), in cui si scansionano flussi continui di byte per rilevare signature binarie malevole o shellcode.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Il Limite dell'Approccio Sequenziale (Brute-Force)}
+\label{subsec:limite-brute-force}
+
+L'algoritmo ingenuo di scansione sequenziale confronta il pattern $P$ scorrendolo lungo tutte le possibili posizioni di allineamento $i \in \{1, 2, \dots, n - m + 1\}$ del testo $T$:
+\begin{equation}
+  \text{Per ciascun offset } i, \quad \text{confronta } T[i \dots i + m - 1] \text{ con } P[1 \dots m].
+\end{equation}
+
+\paragraph{Analisi della Complessit\`a nel Caso Peggiore.}
+Per ogni indice $i$, la verifica pu\`o richiedere fino a $m$ confronti di caratteri prima di identificare una corrispondenza o rilevare un mismatch. Ne consegue che:
+\begin{equation}
+  \text{Tempo}_{\text{Brute-Force}} = \mathcal{O}(n \cdot m)
+\end{equation}
+
+In scenari reali altamente ripetitivi (ad esempio nel genoma umano con sequenze di basi identiche $T = AAAAA\dots$ e pattern $P = AAAB$), il caso peggiore viene raggiunto con regolarit\`a. Se $n \approx 3 \times 10^9$ (la taglia del genoma umano) e si eseguono milioni di query con pattern lunghi $m = 1000$, la scansione lineare richiederebbe svariati minuti o ore per singola interrogazione, risultando totalmente inapplicabile.
+
+Sebbene algoritmi di scansione lineare senza pre-elaborazione del testo (come Knuth-Morris-Pratt, Boyer-Moore o Rabin-Karp) riducano il tempo di ricerca a $\mathcal{O}(n + m)$, essi richiedono comunque di rileggere l'intero testo $T$ a ogni nuova interrogazione:
+\begin{equation}
+  \text{Costo per $Q$ interrogazioni indipendenti} = \mathcal{O}(Q \cdot n)
+\end{equation}
+Per ottenere tempi di risposta interattivi (\textit{sub-lineari} o indipendenti da $n$), \`e indispensabile pre-elaborare e indicizzare il testo una volta per tutte in una struttura dati specializzata.
+
+\FloatBarrier
+\subsection{La Riduzione Chiave: Ricondurre Substring Search a Prefix Search}
+\label{subsec:teorema-riduzione-suffissi}
+
+La svolta teorica che permette di superare la scansione sequenziale risiede in una riduzione concettuale universale: \textbf{trasformare la ricerca di una sottostringa generica in una ricerca di prefisso su un opportuno dizionario di suffissi}.
+
+\begin{theorem}[Principio di Riduzione ai Suffissi]
+\label{thm:riduzione-suffissi}
+Sia dato un testo $T[1 \dots n]$ e un pattern arbitrario $P[1 \dots m]$. La stringa $P$ \`e una \textbf{sottostringa} di $T$ se e solo se $P$ \`e un \textbf{prefisso} di almeno uno dei suffissi di $T$.
+\end{theorem}
+
+\begin{proof}
+La dimostrazione segue direttamente dalle definizioni formali:
+\begin{enumerate}
+  \item ($\implies$) Sia $P$ una sottostringa di $T$. Allora esiste un indice posizionale $j \in \{1, \dots, n - m + 1\}$ tale che $T[j \dots j + m - 1] = P$. Si consideri il suffisso di $T$ che ha inizio all'indice $j$, denotato con $S_j = T[j \dots n]$. I primi $m$ caratteri di $S_j$ sono identici a $T[j \dots j + m - 1]$, che per ipotesi coincide con $P$. Pertanto, $P$ \`e un prefisso di $S_j$.
+  \item ($\impliedby$) Sia $P$ un prefisso del suffisso $S_j = T[j \dots n]$. Poich\'e $P$ coincide con i primi $m$ caratteri di $S_j$, abbiamo $T[j \dots j + m - 1] = P$, il che prova che $P$ occorre come sottostringa continua in $T$ all'indice $j$.
+\end{enumerate}
+\end{proof}
+
+\paragraph{Il Dizionario Completo dei Suffissi.}
+Definiamo formalmente il dizionario dei suffissi di $T$ come l'insieme esaustivo di tutti gli $n$ suffissi generabili dal testo:
+\begin{equation}
+  \mathcal{D}_{\text{suffissi}} = \{S_1, S_2, \dots, S_n\} = \{T[1 \dots n], \; T[2 \dots n], \; \dots, \; T[n \dots n]\}
+\end{equation}
+
+Grazie al \autoref{thm:riduzione-suffissi}, la ricerca di tutte le occorrenze di $P$ in $T$ si riduce esattamente a una \textbf{Prefix Search} per $P$ all'interno del dizionario $\mathcal{D}_{\text{suffissi}}$.
+
+\paragraph{L'Ostacolo della Rappresentazione Esplicita: Esplosione Quadratica $\Theta(n^2)$.}
+Se tentassimo di memorizzare il dizionario $\mathcal{D}_{\text{suffissi}}$ allocando esplicitamente ciascun suffisso come stringa indipendente, il numero totale di caratteri da registrare in memoria risulterebbe:
+\begin{equation}
+  \sum_{i=1}^n |S_i| = \sum_{i=1}^n (n - i + 1) = \sum_{k=1}^n k = \frac{n(n + 1)}{2} = \Theta(n^2) \text{ caratteri}
+\end{equation}
+
+\begin{alertblock}{Insostenibilit\`a dell'Approccio Esplicito}
+Un consumo spaziale pari a $\Theta(n^2)$ \`e proibitivo per qualunque collezione di medie o grandi dimensioni. Per un genoma umano ($n \approx 3 \times 10^9$ caratteri), $\Theta(n^2)$ byte richiederebbe circa $4.5 \times 10^{18}$ byte ($4.5$ Exabyte), un volume inconcepibile per qualsiasi infrastruttura computazionale moderna.
+\end{alertblock}
+
+La sfida centrale dell'Algorithm Engineering consiste pertanto nell'indicizzare l'intero dizionario dei suffissi $\mathcal{D}_{\text{suffissi}}$ garantendo rigorosamente un'occupazione di memoria \textbf{strettamente lineare $\mathcal{O}(n)$}, supportando al contempo ricerche veloci del pattern $P$. Questa sfida conduce naturalmente alle due strutture cardine della letteratura: il \textbf{Suffix Array (SA)} e il \textbf{Suffix Tree}.
+
+\FloatBarrier
+\section{La Struttura Dati Suffix Array (SA)}
+\label{sec:suffix-array}
+
+\FloatBarrier
+\subsection{Definizione Formale e Convenzione del Carattere Sentinella}
+\label{subsec:definizione-sentinella-sa}
+
+Introdotto da Manber e Myers nel 1993~\cite{manber1993}, il \textbf{Suffix Array} ($SA$) costituisce una delle strutture dati pi\`u eleganti e compatte per l'indicizzazione a testo pieno.
+
+\begin{definition}[Carattere Speciale Sentinella $\$$]
+Sia data una stringa $T \in \Sigma^*$. Si definisce testo arricchito la sequenza $T\$ = T[1 \dots m]\$$, ottenuta concatenando in coda a $T$ un carattere sentinella speciale denotato con $\$$, tale che:
+\begin{equation}
+  \$ \notin \Sigma \quad \land \quad \forall c \in \Sigma, \; \$ <_{\text{lex}} c
+\end{equation}
+Il simbolo $\$$ possiede convenzionalmente il rango lessicografico pi\`u basso in assoluto nell'alfabeto esteso $\Sigma_{\$} = \Sigma \cup \{\$\}$.
+\end{definition}
+
+L'introduzione della sentinella $\$$ garantisce due propriet\`a algebriche fondamentali:
+\begin{enumerate}
+  \item \textbf{Assenza di Prefissi Propri:} Poich\'e il simbolo $\$$ compare esclusivamente al termine del testo, nessun suffisso di $T\$$ pu\`o essere un prefisso proprio di un altro suffisso.
+  \item \textbf{Ordinamento Stretto e Univoco:} Dati due distinti suffissi $S_i$ e $S_j$ ($i \neq j$), essi differiranno necessariamente prima o in corrispondenza del simbolo $\$$, garantendo una relazione d'ordine totale stretto:
+  \begin{equation}
+    S_i <_{\text{lex}} S_j \quad \lor \quad S_j <_{\text{lex}} S_i
+  \end{equation}
+\end{enumerate}
+
+\begin{definition}[Suffix Array]
+Il Suffix Array associato a un testo $T\$$ di lunghezza $m$ \`e una permutazione degli indici posizionali $\{1, 2, \dots, m\}$:
+\begin{equation}
+  SA: \{1, \dots, m\} \to \{1, \dots, m\}
+\end{equation}
+tale per cui i suffissi puntati risultano ordinati in ordine lessicografico strettamente crescente:
+\begin{equation}
+  S_{SA[1]} <_{\text{lex}} S_{SA[2]} <_{\text{lex}} \dots <_{\text{lex}} S_{SA[m]}
+\end{equation}
+In altri termini, $SA[r]$ memorizza l'indice iniziale nel testo $T\$$ del suffisso che occupa il rango lessicografico $r$.
+\end{definition}
+
+\FloatBarrier
+\subsection{Costruzione ed Esempio Analitico: $T = \text{mississippi}\$$}
+\label{subsec:esempio-mississippi-sa}
+
+Consideriamo il classico testo di riferimento:
+\begin{equation}
+  T\$ = \text{mississippi}\$
+\end{equation}
+avente lunghezza totale pari a $m = 12$ caratteri. La mappatura degli indici posizionali (1-based) \`e la seguente:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c c c c c c c c c c c c c}
+\toprule
+\textbf{Indice $i$} & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 \\
+\midrule
+\textbf{$T[i]$} & $m$ & $i$ & $s$ & $s$ & $i$ & $s$ & $s$ & $i$ & $p$ & $p$ & $i$ & $\$$ \\
+\bottomrule
+\end{tabular}
+\caption{Mappatura posizionale dei caratteri per il testo $T\$ = \text{mississippi}\$$ ($m = 12$).}
+\label{tab:mississippi-posizionale}
+\end{table}
+
+\paragraph{Elenco Esaustivo dei 12 Suffissi non Ordinati.}
+Ciascun indice $i \in \{1, \dots, 12\}$ definisce un suffisso $S_i = T[i \dots 12]$:
+
+\begin{center}
+\small
+\begin{tabular}{l@{\qquad\qquad}l}
+$S_1 = T[1 \dots 12] = \text{mississippi}\$$ & $S_7 = T[7 \dots 12] = \text{sippi}\$$ \\
+$S_2 = T[2 \dots 12] = \text{ississippi}\$$   & $S_8 = T[8 \dots 12] = \text{ippi}\$$ \\
+$S_3 = T[3 \dots 12] = \text{ssissippi}\$$    & $S_9 = T[9 \dots 12] = \text{ppi}\$$ \\
+$S_4 = T[4 \dots 12] = \text{sissippi}\$$     & $S_{10} = T[10 \dots 12] = \text{pi}\$$ \\
+$S_5 = T[5 \dots 12] = \text{issippi}\$$      & $S_{11} = T[11 \dots 12] = \text{i}\$$ \\
+$S_6 = T[6 \dots 12] = \text{ssippi}\$$       & $S_{12} = T[12 \dots 12] = \$$ \\
+\end{tabular}
+\end{center}
+
+\paragraph{Derivazione del Suffix Array tramite Ordinamento Lessicografico.}
+Ordinando i 12 suffissi in ordine lessicografico crescente (tenendo presente che $\$$ precede alfabeticamente qualunque lettera dell'alfabeto), si ottiene la corrispondenza biunivoca sintetizzata nella \autoref{tab:mississippi-sa-ordinato}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c c l}
+\toprule
+\textbf{Rango $r$} & \textbf{$SA[r]$ (Offset in $T$)} & \textbf{Suffisso Associato $S_{SA[r]}$} \\
+\midrule
+\textbf{1}  & \textbf{12} & $\$$ \\
+\textbf{2}  & \textbf{11} & $i\$$ \\
+\textbf{3}  & \textbf{8}  & $ippi\$$ \\
+\textbf{4}  & \textbf{5}  & $issippi\$$ \\
+\textbf{5}  & \textbf{2}  & $ississippi\$$ \\
+\textbf{6}  & \textbf{1}  & $mississippi\$$ \\
+\textbf{7}  & \textbf{10} & $pi\$$ \\
+\textbf{8}  & \textbf{9}  & $ppi\$$ \\
+\textbf{9}  & \textbf{7}  & $sippi\$$ \\
+\textbf{10} & \textbf{4}  & $sissippi\$$ \\
+\textbf{11} & \textbf{6}  & $ssippi\$$ \\
+\textbf{12} & \textbf{3}  & $ssissippi\$$ \\
+\bottomrule
+\end{tabular}
+\caption{Suffix Array ordinato per il testo $T\$ = \text{mississippi}\$$.}
+\label{tab:mississippi-sa-ordinato}
+\end{table}
+
+Il Suffix Array corrisponde quindi al vettore di interi:
+\begin{equation}
+  SA = [12, \; 11, \; 8, \; 5, \; 2, \; 1, \; 10, \; 9, \; 7, \; 4, \; 6, \; 3]
+\end{equation}
+
+\FloatBarrier
+\subsection{Occupazione Spaziale del Suffix Array}
+\label{subsec:spazio-suffix-array}
+
+La struttura completa allocata in memoria primaria \`e composta dalla coppia $(T, SA)$:
+\begin{itemize}
+  \item \textbf{Il Testo Originale $T$:} Memorizza i caratteri grezzi del testo continuo. Se codificato in standard ASCII o UTF-8 a 1 byte per simbolo, occupa esattamente $m$ byte.
+  \item \textbf{Il Vettore $SA$:} Memorizza la permutazione degli $m$ indici interi compresi nell'intervallo $[1, m]$. Ciascun elemento necessita di $\lceil \log_2 m \rceil$ bit. Nei sistemi reali, per testi fino a $2^{32} - 1 \approx 4\text{ GB}$ si impiegano interi a 32 bit (4 byte); per collezioni pi\`u estese si adottano interi a 64 bit (8 byte).
+\end{itemize}
+
+Lo spazio complessivo occupato risulta:
+\begin{equation}
+  \text{Spazio}(SA + T) = m \cdot \text{sizeof(int)} + m \cdot \text{sizeof(char)} = \Theta(m) \text{ byte}
+\end{equation}
+
+\begin{noteblock}{Risoluzione dell'Esplosione Quadratica}
+Il Suffix Array abbatte la ridondanza quadratica $\Theta(m^2)$ mediante la \textbf{condivisione indiretta del testo}: i caratteri dei suffissi non vengono mai duplicati in memoria, ma referenziati al volo attraverso l'indice iniziale $SA[r]$ all'interno dell'unico array continuo $T$.
+\end{noteblock}
+
+\FloatBarrier
+\subsection{Algoritmo di Ricerca Binaria per un Pattern $P[1 \dots p]$}
+\label{subsec:ricerca-binaria-sa}
+
+La propriet\`a algebrica fondante del Suffix Array risiede nel fatto che tutti i suffissi che condividono un determinato prefisso comune $P$ occupano un \textbf{intervallo contiguo di indici} all'interno del vettore $SA$.
+
+\begin{lemma}[Contiguit\`a dei Prefissi nel Suffix Array]
+\label{lem:contiguita-sa}
+Sia dato un pattern $P \in \Sigma^*$. L'insieme dei ranghi dei suffissi che ammettono $P$ come prefisso costituisce un intervallo chiuso $[L, R] \subseteq [1, m]$ (eventualmente vuoto se $P$ non occorre in $T$):
+\begin{equation}
+  \forall r \in [L, R], \quad S_{SA[r]}[1 \dots |P|] = P
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+La dimostrazione discende direttamente dall'ordinamento lessicografico totale dei suffissi. Se $S_{SA[L]}$ e $S_{SA[R]}$ iniziano entrambi con il prefisso $P$, allora qualsiasi suffisso $S_{SA[k]}$ intermedio con $L \le k \le R$ deve soddisfare:
+\begin{equation}
+  S_{SA[L]} \le_{\text{lex}} S_{SA[k]} \le_{\text{lex}} S_{SA[R]}
+\end{equation}
+Poich\'e i due estremi condividono il medesimo prefisso $P$, ogni stringa lessicograficamente compresa tra di essi deve obbligatoriamente iniziare con il medesimo prefisso $P$.
+\end{proof}
+
+\paragraph{Procedura di Duplice Ricerca Binaria.}
+Per determinare l'intervallo $[L, R]$, si eseguono due ricerche binarie indipendenti sul vettore $SA$:
+\begin{enumerate}
+  \item \textbf{Prima Ricerca Binaria (Estremo Sinistro $L$):} Localizza il primo rango $L \in \{1, \dots, m\}$ tale che $S_{SA[L]} \ge_{\text{lex}} P$. Se tale suffisso non ammette $P$ come prefisso, il pattern non compare in $T$ e l'algoritmo termina.
+  \item \textbf{Seconda Ricerca Binaria (Estremo Destro $R$):} Localizza l'ultimo rango $R \in \{1, \dots, m\}$ tale che $P$ sia ancora prefisso di $S_{SA[R]}$. Formalmente, ci\`o equivale a cercare la posizione di inserimento di $P \circ \$_{\max}$ (dove $\$_{\max}$ \`e un carattere convenzionale superiore a ogni simbolo di $\Sigma$), oppure il primo suffisso strettamente maggiore di qualunque estensione di $P$.
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{Ricerca Binaria su Suffix Array per Substring Search}
+\label{alg:ricerca-binaria-sa}
+\DontPrintSemicolon
+\KwIn{Testo $T[1 \dots m]\$$, Suffix Array $SA[1 \dots m]$, Pattern $P[1 \dots p]$}
+\KwOut{Intervallo delle occorrenze $[L, R]$, oppure $\emptyset$}
+
+\tcp{Fase 1: Ricerca Binaria per l'Estremo Sinistro $L$}
+$low \gets 1$; \quad $high \gets m$; \quad $L \gets m + 1$\;
+\While{$low \le high$}{
+  $mid \gets \lfloor (low + high) / 2 \rfloor$\;
+  \If{$S_{SA[mid]}[1 \dots p] \ge_{\text{lex}} P$}{
+    $L \gets mid$\;
+    $high \gets mid - 1$\;
+  }
+  \Else{
+    $low \gets mid + 1$\;
+  }
+}
+
+\If{$L > m$ \textbf{or} $S_{SA[L]}[1 \dots p] \neq P$}{
+  \Return $\emptyset$ \tcp*{Pattern non presente nel testo}
+}
+
+\tcp{Fase 2: Ricerca Binaria per l'Estremo Destro $R$}
+$low \gets L$; \quad $high \gets m$; \quad $R \gets L$\;
+\While{$low \le high$}{
+  $mid \gets \lfloor (low + high) / 2 \rfloor$\;
+  \If{$S_{SA[mid]}[1 \dots p] == P$}{
+    $R \gets mid$\;
+    $low \gets mid + 1$\;
+  }
+  \Else{
+    $high \gets mid - 1$\;
+  }
+}
+
+\Return $[L, R]$\;
+\end{algorithm}
+
+\paragraph{Esempio Guidato: Ricerca del Pattern $P = \text{"si"}$ in $\text{mississippi}\$$.}
+Ispezioniamo la \autoref{tab:mississippi-sa-ordinato}:
+\begin{enumerate}
+  \item La prima ricerca binaria individua il primo suffisso che inizia con `"si"`:
+  \begin{equation}
+    r = 9 \implies SA[9] = 7 \implies S_7 = \text{"sippi\$"}
+  \end{equation}
+  Dunque $L = 9$.
+  \item La seconda ricerca binaria identifica l'ultimo suffisso che inizia con `"si"`:
+  \begin{equation}
+    r = 10 \implies SA[10] = 4 \implies S_4 = \text{"sissippi\$"}
+  \end{equation}
+  Dunque $R = 10$ (il suffisso successivo al rango 11 \`e `"ssippi\$"`, che diverge gi\`a al secondo carattere).
+  \item \textbf{Conteggio delle Occorrenze:}
+  \begin{equation}
+    \text{count}(P) = R - L + 1 = 10 - 9 + 1 = 2
+  \end{equation}
+  \item \textbf{Localizzazione delle Posizioni in $T$:}
+  Leggendo direttamente le celle del Suffix Array tra $L$ e $R$, si estraggono gli indici:
+  \begin{equation}
+    \{SA[9], \; SA[10]\} = \{7, \; 4\}
+  \end{equation}
+  Il pattern compare esattamente agli indici 4 e 7 del testo originale.
+\end{enumerate}
+
+\paragraph{Analisi della Complessit\`a Computazionale.}
+\begin{itemize}
+  \item \textbf{Tempo di Ricerca dell'Intervallo:} Ciascuna delle due ricerche binarie esegue $\mathcal{O}(\log m)$ iterazioni. Ad ogni iterazione, il confronto tra il pattern $P$ e il suffisso $S_{SA[mid]}$ richiede al pi\`u $p$ ispezioni di caratteri nel testo $T$. Il costo complessivo per determinare $[L, R]$ \`e:
+  \begin{equation}
+    \text{Tempo di Search} = \mathcal{O}(p \cdot \log m)
+  \end{equation}
+  \item \textbf{Tempo di Restituzione (Reporting):} Una volta individuato l'intervallo, stampare le $t_{\text{occ}} = R - L + 1$ occorrenze richiede una semplice scansione lineare di $SA$ in tempo $\mathcal{O}(t_{\text{occ}})$.
+  \item \textbf{Complessit\`a Temporale Complessiva:}
+  \begin{equation}
+    T(m, p) = \mathcal{O}(p \log m + t_{\text{occ}})
+  \end{equation}
+  \item \textbf{Complessit\`a di I/O:} Nell'ipotesi in cui $T$ e $SA$ risiedano interamente nella memoria primaria RAM, non viene eseguito alcun accesso a memoria secondaria:
+  \begin{equation}
+    \text{I/O} = 0
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\section{La Struttura Dati Suffix Tree}
+\label{sec:suffix-tree}
+
+\FloatBarrier
+\subsection{Definizione e Propriet\`a Topologiche}
+\label{subsec:definizione-topologia-suffix-tree}
+
+Il \textbf{Suffix Tree}, introdotto originariamente da Weiner nel 1973~\cite{weiner1973} e successivamente perfezionato da McCreight~\cite{mccreight1976} e Ukkonen~\cite{ukkonen1995}, rappresenta la versione indicizzata su albero digitale compresso (\textit{compacted trie}) dell'insieme esaustivo di tutti i suffissi di un testo $T\$$.
+
+\begin{definition}[Suffix Tree]
+Il Suffix Tree $\mathcal{T}(T\$)$ associato al testo $T[1 \dots m]\$$ \`e un albero radicato che soddisfa le seguenti propriet\`a strutturali:
+\begin{enumerate}
+  \item \textbf{Numero di Foglie:} Possiede esattamente $m$ foglie, numerate da $1$ a $m$. Ciascuna foglia $\ell_i$ \`e associata biunivocamente al suffisso $S_i = T[i \dots m]\$$.
+  \item \textbf{Branching Factor dei Nodi Interni:} Ciascun nodo interno $u$ (esclusa eventualmente la radice se $m=1$) possiede un grado di uscita maggiore o uguale a 2:
+  \begin{equation}
+    \text{deg}(u) \ge 2
+  \end{equation}
+  Non esistono nodi non diramati (nodi unari); ogni cammino privo di biforcazioni \`e compresso in un singolo arco.
+  \item \textbf{Limite sui Nodi Interni:} In virt\`u della propriet\`a di biforcazione, un albero con $m$ foglie possiede al pi\`u $m - 1$ nodi interni:
+  \begin{equation}
+    N_{\text{interni}} \le m - 1
+  \end{equation}
+  Il numero totale di nodi (foglie $+$ nodi interni) \`e superiormente limitato da $2m - 1$.
+  \item \textbf{Etichette degli Archi:} Ogni arco $(u, v)$ \`e etichettato con una sottostringa non vuota di $T\$$. Archi uscenti dal medesimo nodo interno iniziano necessariamente con caratteri distinti.
+  \item \textbf{String-Depth (Profondit\`a di Stringa):} Per ciascun nodo $u$, la concatenazione ordinata delle etichette lungo il cammino che scende dalla radice a $u$ definisce una stringa $\text{path}(u)$. La lunghezza $|\text{path}(u)|$ prende il nome di \textbf{string-depth} del nodo $u$.
+\end{enumerate}
+\end{definition}
+
+\FloatBarrier
+\subsection{Compressione delle Etichette: Rappresentazione in Spazio Lineare}
+\label{subsec:compressione-etichette-suffix-tree}
+
+Se registrassimo esplicitamente le sottostringhe testuali sui singoli archi del Suffix Tree, lo spazio complessivo degenererebbe nuovamente a $\Theta(m^2)$ caratteri nel caso peggiore (ad esempio su testi periodici in cui molti archi memorizzano etichette lunghe $\Theta(m)$).
+
+Per preservare rigorosamente la linearit\`a dello spazio, si applica la tecnica di rappresentazione a tuple di indici gi\`a esaminata nel \autoref{subsec:rappresentazione-indici-tuple}:
+\begin{itemize}
+  \item Ciascun arco $(u, v)$ non memorizza alcun carattere, bens\`i unicamente una coppia di indici interi:
+  \begin{equation}
+    \text{Arco}(u, v) \equiv [\text{start}, \; \text{end}] \iff \text{etichetta} = T[\text{start} \dots \text{end}]
+  \end{equation}
+  avente lunghezza pari a $\text{end} - \text{start} + 1$.
+  \item Poich\'e il numero totale di archi \`e limitato da $2m - 2$, l'insieme di tutti gli archi necessita unicamente di $2 \cdot (2m - 2) = \mathcal{O}(m)$ interi.
+  \item Mantenendo in memoria l'unico testo $T\$$ ($m$ caratteri) unitamente a $\mathcal{O}(m)$ nodi e archi, si ottiene:
+  \begin{equation}
+    \text{Spazio}_{\text{SuffixTree}} = \mathcal{O}(m) \text{ parole macchina}
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Rappresentazione Topologica del Suffix Tree di $\text{mississippi}\$$}
+\label{subsec:diagramma-suffix-tree-mississippi}
+
+La \autoref{fig:suffix-tree-mississippi} illustra la topologia completa del Suffix Tree compatto per il testo $T\$ = \text{mississippi}\$$ ($m = 12$). Nella convenzione standard dell'Algorithm Engineering (alla Weiner~\cite{weiner1973}, McCreight~\cite{mccreight1976} e Ukkonen~\cite{ukkonen1995}):
+\begin{enumerate}
+  \item \textbf{Etichette compresse lungo gli archi:} L'informazione testuale risiede \textbf{esclusivamente lungo gli archi}, codificati in memoria tramite tuple $[\text{start}, \text{end}]$ sul testo $T\$$. Qualora un arco colleghi un nodo direttamente a una foglia senza ulteriori biforcazioni (ad esempio i rami della radice etichettati con $\$$ e $\text{mississippi}\$$), esso memorizza in un unico arco compresso l'intera sottostringa residua.
+  \item \textbf{Nodi interni:} Ciascun nodo interno $u$ riporta la rispettiva \textbf{string-depth} $|\text{path}(u)|$ e la stringa contratta $\text{path}(u)$ formata dalla concatenazione delle etichette lungo il cammino che scende dalla radice. Ciascun nodo interno ha grado di uscita $\ge 2$ e tutti i rami uscenti esibiscono iniziali mutuamente distinte. I nodi interni a string-depth 2 includono il nodo $\texttt{"si"}$ e il nodo $\texttt{"ss"}$, mentre il nodo $\texttt{"issi"}$ presenta string-depth 4.
+  \item \textbf{Foglie e Suffix Array:} Le foglie (in verde) non replicano il testo, bens\`i registrano \textbf{esclusivamente l'indice intero di partenza} $i \in \{1, \dots, 12\}$ del corrispondente suffisso $S_i = T[i \dots 12]$. Ordinando le diramazioni di ogni nodo in ordine alfabetico crescente da sinistra a destra, la sequenza delle 12 foglie allineate sulla riga di base genera esattamente il \textbf{Suffix Array}:
+  \begin{equation}
+    SA = [12, \; 11, \; 8, \; 5, \; 2, \; 1, \; 10, \; 9, \; 7, \; 4, \; 6, \; 3]
+  \end{equation}
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.98\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    internal/.style={rectangle, rounded corners=3pt, draw=navy, fill=codebackground, thick, font=\footnotesize, inner sep=3pt, align=center},
+    leaf/.style={rectangle, rounded corners=3pt, draw=darkgreen, fill=darkgreen!12, thick, font=\small\bfseries\ttfamily\color{darkgreen!90!black}, inner sep=2.5pt, minimum width=0.72cm, minimum height=0.55cm, align=center},
+    edge_label/.style={font=\scriptsize\bfseries, text=navy, fill=white, inner sep=1.2pt}
+]
+
+% Radice (depth 0)
+\node[internal, minimum width=2.2cm] (root) at (-0.6, 2.8) {\textbf{Radice}\\[-1pt]{\scriptsize depth 0}};
+
+% Livello 1: nodi interni di profondità 1
+\node[internal] (u_i) at (-3.8, 0.8) {\textbf{depth 1}\\[-1pt]{\scriptsize\texttt{"i"}}};
+\node[internal] (u_p) at (1.2, 0.8)  {\textbf{depth 1}\\[-1pt]{\scriptsize\texttt{"p"}}};
+\node[internal] (u_s) at (4.8, 0.8)  {\textbf{depth 1}\\[-1pt]{\scriptsize\texttt{"s"}}};
+
+% Livello 2: nodi interni profondi
+\node[internal] (u_issi) at (-2.4, -1.2) {\textbf{depth 4}\\[-1pt]{\scriptsize\texttt{"issi"}}};
+\node[internal] (u_si)   at (3.5, -1.2)  {\textbf{depth 2}\\[-1pt]{\scriptsize\texttt{"si"}}};
+\node[internal] (u_ss)   at (6.1, -1.2)  {\textbf{depth 2}\\[-1pt]{\scriptsize\texttt{"ss"}}};
+
+% Livello Foglie (y = -3.2): tutte le 12 foglie allineate sulla base ordinata SA
+\node[leaf] (f12) at (-6.6, -3.2) {12};
+\node[leaf] (f11) at (-5.4, -3.2) {11};
+\node[leaf] (f8)  at (-4.2, -3.2) {8};
+\node[leaf] (f5)  at (-3.0, -3.2) {5};
+\node[leaf] (f2)  at (-1.8, -3.2) {2};
+\node[leaf] (f1)  at (-0.6, -3.2) {1};
+\node[leaf] (f10) at (0.6, -3.2)  {10};
+\node[leaf] (f9)  at (1.8, -3.2)  {9};
+\node[leaf] (f7)  at (2.9, -3.2)  {7};
+\node[leaf] (f4)  at (4.1, -3.2)  {4};
+\node[leaf] (f6)  at (5.5, -3.2)  {6};
+\node[leaf] (f3)  at (6.7, -3.2)  {3};
+
+% Archi uscenti dalla Radice
+% Ramo '$' verso Foglia 12 (curva morbida e armonica da root.west)
+\draw[->, thick, navy] (root.west) to[out=190, in=90]
+    node[edge_label, above left, pos=0.35] {\$} (f12.north);
+% Ramo 'i'
+\draw[->, thick, navy] (root) -- node[edge_label, above left] {\texttt{i}} (u_i);
+% Ramo 'mississippi$' verso Foglia 1 (discesa verticale diretta)
+\draw[->, thick, navy] (root) -- node[edge_label, fill=white, inner sep=2pt, pos=0.48] {\texttt{mississippi\$}} (f1);
+% Ramo 'p'
+\draw[->, thick, navy] (root) -- node[edge_label, above right] {\texttt{p}} (u_p);
+% Ramo 's'
+\draw[->, thick, navy] (root) -- node[edge_label, above right] {\texttt{s}} (u_s);
+
+% Archi uscenti da Nodo "i" (spaziatura differenziata per evitare collisioni)
+\draw[->, thick, navy] (u_i) -- node[edge_label, above left, pos=0.35] {\$} (f11);
+\draw[->, thick, navy] (u_i) -- node[edge_label, left, pos=0.65] {\texttt{ppi\$}} (f8);
+\draw[->, thick, navy] (u_i) -- node[edge_label, above right, pos=0.45] {\texttt{ssi}} (u_issi);
+
+% Archi uscenti da Nodo "issi"
+\draw[->, thick, navy] (u_issi) -- node[edge_label, left, pos=0.45] {\texttt{ppi\$}} (f5);
+\draw[->, thick, navy] (u_issi) -- node[edge_label, right, pos=0.45] {\texttt{ssippi\$}} (f2);
+
+% Archi uscenti da Nodo "p"
+\draw[->, thick, navy] (u_p) -- node[edge_label, left, pos=0.45] {\texttt{i\$}} (f10);
+\draw[->, thick, navy] (u_p) -- node[edge_label, right, pos=0.45] {\texttt{pi\$}} (f9);
+
+% Archi uscenti da Nodo "s"
+\draw[->, thick, navy] (u_s) -- node[edge_label, above left, pos=0.45] {\texttt{i}} (u_si);
+\draw[->, thick, navy] (u_s) -- node[edge_label, above right, pos=0.45] {\texttt{s}} (u_ss);
+
+% Archi uscenti da Nodo "si"
+\draw[->, thick, navy] (u_si) -- node[edge_label, left, pos=0.45] {\texttt{ppi\$}} (f7);
+\draw[->, thick, navy] (u_si) -- node[edge_label, right, pos=0.68] {\texttt{ssippi\$}} (f4);
+
+% Archi uscenti da Nodo "ss" (depth 2: etichette sfalsate in altezza per garantire piena visibilità)
+\draw[->, thick, navy] (u_ss) -- node[edge_label, left, pos=0.32] {\texttt{ippi\$}} (f6);
+\draw[->, thick, navy] (u_ss) -- node[edge_label, right, pos=0.45] {\texttt{issippi\$}} (f3);
+
+% Asse orizzontale Suffix Array alla base centrato simmetricamente
+\draw[<->, >=Stealth, thick, darkgreen] (-7.0, -3.95) -- (7.0, -3.95)
+    node[midway, fill=white, inner sep=2.5pt, font=\scriptsize\bfseries\color{darkgreen!90!black}]
+    {Visita DFS da sinistra a destra $\equiv SA = [12, 11, 8, 5, 2, 1, 10, 9, 7, 4, 6, 3]$};
+
+\end{tikzpicture}%
+}
+\caption{Topologia completa del Suffix Tree compatto per $T\$ = \text{mississippi}\$$. I nodi interni riportano la string-depth e la stringa contratta dal cammino radice-nodo; le foglie (riquadri verdi) contengono esclusivamente l'indice iniziale $i$ del suffisso $S_i$. L'ordine da sinistra a destra delle 12 foglie allineate riproduce fedelmente la sequenza del Suffix Array $SA$.}
+\label{fig:suffix-tree-mississippi}
+\end{figure}
+
+\FloatBarrier
+\subsection{Ricerca del Pattern nel Suffix Tree: Ottimalit\`a Temporale $\mathcal{O}(p)$}
+\label{subsec:ricerca-pattern-suffix-tree}
+
+Nel Suffix Tree, la ricerca di un pattern $P[1 \dots p]$ si articola in una navigazione deterministica top-down a partire dalla radice:
+\begin{enumerate}
+  \item \textbf{Discesa Guidata dai Caratteri:} Presso il nodo corrente $u$, si esamina il carattere $P[k]$ corrispondente alla profondit\`a corrente. Si individua l'unico arco uscente la cui etichetta inizia con tale carattere.
+  \item \textbf{Confronto dell'Etichetta:} Si confrontano i caratteri successivi dell'etichetta dell'arco con i corrispondenti caratteri di $P$:
+  \begin{itemize}
+    \item Se si verifica un mismatch prima di aver consumato $P$, il pattern $P$ non \`e sottostringa di $T$. L'algoritmo termina restituendo zero occorrenze.
+    \item Se l'intero pattern $P$ viene consumato con successo, la discesa si arresta presso un nodo interno $v$ o lungo un arco. Tale punto viene definito il \textbf{locus} del pattern $P$.
+  \end{itemize}
+  \item \textbf{Enumerazione delle Occorrenze:} Tutte e sole le foglie appartenenti al sottoalbero radicato nel locus di $P$ rappresentano suffissi che ammettono $P$ come prefisso. Visitando tale sottoalbero (tramite una Depth-First Search), si estraggono direttamente tutte le $t_{\text{occ}}$ posizioni di inizio nel testo.
+\end{enumerate}
+
+\paragraph{Analisi della Complessit\`a.}
+\begin{itemize}
+  \item \textbf{Tempo di Ricerca del Locus:} Se l'alfabeto ha dimensione costante $\sigma = \mathcal{O}(1)$ (oppure impiegando una tabella ad accesso diretto sui figli dei nodi), la selezione dell'arco richiede tempo $\mathcal{O}(1)$. Il numero totale di caratteri confrontati durante la discesa \`e esattamente $p$. Il tempo per raggiungere il locus \`e:
+  \begin{equation}
+    \text{Tempo di Search} = \mathcal{O}(p)
+  \end{equation}
+  (oppure $\mathcal{O}(p \log \sigma)$ se gli archi uscenti sono mantenuti in vettori ordinati).
+  \item \textbf{Tempo di Restituzione (Reporting):} Poich\'e ogni nodo interno del sottoalbero ha grado almeno 2, il numero di nodi visitati nella DFS \`e proporzionale al numero di foglie, ovvero $\mathcal{O}(t_{\text{occ}})$.
+  \item \textbf{Complessit\`a Temporale Complessiva:}
+  \begin{equation}
+    T(m, p) = \mathcal{O}(p + t_{\text{occ}})
+  \end{equation}
+\end{itemize}
+
+\begin{noteblock}{Ottimalit\`a Asintotica della Ricerca}
+Il tempo di ricerca $\mathcal{O}(p + t_{\text{occ}})$ garantito dal Suffix Tree \`e \textbf{strettamente ottimo}: \`e lineare nella dimensione dell'input della query ($p$) e dell'output ($t_{\text{occ}}$), ed \`e \textbf{completamente indipendente dalla lunghezza $m$ del testo indicizzato}.
+\end{noteblock}
+
+\FloatBarrier
+\section{Algoritmi di Costruzione e l'Array LCP}
+\label{sec:costruzione-array-lcp}
+
+\FloatBarrier
+\subsection{Costruzione Ingenua del Suffix Array tramite Ordinamento}
+\label{subsec:costruzione-ingenua-sa}
+
+Il metodo concettualmente pi\`u intuitivo per costruire il Suffix Array consiste nell'istanziare un array di puntatori a carattere che indirizzano ciascun suffisso all'interno del testo originale $T$, e nell'ordinarli tramite un algoritmo di ordinamento comparativo convenzionale (come il QuickSort della libreria standard C, `qsort`).
+
+\paragraph{Implementazione del Codice Sorgente (dagli Appunti del Corso).}
+Il listato seguente riporta l'implementazione descritta dal docente:
+
+\begin{lstlisting}[language=C, caption={Costruzione ingenua del Suffix Array tramite puntatori e QuickSort standard.}, label={lst:naive-sa-c}]
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Funzione di confronto lessicografico per qsort
+int suffix_cmp(const void *p, const void *q) {
+    const char *s1 = *(const char **)p;
+    const char *s2 = *(const char **)q;
+    return strcmp(s1, s2);
+}
+
+void build_suffix_array_naive(const char *T, int m, const char **SA) {
+    // 1. Inizializzazione del vettore di puntatori ai suffissi di T
+    for (int i = 0; i < m; i++) {
+        SA[i] = T + i; // SA[i] punta al suffisso che inizia a T[i]
+    }
+
+    // 2. Ordinamento rapido dei puntatori ai suffissi
+    qsort(SA, m, sizeof(char *), suffix_cmp);
+}
+\end{lstlisting}
+
+\paragraph{Analisi della Complessit\`a Asintotica.}
+L'analisi del tempo di esecuzione si compone di due fattori moltiplicativi:
+\begin{enumerate}
+  \item \textbf{Numero di Confronti del QuickSort:} Su un array di $m$ elementi, QuickSort esegue in media $\mathcal{O}(m \log m)$ comparazioni di elementi (\autoref{cha:lecture-five}).
+  \item \textbf{Costo di Ciascun Confronto (`strcmp`):} La funzione `strcmp(s1, s2)` non richiede tempo $\mathcal{O}(1)$: per due stringhe che condividono un lungo prefisso comune, `strcmp` scansiona i caratteri uno ad uno fino al primo simbolo divergente. Poich\'e i suffissi hanno lunghezza media $\mathcal{O}(m)$, nel caso generale una singola invocazione di `strcmp` costa $\mathcal{O}(m)$.
+\end{enumerate}
+
+Moltiplicando i due termini, si ottiene:
+\begin{equation}
+  \text{Tempo Medio}_{\text{Naive}} = \mathcal{O}(m \log m) \cdot \mathcal{O}(m) = \mathcal{O}(m^2 \log m)
+\end{equation}
+
+\begin{alertblock}{Degenerazione nel Caso Peggiore a $\mathcal{O}(m^3)$}
+Su testi patologici altamente periodici (ad esempio $T = a^m\$$), tutti i suffissi condividono prefissi lunghi $\Theta(m)$. Se l'ordinatore rapido seleziona sbilanciamenti sfavorevoli sui pivot, il numero di confronti sale a $\Theta(m^2)$ e ogni confronto esamina $\Theta(m)$ caratteri, portando il tempo totale a degenerare a:
+\begin{equation}
+  \text{Tempo Caso Peggiore}_{\text{Naive}} = \mathcal{O}(m^3)
+\end{equation}
+\end{alertblock}
+
+\paragraph{Cenni agli Algoritmi di Costruzione Lineare $\mathcal{O}(m)$.}
+Come evidenziato dal docente a lezione, la costruzione quadratica \`e puramente didattica. Nella ricerca avanzata sono stati sviluppati algoritmi ottimi in grado di costruire il Suffix Array direttamente in tempo lineare:
+\begin{equation}
+  \text{Costruzione Ottima } SA = \mathcal{O}(m) \text{ tempo}
+\end{equation}
+Tra gli algoritmi cardine figurano:
+\begin{itemize}
+  \item \textbf{Algoritmo DC3 / Skew (Kärkkäinen e Sanders, 2003)~\cite{karkkainen2003}:} Applica una tecnica \textit{Divide-et-Impera} basata sul campionamento delle posizioni $i \not\equiv 0 \pmod 3$, riducendo ricorsivamente il problema a una taglia pari ai due terzi e ricombinando i suffissi tramite un merge lineare.
+  \item \textbf{Algoritmo SA-IS (Nong, Zhang e Chan, 2009):} Algoritmo basato sulla classificazione dei suffissi in tipi S e L con \textit{induced sorting}, universalmente riconosciuto come l'algoritmo pratico pi\`u veloce a memoria contenuta.
+\end{itemize}
+
+\FloatBarrier
+\subsection{L'Array LCP (Longest Common Prefix)}
+\label{subsec:array-lcp-definizione}
+
+Per colmare il divario di prestazioni tra la ricerca binaria del Suffix Array ($\mathcal{O}(p \log m)$) e l'ottimalit\`a del Suffix Tree ($\mathcal{O}(p)$), Manber e Myers hanno introdotto una struttura ausiliaria fondamentale: l'\textbf{Array LCP}.
+
+\begin{definition}[Array LCP]
+Dato il testo $T\$$ e il relativo Suffix Array $SA$, l'array \textbf{$LCP$} \`e un vettore di $m$ interi in cui la cella $LCP[i]$ (per $i \in \{2, \dots, m\}$) memorizza la lunghezza del massimo prefisso comune condiviso tra il suffisso $S_{SA[i]}$ e il suo immediato predecessore lessicografico nel Suffix Array, $S_{SA[i-1]}$:
+\begin{equation}
+  LCP[i] = |\text{LCP}(S_{SA[i]}, \; S_{SA[i-1]})|
+\end{equation}
+Per convenzione algebrica, l'estremo iniziale \`e posto a zero:
+\begin{equation}
+  LCP[1] = 0
+\end{equation}
+\end{definition}
+
+\paragraph{Calcolo Analitico dell'Array LCP per $T = \text{mississippi}\$$}
+Esaminiamo coppie consecutive di suffissi ordinati nel Suffix Array ricavato nella \autoref{tab:mississippi-sa-ordinato}:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c c l l l c}
+\toprule
+$i$ & $SA[i]$ & Suffisso Corrente $S_{SA[i]}$ & Suffisso Precedente $S_{SA[i-1]}$ & Prefisso Comune Condiviso & $LCP[i]$ \\
+\midrule
+\textbf{1}  & 12 & $\$$                  & —                      & —         & \textbf{0} \\
+\textbf{2}  & 11 & $i\$$                 & $\$$                   & Nessuno   & \textbf{0} \\
+\textbf{3}  & 8  & $ippi\$$              & $i\$$                  & `i`       & \textbf{1} \\
+\textbf{4}  & 5  & $issippi\$$           & $ippi\$$               & `i`       & \textbf{1} \\
+\textbf{5}  & 2  & $ississippi\$$        & $issippi\$$            & `issi`    & \textbf{4} \\
+\textbf{6}  & 1  & $mississippi\$$       & $ississippi\$$         & Nessuno   & \textbf{0} \\
+\textbf{7}  & 10 & $pi\$$                & $mississippi\$$        & Nessuno   & \textbf{0} \\
+\textbf{8}  & 9  & $ppi\$$               & $pi\$$                 & `p`       & \textbf{1} \\
+\textbf{9}  & 7  & $sippi\$$             & $ppi\$$                & Nessuno   & \textbf{0} \\
+\textbf{10} & 4  & $sissippi\$$          & $sippi\$$              & `si`      & \textbf{2} \\
+\textbf{11} & 6  & $ssippi\$$            & $sissippi\$$           & `s`       & \textbf{1} \\
+\textbf{12} & 3  & $ssissippi\$$         & $ssippi\$$             & `ssi`     & \textbf{3} \\
+\bottomrule
+\end{tabular}
+\caption{Calcolo passo-passo dell'array LCP per il testo $T\$ = \text{mississippi}\$$.}
+\label{tab:calcolo-lcp-mississippi}
+\end{table}
+
+Il vettore risultante \`e:
+\begin{equation}
+  LCP = [0, \; 0, \; 1, \; 1, \; 4, \; 0, \; 0, \; 1, \; 0, \; 2, \; 1, \; 3]
+\end{equation}
+
+\paragraph{Costruzione Lineare $\mathcal{O}(m)$ tramite Algoritmo di Kasai et al.}
+Nel 2001, Kasai, Lee, Arimura, Arikawa e Park~\cite{kasai2001} hanno dimostrato che, una volta disponibile il Suffix Array, l'array LCP pu\`o essere calcolato in tempo \textbf{strettamente lineare $\mathcal{O}(m)$} senza alcun confronto ridondante:
+\begin{equation}
+  \text{Tempo di Costruzione } LCP = \mathcal{O}(m)
+\end{equation}
+L'intuizione chiave dell'algoritmo di Kasai si basa sull'ordinamento posizionale dei suffissi nel testo originario: passando dal suffisso $S_i$ al suffisso successivo $S_{i+1}$, la lunghezza del prefisso condiviso con il rispettivo predecessore nel Suffix Array pu\`o diminuire al pi\`u di 1 (in virt\`u della rimozione del primo carattere), consentendo di calcolare tutti gli LCP con un numero totale di confronti limitato da $2m$.
+
+\FloatBarrier
+\subsection{Applicazioni Avanzate: Ricerca di Sottostringhe Ripetute}
+\label{subsec:applicazioni-lcp-ripetute}
+
+L'accoppiamento tra il Suffix Tree e il binomio $(SA, LCP)$ consente di risolvere con eleganza problemi complessi di biologia computazionale e analisi di sequenze.
+
+\begin{example}[Problema Formulato a Lezione]
+Dato un testo $T[1 \dots m]$, determinare se esiste una sottostringa di lunghezza almeno $L$ che compare con una frequenza di almeno $k$ occorrenze in posizioni distinte di $T$:
+\begin{equation}
+  \exists \, \text{sottostringa } \alpha \in \Sigma^* \quad \text{tale che} \quad |\alpha| \ge L \quad \land \quad \text{occorrenze}(\alpha, T) \ge k
+\end{equation}
+\end{example}
+
+\paragraph{Risoluzione con Suffix Tree.}
+Nel Suffix Tree, ogni sottostringa che compare pi\`u volte nel testo corrisponde univocamente a un nodo interno $u$:
+\begin{itemize}
+  \item La sottostringa $\alpha = \text{path}(u)$ compare esattamente tante volte quante sono le foglie presenti nel sottoalbero radicato in $u$ ($\text{leaves}(u)$).
+  \item \textbf{Criterio di Verifica:} Il problema si riduce a individuare se esiste almeno un nodo interno $u$ tale che:
+  \begin{equation}
+    |\text{path}(u)| \ge L \quad \land \quad \text{leaves}(u) \ge k
+  \end{equation}
+  \item \textbf{Algoritmo:} Una singola visita in profondit\`a (DFS) calcola in post-order per ciascun nodo $u$ il numero di foglie del suo sottoalbero, verificando la condizione in tempo lineare:
+  \begin{equation}
+    \text{Tempo} = \mathcal{O}(m)
+  \end{equation}
+\end{itemize}
+
+\paragraph{Risoluzione con Suffix Array ed Array LCP.}
+Nel Suffix Array, tutti i suffissi che condividono un prefisso comune di lunghezza almeno $L$ occupano un intervallo contiguo di indici.
+
+\begin{theorem}[Propriet\`a di Minimo LCP su Finestra Contigua]
+Se una sottostringa di lunghezza $L$ compare in $k$ suffissi distinti, tali suffissi formano un blocco contiguo di $k$ elementi nel Suffix Array. Di conseguenza, nel vettore $LCP$ deve esistere una finestra di $k - 1$ elementi contigui di indici $[i, i + k - 2]$ tale che:
+\begin{equation}
+  \min_{j = i}^{i + k - 2} LCP[j] \ge L
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+L'LCP tra due suffissi generici non consecutivi $S_{SA[a]}$ e $S_{SA[b]}$ ($a < b$) nel Suffix Array \`e dato dal minimo valore di LCP lungo l'intervallo compreso tra di essi:
+\begin{equation}
+  |\text{LCP}(S_{SA[a]}, \; S_{SA[b]})| = \min_{j = a + 1}^b LCP[j]
+\end{equation}
+Se tutti i valori di $LCP[j]$ per $j \in [i, i + k - 2]$ sono maggiori o uguali a $L$, allora il minimo prefisso condiviso tra il primo suffisso $S_{SA[i-1]}$ e l'ultimo suffisso $S_{SA[i + k - 2]}$ ha lunghezza almeno $L$. Ne consegue che tutti i $k$ suffissi da $i - 1$ a $i + k - 2$ condividono i medesimi primi $L$ caratteri, certificando la presenza di almeno $k$ occorrenze della sottostringa.
+\end{proof}
+
+\paragraph{Algoritmo a Finestra Scorrevole (Sliding Window) in Tempo Lineare.}
+Per individuare l'eventuale esistenza della finestra:
+\begin{enumerate}
+  \item Si scorre una finestra di ampiezza fissa pari a $k - 1$ lungo il vettore $LCP$.
+  \item Per mantenere il minimo corrente della finestra in tempo ammortizzato $\mathcal{O}(1)$ a ogni scorrimento, si impiega una coda a doppia estremit\`a (Deque) monotona decrescente.
+  \item L'intera scansione dell'array $LCP$ richiede tempo lineare:
+  \begin{equation}
+    \text{Tempo}_{\text{Sliding Window}} = \mathcal{O}(m)
+  \end{equation}
+  e spazio addizionale limitato a $\mathcal{O}(k)$ per la deque.
+\end{enumerate}
+
+\FloatBarrier
+\section{Quadro Comparativo e Sintesi Conclusiva}
+\label{sec:quadro-comparativo-sottostringhe}
+
+\FloatBarrier
+\subsection{Tabella Sinottica delle Metodologie}
+\label{subsec:tabella-sinottica-sottostringhe}
+
+La \autoref{tab:sinottico-sottostringhe} sintetizza il confronto asintotico e ingegneristico tra le metodologie esaminate per la ricerca di sottostringhe in un testo $T[1 \dots m]$ con pattern $P[1 \dots p]$.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.8cm} >{\centering\arraybackslash}p{2.6cm} >{\centering\arraybackslash}p{2.8cm} >{\centering\arraybackslash}p{3.2cm} >{\centering\arraybackslash}p{2.6cm}}
+\toprule
+\textbf{Struttura / Approccio} & \textbf{Tempo Ricerca (Existence/Count)} & \textbf{Tempo Restituzione (Reporting)} & \textbf{Occupazione di Memoria} & \textbf{Tempo di Costruzione} \\
+\midrule
+\textbf{Scansione Ingenua (Brute-Force)} & $\mathcal{O}(m \cdot p)$ & Incluso & $\mathcal{O}(m)$ \newline (Solo il testo $T$) & $\mathcal{O}(0)$ \newline (Nessuna pre-elaborazione) \\
+\addlinespace
+\textbf{Suffix Array ($SA + T$)} & $\mathcal{O}(p \log m)$ & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(m)$ \newline ($m$ interi $+ m$ caratteri, $\approx 5m$ byte) & $\mathcal{O}(m^2 \log m)$ naive \newline $\mathcal{O}(m)$ ottimo (DC3/SA-IS) \\
+\addlinespace
+\textbf{Suffix Tree ($\mathcal{T}(T\$)$)} & $\mathbf{\mathcal{O}(p)}$ \newline (Indipendente da $m$) & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(m)$ \newline ($2m$ nodi, archi a coppie $[s, e]$, $\approx 20m - 40m$ byte) & $\mathcal{O}(m)$ \newline (Ukkonen / McCreight) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico comparativo delle metodologie per il Substring Search.}
+\label{tab:sinottico-sottostringhe}
+\end{table}
+
+\FloatBarrier
+\subsection{Trade-off Ingegneristico: Fattore Costante di Spazio vs. Efficienza Temporale}
+\label{subsec:trade-off-ingegneristico-spazio-tempo}
+
+L'analisi comparativa mette in luce un classico compromesso architetturale dell'Algorithm Engineering:
+\begin{itemize}
+  \item \textbf{Il Limite Pratico del Suffix Tree:} Sebbene il Suffix Tree vanti un tempo di ricerca ideale $\mathcal{O}(p)$ indipendente da $m$, nella pratica software ciascun nodo interno richiede puntatori al primo figlio, al fratello successivo, al padre e alla coppia di interi d'arco $[start, end]$. Su architetture a 64 bit, ci\`o si traduce in un'impronta di memoria reale pari a circa $20-45$ byte per carattere indicizzato. Per collezioni genomiche di diversi Gigabyte, il Suffix Tree satura rapidamente la memoria RAM di sistema.
+  \item \textbf{La Superiorit\`a Applicativa del Suffix Array:} Il Suffix Array richiede unicamente $m$ interi da 4 byte pi\`u gli $m$ byte del testo, occupando circa $5$ byte per carattere (fino a $8$ volte meno spazio rispetto al Suffix Tree). Nonostante il costo di ricerca contenga il fattore logaritmico $\mathcal{O}(p \log m)$, nella pratica ingegneristica per un testo di un miliardo di caratteri $\log_2(10^9) \approx 30$ iterazioni, un costo del tutto trascurabile rispetto ai vantaggi di compattezza della memoria e alla straordinaria localit\`a spaziale dei dati nei vettori continui.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Il Ruolo Unificante dell'Array LCP e Prospettive Future}
+\label{subsec:ruolo-unificante-lcp}
+
+L'introduzione dell'array LCP colma definitivamente il divario teorico tra Suffix Tree e Suffix Array:
+\begin{enumerate}
+  \item \textbf{Accelerazione della Ricerca a $\mathcal{O}(p + \log m)$:} Arricchendo il Suffix Array con le informazioni di prefisso comune estratte da $LCP$ e alberi di tipo RMQ (\textit{Range Minimum Query}), \`e possibile evitare confronti ridondanti durante la ricerca binaria, abbattendo il tempo a $\mathcal{O}(p + \log m)$~\cite{manber1993}.
+  \item \textbf{Emulazione Topologica del Suffix Tree:} Manzini e Ferragina hanno dimostrato che la terna formata da Testo, Suffix Array e Array LCP contiene esattamente la medesima informazione topologica del Suffix Tree, consentendo di simulare qualunque algoritmo su albero (visite DFS, Lowest Common Ancestor, motivi ripetuti) con codice sequenziale iterativo operante su array compatti.
+  \item \textbf{Verso gli Indici Compressi di Seconda Generazione:} La combinazione del Suffix Array con la Trasformata di Burrows-Wheeler (BWT) e le strutture di rank/select condurr\`a alla nascita del celebre \textbf{FM-Index} (\textit{Ferragina-Manzini Index}), capace di comprimere il testo e l'indice in uno spazio inferiore a quello del testo grezzo originario ($\le m$ byte complessivi), rappresentando l'attuale frontiera mondiale della bioinformatica e dei motori di ricerca a testo pieno.
+\end{enumerate}

@@ -49,6 +49,7 @@ latexmk -c
 - **Capitolo 13:** Strutture Dati e Algoritmi per Stringhe: Ternary Search Trees (TST) e Radix Sort (`13`)
 - **Capitolo 14:** Alberi Digitali per Stringhe: Trie, MSD Radix Sort, Trie Compatti e Autocompletamento (`14`)
 - **Capitolo 15:** Ricerca di Stringhe in Memoria Gerarchica: Patricia Trie, Blind Trie e Front-Coding (`15`)
+- **Capitolo 16:** Indicizzazione e Ricerca di Sottostringhe: Suffix Array, Suffix Tree e Array LCP (`16`)
 
 ```text
 Algorithm-Engineering/
