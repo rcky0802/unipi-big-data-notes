@@ -1,6 +1,7 @@
 \chapter{Indicizzazione e Ricerca di Sottostringhe: Suffix Array, Suffix Tree e Array LCP}
 \label{ch:indicizzazione-ricerca-sottostringhe-suffix-array-tree}
 
+\FloatBarrier
 \section{Dal Problema del Dizionario alla Ricerca di Sottostringhe}
 \label{sec:dizionario-vs-sottostringhe}
 
@@ -8,9 +9,9 @@
 \subsection{Il Problema del Dizionario su Stringhe e sue Limitazioni}
 \label{subsec:dizionario-stringhe-review}
 
-Nei capitoli precedenti (\autoref{chap:string-sorting-search}, \autoref{chap:strutture-dati-stringhe-tst-radix-sort}, \autoref{chap:trie-compatti-msd-radix-sort-autocompletamento} e \autoref{chap:ricerca-stringhe-memoria-gerarchica}) \`e stato affrontato il problema canonico del \textbf{dizionario su stringhe}, in cui una collezione finita di $m$ chiavi distinte:
+Nei capitoli precedenti (\autoref{chap:string-sorting-search}, \autoref{chap:strutture-dati-stringhe-tst-radix-sort}, \autoref{chap:trie-compatti-msd-radix-sort-autocompletamento} e \autoref{chap:ricerca-stringhe-memoria-gerarchica}) \`e stato affrontato il problema canonico del \textbf{dizionario su stringhe}, in cui una collezione finita di $n$ chiavi distinte:
 \begin{equation}
-  \mathcal{D} = \{S_1, S_2, \dots, S_m\} \subset \Sigma^*
+  \mathcal{D} = \{S_1, S_2, \dots, S_n\} \subset \Sigma^*
 \end{equation}
 definita su un alfabeto ordinato $\Sigma$, viene organizzata in memoria centrale o gerarchica per supportare operazioni mirate:
 \begin{itemize}
@@ -22,7 +23,7 @@ definita su un alfabeto ordinato $\Sigma$, viene organizzata in memoria centrale
 Le strutture canoniche introdotte per risolvere tali query comprendono:
 \begin{enumerate}
   \item \textbf{Trie Standard (Uncompacted Trie):} Albero digitale ad archi a carattere singolo (\autoref{sec:array-based-trie}), ottimale per chiavi corte ma soggetto a degenerazione lineare in profondit\`a.
-  \item \textbf{Compacted Trie (Patricia Tree / Radix Tree):} Compressione dei cammini privi di diramazioni mediante sottostringhe o tuple di indici (\autoref{sec:trie-compatti-patricia}), con tempo di ricerca $\mathcal{O}(|P|)$ e spazio $\mathcal{O}(m)$ nodi.
+  \item \textbf{Compacted Trie (Patricia Tree / Radix Tree):} Compressione dei cammini privi di diramazioni mediante sottostringhe o tuple di indici (\autoref{sec:trie-compatti-patricia}), con tempo di ricerca $\mathcal{O}(|P|)$ e spazio $\mathcal{O}(n)$ nodi.
   \item \textbf{Ternary Search Tree (TST):} Albero a tre vie con nodi bilanciati (\autoref{sec:tst-modello-teorico}), che sostituisce i vettori di puntatori con ramificazioni inferiori, uguali e superiori.
   \item \textbf{Blind Trie (Patricia Trie Lossy):} Rappresentazione a compressione con perdita orientata alla memoria esterna (\autoref{sec:patricia-blind-trie}), che conserva unicamente interi di salto $\text{skip}(u)$ ed etichette a singolo carattere per eliminare l'overhead del testo in RAM.
 \end{enumerate}
@@ -114,7 +115,7 @@ La necessit\`a di ricercare pattern posizionati arbitrariamente all'interno di c
 \end{itemize}
 
 \FloatBarrier
-\subsection{Il Limite dell'Approccio Sequenziale (Brute-Force)}
+\subsection{Limite della Scansione Sequenziale (Brute-Force)}
 \label{subsec:limite-brute-force}
 
 L'algoritmo ingenuo di scansione sequenziale confronta il pattern $P$ scorrendolo lungo tutte le possibili posizioni di allineamento $i \in \{1, 2, \dots, n - m + 1\}$ del testo $T$:
@@ -186,7 +187,7 @@ La sfida centrale dell'Algorithm Engineering consiste pertanto nell'indicizzare 
 Introdotto da Manber e Myers nel 1993~\cite{manber1993}, il \textbf{Suffix Array} ($SA$) costituisce una delle strutture dati pi\`u eleganti e compatte per l'indicizzazione a testo pieno.
 
 \begin{definition}[Carattere Speciale Sentinella $\$$]
-Sia data una stringa $T \in \Sigma^*$. Si definisce testo arricchito la sequenza $T\$ = T[1 \dots m]\$$, ottenuta concatenando in coda a $T$ un carattere sentinella speciale denotato con $\$$, tale che:
+Sia data una stringa $T \in \Sigma^*$. Si definisce testo arricchito la sequenza $T\$ = T[1 \dots n]\$$, ottenuta concatenando in coda a $T$ un carattere sentinella speciale denotato con $\$$, tale che:
 \begin{equation}
   \$ \notin \Sigma \quad \land \quad \forall c \in \Sigma, \; \$ <_{\text{lex}} c
 \end{equation}
@@ -203,26 +204,26 @@ L'introduzione della sentinella $\$$ garantisce due propriet\`a algebriche fonda
 \end{enumerate}
 
 \begin{definition}[Suffix Array]
-Il Suffix Array associato a un testo $T\$$ di lunghezza $m$ \`e una permutazione degli indici posizionali $\{1, 2, \dots, m\}$:
+Il Suffix Array associato a un testo $T\$$ di lunghezza $n$ \`e una permutazione degli indici posizionali $\{1, 2, \dots, n\}$:
 \begin{equation}
-  SA: \{1, \dots, m\} \to \{1, \dots, m\}
+  SA: \{1, \dots, n\} \to \{1, \dots, n\}
 \end{equation}
 tale per cui i suffissi puntati risultano ordinati in ordine lessicografico strettamente crescente:
 \begin{equation}
-  S_{SA[1]} <_{\text{lex}} S_{SA[2]} <_{\text{lex}} \dots <_{\text{lex}} S_{SA[m]}
+  S_{SA[1]} <_{\text{lex}} S_{SA[2]} <_{\text{lex}} \dots <_{\text{lex}} S_{SA[n]}
 \end{equation}
 In altri termini, $SA[r]$ memorizza l'indice iniziale nel testo $T\$$ del suffisso che occupa il rango lessicografico $r$.
 \end{definition}
 
 \FloatBarrier
-\subsection{Costruzione ed Esempio Analitico: $T = \text{mississippi}\$$}
+\subsection{Costruzione ed Esempio per $T = \text{mississippi}\$$}
 \label{subsec:esempio-mississippi-sa}
 
 Consideriamo il classico testo di riferimento:
 \begin{equation}
   T\$ = \text{mississippi}\$
 \end{equation}
-avente lunghezza totale pari a $m = 12$ caratteri. La mappatura degli indici posizionali (1-based) \`e la seguente:
+avente lunghezza totale pari a $n = 12$ caratteri. La mappatura degli indici posizionali (1-based) \`e la seguente:
 
 \begin{table}[H]
 \centering
@@ -234,7 +235,7 @@ avente lunghezza totale pari a $m = 12$ caratteri. La mappatura degli indici pos
 \textbf{$T[i]$} & $m$ & $i$ & $s$ & $s$ & $i$ & $s$ & $s$ & $i$ & $p$ & $p$ & $i$ & $\$$ \\
 \bottomrule
 \end{tabular}
-\caption{Mappatura posizionale dei caratteri per il testo $T\$ = \text{mississippi}\$$ ($m = 12$).}
+\caption{Mappatura posizionale dei caratteri per il testo $T\$ = \text{mississippi}\$$ ($n = 12$).}
 \label{tab:mississippi-posizionale}
 \end{table}
 
@@ -292,28 +293,28 @@ Il Suffix Array corrisponde quindi al vettore di interi:
 
 La struttura completa allocata in memoria primaria \`e composta dalla coppia $(T, SA)$:
 \begin{itemize}
-  \item \textbf{Il Testo Originale $T$:} Memorizza i caratteri grezzi del testo continuo. Se codificato in standard ASCII o UTF-8 a 1 byte per simbolo, occupa esattamente $m$ byte.
+  \item \textbf{Il Testo Originale $T$:} Memorizza i caratteri grezzi del testo continuo. Se codificato in standard ASCII o UTF-8 a 1 byte per simbolo, occupa esattamente $n$ byte.
   \item \textbf{Il Vettore $SA$:} Memorizza la permutazione degli $m$ indici interi compresi nell'intervallo $[1, m]$. Ciascun elemento necessita di $\lceil \log_2 m \rceil$ bit. Nei sistemi reali, per testi fino a $2^{32} - 1 \approx 4\text{ GB}$ si impiegano interi a 32 bit (4 byte); per collezioni pi\`u estese si adottano interi a 64 bit (8 byte).
 \end{itemize}
 
 Lo spazio complessivo occupato risulta:
 \begin{equation}
-  \text{Spazio}(SA + T) = m \cdot \text{sizeof(int)} + m \cdot \text{sizeof(char)} = \Theta(m) \text{ byte}
+  \text{Spazio}(SA + T) = n \cdot \text{sizeof(int)} + n \cdot \text{sizeof(char)} = \Theta(n) \text{ byte}
 \end{equation}
 
 \begin{noteblock}{Risoluzione dell'Esplosione Quadratica}
-Il Suffix Array abbatte la ridondanza quadratica $\Theta(m^2)$ mediante la \textbf{condivisione indiretta del testo}: i caratteri dei suffissi non vengono mai duplicati in memoria, ma referenziati al volo attraverso l'indice iniziale $SA[r]$ all'interno dell'unico array continuo $T$.
+Il Suffix Array abbatte la ridondanza quadratica $\Theta(n^2)$ mediante la \textbf{condivisione indiretta del testo}: i caratteri dei suffissi non vengono mai duplicati in memoria, ma referenziati al volo attraverso l'indice iniziale $SA[r]$ all'interno dell'unico array continuo $T$.
 \end{noteblock}
 
 \FloatBarrier
-\subsection{Algoritmo di Ricerca Binaria per un Pattern $P[1 \dots p]$}
+\subsection{Algoritmo di Ricerca Binaria per un Pattern $P[1 \dots m]$}
 \label{subsec:ricerca-binaria-sa}
 
 La propriet\`a algebrica fondante del Suffix Array risiede nel fatto che tutti i suffissi che condividono un determinato prefisso comune $P$ occupano un \textbf{intervallo contiguo di indici} all'interno del vettore $SA$.
 
 \begin{lemma}[Contiguit\`a dei Prefissi nel Suffix Array]
 \label{lem:contiguita-sa}
-Sia dato un pattern $P \in \Sigma^*$. L'insieme dei ranghi dei suffissi che ammettono $P$ come prefisso costituisce un intervallo chiuso $[L, R] \subseteq [1, m]$ (eventualmente vuoto se $P$ non occorre in $T$):
+Sia dato un pattern $P \in \Sigma^*$. L'insieme dei ranghi dei suffissi che ammettono $P$ come prefisso costituisce un intervallo chiuso $[L, R] \subseteq [1, n]$ (eventualmente vuoto se $P$ non occorre in $T$):
 \begin{equation}
   \forall r \in [L, R], \quad S_{SA[r]}[1 \dots |P|] = P
 \end{equation}
@@ -330,22 +331,22 @@ Poich\'e i due estremi condividono il medesimo prefisso $P$, ogni stringa lessic
 \paragraph{Procedura di Duplice Ricerca Binaria.}
 Per determinare l'intervallo $[L, R]$, si eseguono due ricerche binarie indipendenti sul vettore $SA$:
 \begin{enumerate}
-  \item \textbf{Prima Ricerca Binaria (Estremo Sinistro $L$):} Localizza il primo rango $L \in \{1, \dots, m\}$ tale che $S_{SA[L]} \ge_{\text{lex}} P$. Se tale suffisso non ammette $P$ come prefisso, il pattern non compare in $T$ e l'algoritmo termina.
-  \item \textbf{Seconda Ricerca Binaria (Estremo Destro $R$):} Localizza l'ultimo rango $R \in \{1, \dots, m\}$ tale che $P$ sia ancora prefisso di $S_{SA[R]}$. Formalmente, ci\`o equivale a cercare la posizione di inserimento di $P \circ \$_{\max}$ (dove $\$_{\max}$ \`e un carattere convenzionale superiore a ogni simbolo di $\Sigma$), oppure il primo suffisso strettamente maggiore di qualunque estensione di $P$.
+  \item \textbf{Prima Ricerca Binaria (Estremo Sinistro $L$):} Localizza il primo rango $L \in \{1, \dots, n\}$ tale che $S_{SA[L]} \ge_{\text{lex}} P$. Se tale suffisso non ammette $P$ come prefisso, il pattern non compare in $T$ e l'algoritmo termina.
+  \item \textbf{Seconda Ricerca Binaria (Estremo Destro $R$):} Localizza l'ultimo rango $R \in \{1, \dots, n\}$ tale che $P$ sia ancora prefisso di $S_{SA[R]}$. Formalmente, ci\`o equivale a cercare la posizione di inserimento di $P \circ \#$ (dove $\#$ \`e un carattere sentinella convenzionale superiore a ogni simbolo di $\Sigma$, $\forall c \in \Sigma, \; c <_{\text{lex}} \#$), oppure il primo suffisso strettamente maggiore di qualunque estensione di $P$.
 \end{enumerate}
 
 \begin{algorithm}[H]
 \caption{Ricerca Binaria su Suffix Array per Substring Search}
 \label{alg:ricerca-binaria-sa}
 \DontPrintSemicolon
-\KwIn{Testo $T[1 \dots m]\$$, Suffix Array $SA[1 \dots m]$, Pattern $P[1 \dots p]$}
+\KwIn{Testo $T[1 \dots n]\$$, Suffix Array $SA[1 \dots n]$, Pattern $P[1 \dots m]$}
 \KwOut{Intervallo delle occorrenze $[L, R]$, oppure $\emptyset$}
 
 \tcp{Fase 1: Ricerca Binaria per l'Estremo Sinistro $L$}
-$low \gets 1$; \quad $high \gets m$; \quad $L \gets m + 1$\;
+$low \gets 1$; \quad $high \gets n$; \quad $L \gets n + 1$\;
 \While{$low \le high$}{
   $mid \gets \lfloor (low + high) / 2 \rfloor$\;
-  \If{$S_{SA[mid]}[1 \dots p] \ge_{\text{lex}} P$}{
+  \If{$S_{SA[mid]}[1 \dots m] \ge_{\text{lex}} P$}{
     $L \gets mid$\;
     $high \gets mid - 1$\;
   }
@@ -354,15 +355,15 @@ $low \gets 1$; \quad $high \gets m$; \quad $L \gets m + 1$\;
   }
 }
 
-\If{$L > m$ \textbf{or} $S_{SA[L]}[1 \dots p] \neq P$}{
+\If{$L > n$ \textbf{or} $S_{SA[L]}[1 \dots m] \neq P$}{
   \Return $\emptyset$ \tcp*{Pattern non presente nel testo}
 }
 
 \tcp{Fase 2: Ricerca Binaria per l'Estremo Destro $R$}
-$low \gets L$; \quad $high \gets m$; \quad $R \gets L$\;
+$low \gets L$; \quad $high \gets n$; \quad $R \gets L$\;
 \While{$low \le high$}{
   $mid \gets \lfloor (low + high) / 2 \rfloor$\;
-  \If{$S_{SA[mid]}[1 \dots p] == P$}{
+  \If{$S_{SA[mid]}[1 \dots m] == P$}{
     $R \gets mid$\;
     $low \gets mid + 1$\;
   }
@@ -401,14 +402,14 @@ Ispezioniamo la \autoref{tab:mississippi-sa-ordinato}:
 
 \paragraph{Analisi della Complessit\`a Computazionale.}
 \begin{itemize}
-  \item \textbf{Tempo di Ricerca dell'Intervallo:} Ciascuna delle due ricerche binarie esegue $\mathcal{O}(\log m)$ iterazioni. Ad ogni iterazione, il confronto tra il pattern $P$ e il suffisso $S_{SA[mid]}$ richiede al pi\`u $p$ ispezioni di caratteri nel testo $T$. Il costo complessivo per determinare $[L, R]$ \`e:
+  \item \textbf{Tempo di Ricerca dell'Intervallo:} Ciascuna delle due ricerche binarie esegue $\mathcal{O}(\log n)$ iterazioni. Ad ogni iterazione, il confronto tra il pattern $P$ e il suffisso $S_{SA[mid]}$ richiede al pi\`u $m$ ispezioni di caratteri nel testo $T$. Il costo complessivo per determinare $[L, R]$ \`e:
   \begin{equation}
-    \text{Tempo di Search} = \mathcal{O}(p \cdot \log m)
+    \text{Tempo di Search} = \mathcal{O}(m \cdot \log n)
   \end{equation}
   \item \textbf{Tempo di Restituzione (Reporting):} Una volta individuato l'intervallo, stampare le $t_{\text{occ}} = R - L + 1$ occorrenze richiede una semplice scansione lineare di $SA$ in tempo $\mathcal{O}(t_{\text{occ}})$.
   \item \textbf{Complessit\`a Temporale Complessiva:}
   \begin{equation}
-    T(m, p) = \mathcal{O}(p \log m + t_{\text{occ}})
+    T(n, m) = \mathcal{O}(m \log n + t_{\text{occ}})
   \end{equation}
   \item \textbf{Complessit\`a di I/O:} Nell'ipotesi in cui $T$ e $SA$ risiedano interamente nella memoria primaria RAM, non viene eseguito alcun accesso a memoria secondaria:
   \begin{equation}
@@ -427,19 +428,19 @@ Ispezioniamo la \autoref{tab:mississippi-sa-ordinato}:
 Il \textbf{Suffix Tree}, introdotto originariamente da Weiner nel 1973~\cite{weiner1973} e successivamente perfezionato da McCreight~\cite{mccreight1976} e Ukkonen~\cite{ukkonen1995}, rappresenta la versione indicizzata su albero digitale compresso (\textit{compacted trie}) dell'insieme esaustivo di tutti i suffissi di un testo $T\$$.
 
 \begin{definition}[Suffix Tree]
-Il Suffix Tree $\mathcal{T}(T\$)$ associato al testo $T[1 \dots m]\$$ \`e un albero radicato che soddisfa le seguenti propriet\`a strutturali:
+Il Suffix Tree $\mathcal{T}(T\$)$ associato al testo $T[1 \dots n]\$$ \`e un albero radicato che soddisfa le seguenti propriet\`a strutturali:
 \begin{enumerate}
-  \item \textbf{Numero di Foglie:} Possiede esattamente $m$ foglie, numerate da $1$ a $m$. Ciascuna foglia $\ell_i$ \`e associata biunivocamente al suffisso $S_i = T[i \dots m]\$$.
-  \item \textbf{Branching Factor dei Nodi Interni:} Ciascun nodo interno $u$ (esclusa eventualmente la radice se $m=1$) possiede un grado di uscita maggiore o uguale a 2:
+  \item \textbf{Numero di Foglie:} Possiede esattamente $n$ foglie, numerate da $1$ a $n$. Ciascuna foglia $\ell_i$ \`e associata biunivocamente al suffisso $S_i = T[i \dots n]\$$.
+  \item \textbf{Branching Factor dei Nodi Interni:} Ciascun nodo interno $u$ (esclusa eventualmente la radice se $n=1$) possiede un grado di uscita maggiore o uguale a 2:
   \begin{equation}
     \text{deg}(u) \ge 2
   \end{equation}
   Non esistono nodi non diramati (nodi unari); ogni cammino privo di biforcazioni \`e compresso in un singolo arco.
-  \item \textbf{Limite sui Nodi Interni:} In virt\`u della propriet\`a di biforcazione, un albero con $m$ foglie possiede al pi\`u $m - 1$ nodi interni:
+  \item \textbf{Limite sui Nodi Interni:} In virt\`u della propriet\`a di biforcazione, un albero con $n$ foglie possiede al pi\`u $n - 1$ nodi interni:
   \begin{equation}
-    N_{\text{interni}} \le m - 1
+    N_{\text{interni}} \le n - 1
   \end{equation}
-  Il numero totale di nodi (foglie $+$ nodi interni) \`e superiormente limitato da $2m - 1$.
+  Il numero totale di nodi (foglie $+$ nodi interni) \`e superiormente limitato da $2n - 1$.
   \item \textbf{Etichette degli Archi:} Ogni arco $(u, v)$ \`e etichettato con una sottostringa non vuota di $T\$$. Archi uscenti dal medesimo nodo interno iniziano necessariamente con caratteri distinti.
   \item \textbf{String-Depth (Profondit\`a di Stringa):} Per ciascun nodo $u$, la concatenazione ordinata delle etichette lungo il cammino che scende dalla radice a $u$ definisce una stringa $\text{path}(u)$. La lunghezza $|\text{path}(u)|$ prende il nome di \textbf{string-depth} del nodo $u$.
 \end{enumerate}
@@ -449,7 +450,7 @@ Il Suffix Tree $\mathcal{T}(T\$)$ associato al testo $T[1 \dots m]\$$ \`e un alb
 \subsection{Compressione delle Etichette: Rappresentazione in Spazio Lineare}
 \label{subsec:compressione-etichette-suffix-tree}
 
-Se registrassimo esplicitamente le sottostringhe testuali sui singoli archi del Suffix Tree, lo spazio complessivo degenererebbe nuovamente a $\Theta(m^2)$ caratteri nel caso peggiore (ad esempio su testi periodici in cui molti archi memorizzano etichette lunghe $\Theta(m)$).
+Se registrassimo esplicitamente le sottostringhe testuali sui singoli archi del Suffix Tree, lo spazio complessivo degenererebbe nuovamente a $\Theta(n^2)$ caratteri nel caso peggiore (ad esempio su testi periodici in cui molti archi memorizzano etichette lunghe $\Theta(n)$).
 
 Per preservare rigorosamente la linearit\`a dello spazio, si applica la tecnica di rappresentazione a tuple di indici gi\`a esaminata nel \autoref{subsec:rappresentazione-indici-tuple}:
 \begin{itemize}
@@ -458,10 +459,10 @@ Per preservare rigorosamente la linearit\`a dello spazio, si applica la tecnica 
     \text{Arco}(u, v) \equiv [\text{start}, \; \text{end}] \iff \text{etichetta} = T[\text{start} \dots \text{end}]
   \end{equation}
   avente lunghezza pari a $\text{end} - \text{start} + 1$.
-  \item Poich\'e il numero totale di archi \`e limitato da $2m - 2$, l'insieme di tutti gli archi necessita unicamente di $2 \cdot (2m - 2) = \mathcal{O}(m)$ interi.
-  \item Mantenendo in memoria l'unico testo $T\$$ ($m$ caratteri) unitamente a $\mathcal{O}(m)$ nodi e archi, si ottiene:
+  \item Poich\'e il numero totale di archi \`e limitato da $2n - 2$, l'insieme di tutti gli archi necessita unicamente di $2 \cdot (2n - 2) = \mathcal{O}(n)$ interi.
+  \item Mantenendo in memoria l'unico testo $T\$$ ($n$ caratteri) unitamente a $\mathcal{O}(n)$ nodi e archi, si ottiene:
   \begin{equation}
-    \text{Spazio}_{\text{SuffixTree}} = \mathcal{O}(m) \text{ parole macchina}
+    \text{Spazio}_{\text{SuffixTree}} = \mathcal{O}(n) \text{ parole macchina}
   \end{equation}
 \end{itemize}
 
@@ -469,7 +470,7 @@ Per preservare rigorosamente la linearit\`a dello spazio, si applica la tecnica 
 \subsection{Rappresentazione Topologica del Suffix Tree di $\text{mississippi}\$$}
 \label{subsec:diagramma-suffix-tree-mississippi}
 
-La \autoref{fig:suffix-tree-mississippi} illustra la topologia completa del Suffix Tree compatto per il testo $T\$ = \text{mississippi}\$$ ($m = 12$). Nella convenzione standard dell'Algorithm Engineering (alla Weiner~\cite{weiner1973}, McCreight~\cite{mccreight1976} e Ukkonen~\cite{ukkonen1995}):
+La \autoref{fig:suffix-tree-mississippi} illustra la topologia completa del Suffix Tree compatto per il testo $T\$ = \text{mississippi}\$$ ($n = 12$). Nella convenzione standard dell'Algorithm Engineering (alla Weiner~\cite{weiner1973}, McCreight~\cite{mccreight1976} e Ukkonen~\cite{ukkonen1995}):
 \begin{enumerate}
   \item \textbf{Etichette compresse lungo gli archi:} L'informazione testuale risiede \textbf{esclusivamente lungo gli archi}, codificati in memoria tramite tuple $[\text{start}, \text{end}]$ sul testo $T\$$. Qualora un arco colleghi un nodo direttamente a una foglia senza ulteriori biforcazioni (ad esempio i rami della radice etichettati con $\$$ e $\text{mississippi}\$$), esso memorizza in un unico arco compresso l'intera sottostringa residua.
   \item \textbf{Nodi interni:} Ciascun nodo interno $u$ riporta la rispettiva \textbf{string-depth} $|\text{path}(u)|$ e la stringa contratta $\text{path}(u)$ formata dalla concatenazione delle etichette lungo il cammino che scende dalla radice. Ciascun nodo interno ha grado di uscita $\ge 2$ e tutti i rami uscenti esibiscono iniziali mutuamente distinte. I nodi interni a string-depth 2 includono il nodo $\texttt{"si"}$ e il nodo $\texttt{"ss"}$, mentre il nodo $\texttt{"issi"}$ presenta string-depth 4.
@@ -566,10 +567,10 @@ La \autoref{fig:suffix-tree-mississippi} illustra la topologia completa del Suff
 \end{figure}
 
 \FloatBarrier
-\subsection{Ricerca del Pattern nel Suffix Tree: Ottimalit\`a Temporale $\mathcal{O}(p)$}
+\subsection{Ricerca del Pattern nel Suffix Tree: Ottimalit\`a Temporale $\mathcal{O}(m)$}
 \label{subsec:ricerca-pattern-suffix-tree}
 
-Nel Suffix Tree, la ricerca di un pattern $P[1 \dots p]$ si articola in una navigazione deterministica top-down a partire dalla radice:
+Nel Suffix Tree, la ricerca di un pattern $P[1 \dots m]$ si articola in una navigazione deterministica top-down a partire dalla radice:
 \begin{enumerate}
   \item \textbf{Discesa Guidata dai Caratteri:} Presso il nodo corrente $u$, si esamina il carattere $P[k]$ corrispondente alla profondit\`a corrente. Si individua l'unico arco uscente la cui etichetta inizia con tale carattere.
   \item \textbf{Confronto dell'Etichetta:} Si confrontano i caratteri successivi dell'etichetta dell'arco con i corrispondenti caratteri di $P$:
@@ -582,20 +583,20 @@ Nel Suffix Tree, la ricerca di un pattern $P[1 \dots p]$ si articola in una navi
 
 \paragraph{Analisi della Complessit\`a.}
 \begin{itemize}
-  \item \textbf{Tempo di Ricerca del Locus:} Se l'alfabeto ha dimensione costante $\sigma = \mathcal{O}(1)$ (oppure impiegando una tabella ad accesso diretto sui figli dei nodi), la selezione dell'arco richiede tempo $\mathcal{O}(1)$. Il numero totale di caratteri confrontati durante la discesa \`e esattamente $p$. Il tempo per raggiungere il locus \`e:
+  \item \textbf{Tempo di Ricerca del Locus:} Se l'alfabeto ha dimensione costante $\sigma = \mathcal{O}(1)$ (oppure impiegando una tabella ad accesso diretto sui figli dei nodi), la selezione dell'arco richiede tempo $\mathcal{O}(1)$. Il numero totale di caratteri confrontati durante la discesa \`e esattamente $m$. Il tempo per raggiungere il locus \`e:
   \begin{equation}
-    \text{Tempo di Search} = \mathcal{O}(p)
+    \text{Tempo di Search} = \mathcal{O}(m)
   \end{equation}
-  (oppure $\mathcal{O}(p \log \sigma)$ se gli archi uscenti sono mantenuti in vettori ordinati).
+  (oppure $\mathcal{O}(m \log \sigma)$ se gli archi uscenti sono mantenuti in vettori ordinati).
   \item \textbf{Tempo di Restituzione (Reporting):} Poich\'e ogni nodo interno del sottoalbero ha grado almeno 2, il numero di nodi visitati nella DFS \`e proporzionale al numero di foglie, ovvero $\mathcal{O}(t_{\text{occ}})$.
   \item \textbf{Complessit\`a Temporale Complessiva:}
   \begin{equation}
-    T(m, p) = \mathcal{O}(p + t_{\text{occ}})
+    T(n, m) = \mathcal{O}(m + t_{\text{occ}})
   \end{equation}
 \end{itemize}
 
 \begin{noteblock}{Ottimalit\`a Asintotica della Ricerca}
-Il tempo di ricerca $\mathcal{O}(p + t_{\text{occ}})$ garantito dal Suffix Tree \`e \textbf{strettamente ottimo}: \`e lineare nella dimensione dell'input della query ($p$) e dell'output ($t_{\text{occ}}$), ed \`e \textbf{completamente indipendente dalla lunghezza $m$ del testo indicizzato}.
+Il tempo di ricerca $\mathcal{O}(m + t_{\text{occ}})$ garantito dal Suffix Tree \`e \textbf{strettamente ottimo}: \`e lineare nella dimensione dell'input della query ($m$) e dell'output ($t_{\text{occ}}$), ed \`e \textbf{completamente indipendente dalla lunghezza $n$ del testo indicizzato}.
 \end{noteblock}
 
 \FloatBarrier
@@ -623,40 +624,42 @@ int suffix_cmp(const void *p, const void *q) {
     return strcmp(s1, s2);
 }
 
-void build_suffix_array_naive(const char *T, int m, const char **SA) {
-    // 1. Inizializzazione del vettore di puntatori ai suffissi di T
-    for (int i = 0; i < m; i++) {
-        SA[i] = T + i; // SA[i] punta al suffisso che inizia a T[i]
+void build_suffix_array_naive(const char *T, int n,
+                              const char **SA) {
+    // 1. Inizializzazione puntatori ai suffissi di T
+    for (int i = 0; i < n; i++) {
+        // SA[i] punta al suffisso iniziale T[i]
+        SA[i] = T + i;
     }
 
     // 2. Ordinamento rapido dei puntatori ai suffissi
-    qsort(SA, m, sizeof(char *), suffix_cmp);
+    qsort(SA, n, sizeof(char *), suffix_cmp);
 }
 \end{lstlisting}
 
 \paragraph{Analisi della Complessit\`a Asintotica.}
 L'analisi del tempo di esecuzione si compone di due fattori moltiplicativi:
 \begin{enumerate}
-  \item \textbf{Numero di Confronti del QuickSort:} Su un array di $m$ elementi, QuickSort esegue in media $\mathcal{O}(m \log m)$ comparazioni di elementi (\autoref{cha:lecture-five}).
-  \item \textbf{Costo di Ciascun Confronto (`strcmp`):} La funzione `strcmp(s1, s2)` non richiede tempo $\mathcal{O}(1)$: per due stringhe che condividono un lungo prefisso comune, `strcmp` scansiona i caratteri uno ad uno fino al primo simbolo divergente. Poich\'e i suffissi hanno lunghezza media $\mathcal{O}(m)$, nel caso generale una singola invocazione di `strcmp` costa $\mathcal{O}(m)$.
+  \item \textbf{Numero di Confronti del QuickSort:} Su un array di $n$ elementi, QuickSort esegue in media $\mathcal{O}(n \log n)$ comparazioni di elementi (\autoref{cha:lecture-five}).
+  \item \textbf{Costo di Ciascun Confronto (`strcmp`):} La funzione `strcmp(s1, s2)` non richiede tempo $\mathcal{O}(1)$: per due stringhe che condividono un lungo prefisso comune, `strcmp` scansiona i caratteri uno ad uno fino al primo simbolo divergente. Poich\'e i suffissi hanno lunghezza media $\mathcal{O}(n)$, nel caso generale una singola invocazione di `strcmp` costa $\mathcal{O}(n)$.
 \end{enumerate}
 
 Moltiplicando i due termini, si ottiene:
 \begin{equation}
-  \text{Tempo Medio}_{\text{Naive}} = \mathcal{O}(m \log m) \cdot \mathcal{O}(m) = \mathcal{O}(m^2 \log m)
+  \text{Tempo Medio}_{\text{Naive}} = \mathcal{O}(n \log n) \cdot \mathcal{O}(n) = \mathcal{O}(n^2 \log n)
 \end{equation}
 
-\begin{alertblock}{Degenerazione nel Caso Peggiore a $\mathcal{O}(m^3)$}
-Su testi patologici altamente periodici (ad esempio $T = a^m\$$), tutti i suffissi condividono prefissi lunghi $\Theta(m)$. Se l'ordinatore rapido seleziona sbilanciamenti sfavorevoli sui pivot, il numero di confronti sale a $\Theta(m^2)$ e ogni confronto esamina $\Theta(m)$ caratteri, portando il tempo totale a degenerare a:
+\begin{alertblock}{Degenerazione nel Caso Peggiore a $\mathcal{O}(n^3)$}
+Su testi patologici altamente periodici (ad esempio $T = a^n\$$), tutti i suffissi condividono prefissi lunghi $\Theta(n)$. Se l'ordinatore rapido seleziona sbilanciamenti sfavorevoli sui pivot, il numero di confronti sale a $\Theta(n^2)$ e ogni confronto esamina $\Theta(n)$ caratteri, portando il tempo totale a degenerare a:
 \begin{equation}
-  \text{Tempo Caso Peggiore}_{\text{Naive}} = \mathcal{O}(m^3)
+  \text{Tempo Caso Peggiore}_{\text{Naive}} = \mathcal{O}(n^3)
 \end{equation}
 \end{alertblock}
 
-\paragraph{Cenni agli Algoritmi di Costruzione Lineare $\mathcal{O}(m)$.}
+\paragraph{Cenni agli Algoritmi di Costruzione Lineare $\mathcal{O}(n)$.}
 Come evidenziato dal docente a lezione, la costruzione quadratica \`e puramente didattica. Nella ricerca avanzata sono stati sviluppati algoritmi ottimi in grado di costruire il Suffix Array direttamente in tempo lineare:
 \begin{equation}
-  \text{Costruzione Ottima } SA = \mathcal{O}(m) \text{ tempo}
+  \text{Costruzione Ottima } SA = \mathcal{O}(n) \text{ tempo}
 \end{equation}
 Tra gli algoritmi cardine figurano:
 \begin{itemize}
@@ -668,10 +671,10 @@ Tra gli algoritmi cardine figurano:
 \subsection{L'Array LCP (Longest Common Prefix)}
 \label{subsec:array-lcp-definizione}
 
-Per colmare il divario di prestazioni tra la ricerca binaria del Suffix Array ($\mathcal{O}(p \log m)$) e l'ottimalit\`a del Suffix Tree ($\mathcal{O}(p)$), Manber e Myers hanno introdotto una struttura ausiliaria fondamentale: l'\textbf{Array LCP}.
+Per colmare il divario di prestazioni tra la ricerca binaria del Suffix Array ($\mathcal{O}(m \log n)$) e l'ottimalit\`a del Suffix Tree ($\mathcal{O}(m)$), Manber e Myers hanno introdotto una struttura ausiliaria fondamentale: l'\textbf{Array LCP}.
 
 \begin{definition}[Array LCP]
-Dato il testo $T\$$ e il relativo Suffix Array $SA$, l'array \textbf{$LCP$} \`e un vettore di $m$ interi in cui la cella $LCP[i]$ (per $i \in \{2, \dots, m\}$) memorizza la lunghezza del massimo prefisso comune condiviso tra il suffisso $S_{SA[i]}$ e il suo immediato predecessore lessicografico nel Suffix Array, $S_{SA[i-1]}$:
+Dato il testo $T\$$ e il relativo Suffix Array $SA$, l'array \textbf{$LCP$} \`e un vettore di $n$ interi in cui la cella $LCP[i]$ (per $i \in \{2, \dots, n\}$) memorizza la lunghezza del massimo prefisso comune condiviso tra il suffisso $S_{SA[i]}$ e il suo immediato predecessore lessicografico nel Suffix Array, $S_{SA[i-1]}$:
 \begin{equation}
   LCP[i] = |\text{LCP}(S_{SA[i]}, \; S_{SA[i-1]})|
 \end{equation}
@@ -686,7 +689,7 @@ Esaminiamo coppie consecutive di suffissi ordinati nel Suffix Array ricavato nel
 
 \begin{table}[H]
 \centering
-\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{c c l l l c}
 \toprule
 $i$ & $SA[i]$ & Suffisso Corrente $S_{SA[i]}$ & Suffisso Precedente $S_{SA[i-1]}$ & Prefisso Comune Condiviso & $LCP[i]$ \\
@@ -704,7 +707,8 @@ $i$ & $SA[i]$ & Suffisso Corrente $S_{SA[i]}$ & Suffisso Precedente $S_{SA[i-1]}
 \textbf{11} & 6  & $ssippi\$$            & $sissippi\$$           & `s`       & \textbf{1} \\
 \textbf{12} & 3  & $ssissippi\$$         & $ssippi\$$             & `ssi`     & \textbf{3} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \caption{Calcolo passo-passo dell'array LCP per il testo $T\$ = \text{mississippi}\$$.}
 \label{tab:calcolo-lcp-mississippi}
 \end{table}
@@ -714,12 +718,12 @@ Il vettore risultante \`e:
   LCP = [0, \; 0, \; 1, \; 1, \; 4, \; 0, \; 0, \; 1, \; 0, \; 2, \; 1, \; 3]
 \end{equation}
 
-\paragraph{Costruzione Lineare $\mathcal{O}(m)$ tramite Algoritmo di Kasai et al.}
-Nel 2001, Kasai, Lee, Arimura, Arikawa e Park~\cite{kasai2001} hanno dimostrato che, una volta disponibile il Suffix Array, l'array LCP pu\`o essere calcolato in tempo \textbf{strettamente lineare $\mathcal{O}(m)$} senza alcun confronto ridondante:
+\paragraph{Costruzione Lineare $\mathcal{O}(n)$ tramite Algoritmo di Kasai et al.}
+Nel 2001, Kasai, Lee, Arimura, Arikawa e Park~\cite{kasai2001} hanno dimostrato che, una volta disponibile il Suffix Array, l'array LCP pu\`o essere calcolato in tempo \textbf{strettamente lineare $\mathcal{O}(n)$} senza alcun confronto ridondante:
 \begin{equation}
-  \text{Tempo di Costruzione } LCP = \mathcal{O}(m)
+  \text{Tempo di Costruzione } LCP = \mathcal{O}(n)
 \end{equation}
-L'intuizione chiave dell'algoritmo di Kasai si basa sull'ordinamento posizionale dei suffissi nel testo originario: passando dal suffisso $S_i$ al suffisso successivo $S_{i+1}$, la lunghezza del prefisso condiviso con il rispettivo predecessore nel Suffix Array pu\`o diminuire al pi\`u di 1 (in virt\`u della rimozione del primo carattere), consentendo di calcolare tutti gli LCP con un numero totale di confronti limitato da $2m$.
+L'intuizione chiave dell'algoritmo di Kasai si basa sull'ordinamento posizionale dei suffissi nel testo originario: passando dal suffisso $S_i$ al suffisso successivo $S_{i+1}$, la lunghezza del prefisso condiviso con il rispettivo predecessore nel Suffix Array pu\`o diminuire al pi\`u di 1 (in virt\`u della rimozione del primo carattere), consentendo di calcolare tutti gli LCP con un numero totale di confronti limitato da $2n$.
 
 \FloatBarrier
 \subsection{Applicazioni Avanzate: Ricerca di Sottostringhe Ripetute}
@@ -728,7 +732,7 @@ L'intuizione chiave dell'algoritmo di Kasai si basa sull'ordinamento posizionale
 L'accoppiamento tra il Suffix Tree e il binomio $(SA, LCP)$ consente di risolvere con eleganza problemi complessi di biologia computazionale e analisi di sequenze.
 
 \begin{example}[Problema Formulato a Lezione]
-Dato un testo $T[1 \dots m]$, determinare se esiste una sottostringa di lunghezza almeno $L$ che compare con una frequenza di almeno $k$ occorrenze in posizioni distinte di $T$:
+Dato un testo $T[1 \dots n]$, determinare se esiste una sottostringa di lunghezza almeno $L$ che compare con una frequenza di almeno $k$ occorrenze in posizioni distinte di $T$:
 \begin{equation}
   \exists \, \text{sottostringa } \alpha \in \Sigma^* \quad \text{tale che} \quad |\alpha| \ge L \quad \land \quad \text{occorrenze}(\alpha, T) \ge k
 \end{equation}
@@ -744,7 +748,7 @@ Nel Suffix Tree, ogni sottostringa che compare pi\`u volte nel testo corrisponde
   \end{equation}
   \item \textbf{Algoritmo:} Una singola visita in profondit\`a (DFS) calcola in post-order per ciascun nodo $u$ il numero di foglie del suo sottoalbero, verificando la condizione in tempo lineare:
   \begin{equation}
-    \text{Tempo} = \mathcal{O}(m)
+    \text{Tempo} = \mathcal{O}(n)
   \end{equation}
 \end{itemize}
 
@@ -773,7 +777,7 @@ Per individuare l'eventuale esistenza della finestra:
   \item Per mantenere il minimo corrente della finestra in tempo ammortizzato $\mathcal{O}(1)$ a ogni scorrimento, si impiega una coda a doppia estremit\`a (Deque) monotona decrescente.
   \item L'intera scansione dell'array $LCP$ richiede tempo lineare:
   \begin{equation}
-    \text{Tempo}_{\text{Sliding Window}} = \mathcal{O}(m)
+    \text{Tempo}_{\text{Sliding Window}} = \mathcal{O}(n)
   \end{equation}
   e spazio addizionale limitato a $\mathcal{O}(k)$ per la deque.
 \end{enumerate}
@@ -786,21 +790,20 @@ Per individuare l'eventuale esistenza della finestra:
 \subsection{Tabella Sinottica delle Metodologie}
 \label{subsec:tabella-sinottica-sottostringhe}
 
-La \autoref{tab:sinottico-sottostringhe} sintetizza il confronto asintotico e ingegneristico tra le metodologie esaminate per la ricerca di sottostringhe in un testo $T[1 \dots m]$ con pattern $P[1 \dots p]$.
+La \autoref{tab:sinottico-sottostringhe} sintetizza il confronto asintotico e ingegneristico tra le metodologie esaminate per la ricerca di sottostringhe in un testo $T[1 \dots n]$ con pattern $P[1 \dots m]$.
 
 \begin{table}[H]
 \centering
-\small
 \resizebox{\columnwidth}{!}{%
 \begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.8cm} >{\centering\arraybackslash}p{2.6cm} >{\centering\arraybackslash}p{2.8cm} >{\centering\arraybackslash}p{3.2cm} >{\centering\arraybackslash}p{2.6cm}}
 \toprule
 \textbf{Struttura / Approccio} & \textbf{Tempo Ricerca (Existence/Count)} & \textbf{Tempo Restituzione (Reporting)} & \textbf{Occupazione di Memoria} & \textbf{Tempo di Costruzione} \\
 \midrule
-\textbf{Scansione Ingenua (Brute-Force)} & $\mathcal{O}(m \cdot p)$ & Incluso & $\mathcal{O}(m)$ \newline (Solo il testo $T$) & $\mathcal{O}(0)$ \newline (Nessuna pre-elaborazione) \\
+\textbf{Scansione Ingenua (Brute-Force)} & $\mathcal{O}(n \cdot m)$ & Incluso & $\mathcal{O}(n)$ \newline (Solo il testo $T$) & $\mathcal{O}(0)$ \newline (Nessuna pre-elaborazione) \\
 \addlinespace
-\textbf{Suffix Array ($SA + T$)} & $\mathcal{O}(p \log m)$ & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(m)$ \newline ($m$ interi $+ m$ caratteri, $\approx 5m$ byte) & $\mathcal{O}(m^2 \log m)$ naive \newline $\mathcal{O}(m)$ ottimo (DC3/SA-IS) \\
+\textbf{Suffix Array ($SA + T$)} & $\mathcal{O}(m \log n)$ & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(n)$ \newline ($n$ interi $+ n$ caratteri, $\approx 5n$ byte) & $\mathcal{O}(n^2 \log n)$ naive \newline $\mathcal{O}(n)$ ottimo (DC3/SA-IS) \\
 \addlinespace
-\textbf{Suffix Tree ($\mathcal{T}(T\$)$)} & $\mathbf{\mathcal{O}(p)}$ \newline (Indipendente da $m$) & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(m)$ \newline ($2m$ nodi, archi a coppie $[s, e]$, $\approx 20m - 40m$ byte) & $\mathcal{O}(m)$ \newline (Ukkonen / McCreight) \\
+\textbf{Suffix Tree ($\mathcal{T}(T\$)$)} & $\mathbf{\mathcal{O}(m)}$ \newline (Indipendente da $n$) & $\mathcal{O}(t_{\text{occ}})$ & $\Theta(n)$ \newline ($2n$ nodi, archi a coppie $[s, e]$, $\approx 20n - 40n$ byte) & $\mathcal{O}(n)$ \newline (Ukkonen / McCreight) \\
 \bottomrule
 \end{tabular}%
 }
@@ -814,8 +817,8 @@ La \autoref{tab:sinottico-sottostringhe} sintetizza il confronto asintotico e in
 
 L'analisi comparativa mette in luce un classico compromesso architetturale dell'Algorithm Engineering:
 \begin{itemize}
-  \item \textbf{Il Limite Pratico del Suffix Tree:} Sebbene il Suffix Tree vanti un tempo di ricerca ideale $\mathcal{O}(p)$ indipendente da $m$, nella pratica software ciascun nodo interno richiede puntatori al primo figlio, al fratello successivo, al padre e alla coppia di interi d'arco $[start, end]$. Su architetture a 64 bit, ci\`o si traduce in un'impronta di memoria reale pari a circa $20-45$ byte per carattere indicizzato. Per collezioni genomiche di diversi Gigabyte, il Suffix Tree satura rapidamente la memoria RAM di sistema.
-  \item \textbf{La Superiorit\`a Applicativa del Suffix Array:} Il Suffix Array richiede unicamente $m$ interi da 4 byte pi\`u gli $m$ byte del testo, occupando circa $5$ byte per carattere (fino a $8$ volte meno spazio rispetto al Suffix Tree). Nonostante il costo di ricerca contenga il fattore logaritmico $\mathcal{O}(p \log m)$, nella pratica ingegneristica per un testo di un miliardo di caratteri $\log_2(10^9) \approx 30$ iterazioni, un costo del tutto trascurabile rispetto ai vantaggi di compattezza della memoria e alla straordinaria localit\`a spaziale dei dati nei vettori continui.
+  \item \textbf{Il Limite Pratico del Suffix Tree:} Sebbene il Suffix Tree vanti un tempo di ricerca ideale $\mathcal{O}(m)$ indipendente da $n$, nella pratica software ciascun nodo interno richiede puntatori al primo figlio, al fratello successivo, al padre e alla coppia di interi d'arco $[start, end]$. Su architetture a 64 bit, ci\`o si traduce in un'impronta di memoria reale pari a circa $20-45$ byte per carattere indicizzato. Per collezioni genomiche di diversi Gigabyte, il Suffix Tree satura rapidamente la memoria RAM di sistema.
+  \item \textbf{La Superiorit\`a Applicativa del Suffix Array:} Il Suffix Array richiede unicamente $n$ interi da 4 byte pi\`u gli $n$ byte del testo, occupando circa $5$ byte per carattere (fino a $8$ volte meno spazio rispetto al Suffix Tree). Nonostante il costo di ricerca contenga il fattore logaritmico $\mathcal{O}(m \log n)$, nella pratica ingegneristica per un testo di un miliardo di caratteri $\log_2(10^9) \approx 30$ iterazioni, un costo del tutto trascurabile rispetto ai vantaggi di compattezza della memoria e alla straordinaria localit\`a spaziale dei dati nei vettori continui.
 \end{itemize}
 
 \FloatBarrier
@@ -824,7 +827,7 @@ L'analisi comparativa mette in luce un classico compromesso architetturale dell'
 
 L'introduzione dell'array LCP colma definitivamente il divario teorico tra Suffix Tree e Suffix Array:
 \begin{enumerate}
-  \item \textbf{Accelerazione della Ricerca a $\mathcal{O}(p + \log m)$:} Arricchendo il Suffix Array con le informazioni di prefisso comune estratte da $LCP$ e alberi di tipo RMQ (\textit{Range Minimum Query}), \`e possibile evitare confronti ridondanti durante la ricerca binaria, abbattendo il tempo a $\mathcal{O}(p + \log m)$~\cite{manber1993}.
+  \item \textbf{Accelerazione della Ricerca a $\mathcal{O}(m + \log n)$:} Arricchendo il Suffix Array con le informazioni di prefisso comune estratte da $LCP$ e alberi di tipo RMQ (\textit{Range Minimum Query}), \`e possibile evitare confronti ridondanti durante la ricerca binaria, abbattendo il tempo a $\mathcal{O}(m + \log n)$~\cite{manber1993}.
   \item \textbf{Emulazione Topologica del Suffix Tree:} Manzini e Ferragina hanno dimostrato che la terna formata da Testo, Suffix Array e Array LCP contiene esattamente la medesima informazione topologica del Suffix Tree, consentendo di simulare qualunque algoritmo su albero (visite DFS, Lowest Common Ancestor, motivi ripetuti) con codice sequenziale iterativo operante su array compatti.
-  \item \textbf{Verso gli Indici Compressi di Seconda Generazione:} La combinazione del Suffix Array con la Trasformata di Burrows-Wheeler (BWT) e le strutture di rank/select condurr\`a alla nascita del celebre \textbf{FM-Index} (\textit{Ferragina-Manzini Index}), capace di comprimere il testo e l'indice in uno spazio inferiore a quello del testo grezzo originario ($\le m$ byte complessivi), rappresentando l'attuale frontiera mondiale della bioinformatica e dei motori di ricerca a testo pieno.
+  \item \textbf{Verso gli Indici Compressi di Seconda Generazione:} La combinazione del Suffix Array con la Trasformata di Burrows-Wheeler (BWT) e le strutture di rank/select condurr\`a alla nascita del celebre \textbf{FM-Index} (\textit{Ferragina-Manzini Index}), capace di comprimere il testo e l'indice in uno spazio inferiore a quello del testo grezzo originario ($\le n$ byte complessivi), rappresentando l'attuale frontiera mondiale della bioinformatica e dei motori di ricerca a testo pieno.
 \end{enumerate}
