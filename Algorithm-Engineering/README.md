@@ -50,6 +50,7 @@ latexmk -c
 - **Capitolo 14:** Alberi Digitali per Stringhe: Trie, MSD Radix Sort, Trie Compatti e Autocompletamento (`14`)
 - **Capitolo 15:** Ricerca di Stringhe in Memoria Gerarchica: Patricia Trie, Blind Trie e Front-Coding (`15`)
 - **Capitolo 16:** Indicizzazione e Ricerca di Sottostringhe: Suffix Array, Suffix Tree e Array LCP (`16`)
+- **Capitolo 17:** Algoritmo di Kasai per l'Array LCP, Dizionari in Memoria Esterna e Occorrenze Più Vicine (`17`)
 
 ```text
 Algorithm-Engineering/

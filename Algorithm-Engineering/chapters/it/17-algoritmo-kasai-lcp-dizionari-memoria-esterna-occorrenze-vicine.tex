@@ -1,0 +1,557 @@
+\chapter{Algoritmo di Kasai per l'Array LCP, Dizionari Esterni e Occorrenze Pi\`u Vicine}
+\label{ch:kasai-lcp-dizionari-esterni-occorrenze-vicine}
+
+\FloatBarrier
+\section{Costruzione Ottima in Tempo Lineare dell'Array LCP (Algoritmo di Kasai et al.)}
+\label{sec:kasai-lcp-construction}
+
+\FloatBarrier
+\subsection{Inquadramento Teorico e Limiti dell'Approccio Ingenuo}
+\label{subsec:teoria-limiti-ingenuo-lcp}
+
+Sia dato un testo $T[1 \dots n]$ definito su un alfabeto ordinato $\Sigma$, terminato dal carattere sentinella convenzionale $\$$ tale per cui $\$ \notin \Sigma$ e $\forall c \in \Sigma, \; \$ <_{\text{lex}} c$. Il \textbf{Suffix Array} ($SA$) \`e la permutazione degli indici posizionali $\{1, 2, \dots, n\}$ che ordina lessicograficamente tutti gli $n$ suffissi del testo arricchito $T\$$:
+\begin{equation}
+  S_{SA[1]} <_{\text{lex}} S_{SA[2]} <_{\text{lex}} \dots <_{\text{lex}} S_{SA[n]}
+\end{equation}
+L'\textbf{array LCP} (\textit{Longest Common Prefix}) memorizza la lunghezza del massimo prefisso comune condiviso tra coppie di suffissi adiacenti nell'ordinamento del Suffix Array:
+\begin{equation}
+  LCP[r] \coloneqq |\text{lcp}(S_{SA[r]}, S_{SA[r-1]})|, \quad \forall r \in \{2, 3, \dots, n\}
+\end{equation}
+mentre per la prima posizione lessicografica si pone convenzionalmente $LCP[1] = 0$ oppure valore indefinito ($\bot$).
+
+\paragraph{Il Collo di Bottiglia dell'Approccio Brute-Force.}
+L'algoritmo ingenuo (\textit{Brute-Force}) calcola ciascuna voce $LCP[r]$ eseguendo una scansione carattere per carattere da sinistra verso destra tra il suffisso $S_{SA[r]}$ e il suo immediato predecessore lessicografico $S_{SA[r-1]}$, arrestandosi al primo simbolo discordante (\textit{mismatch}):
+\begin{itemize}
+  \item Nello scenario peggiore, consideriamo un testo altamente degenere costituito dalla ripetizione sistematica dello stesso simbolo, ad esempio $T = a^{n-1}\$$.
+  \item I suffissi hanno la forma $S_k = a^k\$$, e i loro prefissi comuni condivisi presentano lunghezze decrescenti pari a $n-2, n-3, \dots, 1$.
+  \item L'algoritmo ingenuo compie, per ciascuna coppia di suffissi adiacenti, un numero di comparazioni atomiche esattamente proporzionale alla lunghezza del prefisso condiviso:
+  \begin{equation}
+    \sum_{r=2}^n LCP[r] = \sum_{k=1}^{n-2} k = \frac{(n-2)(n-1)}{2} = \Theta(n^2) \quad \text{confronti}
+  \end{equation}
+\end{itemize}
+Il costo computazionale dell'approccio ingenuo nel caso peggiore risulta pertanto quadratico: $\mathcal{O}(n^2)$, risultando intrattabile su collezioni massive o genomiche.
+
+\FloatBarrier
+\subsection{La Proprietà di Monotonia di Kasai e la Riduzione da \texorpdfstring{$i-1$}{i-1} ad \texorpdfstring{$i$}{i}}
+\label{subsec:monotonia-kasai-riduzione}
+
+Nel 2001, Kasai, Lee, Arimura, Arikawa e Park~\cite{kasai2001} hanno dimostrato che l'intero array LCP pu\`o essere calcolato in tempo strettamente \textbf{lineare ed ottimo $\mathcal{O}(n)$}. L'intuizione rivoluzionaria consiste nel \textbf{ribaltare l'ordine di elaborazione dei suffissi}: anzich\'e seguire l'ordine lessicografico del Suffix Array ($r = 1, 2, \dots, n$), l'algoritmo elabora i suffissi nell'ordine sequenziale naturale con cui compaiono lungo il testo ($i = 1, 2, \dots, n$).
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    strip/.style={rectangle, rounded corners=3pt, draw=navy, fill=codebackground, thick, minimum height=0.9cm},
+    substrip/.style={rectangle, rounded corners=2pt, draw=crimson, fill=crimson!12, thick, minimum height=0.7cm, font=\small\ttfamily},
+    lcpbox/.style={rectangle, rounded corners=2pt, draw=darkgreen, fill=darkgreen!15, thick, font=\small\bfseries, align=center},
+    annot/.style={font=\footnotesize, text=navy}
+]
+
+  % Testo T (riga superiore)
+  \node[strip, minimum width=12.8cm] (Tbox) at (0.0, 5.2) {};
+  \node[font=\bfseries\color{navy}, anchor=west] at (-6.2, 5.2) {$T$:};
+  
+  % Suffisso i-1 e j-1 all'interno di T (perfettamente simmetrici a x = -3.5 e x = 3.5)
+  \node[substrip, minimum width=3.8cm] (S_prev) at (-3.5, 5.2) {$T[i-1 \dots] = c \cdot \alpha \dots$};
+  \node[substrip, minimum width=3.8cm] (S_other) at (3.5, 5.2) {$T[j-1 \dots] = c \cdot \beta \dots$};
+  
+  % Didascalie superiori centrate ciascuna sul proprio riquadro (ampio spazio al centro)
+  \node[annot, above=4pt] at (S_prev.north) {Suffisso $S_{i-1}$ (pos. $i-1$, rango $p$)};
+  \node[annot, above=4pt] at (S_other.north) {Predecessore $S_{j-1}$ (pos. $j-1$, rango $p-1$)};
+
+  % Arco orizzontale LCP massimo tra i-1 e j-1 (fascia intermedia superiore, isolato e centrato)
+  \draw[<->, thick, darkgreen] (-1.2, 4.2) -- (1.2, 4.2) 
+    node[midway, below=3pt, font=\scriptsize\bfseries, align=center] {Prefisso comune massimo: $\ell$ caratteri \\ ($|\text{lcp}(S_{i-1}, S_{j-1})| = \ell \ge 1$)};
+
+  % Frecce verticali di rimozione del carattere 'c' (perfettamente verticali e parallele)
+  \draw[->, very thick, crimson] (S_prev.south) -- ++(0, -2.6) 
+    node[midway, left=8pt, font=\scriptsize\bfseries, align=right] {Rimuovi primo\\carattere $T[i-1]=c$};
+  \draw[->, very thick, crimson] (S_other.south) -- ++(0, -2.6) 
+    node[midway, right=8pt, font=\scriptsize\bfseries, align=left] {Rimuovi primo\\carattere $T[j-1]=c$};
+
+  % Suffisso i e j (riga inferiore, allineati esattamente alle stesse coordinate x dei superiori)
+  \node[substrip, minimum width=3.8cm, fill=teal!15, draw=teal!80!black] (S_curr) at (-3.5, 1.6) {$S_i = T[i \dots] = \alpha \dots$};
+  \node[substrip, minimum width=3.8cm, fill=teal!15, draw=teal!80!black] (S_j) at (3.5, 1.6) {$S_j = T[j \dots] = \beta \dots$};
+  \node[annot, below=4pt] at (S_curr.south) {Suffisso $S_i = SA[q]$};
+  \node[annot, below=4pt] at (S_j.south) {Suffisso $S_j = SA[k]$ ($k < q$)};
+
+  % Freccia orizzontale pulita tra i suffissi contratti Si e Sj (nessun testo sovrapposto)
+  \draw[<->, thick, darkgreen, dashed] (S_curr.east) -- (S_j.west);
+
+  % Garanzia LCP >= ell - 1 (box riassuntivo in basso)
+  \node[lcpbox, minimum width=12.2cm, inner sep=6pt] at (0.0, 0.0) 
+    {Garantito: $|\text{lcp}(S_i, S_j)| = \ell - 1 \implies LCP[q] \ge |\text{lcp}(S_i, S_j)| \ge \ell - 1$};
+
+\end{tikzpicture}%
+}
+\caption{Principio di monotonia di Kasai: rimuovendo il primo carattere comune $c$ dai suffissi $S_{i-1}$ ed $S_{j-1}$ aventi massimo prefisso comune $|\text{lcp}(S_{i-1}, S_{j-1})| = \ell \ge 1$, i suffissi risultanti $S_i$ ed $S_j$ condividono esattamente $|\text{lcp}(S_i, S_j)| = \ell - 1$ caratteri. Nel Suffix Array, il predecessore immediato di $S_i$ (rango $q-1$) non può condividere meno caratteri di $S_j$ ($k < q$), garantendo $LCP[q] \ge \ell - 1$.}
+\label{fig:kasai-monotonicity-principle}
+\end{figure}
+
+\begin{theorem}[Teorema Fondamentale di Kasai]
+\label{thm:fondamentale-kasai}
+Siano $S_{i-1} = T[i-1 \dots n]$ ed $S_{j-1} = T[j-1 \dots n]$ due suffissi tali che $S_{j-1}$ sia l'immediato predecessore lessicografico di $S_{i-1}$ nel Suffix Array (ovvero, posto $SA[p] = i-1$, si ha $SA[p-1] = j-1$).
+
+Se $\ell = |\text{lcp}(S_{SA[p]}, S_{SA[p-1]})| > 0$, allora considerando il suffisso successivo $S_i = T[i \dots n]$ (collocato alla posizione $q$ in $SA$, ossia $SA[q] = i$) e il suo predecessore immediato $S_{SA[q-1]}$, vale la disuguaglianza:
+\begin{equation}
+  LCP[q] = |\text{lcp}(S_{SA[q]}, S_{SA[q-1]})| \ge \ell - 1
+\end{equation}
+\end{theorem}
+
+\FloatBarrier
+\subsection{Dimostrazione Rigorosa del Teorema di Kasai}
+\label{subsec:dimostrazione-teorema-kasai}
+
+\begin{proof}
+La validit\`a della propriet\`a di monotonia si sviluppa nei seguenti passaggi logico-deduttivi:
+\begin{enumerate}
+  \item \textbf{Carattere Iniziale Condiviso:} Per ipotesi, $S_{i-1}$ e $S_{j-1}$ condividono un prefisso comune di lunghezza $\ell > 0$. Poich\'e $\ell \ge 1$, entrambi i suffissi iniziano tassativamente con il medesimo simbolo:
+  \begin{equation}
+    T[i-1] = T[j-1] = c \in \Sigma
+  \end{equation}
+  \item \textbf{Rimozione del Primo Simbolo:} Eliminando il carattere iniziale $c$, otteniamo i suffissi $S_i = T[i \dots n]$ e $S_j = T[j \dots n]$.
+  \item \textbf{Contrazione dell'LCP:} La lunghezza del prefisso comune tra $S_i$ ed $S_j$ si riduce esattamente di una unit\`a:
+  \begin{equation}
+    |\text{lcp}(S_i, S_j)| = \ell - 1
+  \end{equation}
+  \item \textbf{Conservazione dell'Ordinamento Lessicografico:} Poich\'e per ipotesi $S_{j-1} <_{\text{lex}} S_{i-1}$ ed entrambi i suffissi condividono la prima lettera $c$, l'eliminazione di $c$ preserva rigidamente l'ordine d'ordine:
+  \begin{equation}
+    S_j <_{\text{lex}} S_i
+  \end{equation}
+  \item \textbf{Posizionamento nel Suffix Array:} Nel Suffix Array, il suffisso $S_i$ occupa il rango $q$ ($SA[q] = i$). Essendo $S_j <_{\text{lex}} S_i$, il suffisso $S_j$ deve comparire a un rango $k$ strettamente inferiore a $q$, ovvero:
+  \begin{equation}
+    k < q \quad \text{con } SA[k] = j
+  \end{equation}
+  \item \textbf{Propriet\`a dell'LCP su Intervalli di SA:} Per le propriet\`a combinatorie del Suffix Array (\autoref{subsec:array-lcp-definizione}), l'LCP tra due suffissi collocati a ranghi arbitrari $k < q$ coincide con il minimo dei valori LCP calcolati tra tutte le coppie consecutive dell'intervallo $[k+1 \dots q]$:
+  \begin{equation}
+    |\text{lcp}(S_i, S_j)| = \min_{r = k+1}^q |\text{lcp}(S_{SA[r]}, S_{SA[r-1]})| = \ell - 1
+  \end{equation}
+  \item \textbf{Delimitazione Inferiore di $LCP[q]$:} Poich\'e il rango $r = q$ appartiene all'insieme degli indici dell'intervallo $\{k+1, \dots, q\}$, il valore $LCP[q]$ non pu\`o risultare inferiore al minimo dell'intervallo:
+  \begin{equation}
+    LCP[q] = |\text{lcp}(S_{SA[q]}, S_{SA[q-1]})| \ge \min_{r=k+1}^q LCP[r] = |\text{lcp}(S_i, S_j)| = \ell - 1
+  \end{equation}
+\end{enumerate}
+La disuguaglianza $LCP[q] \ge \ell - 1$ \`e pertanto dimostrata.
+\end{proof}
+
+\paragraph{Conseguenza Algoritmica Pratica.}
+Quando l'algoritmo passa dall'analisi del suffisso $S_{i-1}$ a quella di $S_i$, non occorre ripartire da zero: \textbf{i primi $\ell - 1$ caratteri sono garantiti identici a priori}. Il confronto effettivo riprende dall'offset $\ell - 1$ rispetto all'inizio dei suffissi, saltando la porzione certificata.
+
+\FloatBarrier
+\subsection{Algoritmo e Analisi della Complessità Temporale Ammortizzata}
+\label{subsec:algoritmo-analisi-ammortizzata-kasai}
+
+L'\autoref{alg:kasai-lcp} formalizza l'algoritmo di Kasai et al. mediante l'ausilio dell'array di rango inverso $Rank[1 \dots n]$, definito in modo tale che $Rank[SA[r]] = r$ per ogni $r \in \{1, \dots, n\}$.
+
+\begin{algorithm}[H]
+\caption{Calcolo Lineare dell'Array LCP (Kasai et al.)}
+\label{alg:kasai-lcp}
+\KwIn{Testo $T[1 \dots n]\$$, Suffix Array $SA[1 \dots n]$}
+\KwOut{Array $LCP[1 \dots n]$}
+\BlankLine
+Inizializza vettore inverso: $Rank[SA[r]] \leftarrow r$ per ogni $r \in \{1, \dots, n\}$\;
+$\ell \leftarrow 0$\;
+\For{$i \leftarrow 1$ \KwTo $n$}{
+    $r \leftarrow Rank[i]$\;
+    \If{$r > 1$}{
+        $j \leftarrow SA[r - 1]$\;
+        \While{$i + \ell \le n$ \textbf{and} $j + \ell \le n$ \textbf{and} $T[i + \ell] == T[j + \ell]$}{
+            $\ell \leftarrow \ell + 1$\;
+        }
+        $LCP[r] \leftarrow \ell$\;
+        \If{$\ell > 0$}{
+            $\ell \leftarrow \ell - 1$\;
+        }
+    }
+    \Else{
+        $LCP[1] \leftarrow 0$\; \tcp{Suffisso iniziale in SA, predecessore assente}
+    }
+}
+\Return{$LCP$}\;
+\end{algorithm}
+
+\begin{theorem}[Complessità Temporale Lineare $\mathcal{O}(n)$]
+\label{thm:complessita-lineare-kasai}
+L'algoritmo di Kasai et al. calcola l'array LCP compiendo complessivamente al più $3n$ confronti di caratteri, richiedendo tempo di esecuzione ottimo:
+\begin{equation}
+  T_{\text{Kasai}}(n) = \Theta(n)
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+L'analisi asintotica si fonda su un argomento di contabilit\`a ammortizzata applicato al valore della variabile $\ell$:
+\begin{enumerate}
+  \item \textbf{Decrementi di $\ell$:} A ogni iterazione del ciclo esterno `for` ($i$ da $1$ a $n$), il valore di $\ell$ viene decrementato al più di $1$ unit\`a ($\ell \leftarrow \ell - 1$). Poich\'e il ciclo compie $n$ iterazioni, il numero complessivo di decrementi di $\ell$ durante l'intera esecuzione \`e limitato superiormente da $n$.
+  \item \textbf{Limite Superiore di $\ell$:} Il valore di $\ell$ rappresenta la lunghezza di un prefisso di suffisso, pertanto non pu\`o mai superare la lunghezza totale del testo: $\ell \le n$.
+  \item \textbf{Incrementi di $\ell$ (Confronti Positivi):} Poich\'e $\ell$ parte da $0$, non scende mai sotto zero e termina $\le n$, il numero totale di incrementi unitari ($\ell \leftarrow \ell + 1$) non pu\`o eccedere la somma del valore massimo raggiungibile e dei decrementi totali:
+  \begin{equation}
+    \text{Incrementi totali di } \ell \le n + \text{Decrementi totali} \le n + n = 2n
+  \end{equation}
+  \item \textbf{Confronti Negativi (Mismatch):} Ciascun confronto di caratteri con esito negativo arresta immediatamente il ciclo `while` interno. Di conseguenza, si verifica al più un confronto negativo per ciascuna iterazione del ciclo esterno, per un totale di al più $n$ comparazioni fallite.
+  \item \textbf{Confronti Totali:} Sommando confronti positivi e negativi:
+  \begin{equation}
+    \#\text{CMP}_{\text{Totali}} \le 2n + n = 3n = \mathcal{O}(n)
+  \end{equation}
+\end{enumerate}
+Poich\'e l'inversione $Rank$ e l'accesso agli indici avvengono in tempo $\mathcal{O}(1)$, la complessit\`a temporale totale \`e rigorosamente $\Theta(n)$.
+\end{proof}
+
+\FloatBarrier
+\subsection{Tracciamento Passo-Passo per \texorpdfstring{$T = \text{BANANA}\$$}{T = BANANA\$}}
+\label{subsec:traccia-banana-kasai}
+
+Consideriamo il testo di riferimento $T[1 \dots 7] = \text{BANANA}\$$ ($n = 7$). L'algoritmo di Kasai et al. elabora i suffissi nell'ordine posizionale con cui compaiono nel testo ($i = 1, 2, \dots, 7$), sfruttando il valore ereditato $\ell \leftarrow \max(0, \ell - 1)$ per saltare i confronti ridondanti.
+
+La \autoref{tab:banana-kasai-trace} riassume l'intero tracciamento esecutivo, confrontando passo dopo passo i confronti di Kasai con quelli dell'approccio ingenuo (\textit{Brute-Force}).
+
+\begin{table}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{c c l c l c l c c}
+\toprule
+\textbf{Rango $r$} & $\boldsymbol{SA[r]}$ & \textbf{Suffisso $S_{SA[r]}$} & \textbf{Passo ($i$)} & \textbf{Predecessore $S_{SA[r-1]}$} & $\boldsymbol{\ell}$ \textbf{Ereditato} & \textbf{Confronti Atomici Eseguiti} & $\boldsymbol{LCP[r]}$ & \textbf{\#B.F.} \\
+\midrule
+\textbf{1} & 7 & $\$$       & Passo 7 & —                  & 0 & Nessuno ($r=1$, primo suffisso in $SA$) & $\bot$ & — \\
+\textbf{2} & 6 & $A\$$      & Passo 6 & $\$$               & 0 & $\text{'A'} \neq \text{'\$'}$ (1 comp.) & \textbf{0} & 1 \\
+\textbf{3} & 4 & $ANA\$$    & Passo 4 & $A\$$              & 1 & Salta $\text{'A'}$; confronta $\text{'N'} \neq \text{'\$'}$ (1 comp.) & \textbf{1} & 2 \\
+\textbf{4} & 2 & $ANANA\$$  & Passo 2 & $ANA\$$            & 0 & $\text{'A'}==\text{'A'}, \text{'N'}==\text{'N'}, \text{'A'}==\text{'A'}, \text{'N'} \neq \text{'\$'}$ (4 comp.) & \textbf{3} & 4 \\
+\textbf{5} & 1 & $BANANA\$$ & Passo 1 & $ANANA\$$          & 0 & $\text{'B'} \neq \text{'A'}$ (1 comp.) & \textbf{0} & 1 \\
+\textbf{6} & 5 & $NA\$$     & Passo 5 & $BANANA\$$         & 0 & $\text{'N'} \neq \text{'B'}$ (1 comp.) & \textbf{0} & 1 \\
+\textbf{7} & 3 & $NANA\$$   & Passo 3 & $NA\$$             & 2 & Salta $\text{'NA'}$; confronta $\text{'N'} \neq \text{'\$'}$ (1 comp.) & \textbf{2} & 3 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Totale Confronti Atomici:}} & \textbf{9 confronti (Kasai)} & — & \textbf{12} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico del calcolo dell'array LCP per $T = \text{BANANA}\$$. Si osservi come ai passi $i=3$ e $i=4$ l'eredità di $\ell$ permetta di saltare rispettivamente 2 e 1 caratteri già certificati, riducendo i confronti rispetto al brute-force.}
+\label{tab:banana-kasai-trace}
+\end{table}
+
+\FloatBarrier
+\subsection{Tracciamento Passo-Passo per \texorpdfstring{$T = \text{ABABA}\$$}{T = ABABA\$}}
+\label{subsec:traccia-ababa-kasai}
+
+Consideriamo ora la stringa periodica $T[1 \dots 6] = \text{ABABA}\$$ ($n = 6$). La presenza di ripetizioni regolari enfatizza l'impatto della proprietà di monotonia, garantendo che i suffissi consecutivi nel testo ereditino porzioni significative di prefisso comune.
+
+La \autoref{tab:ababa-kasai-trace} riporta la traccia integrata dell'esecuzione per ciascun rango del Suffix Array.
+
+\begin{table}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{c c l c l c l c c}
+\toprule
+\textbf{Rango $r$} & $\boldsymbol{SA[r]}$ & \textbf{Suffisso $S_{SA[r]}$} & \textbf{Passo ($i$)} & \textbf{Predecessore $S_{SA[r-1]}$} & $\boldsymbol{\ell}$ \textbf{Ereditato} & \textbf{Confronti Atomici Eseguiti} & $\boldsymbol{LCP[r]}$ & \textbf{\#B.F.} \\
+\midrule
+\textbf{1} & 6 & $\$$      & Passo 6 & —         & 0 & Nessuno ($r=1$, primo suffisso in $SA$) & $\bot$ & — \\
+\textbf{2} & 5 & $A\$$     & Passo 5 & $\$$      & 0 & $\text{'A'} \neq \text{'\$'}$ (1 comp.) & \textbf{0} & 1 \\
+\textbf{3} & 3 & $ABA\$$   & Passo 3 & $A\$$     & 1 & Salta $\text{'A'}$; confronta $\text{'B'} \neq \text{'\$'}$ (1 comp.) & \textbf{1} & 2 \\
+\textbf{4} & 1 & $ABABA\$$ & Passo 1 & $ABA\$$   & 0 & $\text{'A'}==\text{'A'}, \text{'B'}==\text{'B'}, \text{'A'}==\text{'A'}, \text{'B'} \neq \text{'\$'}$ (4 comp.) & \textbf{3} & 4 \\
+\textbf{5} & 4 & $BA\$$    & Passo 4 & $ABABA\$$ & 0 & $\text{'B'} \neq \text{'A'}$ (1 comp.) & \textbf{0} & 1 \\
+\textbf{6} & 2 & $BABA\$$  & Passo 2 & $BA\$$    & 2 & Salta $\text{'BA'}$; confronta $\text{'B'} \neq \text{'\$'}$ (1 comp.) & \textbf{2} & 3 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Totale Confronti Atomici:}} & \textbf{8 confronti (Kasai)} & — & \textbf{11} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro sinottico del calcolo dell'array LCP per il testo periodico $T = \text{ABABA}\$$. Al passo $i=2$ il suffisso $S_2 = \text{BABA}\$$ eredita $\ell = 2$ caratteri (`BA`) dal passo $i=1$, completando il calcolo con una singola comparazione.}
+\label{tab:ababa-kasai-trace}
+\end{table}
+
+\FloatBarrier
+\section{Conteggio delle Stringhe Distinte in Memoria Gerarchica (External Memory)}
+\label{sec:conteggio-stringhe-memoria-esterna}
+
+\FloatBarrier
+\subsection{Formulazione del Problema e Modello a Due Livelli}
+\label{subsec:modello-conteggio-stringhe-esterne}
+
+Un problema fondamentale nei motori di ricerca, nell'analisi di log di rete e nei sistemi di Big Data consiste nel calcolare la cardinalit\`a dell'insieme delle stringhe uniche (\textit{distinct strings count}) memorizzate su supporti non volatili:
+\begin{itemize}
+  \item Sia dato un dizionario composto da $m$ stringhe $D = \{S_1, S_2, \dots, S_m\}$ di lunghezza variabile memorizzate su disco.
+  \item La dimensione totale dell'archivio (in caratteri o byte) \`e denotata con $N = \sum_{k=1}^m |S_k|$.
+  \item Sia $d \le m$ il numero effettivo di \textbf{stringhe distinte} presenti nel dizionario.
+  \item Parametri dell'External Memory Model di Aggarwal e Vitter~\cite{aggarwal1988}:
+  \begin{itemize}
+    \item $M$: capacit\`a della memoria centrale (RAM), in byte o record ($M \ll N$).
+    \item $B$: dimensione del blocco di trasferimento I/O disco-RAM.
+    \item Il file di ingresso occupa $\Theta(N/B)$ blocchi contigui su disco.
+  \end{itemize}
+\end{itemize}
+
+L'obiettivo ingegneristico consiste nel determinare $d$ minimizzando le operazioni di I/O in funzione dei vincoli di capacit\`a $M$ della memoria primaria.
+
+\FloatBarrier
+\subsection{Strategia 1: Hash Set in Memoria Primaria}
+\label{subsec:soluzione-1-hash-set-ram}
+
+La prima architettura impiega una funzione di hash uniforme $h \colon \Sigma^* \to \{0, 1, \dots, 2^w - 1\}$ con parole di firma a $w$ bit:
+\begin{enumerate}
+  \item Si effettua una scansione sequenziale lineare dell'archivio da disco ($\mathcal{O}(N/B)$ I/Os).
+  \item Per ciascuna stringa letta $S_i$, si calcola al volo la firma hash $h(S_i)$.
+  \item Il valore $h(S_i)$ viene inserito in una tabella hash in RAM (\textit{hash set}) che preserva l'insieme dei codici distinti osservati.
+\end{enumerate}
+
+\paragraph{Analisi Ingegneristica.}
+\begin{itemize}
+  \item \textbf{Vincolo di Memoria:} Ciascuna firma hash occupa $\mathcal{O}(1)$ spazio (es. 8 o 16 byte). La struttura dati pu\`o risiedere interamente in RAM se e solo se la memoria primaria pu\`o contenere tutte le $d$ firme uniche:
+  \begin{equation}
+    d < M \quad (\text{ovvero } d \cdot w = \mathcal{O}(M))
+  \end{equation}
+  \item \textbf{Complessità di I/O:} Ottima, limitata alla sola scansione di lettura del file:
+  \begin{equation}
+    \text{I/O}_{\text{Hash-RAM}} = \mathcal{O}\left(\frac{N}{B}\right)
+  \end{equation}
+  \item \textbf{Criticità:} Approccio di natura probabilistica: suscettibile a false collisioni di hash qualora $w$ non sia sufficientemente sovradimensionato.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Strategia 2: Scansione, Hashing ed External Merge-Sort}
+\label{subsec:soluzione-2-external-sort-hash}
+
+Quando il numero di stringhe distinte eccede la memoria disponibile ($d \ge M$), la tabella hash non pu\`o risiedere in RAM. Si ricorre all'ordinamento su memoria esterna:
+\begin{enumerate}
+  \item Si scansiona l'archivio da disco ($\mathcal{O}(N/B)$ I/Os) calcolando $h(S_i)$ per ciascuna delle $m$ stringhe.
+  \item Le $m$ firme hash numeriche vengono serializzate sequenzialmente in un file temporaneo su disco, occupando $\mathcal{O}(m/B)$ blocchi.
+  \item Si invoca un algoritmo di ordinamento esterno a pi\`u vie (\textbf{External Merge-Sort}, \autoref{sec:multiway-merge-sort}) sulle firme hash.
+  \item Con una scansione lineare finale del file ordinato su disco, si contano i valori distinti confrontando elementi contigui.
+\end{enumerate}
+
+\paragraph{Complessità di I/O.}
+Il costo globale \`e dato dalla somma della scansione iniziale e dell'ordinamento esterno delle firme:
+\begin{equation}
+  \text{I/O}_{\text{ExtSort-Hash}} = \mathcal{O}\left(\frac{N}{B} + \frac{m}{B} \log_{M/B} \frac{m}{B}\right)
+\end{equation}
+Questo schema non impone alcun vincolo su $d$, gestendo volumi arbitrariamente superiori a $M$.
+
+\FloatBarrier
+\subsection{Strategia 3: Inserimento in un Compacted Trie in RAM}
+\label{subsec:soluzione-3-compacted-trie-ram}
+
+Per eliminare ogni incertezza legata alle collisioni di hash ed operare in modo deterministico ed esatto, si costruisce un albero digitale compatto in memoria interna:
+\begin{enumerate}
+  \item Si scandisce il testo da disco blocco per blocco.
+  \item Ciascuna stringa $S_i$ viene inserita in un \textbf{Compacted Trie} (Patricia Tree, \autoref{sec:trie-compatti-patricia}) mantenuto in RAM.
+  \item Se la discesa crea una nuova foglia, si incrementa il contatore delle stringhe distinte; se il cammino coincide interamente con una chiave gi\`a inserita, la stringa viene scartata come duplicato.
+\end{enumerate}
+
+\paragraph{Condizione di Applicabilità e I/O.}
+Poich\'e il Compacted Trie memorizza esplicitamente i caratteri discriminanti o puntatori a stringhe uniche in memoria centrale, la memoria RAM deve risultare sufficiente a contenere l'intera impronta testuale delle stringhe uniche:
+\begin{equation}
+  \sum_{S \in D_{\text{distinti}}} |S| < M
+\end{equation}
+Se tale vincolo \`e verificato, il costo di I/O \`e strettamente ottimale:
+\begin{equation}
+  \text{I/O}_{\text{Trie-RAM}} = \mathcal{O}\left(\frac{N}{B}\right)
+\end{equation}
+
+\FloatBarrier
+\subsection{Strategia 4: Patricia Trie (Blind Trie) e Verifica su Disco}
+\label{subsec:soluzione-4-patricia-blind-trie}
+
+Qualora la memoria centrale non possa alloggiare i caratteri delle stringhe distinte ma sia sufficiente a contenere la sola topologia scheletrica dell'albero, si adotta un **Blind Trie** (\autoref{sec:patricia-blind-trie}):
+\begin{itemize}
+  \item Il Blind Trie elimina i caratteri interni degli archi, memorizzando unicamente per ogni nodo interno il valore numerico di salto $\text{skip}(u)$ e i singoli caratteri discriminanti. L'albero occupa unicamente $\mathcal{O}(d)$ parole macchina in RAM.
+  \item \textbf{Costo della Verifica su Disco:} A causa della perdita di informazione lungo i cammini (\textit{blind search}), la discesa individua una foglia candidata $S_{\text{cand}}$. Per verificare se $S_i$ sia un duplicato effettivo o una stringa divergente non rilevata durante i salti, l'algoritmo deve compiere una comparazione esaustiva con la stringa memorizzata su disco.
+  \item Ciascuna delle $m$ stringhe esaminate pu\`o pertanto richiedere $1$ operazione di I/O casuale (\textit{random seek}) sul disco per il controllo finale.
+\end{itemize}
+
+\paragraph{Complessità di I/O.}
+La lettura sequenziale iniziale costa $\mathcal{O}(N/B)$, mentre le verifiche casuali aggiungono un termine $\mathcal{O}(m)$:
+\begin{equation}
+  \text{I/O}_{\text{Blind-Trie}} = \mathcal{O}\left(\frac{N}{B} + m\right)
+\end{equation}
+
+\FloatBarrier
+\subsection{Quadro Comparativo delle Strategie di Memoria Secondaria}
+\label{subsec:comparativo-strategie-disco}
+
+La \autoref{tab:comparativo-conteggio-stringhe-disco} riassume il trade-off ingegneristico tra complessit\`a di I/O, vincoli di memoria primaria e garanzie di esattezza.
+
+\begin{table}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.8cm} >{\centering\arraybackslash}p{4.2cm} >{\centering\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}p{4.5cm}}
+\toprule
+Strategia Algoritmica & Complessità di I/O & Vincolo di Memoria RAM & Risoluzione Collisioni \\
+\midrule
+1. Hash Set in RAM & $\mathcal{O}\left(\frac{N}{B}\right)$ & $d < M$ \newline (Le $d$ firme entrano in RAM) & Probabilistica \newline (Suscettibile a collisioni hash) \\
+\addlinespace
+2. External Sort su Hash & $\mathcal{O}\left(\frac{N}{B} + \frac{m}{B}\log_{M/B}\frac{m}{B}\right)$ & Nessun vincolo \newline (Supporta $d \gg M$) & Probabilistica \newline (Suscettibile a collisioni hash) \\
+\addlinespace
+3. Compacted Trie in RAM & $\mathcal{O}\left(\frac{N}{B}\right)$ & $\sum_{S \in \text{Dist}} |S| < M$ \newline (Stringhe uniche in RAM) & Deterministica ed esatta \newline (Nessuna collisione) \\
+\addlinespace
+4. Blind Trie + Check Disco & $\mathcal{O}\left(\frac{N}{B} + m\right)$ & $\mathcal{O}(d) < M$ \newline (Sola topologia in RAM) & Deterministica ed esatta \newline (Verifica con 1 I/O per stringa) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo delle metodologie per il conteggio di stringhe distinte in memoria secondaria.}
+\label{tab:comparativo-conteggio-stringhe-disco}
+\end{table}
+
+\FloatBarrier
+\section{Problema delle Occorrenze Pi\`u Vicine di Due Pattern in RAM}
+\label{sec:closest-occurrences-patterns}
+
+\FloatBarrier
+\subsection{Formulazione del Problema e Modello di Calcolo}
+\label{subsec:formulazione-closest-occurrences}
+
+Consideriamo il problema di identificare la coppia di occorrenze posizionalmente pi\`u vicina di due pattern arbitrari:
+\begin{definition}[Problema delle Occorrenze Pi\`u Vicine]
+Dato un testo $T[1 \dots n]$ memorizzato interamente in memoria primaria RAM e due stringhe pattern $P[1 \dots p]$ e $Q[1 \dots q]$, identificare la coppia di indici $(i^*, j^*)$ che minimizza la distanza posizionale assoluta tra un'occorrenza di $P$ e una di $Q$:
+\begin{equation}
+  (i^*, j^*) = \arg\min_{\substack{i \in Occ_P \\ j \in Occ_Q}} |i - j|
+\end{equation}
+dove $Occ_P = \{ i \mid T[i \dots i + p - 1] = P \}$ e $Occ_Q = \{ j \mid T[j \dots j + q - 1] = Q \}$.
+\end{definition}
+
+\paragraph{Assunzioni di Calcolo.}
+\begin{enumerate}
+  \item Il testo $T$ risiede stabilmente in RAM ($T \text{ fits in memory}$).
+  \item Il testo $T$ pu\`o essere pre-elaborato off-line una volta per tutte a costo zero per le singole query.
+  \item La risposta alla query deve essere fornita online con costo strettamente dipendente dalla lunghezza dei pattern e dal numero di occorrenze effettive ($occ_P = |Occ_P|$, $occ_Q = |Occ_Q|$).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Fase 1: Localizzazione degli Intervalli nel Suffix Array con Sentinelle}
+\label{subsec:fase1-ricerca-intervalli-sa}
+
+Durante la fase preliminare off-line, si indicizza il testo $T$ costruendo il Suffix Array $SA[1 \dots n]$ e le strutture per il calcolo dell'LCP o Range Minimum Query.
+
+All'arrivo della query $(P, Q)$:
+\begin{enumerate}
+  \item \textbf{Localizzazione di $P$ con Sentinelle:} Poich\'e tutte le occorrenze di $P$ corrispondono a suffissi che iniziano con il prefisso $P$, esse occupano un intervallo lessicografico continuo in $SA$. Utilizzando la sentinella inferiore $\$$ ($\forall c, \$ <_{\text{lex}} c$) e la sentinella superiore $\#$ ($\forall c, c <_{\text{lex}} \#$), l'intervallo continuo \`e identificato univocamente da:
+  \begin{equation}
+    \text{Range}_P = [L_P, R_P] \subset SA \equiv [P\$, \; P\#]
+  \end{equation}
+  \item \textbf{Localizzazione di $Q$ con Sentinelle:} Analogamente per il pattern $Q$:
+  \begin{equation}
+    \text{Range}_Q = [L_Q, R_Q] \subset SA \equiv [Q\$, \; Q\#]
+  \end{equation}
+  \item \textbf{Estrazione dei Vettori Posizionali:}
+  Dalle celle del Suffix Array negli intervalli individuati si estraggono direttamente gli indici del testo:
+  \begin{align}
+    Occ_P &= [ SA[k] \mid k \in [L_P, R_P] ], \quad |Occ_P| = occ_P \\
+    Occ_Q &= [ SA[k] \mid k \in [L_Q, R_Q] ], \quad |Occ_Q| = occ_Q
+  \end{align}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Fase 2: Algoritmo di Fusione Etichettata e Scansione (Tagged Merge-Scan)}
+\label{subsec:fase2-tagged-merge-scan}
+
+Un approccio esaustivo che confronti ciascuna occorrenza di $P$ con ciascuna di $Q$ richiederebbe tempo quadratico $\mathcal{O}(occ_P \cdot occ_Q)$. L'algoritmo lineare ottimale procede invece mediante \textbf{fusione etichettata}:
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    cellP/.style={rectangle, rounded corners=2pt, draw=navy, fill=navy!15, thick, minimum width=1.6cm, minimum height=0.8cm, font=\small\bfseries, align=center},
+    cellQ/.style={rectangle, rounded corners=2pt, draw=crimson, fill=crimson!15, thick, minimum width=1.6cm, minimum height=0.8cm, font=\small\bfseries, align=center},
+    delta/.style={<->, thick, darkgreen}
+]
+
+  % Vettore Fuso A
+  \node[cellP] (c1) at (0, 0) {$pos_1$\\(P)};
+  \node[cellP] (c2) at (1.9, 0) {$pos_2$\\(P)};
+  \node[cellQ] (c3) at (3.8, 0) {$pos_3$\\(Q)};
+  \node[cellQ] (c4) at (5.7, 0) {$pos_4$\\(Q)};
+  \node[cellP] (c5) at (7.6, 0) {$pos_5$\\(P)};
+  \node[cellQ] (c6) at (9.5, 0) {$pos_6$\\(Q)};
+
+  % Titolo vettore
+  \node[font=\small\bfseries\color{navy}, anchor=east] at (-0.4, 0) {Array Fuso $A$:};
+
+  % Delta candidati ottimi
+  \draw[delta] (1.9, -0.65) -- (3.8, -0.65) node[midway, below=2pt, font=\scriptsize\bfseries] {$\Delta_1 = |pos_3 - pos_2|$};
+  \draw[delta] (5.7, -0.65) -- (7.6, -0.65) node[midway, below=2pt, font=\scriptsize\bfseries] {$\Delta_2 = |pos_5 - pos_4|$};
+  \draw[delta] (7.6, 0.65) -- (9.5, 0.65) node[midway, above=2pt, font=\scriptsize\bfseries] {$\Delta_3 = |pos_6 - pos_5|$};
+
+  \node[rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners=3pt, thick, font=\footnotesize, align=center] at (4.75, -1.8) {I candidati alla minima distanza sono \textbf{esclusivamente} elementi contigui con etichette discordanti: $\text{tipo}_k \neq \text{tipo}_{k+1}$};
+
+\end{tikzpicture}%
+}
+\caption{Visualizzazione dell'array fuso ed etichettato $A$: la minima distanza posizionale assoluta tra $P$ e $Q$ cade tassativamente tra due elementi adiacenti di tipo opposto.}
+\label{fig:tagged-merge-scan}
+\end{figure}
+
+\paragraph{Procedura Esecutiva.}
+\begin{enumerate}
+  \item \textbf{Ordinamento delle Liste:} Se gli indici estratti da $SA$ non sono memorizzati in ordine crescente, si ordinano $Occ_P$ e $Occ_Q$ rispetto alla loro posizione posizionale nel testo $T$.
+  \item \textbf{Fusione a Due Puntatori (\textit{Tagged Merge}):} Si fondono i due vettori ordinati in un unico vettore combinato $A$ di lunghezza $occ_P + occ_Q$, associando a ciascun valore la relativa etichetta di appartenenza:
+  \begin{equation}
+    A[k] = (pos_k, \text{tipo}_k), \quad \text{con } \text{tipo}_k \in \{P, Q\}
+  \end{equation}
+  \item \textbf{Scansione Lineare di Vicinato:} Si scorre sequenzialmente il vettore $A$ da $k = 1$ a $(occ_P + occ_Q - 1)$, calcolando la distanza unicamente quando due celle adiacenti presentano pattern differenti:
+  \begin{equation}
+    \text{tipo}_k \neq \text{tipo}_{k+1} \implies \Delta_k = pos_{k+1} - pos_k
+  \end{equation}
+  La minima distanza globale \`e data da $\Delta^* = \min \{ \Delta_k \mid \text{tipo}_k \neq \text{tipo}_{k+1} \}$.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Dimostrazione Rigorosa di Correttezza per Assurdo}
+\label{subsec:dimostrazione-correttezza-closest}
+
+\begin{theorem}[Localizzazione Adiacente della Minima Distanza]
+\label{thm:correttezza-closest-occurrences}
+Siano $i^* \in Occ_P$ e $j^* \in Occ_Q$ la coppia di occorrenze che realizza la minima distanza globale $|i^* - j^*|$ nel testo $T$. Allora $i^*$ e $j^*$ devono necessariamente comparire come elementi \textbf{strettamente adiacenti} nel vettore fuso ed ordinato $A$.
+\end{theorem}
+
+\begin{proof}
+Procediamo per riduzione all'assurdo.
+Assumiamo senza perdita di generalit\`a che $i^* < j^*$ e supponiamo per assurdo che $i^*$ e $j^*$ \textbf{non siano adiacenti} nel vettore ordinato $A$.
+
+Se non sono adiacenti, deve esistere almeno un elemento intermedio $x \in A$ tale per cui:
+\begin{equation}
+  i^* < x < j^*
+\end{equation}
+Esaminiamo le due possibilit\`a per la natura del token $x$:
+\begin{enumerate}
+  \item \textbf{Caso 1 ($x \in Occ_P$):} Se $x$ \`e un'occorrenza di $P$, consideriamo la coppia formata da $(x, j^*)$. La loro distanza \`e:
+  \begin{equation}
+    |x - j^*| = j^* - x < j^* - i^* = |i^* - j^*|
+  \end{equation}
+  Poich\'e $x \in Occ_P$ e $j^* \in Occ_Q$, la coppia $(x, j^*)$ ammette una distanza strettamente inferiore a $|i^* - j^*|$, contraddicendo l'ipotesi di minimalit\`a globale di $(i^*, j^*)$.
+  \item \textbf{Caso 2 ($x \in Occ_Q$):} Se $x$ \`e un'occorrenza di $Q$, consideriamo la coppia $(i^*, x)$. La loro distanza \`e:
+  \begin{equation}
+    |i^* - x| = x - i^* < j^* - i^* = |i^* - j^*|
+  \end{equation}
+  Poich\'e $i^* \in Occ_P$ e $x \in Occ_Q$, anche in questo caso si perviene a una contraddizione rispetto alla minimalit\`a di $(i^*, j^*)$.
+\end{enumerate}
+Poich\'e entrambi i casi conducono a una contraddizione, non pu\`o esistere alcun elemento $x$ interposto tra $i^*$ e $j^*$ nel vettore ordinato $A$. La coppia ottima $(i^*, j^*)$ compare pertanto come coppia di elementi adiacenti con etichette discordanti.
+\end{proof}
+
+\FloatBarrier
+\subsection{Analisi Dettagliata della Complessità Temporale e Spaziale}
+\label{subsec:complessita-closest-occurrences}
+
+L'analisi del costo computazionale della query si compone dei seguenti contributi:
+\begin{enumerate}
+  \item \textbf{Ricerca degli Intervalli in SA:} La ricerca dicotomica di $[P\$, P\#]$ e $[Q\$, Q\#]$ su $SA$ richiede tempo:
+  \begin{equation}
+    T_{\text{range}} = \mathcal{O}(p \log n + q \log n)
+  \end{equation}
+  (oppure tempo $\mathcal{O}(p + q)$ sfruttando la discesa sul Suffix Tree o l'array LCP arricchito con RMQ).
+  \item \textbf{Ordinamento delle Posizioni Estratte:} L'ordinamento dei vettori posizionali non ordinati $Occ_P$ e $Occ_Q$ richiede:
+  \begin{equation}
+    T_{\text{sort}} = \mathcal{O}(occ_P \log occ_P + occ_Q \log occ_Q)
+  \end{equation}
+  Qualora gli indici vengano ordinati tramite algoritmi non comparativi (ad es. Counting Sort nel range $[1 \dots n]$) o estratti direttamente in ordine, tale termine si riduce a $\mathcal{O}(occ_P + occ_Q)$.
+  \item \textbf{Merge e Scansione Lineare:} La fusione a due puntatori e la scansione del vettore $A$ richiedono tempo strettamente proporzionale alla somma delle occorrenze:
+  \begin{equation}
+    T_{\text{merge-scan}} = \mathcal{O}(occ_P + occ_Q)
+  \end{equation}
+  \item \textbf{Operazioni di I/O:} Poich\'e il testo e le strutture ausiliarie risiedono integralmente in RAM:
+  \begin{equation}
+    \text{I/O} = 0
+  \end{equation}
+\end{enumerate}
+
+La complessit\`a temporale complessiva online per singola query risulta pertanto:
+\begin{equation}
+  T_{\text{query}}(p, q, n) = \mathcal{O}(p \log n + q \log n + occ_P \log occ_P + occ_Q \log occ_Q)
+\end{equation}
+garantendo risposte interattive ottimali indipendenti dalla scansione esaustiva dell'intero testo.
