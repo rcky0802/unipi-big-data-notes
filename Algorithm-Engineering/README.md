@@ -48,6 +48,7 @@ latexmk -c
 - **Capitolo 12:** Ricerca per Interpolazione su Bucket e Ordinamento di Stringhe (Multi-Key Quicksort) (`12`)
 - **Capitolo 13:** Strutture Dati e Algoritmi per Stringhe: Ternary Search Trees (TST) e Radix Sort (`13`)
 - **Capitolo 14:** Alberi Digitali per Stringhe: Trie, MSD Radix Sort, Trie Compatti e Autocompletamento (`14`)
+- **Capitolo 15:** Ricerca di Stringhe in Memoria Gerarchica: Patricia Trie, Blind Trie e Front-Coding (`15`)
 
 ```text
 Algorithm-Engineering/

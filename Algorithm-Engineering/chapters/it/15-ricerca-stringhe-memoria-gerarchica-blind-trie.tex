@@ -1,0 +1,889 @@
+\chapter{Algoritmi e Strutture Dati per la Ricerca di Stringhe in Memoria Gerarchica}
+\label{chap:ricerca-stringhe-memoria-gerarchica}
+
+\section{Introduzione e Modelli di Calcolo per la Ricerca di Stringhe}
+\label{sec:intro-modelli-calcolo-stringhe}
+
+Nel \autoref{chap:strutture-dati-stringhe-tst-radix-sort} e nel \autoref{chap:trie-compatti-msd-radix-sort-autocompletamento} sono state esaminate le strutture dati fondamentali per la gestione di collezioni di stringhe in memoria centrale (Ternary Search Tree, Trie standard e Trie compatti). In questo capitolo si affronta il problema della ricerca di stringhe quando la dimensione della collezione oltrepassa la capacit\`a della memoria primaria (RAM), imponendo l'adozione di architetture a memoria gerarchica (modello a due livelli RAM--Disco). Si formalizzano la compressione su disco tramite \textbf{Front-Coding}, la progettazione di indici ultracompatti tramite \textbf{Patricia Trie (Blind Trie)} e l'algoritmo di ricerca ottima \textbf{Three-Phase Blind Search}, capace di risolvere qualsiasi interrogazione con esattamente $1$ I/O su memoria secondaria~\cite{aggarwal1988,ferragina1999}.
+
+\FloatBarrier
+\subsection{Il Problema del Dizionario di Stringhe}
+\label{subsec:problema-dizionario-stringhe}
+
+La gestione efficiente di un dizionario di stringhe rappresenta uno dei pilastri teorici e applicativi dell'Algorithm Engineering e dell'Information Retrieval~\cite{manning2008}.
+
+\begin{definition}[Dizionario di Stringhe]
+Sia dato un alfabeto finito e totalmente ordinato $\Sigma$ di cardinalit\`a $\sigma = |\Sigma|$, le cui lettere sono disposte secondo un ordinamento lessicografico convenzionale $<$. Si definisce \textbf{Dizionario di Stringhe} un insieme finito:
+\begin{equation}
+  \mathcal{D} = \{S_1, S_2, \dots, S_N\} \subset \Sigma^*
+\end{equation}
+composto da $N$ sequenze distinte di caratteri (dette \textit{chiavi}).
+\end{definition}
+
+La dimensione totale della collezione in termini di caratteri complessivi memorizzati \`e definita come:
+\begin{equation}
+  n = \sum_{i=1}^N |S_i|
+\end{equation}
+dove $|S_i|$ indica la lunghezza della stringa $i$-esima. 
+
+Dato un generico pattern di ricerca $P \in \Sigma^*$ di lunghezza $p = |P|$, un'architettura di indicizzazione per dizionari deve supportare in modo efficiente le seguenti quattro classi di interrogazioni:
+
+\begin{enumerate}
+  \item \textbf{Exact Search (Ricerca Esatta):} Determinare se la stringa $P$ appartiene alla collezione ($P \in \mathcal{D}$). In caso affermativo, restituire il puntatore ai dati satellite o l'identificativo documentale (\texttt{docID}) associato a $P$.
+  \item \textbf{Prefix Search (Ricerca per Prefisso):} Individuare l'insieme di tutte le chiavi del dizionario $\mathcal{D}$ che ammettono il pattern $P$ come prefisso:
+  \begin{equation}
+    \text{Prefix}(P) = \{ S \in \mathcal{D} \mid S[1 \dots p] = P \}
+  \end{equation}
+  Come approfondito nel \autoref{sec:autocompletamento-prefix-search}, questa primitiva costituisce la base logica dei motori di autocompletamento in tempo reale.
+  \item \textbf{Lexicographic Search (Ricerca del Predecessore e Successore):} Nell'ipotesi in cui $\mathcal{D}$ sia ordinato lessicograficamente, individuare l'esatta posizione di collocazione di $P$ rispetto alle chiavi memorizzate:
+  \begin{equation}
+    \text{Pred}(P) = \max \{ S \in \mathcal{D} \mid S < P \}, \qquad \text{Succ}(P) = \min \{ S \in \mathcal{D} \mid S \ge P \}
+  \end{equation}
+  Tale operazione consente l'inserimento dinamico coerente e la gestione di interrogazioni approssimate.
+  \item \textbf{Range Search (Ricerca per Intervallo):} Dati due pattern delimitatori $P_1, P_2 \in \Sigma^*$ tali che $P_1 \le P_2$, identificare tutte le stringhe di $\mathcal{D}$ lessicograficamente comprese nell'intervallo chiuso:
+  \begin{equation}
+    \text{Range}(P_1, P_2) = \{ S \in \mathcal{D} \mid P_1 \le S \le P_2 \}
+  \end{equation}
+\end{enumerate}
+
+\begin{property}[Equivalenza tra Prefix Search e Range Search]
+Poich\'e tutte le stringhe aventi un prefisso comune $P$ occupano un segmento contiguo nell'ordinamento lessicografico di $\mathcal{D}$, l'operazione di Prefix Search coincide con una Range Search compresa tra $P$ e la stringa estesa $P \circ \$_{\max}$:
+\begin{equation}
+  \text{Prefix}(P) = \text{Range}(P, \; P \circ \$_{\max})
+\end{equation}
+dove $\$_{\max}$ \`e un carattere sentinella convenzionale posizionato strettamente oltre l'ultimo carattere dell'alfabeto ($\forall c \in \Sigma, \; c < \$_{\max}$).
+\end{property}
+
+\FloatBarrier
+\subsection{Limiti del Modello a Memoria Singola (1-Memory Model)}
+\label{subsec:limiti-1-memory-model}
+
+Nel modello di calcolo standard di Von Neumann (la macchina RAM analizzata nel \autoref{sec:ram-model}), si assume che l'intero dizionario $\mathcal{D}$ risieda in una memoria centrale omogenea ad accesso casuale con costo unitario $\mathcal{O}(1)$ per parola macchina.
+
+Come documentato nel \autoref{chap:strutture-dati-stringhe-tst-radix-sort} e nel \autoref{chap:trie-compatti-msd-radix-sort-autocompletamento}, le strutture ad albero progettate per questo paradigma mostrano caratteristiche distinte:
+\begin{itemize}
+  \item \textbf{Ternary Search Tree (TST):} Coniuga la flessibilit\`a degli alberi binari di ricerca con la scomposizione per caratteri dei trie (\autoref{sec:tst-modello-teorico}), raggiungendo un tempo medio di ricerca pari a $\mathcal{O}(p + \ln N)$ con consumo spaziale $\mathcal{O}(n)$.
+  \item \textbf{Trie Standard (Non Compatto):} Offre una ricerca ottima nel caso peggiore in tempo $\mathcal{O}(p)$, ma soffre di un'elevata dispersione di memoria dovuta alle catene di nodi unari privi di ramificazioni, richiedendo uno spazio complessivo pari a $\Theta(n \cdot \sigma)$ o $\Theta(n)$ (\autoref{sec:array-based-trie} e \autoref{sec:hash-based-trie}).
+  \item \textbf{Compacted Trie (Trie Compatto):} Elimina i nodi unari comprimendo i cammini lineari in archi compositi (\autoref{sec:trie-compatti-patricia}). Il numero di nodi interni scende rigorosamente sotto $N$, garantendo tempo di discesa $\mathcal{O}(p)$ e spazio per puntatori limitato a $\mathcal{O}(N)$.
+\end{itemize}
+
+\begin{alertblock}{Il Collasso Prestazionale del 1-Memory Model}
+Quando il numero di chiavi $N$ o la dimensione lessicale $n$ oltrepassano la capacit\`a fisica della RAM ($M$), l'astrazione a memoria singola collassa. La navigazione su alberi di puntatori digitali (pointer chasing) costringe la CPU ad accedere a indirizzi non contigui e casuali nello spazio di memoria virtuale.
+Come dimostrato analiticamente nel \autoref{subsec:paging-model} e nel \autoref{subsec:thrashing}, ogni dereferenziazione di puntatore in un albero allocato su disco genera un \textbf{page fault}, con tempi di latenza nell'ordine dei millisecondi. Il sistema entra in una condizione di \textit{thrashing}: la CPU trascorre oltre il $99\%$ del tempo nell'attesa dell'I/O meccanico o a stato solido.
+\end{alertblock}
+
+\FloatBarrier
+\subsection{Il Modello a Due Livelli di Memoria (Two-Level Memory Hierarchy)}
+\label{subsec:two-level-memory-hierarchy}
+
+Per neutralizzare il costo dei continui trasferimenti disco--RAM, si adotta il modello \textbf{External Memory} formalizzato da Aggarwal e Vitter~\cite{aggarwal1988} (introdotto nel \autoref{sec:external-memory}):
+\begin{itemize}
+  \item $M$: dimensione della memoria interna (RAM) misurata in byte o parole macchina.
+  \item $B$: dimensione del blocco di trasferimento del disco (capacit\`a di una pagina fisica I/O).
+  \item $N$: numero totale di chiavi nel dizionario $\mathcal{D}$.
+\end{itemize}
+
+Il dizionario viene partizionato su disco in blocchi ordinati lessicograficamente. Il numero di blocchi risultante \`e:
+\begin{equation}
+  K = \left\lceil \frac{N}{B} \right\rceil
+\end{equation}
+
+Nel paradigma a due livelli (\textbf{Two-Level Approach}):
+\begin{enumerate}
+  \item \textbf{Su Disco (Memoria Secondaria):} Le stringhe appartenenti a ciascun blocco sono ordinate alfabeticamente e compresse tramite la tecnica del \textbf{Front-Coding}, eliminando la ridondanza dei prefissi comuni e massimizzando il fattore di riempimento $B$.
+  \item \textbf{In Memoria Primaria (RAM):} Risiede un indice ultracompatto costruito unicamente sulle \textbf{stringhe rappresentative} di ciascun blocco (la prima stringa di ogni pagina disco, $R_1, R_2, \dots, R_K$). L'indice identifica in memoria centrale l'unico blocco candidato su disco con costo computazionale $\mathcal{O}(p)$.
+  \item \textbf{Costo di I/O Ottimale:} La ricerca del dato su disco richiede \textbf{esattamente 1 I/O}, poich\'e la navigazione avviene interamente in RAM e richiede un solo accesso mirato alla pagina candidata.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.96\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    boxram/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, inner sep=8pt, align=center},
+    boxdisk/.style={rectangle, rounded corners=4pt, draw=crimson!80!black, fill=crimson!5, thick, inner sep=8pt, align=center},
+    subblock/.style={rectangle, rounded corners=3pt, draw=navy!80!black, fill=white, font=\footnotesize, inner sep=5pt, align=center},
+    blockdisk/.style={rectangle, rounded corners=3pt, draw=crimson, fill=white, font=\footnotesize, inner sep=5pt, align=center},
+    arr/.style={->, very thick, navy}
+]
+
+% RAM container (altezza generosa 3.0cm)
+\node[boxram, minimum width=13.6cm, minimum height=3.0cm] (ram) at (0, 4.3) {};
+\node[anchor=north west, font=\footnotesize\bfseries, text=navy] at (-6.5, 5.6) {MEMORIA PRIMARIA (RAM) --- Capacit\`a $M$};
+
+% Indice in RAM con associazione esplicita <R_i, ptr_i> e ampio respiro verticale
+\node[subblock, minimum width=12.2cm, fill=navy!8] (index) at (0, 3.8) {
+  \textbf{Indice Ultracompatto in RAM (Patricia Trie / Blind Trie)}\\[3pt]
+  Associazione chiavi rappresentative e puntatori a disco: $\big\{\langle R_1, \text{ptr}_1 \rangle, \; \langle R_2, \text{ptr}_2 \rangle, \; \dots, \; \langle R_K, \text{ptr}_K \rangle\big\}$
+};
+
+% Freccia I/O e didascalia semantica
+\draw[arr, <->, line width=1.6pt, crimson] (-3.8, 2.6) -- (-3.8, 1.0);
+\node[font=\small\bfseries, text=crimson!90!black, anchor=west, align=left] at (-3.4, 1.8) {
+  Accesso a memoria secondaria: 1 solo I/O\\[2pt]
+  {\footnotesize\normalfont\itshape (costo computazionale CPU di ricerca in RAM e decodifica nel blocco: $\mathcal{O}(p)$)}
+};
+
+% DISK container (altezza 4.2cm con ampio margine superiore e inferiore)
+\node[boxdisk, minimum width=13.6cm, minimum height=4.2cm] (disk) at (0, -1.3) {};
+\node[anchor=north west, font=\footnotesize\bfseries, text=crimson!90!black] at (-6.5, 0.6) {MEMORIA SECONDARIA (DISCO / SSD) --- Pagine fisiche di taglia $B$};
+
+% Blocchi su disco con puntatori ptr_i (ben distanziati sotto il titolo)
+\node[blockdisk, minimum width=2.4cm] (b1) at (-4.5, -0.8) {\textbf{Blocco 1} ($\text{ptr}_1$)\\[1pt]$S_{1,1}=R_1, \dots$\\\textit{Front-Coding}};
+\node[blockdisk, minimum width=2.4cm] (b2) at (-1.5, -0.8) {\textbf{Blocco 2} ($\text{ptr}_2$)\\[1pt]$S_{2,1}=R_2, \dots$\\\textit{Front-Coding}};
+\node[font=\large\bfseries, text=gray!70!black] at (1.0, -0.8) {$\dots$};
+\node[blockdisk, minimum width=2.4cm] (bk) at (3.8, -0.8) {\textbf{Blocco $K$} ($\text{ptr}_K$)\\[1pt]$S_{K,1}=R_K, \dots$\\\textit{Front-Coding}};
+
+% Nota di ordinamento ben distanziata sotto i blocchi in box dedicato
+\node[rectangle, rounded corners=3pt, draw=crimson!50!black, fill=white, inner sep=5pt, font=\scriptsize, align=center] at (0, -2.5) {
+  \textbf{Partizionamento ed ordinamento lessicografico globale tra blocchi:}\\
+  $\text{Blocco}_1 < \text{Blocco}_2 < \dots < \text{Blocco}_K \iff R_1 < R_2 < \dots < R_K$
+};
+
+\end{tikzpicture}%
+}
+\caption{Architettura a due livelli per la ricerca di stringhe: l'indice compatto in RAM associa a ciascuna chiave rappresentativa il puntatore al rispettivo blocco su disco ($\langle R_i, \text{ptr}_i \rangle$). La ricerca instrada la query con costo computazionale CPU $\mathcal{O}(p)$ ed effettua un unico accesso I/O su memoria secondaria verso il blocco compresso con Front-Coding.}
+\label{fig:two-level-string-architecture}
+\end{figure}
+
+\FloatBarrier
+\section{Organizzazione e Compressione su Disco: Front-Coding}
+\label{sec:front-coding}
+
+Nei sistemi su memoria secondaria, il collo di bottiglia primario \`e determinato dal numero di byte trasferiti attraverso il canale I/O. L'applicazione della compressione incrementale sui blocchi disco consente di compattare drasticamente le chiavi testuali.
+
+\FloatBarrier
+\subsection{Definizione Formale e Algoritmo di Codifica}
+\label{subsec:definizione-algoritmo-front-coding}
+
+Il \textbf{Front-Coding} (denominato anche \textit{differential prefix compression} o compressione per prefissi incrementali) \`e una tecnica di compressione \textit{lossless} specificamente ideata per insiemi di stringhe disposti in ordine lessicografico. Essa si fonda sull'osservazione empirica e analitica che stringhe alfabeticamente consecutive condividono lunghi prefissi comuni.
+
+\begin{definition}[Longest Common Prefix (LCP)]
+Date due stringhe $A, B \in \Sigma^*$, si definisce la funzione \textbf{LCP} come la lunghezza del pi\`u lungo prefisso identico condiviso:
+\begin{equation}
+  \text{LCP}(A, B) = \max \big\{ k \ge 0 \;\big|\; A[1 \dots k] = B[1 \dots k] \big\}
+\end{equation}
+\end{definition}
+
+Sia $D_{\text{block}} = \{S_1, S_2, \dots, S_m\}$ l'insieme delle $m$ stringhe assegnate a un singolo blocco fisico di disco, con $S_1 < S_2 < \dots < S_m$. La procedura di codifica trasforma ogni stringa $S_i$ in una coppia ordinata:
+\begin{equation}
+  C(S_i) = \langle \ell_i, \; \hat{S}_i \rangle
+\end{equation}
+secondo le seguenti regole:
+\begin{itemize}
+  \item \textbf{Stringa di ancoraggio ($S_1$):} La prima stringa del blocco funge da riferimento assoluto. Non avendo predecessori nel blocco, la lunghezza del prefisso condiviso \`e posta convenzionalmente a zero, e la stringa viene registrata integralmente:
+  \begin{equation}
+    C(S_1) = \langle 0, \; S_1 \rangle
+  \end{equation}
+  \item \textbf{Stringhe successive ($S_i$ per $i = 2, \dots, m$):} Per ciascuna stringa $S_i$, si calcola la lunghezza del massimo prefisso comune rispetto alla stringa immediatamente precedente $S_{i-1}$:
+  \begin{equation}
+    \ell_i = \text{LCP}(S_{i-1}, S_i)
+  \end{equation}
+  La rappresentazione memorizza unicamente l'intero scalare $\ell_i$ seguito dal suffisso residuo $\hat{S}_i$, privato dei primi $\ell_i$ caratteri:
+  \begin{equation}
+    \hat{S}_i = S_i[\ell_i + 1 \dots |S_i|]
+  \end{equation}
+\end{itemize}
+
+\paragraph{Procedura di Ricostruzione Sequenziale.}
+Data la sequenza compressa $\big[ \langle \ell_1, \hat{S}_1 \rangle, \dots, \langle \ell_m, \hat{S}_m \rangle \big]$, la ricostruzione della generica stringa $S_i$ in memoria avviene ricorsivamente:
+\begin{equation}
+  S_i = S_{i-1}[1 \dots \ell_i] \circ \hat{S}_i
+\end{equation}
+dove $\circ$ denota l'operatore di concatenazione di stringhe.
+
+\FloatBarrier
+\subsection{Trade-off Ingegneristico: Compressione vs. Accesso Sequenziale}
+\label{subsec:trade-off-front-coding}
+
+L'adozione del Front-Coding introduce un classico compromesso architetturale:
+\begin{itemize}
+  \item \textbf{Vantaggi Strutturali:} La rimozione dei prefissi ridondanti comprime il volume delle stringhe fino al $70\%-80\%$ della taglia originale. Ci\`o incrementa il numero di elementi $m$ ospitabili all'interno di una pagina da $B$ byte e riduce direttamente il numero totale di blocchi $K = \lceil N/B \rceil$, minimizzando l'impronta su disco.
+  \item \textbf{Dipendenza Sequenziale:} Per ottenere $S_i$ non \`e possibile effettuare un accesso casuale diretto alla posizione $i$-esima nel blocco, poich\'e ciascuna chiave dipende dai prefissi delle stringhe precedenti fino all'ancoraggio $S_1$.
+\end{itemize}
+
+\begin{noteblock}{Risoluzione del Trade-off nel Modello I/O}
+Sebbene l'accesso casuale intra-blocco sia precluso, nel modello gerarchico l'intero blocco di taglia $B$ (es. $4\text{ KB} - 64\text{ KB}$) viene caricato in RAM con \textbf{1 solo I/O}.
+La decodifica sequenziale di alcune decine o centinaia di stringhe compresse all'interno della memoria primaria richiede pochi microsecondi di calcolo della CPU, un costo infinitamente inferiore rispetto alla latenza meccanica o di bus dell'I/O su disco (nell'ordine dei millisecondi). Pertanto, il Front-Coding massimizza l'efficienza complessiva del sistema.
+\end{noteblock}
+
+\FloatBarrier
+\subsection{Esempio Guidato di Front-Coding}
+\label{subsec:esempio-guidato-front-coding}
+
+Si consideri il sottoinsieme ordinato di quattro chiavi binarie:
+\begin{equation}
+  S_1 = 0001100, \quad S_2 = 0001110, \quad S_3 = 010000, \quad S_4 = 100\dots
+\end{equation}
+
+Eseguiamo la derivazione analitica della sequenza compressa:
+\begin{enumerate}
+  \item \textbf{Codifica di $S_1 = 0001100$:}
+  \begin{itemize}
+    \item Prima stringa del blocco: $\ell_1 = 0$.
+    \item Suffisso residuo: $\hat{S}_1 = S_1 = 0001100$.
+    \item Tupla registrata: $\langle 0, \; 0001100 \rangle$.
+  \end{itemize}
+  \item \textbf{Codifica di $S_2 = 0001110$:}
+  \begin{itemize}
+    \item Confronto tra $S_1 = \mathbf{00011}00$ e $S_2 = \mathbf{00011}10$.
+    \item I primi 5 bit coincidono ($00011$), il sesto diverge ($0 \neq 1$): $\ell_2 = 5$.
+    \item Suffisso residuo: $\hat{S}_2 = S_2[6 \dots 7] = 10$.
+    \item Tupla registrata: $\langle 5, \; 10 \rangle$.
+  \end{itemize}
+  \item \textbf{Codifica di $S_3 = 010000$:}
+  \begin{itemize}
+    \item Confronto tra $S_2 = \mathbf{0}001110$ e $S_3 = \mathbf{0}10000$.
+    \item Solamente il primo bit coincide ($0$): $\ell_3 = 1$.
+    \item Suffisso residuo: $\hat{S}_3 = S_3[2 \dots 6] = 10000$.
+    \item Tupla registrata: $\langle 1, \; 10000 \rangle$.
+  \end{itemize}
+  \item \textbf{Codifica di $S_4 = 100\dots$:}
+  \begin{itemize}
+    \item Confronto tra $S_3 = 010000$ e $S_4 = 100\dots$.
+    \item Il primo bit diverge immediatamente ($0 \neq 1$): $\ell_4 = 0$.
+    \item Suffisso residuo: $\hat{S}_4 = 100\dots$.
+    \item Tupla registrata: $\langle 0, \; 100\dots \rangle$.
+  \end{itemize}
+\end{enumerate}
+
+Il blocco su memoria secondaria registra compattamente la sequenza di tuple:
+\begin{equation}
+  \mathcal{B}_{\text{disk}} = \Big[ \langle 0, \; 0001100 \rangle, \; \langle 5, \; 10 \rangle, \; \langle 1, \; 10000 \rangle, \; \langle 0, \; 100\dots \rangle \Big]
+\end{equation}
+
+\FloatBarrier
+\section{L'Architettura a Due Livelli e il Compacted Trie come Indice Primario}
+\label{sec:architettura-due-livelli-compacted}
+
+\FloatBarrier
+\subsection{Selezione dei Rappresentanti e Instradamento delle Query}
+\label{subsec:selezione-rappresentanti}
+
+Sia data una collezione $\mathcal{D}$ partizionata su disco in $K = \lceil N/B \rceil$ blocchi. Per ciascun blocco $j$ ($j = 1, \dots, K$), si estrae la prima stringa $R_j = S_{j, 1}$, definita \textbf{stringa rappresentativa} del blocco $j$. Poich\'e le chiavi sono ordinate globalmente tra i blocchi:
+\begin{equation}
+  R_1 < R_2 < \dots < R_K
+\end{equation}
+
+\begin{proposition}[Instradamento Univoco tramite Predecessore]
+Dato un generico pattern di ricerca $P \in \Sigma^*$, se $P \in \mathcal{D}$ allora $P$ deve appartenere necessariamente all'unico blocco $j$ per cui vale la condizione di contenimento:
+\begin{equation}
+  R_j \le P < R_{j+1}
+\end{equation}
+(ponendo convenzionalmente $R_{K+1} = \infty$). Di conseguenza, l'operazione di instradamento in RAM equivale alla ricerca del \textbf{predecessore lessicografico} di $P$ all'interno dell'insieme ridotto dei rappresentanti $\mathcal{R} = \{R_1, R_2, \dots, R_K\}$.
+\end{proposition}
+
+\FloatBarrier
+\subsection{Analisi della Complessit\`a con Compacted Trie Standard e Limiti di Memoria}
+\label{subsec:limiti-compacted-trie-standard}
+
+Se implementiamo l'indice in memoria primaria mediante un \textbf{Compacted Trie} convenzionale (come descritto nel \autoref{sec:trie-compatti-patricia}):
+\begin{itemize}
+  \item \textbf{Costo di Navigazione in RAM:} La ricerca del predecessore richiede al pi\`u $\mathcal{O}(p)$ confronti di caratteri, scendendo lungo l'albero digitale.
+  \item \textbf{Costo di I/O:} Esattamente \textbf{1 I/O}, necessario per caricare il blocco disco individuato dalla foglia raggiunta.
+  \item \textbf{Occupazione Spaziale in RAM:}
+  \begin{itemize}
+    \item Numero di foglie: esattamente $K = \lceil N/B \rceil$.
+    \item Numero di nodi interni: al pi\`u $K - 1 = \mathcal{O}(N/B)$.
+    \item Spazio per etichette degli archi: nel Compacted Trie ordinario, ogni arco memorizza la sottostringa contratta o una tupla di indici $\langle S_i, \text{start}, \text{end} \rangle$ (\autoref{subsec:rappresentazione-indici-tuple}). Per poter confrontare i caratteri senza effettuare accessi a disco durante la discesa, tali sottostringhe devono essere conservate o duplicate in memoria primaria.
+  \end{itemize}
+\end{itemize}
+
+Lo spazio complessivo occupato in RAM dal Compacted Trie standard risulta:
+\begin{equation}
+  \text{Spazio}_{\text{RAM}} = \mathcal{O}\left( \frac{N}{B} \right) \text{ puntatori} + \mathcal{O}\left( \sum_{j=1}^K |R_j| \right) \text{ caratteri}
+\end{equation}
+
+\begin{alertblock}{Il Collo di Bottiglia delle Chiavi Lunghe}
+Se le stringhe del dizionario sono lunghe (come nel caso di URL completi, percorsi di file di sistema, annotazioni semantiche o sequenze genomiche), il termine $\sum_{j=1}^K |R_j|$ cresce arbitrariamente. L'indice dei rappresentanti finisce per saturare la memoria primaria RAM, rendendo insostenibile l'approccio per dizionari massivi su hardware convenzionale.
+\end{alertblock}
+
+\FloatBarrier
+\section{La Patricia Trie (Blind Trie) e la Compressione Lossy}
+\label{sec:patricia-blind-trie}
+
+Per abbattere l'occupazione in RAM a una quantit\`a rigorosamente proporzionale al numero di blocchi $\mathcal{O}(N/B)$, svincolandola completamente dalla lunghezza delle stringhe e del pattern, Donald Morrison~\cite{morrison1968} e successivamente Ferragina e Grossi~\cite{ferragina1999} hanno introdotto la variante denominata \textbf{Blind Trie} (o \textit{Patricia Trie} a compressione lossy).
+
+\FloatBarrier
+\subsection{Definizione Formale e Compressione Lossy}
+\label{subsec:definizione-blind-trie}
+
+La Patricia Trie applica una \textbf{compressione con perdita (lossy)} alla topologia dell'albero digitale:
+\begin{enumerate}
+  \item \textbf{Eliminazione Totale delle Sottostringhe:} Sugli archi non viene memorizzata alcuna sottostringa contratta, n\'e viene memorizzato alcun puntatore a testo in RAM.
+  \item \textbf{Carattere Singolo di Biforcazione:} Ciascun arco uscente da un nodo interno memorizza esclusivamente il \textbf{singolo carattere} dell'alfabeto che discrimina la diramazione.
+  \item \textbf{Valore di Salto (\textit{Skip Value}):} Ogni nodo interno $u$ memorizza unicamente un singolo valore scalare intero:
+  \begin{equation}
+    \text{skip}(u) \in \{1, 2, \dots\}
+  \end{equation}
+  che specifica la \textbf{posizione assoluta} (1-based) all'interno del pattern da testare per scegliere quale arco uscente intraprendere.
+  \item \textbf{Cecit\`a Rispetto ai Caratteri Intermedi:} La memoria primaria non conserva alcun carattere intermedio compreso tra due nodi di salto consecutivi. L'albero "ignora" cosa sia presente nelle posizioni intermedie, da cui la denominazione di \textit{Blind Trie} (Trie Cieco).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    internal/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, font=\small\bfseries, inner sep=6pt, align=center},
+    childnode/.style={rectangle, rounded corners=4pt, draw=navy!80!black, fill=white, thick, font=\small, inner sep=6pt, align=center},
+    edge_label/.style={font=\small\bfseries, text=navy, fill=white, inner sep=2pt}
+]
+
+% Nodo interno u centrato
+\node[internal, minimum width=3.8cm, minimum height=1.1cm] (u) at (0, 0) {Nodo Interno $u$\\[2pt]\textbf{skip}$(u) = k$};
+
+% Sottoalberi figli perfettamente simmetrici
+\node[childnode, minimum width=3.2cm, minimum height=1.0cm] (v1) at (-2.6, -2.2) {\textbf{Sottoalbero sinistro}\\[2pt]($P[k] = \text{'a'}$)};
+\node[childnode, minimum width=3.2cm, minimum height=1.0cm] (v2) at (2.6, -2.2) {\textbf{Sottoalbero destro}\\[2pt]($P[k] = \text{'b'}$)};
+
+% Rami simmetrici con etichette chiare sui caratteri di diramazione
+\draw[->, thick, navy] ([xshift=-0.9cm]u.south) -- node[midway, above left=2pt, edge_label] {'a'} (v1.north);
+\draw[->, thick, navy] ([xshift=0.9cm]u.south) -- node[midway, above right=2pt, edge_label] {'b'} (v2.north);
+
+\end{tikzpicture}
+\caption{Anatomia di un nodo interno nella Patricia Trie (Blind Trie): la decisione di instradamento si fonda unicamente sull'ispezione del singolo carattere alla posizione $k = \text{skip}(u)$, senza consultare n\'e memorizzare il testo intermedio.}
+\label{fig:blind-trie-node}
+\end{figure}
+
+\FloatBarrier
+\subsection{Analisi Spaziale Rigorosa in Memoria Primaria}
+\label{subsec:analisi-spaziale-blind-trie}
+
+La struttura combinatoria della Patricia Trie assicura propriet\`a di compattezza estreme:
+
+\begin{theorem}[Invarianza Spaziale della Patricia Trie]
+\label{thm:invarianza-spaziale-patricia}
+Sia dato un dizionario partizionato in $K = \lceil N/B \rceil$ blocchi. La Patricia Trie costruita sulle stringhe rappresentative soddisfa i seguenti vincoli di complessit\`a:
+\begin{enumerate}
+  \item Il numero di nodi foglia \`e esattamente pari a $K$:
+  \begin{equation}
+    N_{\text{foglie}} = K = \left\lceil \frac{N}{B} \right\rceil
+  \end{equation}
+  \item Poich\'e ogni nodo interno \`e almeno binario ($\text{out-degree} \ge 2$), il numero totale di nodi interni \`e strettamente limitato da:
+  \begin{equation}
+    N_{\text{interni}} \le K - 1 = \left\lceil \frac{N}{B} \right\rceil - 1
+  \end{equation}
+  \item Lo spazio totale occupato in memoria primaria (RAM) \`e pari a:
+  \begin{equation}
+    \text{Spazio}_{\text{RAM}} = \mathcal{O}(N_{\text{interni}} + N_{\text{foglie}}) = \mathcal{O}\left( \frac{N}{B} \right) \text{ parole macchina}
+  \end{equation}
+\end{enumerate}
+Tale consumo \`e rigorosamente \textbf{indipendente} dalla lunghezza delle stringhe rappresentative $|R_j|$ e dalla lunghezza del pattern di ricerca $p = |P|$.
+\end{theorem}
+
+Poich\'e la compressione \`e lossy, le informazioni contenute nell'indice in RAM non sono sufficienti per certificare l'appartenenza o la corretta posizione di $P$ senza consultare la stringa reale archiviata su disco. Per risolvere questa ambiguit\`a si rende necessario uno specifico algoritmo di discesa e verifica.
+
+\FloatBarrier
+\section{L'Algoritmo di Ricerca a Tre Fasi (Three-Phase Blind Search)}
+\label{sec:three-phase-blind-search}
+
+A causa dell'assenza dei caratteri saltati, la ricerca non pu\`o operare come in un trie standard. L'algoritmo \textbf{Three-Phase Blind Search} si articola rigorosamente in tre fasi sequenziali coordinate, dettagliate nei paragrafi seguenti e formalizzate nell'\autoref{alg:three-phase-blind-search}:
+
+\FloatBarrier
+\subsection{Fase 1: Discesa Cieca (Downward Traversal)}
+\label{subsec:fase-1-discesa-cieca}
+
+La prima fase opera interamente all'interno della memoria centrale (RAM) partendo dalla radice della Patricia Trie:
+\begin{enumerate}
+  \item Per ogni nodo interno incontrato $u$, si legge l'indice di salto $k = \text{skip}(u)$.
+  \item Se $k \le |P|$, si estrae il carattere $c = P[k]$.
+  \item Se esiste un arco uscente da $u$ etichettato con il carattere $c$, la navigazione scende lungo tale arco verso il nodo figlio corrispondente.
+\end{enumerate}
+
+\paragraph{Condizioni di Arresto della Discesa.}
+La discesa in RAM si interrompe quando si verifica una delle seguenti tre condizioni:
+\begin{enumerate}
+  \item $k > |P|$: il pattern $P$ \`e pi\`u corto dell'indice di salto memorizzato nel nodo (il carattere $P[k]$ non esiste).
+  \item \textbf{Mismatch di ramo (Branching Mismatch):} il nodo $u$ non possiede alcun arco uscente etichettato con il carattere $c = P[k]$.
+  \item \textbf{Raggiungimento di una foglia:} la navigazione giunge con successo a un nodo foglia dell'albero.
+\end{enumerate}
+
+\begin{definition}[Regola di Selezione della Foglia Arbitraria]
+Nel momento in cui la discesa cieca si arresta (per esaurimento della stringa o per branching mismatch presso un nodo interno), l'algoritmo seleziona una \textbf{qualsiasi foglia discendente} appartenente al sottoalbero radicato nel punto di arresto (per convenzione implementativa, la foglia pi\`u a sinistra raggiungibile seguendo sempre il primo arco disponibile). Sia $L$ la foglia individuata e sia $R$ la stringa rappresentativa associata.
+\end{definition}
+
+\textbf{Costo di I/O:} $\mathbf{0}$ I/O su memoria secondaria.
+
+\FloatBarrier
+\subsection{Fase 2: Verifica Esterna e Calcolo dell'LCP}
+\label{subsec:fase-2-verifica-esterna}
+
+Poich\'e la discesa ha saltato il controllo di tutti i caratteri intermedi, la stringa $R$ associata a $L$ \`e unicamente una chiave candidata. Non vi \`e alcuna garanzia a priori che $P$ condivida con $R$ i caratteri posizionati tra gli indici di salto ispezionati.
+
+\paragraph{Esecuzione dell'Accesso su Disco.}
+\begin{enumerate}
+  \item Si esegue un accesso I/O a memoria secondaria per caricare il blocco disco puntato da $L$.
+  \item Si estrae in RAM la stringa rappresentativa completa $R$.
+  \item Si esegue un confronto esaustivo carattere a carattere da sinistra verso destra tra $P$ ed $R$, calcolando la lunghezza del massimo prefisso comune effettivo:
+  \begin{equation}
+    \ell = \text{LCP}(P, R)
+  \end{equation}
+\end{enumerate}
+
+\paragraph{Esiti del Confronto:}
+\begin{itemize}
+  \item Se $\ell = |P| = |R|$: abbiamo identificato un \textbf{match esatto} ($P = R$).
+  \item Se $\ell = |P| < |R|$: il pattern $P$ \`e un \textbf{prefisso proprio} di $R$.
+  \item Se $\ell < |P|$: si manifesta una \textbf{divergenza reale} alla posizione $\ell + 1$, tale che:
+  \begin{equation}
+    P[\ell + 1] \neq R[\ell + 1]
+  \end{equation}
+\end{itemize}
+
+\textbf{Costo di I/O:} Esattamente $\mathbf{1}$ I/O. Il calcolo dell'LCP in memoria richiede $\mathcal{O}(p)$ operazioni elementari.
+
+\FloatBarrier
+\subsection{Fase 3: Risalita e Localizzazione Corretta (Upward Traversal)}
+\label{subsec:fase-3-risalita}
+
+Qualora nella Fase 2 si riscontri $\ell < |P|$ (oppure si stia ricercando il predecessore lessicografico o il range), la foglia $L$ identificata dalla discesa cieca potrebbe trovarsi in un sottoalbero errato. Tuttavia, l'indice del massimo prefisso comune reale $\ell$ fornisce l'informazione matematica esatta sul punto in cui il pattern $P$ diverge dall'insieme delle stringhe memorizzate.
+
+\paragraph{Procedura di Risalita in RAM.}
+Partendo dalla foglia $L$, l'algoritmo risale l'albero verso la radice utilizzando i puntatori al nodo genitore, arrestandosi al primo nodo antenato $v$ che soddisfa la disuguaglianza:
+\begin{equation}
+  \text{skip}(v) \le \ell + 1
+\end{equation}
+Il nodo $v$ cos\`i individuato rappresenta il \textbf{locus di divergenza reale}:
+
+\begin{itemize}
+  \item \textbf{Caso 1: $\text{skip}(v) = \ell + 1$.} \\
+  Il nodo $v$ possiede uno skip che discrimina esattamente il carattere divergente. L'algoritmo esamina gli archi uscenti da $v$:
+  \begin{itemize}
+    \item Se esiste un arco etichettato con il carattere $P[\ell + 1]$, il pattern $P$ deve essere ricercato nel sottoalbero radicato lungo tale arco.
+    \item Se non esiste alcun arco etichettato con $P[\ell + 1]$, la posizione ordinale di $P[\ell + 1]$ rispetto alle etichette degli archi uscenti da $v$ individua inequivocabilmente il predecessore e il successore lessicografico di $P$.
+  \end{itemize}
+  \item \textbf{Caso 2: $\text{skip}(v) \le \ell$.} \\
+  Ci\`o implica che nella topologia dell'albero non esiste alcun nodo interno con indice di salto pari a $\ell + 1$. Il punto di separazione ricade lungo l'arco virtualmente compresso tra $v$ e il suo figlio lungo il cammino verso $L$. In tal caso:
+  \begin{itemize}
+    \item Se $P[\ell + 1] < R[\ell + 1]$, tutte le chiavi del sottoalbero radicato sotto l'arco verso $L$ sono strettamente maggiori di $P$. Di conseguenza, $P$ precede l'intero blocco di $R$.
+    \item Se $P[\ell + 1] > R[\ell + 1]$, $P$ segue lessicograficamente tutte le chiavi che condividono il prefisso fino ad $\ell$.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Costo di I/O:} $\mathbf{0}$ I/O (la risalita si svolge interamente nella struttura ad albero memorizzata in RAM).
+
+\FloatBarrier
+\subsection{Formalizzazione Algoritmica Completa}
+\label{subsec:algoritmo-blind-search}
+
+L'intera logica di ricerca \`e formalizzata nell'Algoritmo~\ref{alg:three-phase-blind-search}.
+
+\begin{algorithm}[H]
+\caption{Three-Phase Blind Search}
+\label{alg:three-phase-blind-search}
+\KwInput{Radice della Patricia Trie $T_{\text{root}}$ in RAM, Pattern di ricerca $P[1 \dots p]$}
+\KwOutput{Blocco disco contenente $P$ oppure coppia $\langle \text{Pred}(P), \text{Succ}(P) \rangle$}
+
+\tcp{FASE 1: Discesa Cieca in RAM (0 I/O)}
+$u \gets T_{\text{root}}$\;
+\While{$u$ \textnormal{\textbf{\`e un nodo interno}}}{
+  $k \gets \text{skip}(u)$\;
+  \If{$k > p$ \textnormal{\textbf{oppure}} \textnormal{non esiste arco uscente da $u$ etichettato con $P[k]$}}{
+    \textbf{break}\; \tcp{Arresto per fine stringa o mismatch di ramo}
+  }
+  $u \gets \text{figlio di } u \text{ corrispondente all'arco con etichetta } P[k]$\;
+}
+$L \gets \text{SelezionaFogliaArbitraria}(u)$\;
+$R \gets \text{Rappresentante associato alla foglia } L$\;
+
+\tcp{FASE 2: Verifica Esterna su Disco (1 I/O)}
+$\text{CaricaBloccoDaDisco}(L)$\; \tcp{Unico accesso I/O su memoria secondaria}
+$\ell \gets \text{LCP}(P, R)$\;
+
+\If{$\ell = p = |R|$}{
+  \Return \textnormal{\textbf{Match Esatto nel Blocco di }} $R$\;
+}
+
+\tcp{FASE 3: Risalita e Localizzazione in RAM (0 I/O)}
+$v \gets L$\;
+\While{$v \neq T_{\text{root}}$ \textnormal{\textbf{e}} $\text{skip}(\text{padre}(v)) > \ell + 1$}{
+  $v \gets \text{padre}(v)$\;
+}
+$v_{\text{div}} \gets \text{padre}(v)$\;
+
+\If{$\text{skip}(v_{\text{div}}) = \ell + 1$}{
+  \If{\textnormal{esiste arco uscente da $v_{\text{div}}$ con etichetta $P[\ell + 1]$}}{
+    \Return \textnormal{\textbf{Sottoalbero identificato dall'arco }} $P[\ell + 1]$\;
+  }
+}
+\Return \textnormal{\textbf{Predecessore/Successore determinato dalla posizione di }} $P[\ell + 1]$\;
+\end{algorithm}
+
+\FloatBarrier
+\section{Esempi Applicativi Completi e Simulazione Passo-Passo}
+\label{sec:esempi-simulazione-blind-trie}
+
+\FloatBarrier
+\subsection{Esempio 1: Dizionario Binario a 3 Blocchi}
+\label{subsec:esempio-binario-3-blocchi}
+
+Si consideri un dizionario binario $\mathcal{D}$ composto da $N = 6$ chiavi con capacit\`a di blocco disco $B = 2$:
+\begin{equation}
+  \mathcal{D} = \{0001100, \; 0001110, \; 0010, \; 0011, \; 101, \; 111\}
+\end{equation}
+
+Il numero di blocchi risultante \`e $K = \frac{N}{B} = \frac{6}{2} = 3$. I blocchi su disco contengono:
+\begin{itemize}
+  \item \textbf{Blocco 1:} $\{0001100, 0001110\}$
+  \begin{itemize}
+    \item Front-Coding: $\langle 0, \; 0001100 \rangle, \; \langle 5, \; 10 \rangle$.
+    \item Rappresentante: $R_1 = \mathbf{0001100}$.
+  \end{itemize}
+  \item \textbf{Blocco 2:} $\{0010, 0011\}$
+  \begin{itemize}
+    \item Front-Coding: $\langle 0, \; 0010 \rangle, \; \langle 3, \; 1 \rangle$.
+    \item Rappresentante: $R_2 = \mathbf{0010}$.
+  \end{itemize}
+  \item \textbf{Blocco 3:} $\{101, 111\}$
+  \begin{itemize}
+    \item Front-Coding: $\langle 0, \; 101 \rangle, \; \langle 1, \; 11 \rangle$.
+    \item Rappresentante: $R_3 = \mathbf{101}$.
+  \end{itemize}
+\end{itemize}
+
+\paragraph{Topologia della Patricia Trie sui Rappresentanti.}
+L'indice residente in RAM indicizza le tre stringhe rappresentative $\{R_1, R_2, R_3\}$ e memorizza i puntatori ai corrispondenti blocchi disco:
+\begin{enumerate}
+  \item $R_1$ ed $R_2$ iniziano per `0`, mentre $R_3$ inizia per `1`. La prima divergenza si manifesta alla posizione 1:
+  \begin{equation}
+    \text{skip}(\text{Radice}) = 1
+  \end{equation}
+  L'arco etichettato `0` punta al nodo interno $u$; l'arco etichettato `1` conduce direttamente alla foglia del Blocco 3 ($\langle R_3, \text{ptr}_3 \rangle$, con primo bit discriminante $\mathbf{\color{crimson}1}$).
+  \item Tra $R_1 = \texttt{00}\mathbf{\color{crimson}0}\texttt{1100}$ ed $R_2 = \texttt{00}\mathbf{\color{crimson}1}\texttt{0}$, i primi 2 bit coincidono (\texttt{00}), mentre il primo bit discriminante \`e il terzo:
+  \begin{equation}
+    \text{skip}(u) = 3
+  \end{equation}
+  L'arco etichettato `0` conduce alla foglia del Blocco 1 ($\langle R_1, \text{ptr}_1 \rangle$, con terzo bit discriminante pari a $\mathbf{\color{crimson}0}$); l'arco `1` conduce alla foglia del Blocco 2 ($\langle R_2, \text{ptr}_2 \rangle$, con terzo bit discriminante pari a $\mathbf{\color{crimson}1}$).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    internal/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, font=\small\bfseries, inner sep=6pt, align=center},
+    leaf/.style={rectangle, rounded corners=3pt, draw=darkgreen, fill=darkgreen!8, thick, font=\footnotesize, inner sep=5pt, align=center},
+    edge_label/.style={font=\small\bfseries, text=navy, fill=white, inner sep=2pt}
+]
+
+% Nodi interni (strato decisionale in RAM)
+\node[internal, minimum width=3.2cm, minimum height=1.1cm] (root) at (0.8, 1.6) {Radice\\[2pt]\textbf{skip} $= 1$};
+\node[internal, minimum width=3.0cm, minimum height=1.1cm] (u) at (-2.2, -0.6) {Nodo Interno $u$\\[2pt]\textbf{skip} $= 3$};
+
+% Foglie dei blocchi equidistantemente spaziate (distanza centro-centro = 4.0cm, gap = 1.4cm)
+% Tutte allineate alla medesima quota orizzontale di base (y = -3.2)
+\node[leaf, minimum width=2.6cm, minimum height=1.5cm] (leaf1) at (-4.2, -3.2) {
+  \textbf{\color{darkgreen}Foglia Blocco 1}\\[2pt]
+  $\langle R_1, \text{ptr}_1 \rangle$\\[3pt]
+  $R_1 = \texttt{00}\mathbf{\color{crimson}0}\texttt{1100}$
+};
+
+\node[leaf, minimum width=2.6cm, minimum height=1.5cm] (leaf2) at (-0.2, -3.2) {
+  \textbf{\color{darkgreen}Foglia Blocco 2}\\[2pt]
+  $\langle R_2, \text{ptr}_2 \rangle$\\[3pt]
+  $R_2 = \texttt{00}\mathbf{\color{crimson}1}\texttt{0}$
+};
+
+\node[leaf, minimum width=2.6cm, minimum height=1.5cm] (leaf3) at (3.8, -3.2) {
+  \textbf{\color{darkgreen}Foglia Blocco 3}\\[2pt]
+  $\langle R_3, \text{ptr}_3 \rangle$\\[3pt]
+  $R_3 = \mathbf{\color{crimson}1}\texttt{01}$
+};
+
+% Rami e archi con pendenza armoniosa ed etichette ben distanziate
+\draw[->, thick, navy] ([xshift=-0.8cm]root.south) -- node[midway, above left=2pt, edge_label] {'0'} (u.north);
+\draw[->, thick, navy] ([xshift=0.8cm]root.south) -- node[pos=0.35, above right=2pt, edge_label] {'1'} (leaf3.north);
+
+\draw[->, thick, navy] ([xshift=-0.7cm]u.south) -- node[midway, above left=2pt, edge_label] {'0'} (leaf1.north);
+\draw[->, thick, navy] ([xshift=0.7cm]u.south) -- node[midway, above right=2pt, edge_label] {'1'} (leaf2.north);
+
+\end{tikzpicture}
+\caption{Patricia Trie (Blind Trie) costruita sui rappresentanti $\langle R_i, \text{ptr}_i \rangle$: i nodi interni memorizzano unicamente gli indici di salto ($\text{skip} \in \{1, 3\}$), mentre tutte le foglie sono distribuite in modo perfettamente uniforme e allineate sullo strato di base con il rispettivo bit discriminante evidenziato in rosso ($\mathbf{\color{crimson}1}$ al $1^\circ$ bit per $R_3$ testato dalla radice; $\mathbf{\color{crimson}0}$ e $\mathbf{\color{crimson}1}$ al $3^\circ$ bit per $R_1$ e $R_2$ testati dal nodo $u$).}
+\label{fig:blind-trie-binary-example}
+\end{figure}
+
+\paragraph{Tracciamento della Query: Ricerca di $P_1 = 01000$.}
+\begin{enumerate}
+  \item \textbf{Fase 1 (Discesa Cieca in RAM):}
+  \begin{itemize}
+    \item Radice ($\text{skip} = 1$): si controlla $P_1[1] = 0$. Esiste l'arco `0`, si scende verso il nodo $u$.
+    \item Nodo $u$ ($\text{skip} = 3$): si controlla $P_1[3] = 0$. Esiste l'arco `0`, si scende verso la \textbf{Foglia per Blocco 1}.
+    \item \textbf{Osservazione analitica:} Durante la discesa sono stati ispezionati unicamente i caratteri alle posizioni 1 e 3. Il carattere $P_1[2] = 1$ \`e stato ignorato dalla navigazione cieca!
+  \end{itemize}
+  \item \textbf{Fase 2 (Verifica Esterna su Disco):}
+  \begin{itemize}
+    \item Si effettua \textbf{1 I/O} caricando da disco il Blocco 1 ed estraendo la stringa rappresentativa $R_1 = 0001100$.
+    \item Confronto esaustivo:
+    \begin{align*}
+      P_1 &= 0 \, \mathbf{1} \, 000 \\
+      R_1 &= 0 \, \mathbf{0} \, 01100
+    \end{align*}
+    Posizione 1: $0 == 0$ (Match). Posizione 2: $1 \neq 0$ (\textbf{Mismatch}).
+    \item Si ottiene:
+    \begin{equation}
+      \ell = \text{LCP}(P_1, R_1) = 1
+    \end{equation}
+    Il primo carattere divergente reale \`e situato alla posizione $\ell + 1 = 2$.
+  \end{itemize}
+  \item \textbf{Fase 3 (Risalita e Risoluzione in RAM):}
+  \begin{itemize}
+    \item Dalla Foglia del Blocco 1 si risale verso l'alto.
+    \item Il nodo padre $u$ possiede $\text{skip}(u) = 3$. Poich\'e $3 > \ell + 1$ ($3 > 2$), il punto di divergenza reale \`e situato superiormente rispetto a $u$.
+    \item Si risale alla Radice, che ha $\text{skip} = 1 \le 2$.
+    \item La separazione reale si colloca lungo l'arco compresso compreso tra la Radice e il nodo $u$.
+    \item Poich\'e alla posizione 2 il pattern presenta $P_1[2] = 1$, mentre tutte le stringhe nel sottoalbero di $u$ presentano bit 2 pari a $0$ ($R_1[2]=0, R_2[2]=0$), deduciamo lessicograficamente che:
+    \begin{equation}
+      R_1 < R_2 < P_1 < R_3
+    \end{equation}
+    \item La ricerca conclude con successo che $P_1 \notin \mathcal{D}$ e colloca il predecessore nel Blocco 2 e il successore nel Blocco 3, con un costo globale di \textbf{esattamente 1 I/O}.
+  \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio 2: Dizionario Alfabetico a 5 Blocchi}
+\label{subsec:esempio-alfabetico-5-blocchi}
+
+Si consideri un dizionario lessicale partizionato in $K = 5$ blocchi con capacit\`a $B = 3$ stringhe per blocco, come riassunto nella Tabella~\ref{tab:dizionario-5-blocchi}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c l l}
+\toprule
+\textbf{Blocco} & \textbf{Stringhe Contenute} & \textbf{Rappresentante Estratto ($S_i$)} \\
+\midrule
+\textbf{Blocco 1} & $aabaa, \; aabab, \; aabb$ & $S_1 = \mathbf{aabaa}$ \\
+\textbf{Blocco 2} & $abbaaa, \; abbaab, \; abbaba$ & $S_2 = \mathbf{abbaaa}$ \\
+\textbf{Blocco 3} & $bbaba, \; bbabba, \; bbb$ & $S_3 = \mathbf{bbaba}$ \\
+\textbf{Blocco 4} & $bbabb, \; bbabbbb, \; bbb$ & $S_4 = \mathbf{bbabb}$ \\
+\textbf{Blocco 5} & $bbba, \; bbbaa, \; bbbb$ & $S_5 = \mathbf{bbba}$ \\
+\bottomrule
+\end{tabular}
+\caption{Configurazione del dizionario alfabetico a 5 blocchi ordinati lessicograficamente e stringhe rappresentative estratte.}
+\label{tab:dizionario-5-blocchi}
+\end{table}
+
+\paragraph{Costruzione della Patricia Trie sui Rappresentanti.}
+I rappresentanti da indicizzare sono:
+\begin{equation}
+  S_1 = aabaa, \quad S_2 = abbaaa, \quad S_3 = bbaba, \quad S_4 = bbabb, \quad S_5 = bbba
+\end{equation}
+\begin{enumerate}
+  \item \textbf{Posizione 1:} Separa $\{S_1, S_2\}$ (iniziano con `a`) da $\{S_3, S_4, S_5\}$ (iniziano con `b`):
+  \begin{equation}
+    \text{skip}(\text{Radice}) = 1
+  \end{equation}
+  \item \textbf{Sottoalbero sinistro (`a`):} Tra $S_1 = a\mathbf{\color{crimson}a}baa$ ed $S_2 = a\mathbf{\color{crimson}b}baaa$, il carattere 1 \`e comune (`a`), mentre la divergenza occorre alla posizione 2:
+  \begin{equation}
+    \text{skip}(u) = 2
+  \end{equation}
+  L'arco etichettato `a` conduce direttamente alla foglia del Blocco 1 ($\langle S_1, \text{ptr}_1 \rangle$), mentre l'arco `b` conduce direttamente alla foglia del Blocco 2 ($\langle S_2, \text{ptr}_2 \rangle$).
+  \item \textbf{Sottoalbero destro (`b`):} Tutte le chiavi $S_3, S_4, S_5$ iniziano con `bb`. La prima divergenza si presenta alla posizione 3 tra $\{S_3, S_4\}$ (che presentano $bb\mathbf{\color{crimson}a}\dots$) ed $S_5 = bb\mathbf{\color{crimson}b}a$:
+  \begin{equation}
+    \text{skip}(v_1) = 3
+  \end{equation}
+  L'arco `b` isola direttamente $S_5$ (Blocco 5). L'arco `a` conduce al nodo $v_2$, che discrimina $S_3 = bbab\mathbf{\color{crimson}a}$ ed $S_4 = bbab\mathbf{\color{crimson}b}$ alla posizione 5:
+  \begin{equation}
+    \text{skip}(v_2) = 5
+  \end{equation}
+  L'arco `a` conduce alla foglia del Blocco 3 ($\langle S_3, \text{ptr}_3 \rangle$), mentre l'arco `b` conduce alla foglia del Blocco 4 ($\langle S_4, \text{ptr}_4 \rangle$).
+\end{enumerate}
+
+In ciascuna foglia \`e evidenziato in rosso l'\textbf{ultimo carattere discriminante del cammino}, ossia il carattere testato dal nodo genitore immediato:
+\begin{itemize}
+  \item $2^\circ$ carattere per $S_1 = a\mathbf{\color{crimson}a}baa$ ed $S_2 = a\mathbf{\color{crimson}b}baaa$ (testato da $u$ con $\text{skip}=2$);
+  \item $3^\circ$ carattere per $S_5 = bb\mathbf{\color{crimson}b}a$ (testato da $v_1$ con $\text{skip}=3$);
+  \item $5^\circ$ carattere per $S_3 = bbab\mathbf{\color{crimson}a}$ ed $S_4 = bbab\mathbf{\color{crimson}b}$ (testato da $v_2$ con $\text{skip}=5$).
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.96\columnwidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    internal/.style={rectangle, rounded corners=4pt, draw=navy, fill=codebackground, thick, font=\small\bfseries, inner sep=5pt, align=center},
+    leaf/.style={rectangle, rounded corners=3pt, draw=darkgreen, fill=darkgreen!8, thick, font=\footnotesize, inner sep=3pt, align=center},
+    edge_label/.style={font=\small\bfseries, text=navy, fill=white, inner sep=2pt}
+]
+
+% Tier 1 (y = 1.8): Radice
+\node[internal, minimum width=2.8cm, minimum height=1.0cm] (root) at (0.0, 1.8) {Radice\\[2pt]\textbf{skip} $= 1$};
+
+% Tier 2 (y = 0.3): Nodo v1
+\node[internal, minimum width=2.4cm, minimum height=1.0cm] (v1) at (3.8, 0.3) {Nodo $v_1$\\[2pt]\textbf{skip} $= 3$};
+
+% Tier 3 (y = -1.5): Nodi interni u e v2 perfettamente allineati
+\node[internal, minimum width=2.4cm, minimum height=1.0cm] (u)  at (-4.2, -1.5) {Nodo $u$\\[2pt]\textbf{skip} $= 2$};
+\node[internal, minimum width=2.4cm, minimum height=1.0cm] (v2) at (1.4, -1.5) {Nodo $v_2$\\[2pt]\textbf{skip} $= 5$};
+
+% Tier 4 (y = -3.4): Tutte e 5 le foglie allineate sullo strato di base
+% Interasse costante = 2.8cm, gap netto = 7mm tra caselle adiacenti
+\node[leaf, minimum width=2.1cm, minimum height=1.4cm] (leaf1) at (-5.6, -3.4) {
+  \textbf{\color{darkgreen}Blocco 1}\\[2pt]
+  $\langle S_1, \text{ptr}_1 \rangle$\\[2pt]
+  $S_1 = a\mathbf{\color{crimson}a}baa$
+};
+
+\node[leaf, minimum width=2.1cm, minimum height=1.4cm] (leaf2) at (-2.8, -3.4) {
+  \textbf{\color{darkgreen}Blocco 2}\\[2pt]
+  $\langle S_2, \text{ptr}_2 \rangle$\\[2pt]
+  $S_2 = a\mathbf{\color{crimson}b}baaa$
+};
+
+\node[leaf, minimum width=2.1cm, minimum height=1.4cm] (leaf3) at (0.0, -3.4) {
+  \textbf{\color{darkgreen}Blocco 3}\\[2pt]
+  $\langle S_3, \text{ptr}_3 \rangle$\\[2pt]
+  $S_3 = bbab\mathbf{\color{crimson}a}$
+};
+
+\node[leaf, minimum width=2.1cm, minimum height=1.4cm] (leaf4) at (2.8, -3.4) {
+  \textbf{\color{darkgreen}Blocco 4}\\[2pt]
+  $\langle S_4, \text{ptr}_4 \rangle$\\[2pt]
+  $S_4 = bbab\mathbf{\color{crimson}b}$
+};
+
+\node[leaf, minimum width=2.1cm, minimum height=1.4cm] (leaf5) at (5.6, -3.4) {
+  \textbf{\color{darkgreen}Blocco 5}\\[2pt]
+  $\langle S_5, \text{ptr}_5 \rangle$\\[2pt]
+  $S_5 = bb\mathbf{\color{crimson}b}a$
+};
+
+% Archi diretti e rettilinei con pendenze armoniose
+\draw[->, thick, navy] ([xshift=-0.8cm]root.south) -- node[midway, above left=2pt, edge_label] {'a'} (u.north);
+\draw[->, thick, navy] ([xshift=0.8cm]root.south) -- node[midway, above right=2pt, edge_label] {'b'} (v1.north);
+
+\draw[->, thick, navy] ([xshift=-0.5cm]u.south) -- node[midway, above left=2pt, edge_label] {'a'} (leaf1.north);
+\draw[->, thick, navy] ([xshift=0.5cm]u.south) -- node[midway, above right=2pt, edge_label] {'b'} (leaf2.north);
+
+% Arco rettilineo v1 -> v2 (nessun percorso anomalo o scavalcamento)
+\draw[->, thick, navy] ([xshift=-0.5cm]v1.south) -- node[midway, above left=2pt, edge_label] {'a'} (v2.north);
+\draw[->, thick, navy] ([xshift=0.5cm]v1.south) -- node[pos=0.35, above right=2pt, edge_label] {'b'} (leaf5.north);
+
+\draw[->, thick, navy] ([xshift=-0.5cm]v2.south) -- node[midway, above left=2pt, edge_label] {'a'} (leaf3.north);
+\draw[->, thick, navy] ([xshift=0.5cm]v2.south) -- node[midway, above right=2pt, edge_label] {'b'} (leaf4.north);
+
+\end{tikzpicture}%
+}
+\caption{Topologia completa della Patricia Trie per il dizionario a 5 blocchi: ogni nodo interno possiede grado 2 e tutte le 5 foglie sono distribuite in modo uniforme sullo strato inferiore dei blocchi con spaziatura regolare ($7\text{ mm}$ di gap tra foglie contigue). In ciascuna foglia \`e evidenziato in rosso l'ultimo carattere discriminante testato dal rispettivo genitore immediato ($2^\circ$ carattere per $S_1$ ed $S_2$; $3^\circ$ per $S_5$; $5^\circ$ per $S_3$ ed $S_4$).}
+\label{fig:blind-trie-5-blocks}
+\end{figure}
+
+\paragraph{Simulazione Query 1: Ricerca di $P_1 = abbab$.}
+\begin{enumerate}
+  \item \textbf{Fase 1 (Discesa Cieca):}
+  \begin{itemize}
+    \item Radice ($\text{skip} = 1$): $P_1[1] = 'a' \implies$ segue arco `'a'`.
+    \item Nodo $u$ ($\text{skip} = 2$): $P_1[2] = 'b' \implies$ segue arco `'b'`.
+    \item Viene raggiunta direttamente la \textbf{Foglia del Blocco 2} ($\langle S_2, \text{ptr}_2 \rangle$, con $S_2 = abbaaa$). Costo: $0$ I/O.
+  \end{itemize}
+  \item \textbf{Fase 2 (Verifica Esterna su Disco):}
+  \begin{itemize}
+    \item Caricamento del Blocco 2 con \textbf{1 I/O} ed estrazione del rappresentante $S_2 = abbaaa$.
+    \item Confronto esaustivo:
+    \begin{align*}
+      P_1 &= \mathbf{abba} \, b \\
+      S_2 &= \mathbf{abba} \, aa
+    \end{align*}
+    I primi 4 caratteri coincidono: $\ell = \text{LCP}(P_1, S_2) = 4$.
+    \item Alla posizione 5 si rileva la divergenza: $P_1[5] = 'b' > S_2[5] = 'a'$.
+  \end{itemize}
+  \item \textbf{Fase 3 (Risalita e Risoluzione):}
+  \begin{itemize}
+    \item La divergenza reale \`e a posizione 5 ($\ell + 1 = 5$), mentre il prefisso comune condiviso ha lunghezza 4 ($\ell = 4$).
+    \item Poich\'e $P_1$ condivide l'intero prefisso $S_2[1 \dots 4] = \text{"abba"}$ del Blocco 2 e risulta $P_1 > S_2$, la ricerca non deve risalire oltre il Blocco 2.
+    \item Si effettua la scansione sequenziale in memoria del Blocco 2 decodificando il Front-Coding:
+    \begin{equation}
+      [abbaaa, \; abbaab, \; abbaba]
+    \end{equation}
+    Dato che $P_1 = abbab$, non si rileva un match esatto, ma si individuano con precisione matematica il predecessore ($abbaab$) e il successore ($abbaba$).
+    \item Costo complessivo: \textbf{1 I/O} e $\mathcal{O}(p)$ tempo CPU.
+  \end{itemize}
+\end{enumerate}
+
+\paragraph{Simulazione Query 2: Ricerca con Branching Mismatch ($P_2 = acba$).}
+\begin{enumerate}
+  \item \textbf{Fase 1 (Discesa Cieca):}
+  \begin{itemize}
+    \item Radice ($\text{skip} = 1$): $P_2[1] = 'a' \implies$ segue arco `'a'`.
+    \item Nodo $u$ ($\text{skip} = 2$): nel pattern abbiamo $P_2[2] = \mathbf{'c'}$.
+    \item \textbf{Branching Mismatch:} Il nodo $u$ possiede unicamente archi uscenti per `'a'` e per `'b'`. Non esiste alcun arco etichettato `'c'`.
+    \item \textbf{Regola della Foglia Arbitraria:} La discesa si arresta presso il nodo $u$ e seleziona una qualsiasi foglia discendente del sottoalbero radicato in $u$. Seguendo la convenzione implementativa (foglia pi\`u a sinistra), seleziona la \textbf{Foglia del Blocco 1} ($\langle S_1, \text{ptr}_1 \rangle$, con $S_1 = aabaa$). Costo: $0$ I/O.
+  \end{itemize}
+  \item \textbf{Fase 2 (Verifica Esterna su Disco):}
+  \begin{itemize}
+    \item Caricamento del Blocco 1 con \textbf{1 I/O} ed estrazione di $S_1 = aabaa$.
+    \item Confronto esaustivo tra $P_2$ ed $S_1$:
+    \begin{align*}
+      P_2 &= a \, \mathbf{c} \, ba \\
+      S_1 &= a \, \mathbf{a} \, baa
+    \end{align*}
+    Solamente il primo carattere coincide, mentre al secondo carattere emerge la divergenza:
+    \begin{equation}
+      \ell = \text{LCP}(P_2, S_1) = 1, \qquad P_2[2] = 'c', \quad S_1[2] = 'a'
+    \end{equation}
+  \end{itemize}
+  \item \textbf{Fase 3 (Risalita e Localizzazione Corretta):}
+  \begin{itemize}
+    \item Poich\'e $\ell = 1$, la vera divergenza tra $P_2$ e l'albero si trova alla posizione $\ell + 1 = 2$.
+    \item Dalla Foglia del Blocco 1 si risale verso la radice: il nodo genitore \`e $u$, avente $\text{skip}(u) = 2$. Poich\'e $\text{skip}(u) \le \ell + 1$ ($2 \le 2$), la risalita si arresta esattamente su $u$ (locus di diramazione reale).
+    \item Il nodo $u$ discrimina il carattere 2. Nel pattern abbiamo $P_2[2] = 'c'$, mentre gli archi esistenti sono `'a'` e `'b'`.
+    \item Poich\'e $'c' > 'b' > 'a'$, deduciamo che $P_2$ \`e strettamente maggiore di tutte le chiavi nel sottoalbero di $u$ (ovvero maggiore di tutte le stringhe dei Blocchi 1 e 2 aventi prefisso `a`).
+    \item Avendo verificato nella Fase 2 che $P_2$ inizia per `'a'` ($\ell = 1$), $P_2$ si colloca lessicograficamente subito dopo le chiavi del Blocco 2 e immediatamente prima di quelle del Blocco 3:
+    \begin{equation}
+      S_1 < S_2 < P_2 < S_3
+    \end{equation}
+    \item La ricerca conclude con successo che $P_2 \notin \mathcal{D}$ e identifica il predecessore nel Blocco 2 e il successore nel Blocco 3.
+    \item Costo complessivo: \textbf{esattamente 1 I/O} e $\mathcal{O}(p)$ tempo CPU.
+  \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\section{Quadro Comparativo e Considerazioni Conclusive}
+\label{sec:quadro-comparativo-stringhe-gerarchica}
+
+\FloatBarrier
+\subsection{Tabella Sinottica delle Prestazioni}
+\label{subsec:tabella-sinottica-prestazioni}
+
+La Tabella~\ref{tab:sinottico-stringhe-gerarchica} sintetizza il confronto asintotico tra l'architettura a due livelli basata su \textbf{Patricia Trie (Blind Trie) + Front-Coding} e le soluzioni algoritmiche alternative per la gestione di dizionari di stringhe.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.8cm} >{\centering\arraybackslash}p{2.6cm} >{\centering\arraybackslash}p{2.4cm} >{\centering\arraybackslash}p{3.2cm} >{\centering\arraybackslash}p{3.0cm}}
+\toprule
+\textbf{Struttura / Approccio} & \textbf{Tempo CPU Ricerca} & \textbf{Complessit\`a I/O Disco} & \textbf{Spazio Memoria Primaria (RAM)} & \textbf{Spazio Memoria Secondaria (Disco)} \\
+\midrule
+\textbf{Scansione Lineare Non Indicizzata} & $\mathcal{O}(N \cdot p)$ & $\mathcal{O}\left(\frac{n}{B}\right)$ & $\mathcal{O}(1)$ & $\mathcal{O}(n)$ (testo piano) \\
+\addlinespace
+\textbf{B-Tree Standard su Stringhe} & $\mathcal{O}(p \log_B N)$ & $\mathcal{O}\left(\log_B N\right)$ & $\mathcal{O}(1)$ & $\mathcal{O}(n)$ \\
+\addlinespace
+\textbf{Compacted Trie Standard in RAM} & $\mathcal{O}(p)$ & $\mathcal{O}(1)$ & $\mathcal{O}\left(\frac{N}{B} + \sum |R_j|\right)$ & $\mathcal{O}(n)$ \\
+\addlinespace
+\textbf{Two-Level: Patricia Trie + Front-Coding} & $\mathbf{\mathcal{O}(p)}$ & $\mathbf{1 \text{ \textbf{I/O}}}$ \newline (Ottimo) & $\mathbf{\mathcal{O}\left(\frac{N}{B}\right)}$ \newline (Indipendente da $|R_j|$) & $\mathbf{\ll n}$ \newline (Compresso Front-Coding) \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo delle metodologie di indicizzazione e ricerca di stringhe in memoria gerarchica.}
+\label{tab:sinottico-stringhe-gerarchica}
+\end{table}
+
+\FloatBarrier
+\subsection{Conclusioni Ingegneristiche e Linee Guida}
+\label{subsec:conclusioni-ingegneristiche}
+
+L'architettura analizzata in questo capitolo risolve in modo rigoroso e ottimale il trade-off fondamentale tra tempo di calcolo della CPU, capacit\`a della memoria centrale e latenza di accesso al disco:
+
+\begin{enumerate}
+  \item \textbf{Scalabilit\`a Spaziale in RAM:} Grazie alla compressione lossy della Patricia Trie (eliminazione totale dei puntatori a testo e memorizzazione dei soli indici scalari di salto), l'occupazione in RAM \`e rigorosamente limitata a $\mathcal{O}(N/B)$ parole macchina. L'indice scala linearmente solo rispetto al numero di pagine fisiche, consentendo l'indicizzazione di miliardi di chiavi lunghe anche su macchine con memoria RAM modesta.
+  \item \textbf{Minimalit\`a Assoluta di I/O:} A differenza dei B-Tree convenzionali (che richiedono $\mathcal{O}(\log_B N)$ accessi a disco, vedi \autoref{subsec:btree}) e delle scansioni non indicizzate, l'algoritmo Three-Phase Blind Search garantisce il limite teorico invalicabile di \textbf{esattamente 1 I/O} per qualunque interrogazione di ricerca esatta o di predecessore.
+  \item \textbf{Efficacia della Compressione Front-Coding:} La rimozione incrementale dei prefissi sui blocchi disco massimizza la densit\`a di informazione per pagina fisica senza penalizzare i tempi di latenza, poich\'e il costo computazionale della decodifica in RAM \`e completamente dominato dal tempo di trasferimento dell'unico blocco disco.
+\end{enumerate}
+
+\begin{noteblock}{Regola Architetturale per la Ricerca di Stringhe su Larga Scala}
+Nei sistemi industriali e nei motori di ricerca moderni (es. moduli di indexing per motori Web e database a chiavi alfanumeriche):
+\begin{itemize}
+  \item Per collezioni di stringhe che risiedono interamente in memoria RAM, il \textbf{Compacted Trie} con tuple (\autoref{sec:trie-compatti-patricia}) o il \textbf{TST} (\autoref{chap:strutture-dati-stringhe-tst-radix-sort}) rappresentano la scelta d'elezione.
+  \item Quando la collezione scala su memoria secondaria o storage distribuito, l'accoppiamento tra \textbf{Patricia Trie / Blind Trie} (in memoria centrale per instradare le query) e \textbf{Front-Coding} (su disco per comprimere i blocchi) costituisce lo standard de facto per garantire interrogazioni ad alto throughput con garanzia di $1$ solo I/O.
+\end{itemize}
+\end{noteblock}
