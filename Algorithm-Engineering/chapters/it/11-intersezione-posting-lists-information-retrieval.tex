@@ -154,32 +154,17 @@ L'approccio ingenuo prescinde dalla struttura ordinata delle liste:
 
 \FloatBarrier
 \subsection{Merge-Based: Scansione Lineare a Due Puntatori}
-L'algoritmo \textbf{Merge-based} sfrutta sistematicamente l'ordinamento monotono crescente di entrambe le sequenze. Mantenendo due indici di scansione $i$ (per $A$) e $j$ (per $B$) inizializzati all'inizio delle rispettive liste, la procedura emula il passo di unione (\textit{merge step}) del classico MergeSort (\autoref{algo:merge-intersection}):
-
-\begin{algorithm}[htbp]
-\SetAlgoLined
-\KwInput{Due liste ordinate $A = [a_1, \dots, a_n]$ e $B = [b_1, \dots, b_m]$ con $m \le n$}
-\KwOutput{Lista ordinata dei documenti comuni $C = A \cap B$}
-$i \leftarrow 1$; $j \leftarrow 1$\;
-$C \leftarrow \emptyset$\;
-\While{$i \le n$ \textbf{and} $j \le m$}{
-    \If{$A[i] == B[j]$}{
-        $C.\textsc{Append}(A[i])$\;
-        $i \leftarrow i + 1$\;
-        $j \leftarrow j + 1$\;
-    }
-    \ElseIf{$A[i] < B[j]$}{
-        $i \leftarrow i + 1$\;
-    }
-    \Else{
-        \tcp{$A[i] > B[j]$}
-        $j \leftarrow j + 1$\;
-    }
-}
-\Return{$C$}\;
-\caption{Intersezione Merge-Based a Due Puntatori}
-\label{algo:merge-intersection}
-\end{algorithm}
+L'algoritmo \textbf{Merge-based} sfrutta sistematicamente l'ordinamento monotono crescente di entrambe le sequenze emulando il passo di fusione (\textit{merge step}) del classico MergeSort:
+\begin{itemize}
+  \item Si mantengono due puntatori di scansione $i$ e $j$, inizializzati all'inizio delle rispettive liste $A$ e $B$.
+  \item Ad ogni passo si confrontano gli elementi correnti $A[i]$ e $B[j]$:
+  \begin{itemize}
+    \item se $A[i] = B[j]$, l'identificatore appartiene all'intersezione: viene aggiunto all'output ed entrambi i puntatori avanzano ($i \leftarrow i + 1$, $j \leftarrow j + 1$);
+    \item se $A[i] < B[j]$, si incrementa $i \leftarrow i + 1$, scartando $A[i]$;
+    \item se $A[i] > B[j]$, si incrementa $j \leftarrow j + 1$, scartando $B[j]$.
+  \end{itemize}
+  \item Il procedimento termina non appena uno dei due indici oltrepassa la fine della rispettiva sequenza ($i > n$ oppure $j > m$).
+\end{itemize}
 
 \begin{theorem}[Complessità della Scansione Merge-Based]
 L'algoritmo di intersezione a due puntatori esegue al più $n + m - 1$ confronti tra elementi e richiede tempo:
@@ -339,6 +324,63 @@ L'algoritmo \textbf{Mutual Partition} (partizionamento mutuale) supera la rigidi
 \caption{Schema concettuale di Mutual Partition: il mediano $pivot = A[n/2]$ viene ricercato in $B$ tramite ricerca binaria; se presente alla posizione $p_B$, entra nell'intersezione. I due insiemi si decompongono nei sottoproblemi indipendenti $A_1 \cap B_1$ e $A_2 \cap B_2$, risolvibili ricorsivamente in parallelo.}
 \label{fig:mutual-partition}
 \end{figure}
+
+\FloatBarrier
+\subsection{Esempio Numerico di Esecuzione (Mutual Partition)}
+\label{sec:mutual-partition-example}
+Per illustrare concretamente la ricorsione di Mutual Partition, consideriamo l'intersezione tra la lista lunga $A$ ($n = 9$) e la lista breve $B$ ($m = 4$):
+\begin{align}
+  A &= [3, \; 7, \; 12, \; 18, \; 25, \; 34, \; 42, \; 50, \; 61], \\
+  B &= [7, \; 15, \; 25, \; 42].
+\end{align}
+L'insieme risultato iniziale \`e vuoto: $C = \emptyset$. L'albero delle chiamate ricorsive procede come segue:
+
+\begin{enumerate}
+  \item \textbf{Livello 0 (Chiamata Radice):}
+  \begin{itemize}
+    \item \textbf{Scelta del Pivot su $A$:} Con $n = 9$, l'elemento mediano \`e $A[\lceil 9/2 \rceil] = A[5] = 25$.
+    \item \textbf{Ricerca Binaria in $B$:} Si esegue una ricerca binaria del valore $25$ nell'array $B = [7, 15, 25, 42]$. L'elemento viene localizzato all'indice $3$ ($B[3] = 25$).
+    \item \textbf{Emissione dell'Elemento Comune:} Poich\'e $B[3] = 25$, il valore appartiene all'intersezione e viene emesso in output:
+    \begin{equation}
+      C \leftarrow C \cup \{25\} = \{25\}.
+    \end{equation}
+    \item \textbf{Decomposizione nei Sottoproblemi:}
+    \begin{itemize}
+      \item \textbf{Ramo Sinistro ($< 25$):} $A_1 = [3, 7, 12, 18]$ ($n_1 = 4$) e $B_1 = [7, 15]$ ($m_1 = 2$).
+      \item \textbf{Ramo Destro ($> 25$):} $A_2 = [34, 42, 50, 61]$ ($n_2 = 4$) e $B_2 = [42]$ ($m_2 = 1$).
+    \end{itemize}
+  \end{itemize}
+
+  \item \textbf{Livello 1 --- Ramo Sinistro ($\textsc{MutualPartition}(A_1, B_1)$):}
+  \begin{itemize}
+    \item \textbf{Scelta del Pivot su $A_1$:} Con $n_1 = 4$, il mediano \`e $A_1[\lfloor 4/2 \rfloor] = A_1[2] = 7$.
+    \item \textbf{Ricerca Binaria in $B_1$:} Si cerca $7$ in $B_1 = [7, 15]$. Trovato alla prima posizione ($B_1[1] = 7$).
+    \item \textbf{Emissione:} Il valore viene aggiunto al risultato: $C \leftarrow \{7, 25\}$.
+    \item \textbf{Decomposizione:}
+    \begin{itemize}
+      \item Sottoramo sinistro ($< 7$): $A_{1,1} = [3]$, mentre $B_{1,1} = \emptyset$. Poich\'e la lista $B_{1,1}$ \`e vuota, la chiamata ricorsiva termina immediatamente restituendo $\emptyset$.
+      \item Sottoramo destro ($> 7$): $A_{1,2} = [12, 18]$ e $B_{1,2} = [15]$. Il pivot di $A_{1,2}$ \`e $12$. La ricerca binaria di $12$ in $[15]$ fallisce ($12 < 15$). Lo split produce $A = [18]$ e $B = [15]$; la ricerca di $18$ in $[15]$ fallisce ($18 > 15$). Le chiamate successive su liste vuote terminano senza ulteriori emissioni.
+    \end{itemize}
+  \end{itemize}
+
+  \item \textbf{Livello 1 --- Ramo Destro ($\textsc{MutualPartition}(A_2, B_2)$):}
+  \begin{itemize}
+    \item \textbf{Scelta del Pivot su $A_2$:} Con $A_2 = [34, 42, 50, 61]$, il mediano \`e $A_2[2] = 42$.
+    \item \textbf{Ricerca Binaria in $B_2$:} Si cerca $42$ in $B_2 = [42]$. Trovato immediatamente ($B_2[1] = 42$).
+    \item \textbf{Emissione:} Il valore viene aggiunto al risultato: $C \leftarrow \{7, 25, 42\}$.
+    \item \textbf{Decomposizione:}
+    \begin{itemize}
+      \item Sottoramo sinistro ($< 42$): $A_{2,1} = [34]$ e $B_{2,1} = \emptyset \implies$ termina immediatamente.
+      \item Sottoramo destro ($> 42$): $A_{2,2} = [50, 61]$ e $B_{2,2} = \emptyset \implies$ termina immediatamente.
+    \end{itemize}
+  \end{itemize}
+\end{enumerate}
+
+L'algoritmo termina restituendo l'intersezione ordinata esatta:
+\begin{equation}
+  A \cap B = \{7, \; 25, \; 42\}.
+\end{equation}
+L'esecuzione mostra come la scelta del mediano su $A$ dimezzi ricorsivamente lo spazio di ricerca e consenta di scartare porzioni consistenti della lista lunga senza doverle scansionare elemento per elemento.
 
 \FloatBarrier
 \subsection{Complessità e Limite Teorico dell'Albero di Decisione}
@@ -702,4 +744,73 @@ Sommando i costi analizzati per le due fasi, il tempo computazionale complessivo
   \label{eq:block-cost-function}
 \end{align}
 Il termine $\mathcal{O}(m)$ viene assorbito poiché $m \le m \cdot L$ per qualsiasi parametro intero $L \ge 1$.
+
+\paragraph{Dimensione Ottima del Blocco $L^*$.}
+Per minimizzare il costo totale, si calcola la derivata rispetto ad $L$ ponendola uguale a zero:
+\begin{equation}
+  \frac{\mathrm{d}}{\mathrm{d}L}\left(\frac{n}{L} + m \cdot L\right) = -\frac{n}{L^2} + m = 0 \implies L^* = \sqrt{\frac{n}{m}}.
+\end{equation}
+Sostituendo il valore ottimo $L^*$ nella funzione di costo~\eqref{eq:block-cost-function}, si ottiene il tempo di esecuzione ottimizzato:
+\begin{equation}
+  T_{\text{ottimo}} = \mathcal{O}\left(\frac{n}{\sqrt{n/m}} + m\sqrt{\frac{n}{m}}\right) = \mathcal{O}\left(\sqrt{n \cdot m}\right).
+\end{equation}
+
+\FloatBarrier
+\subsection{Esempio Numerico: Approccio a Due Livelli (2-Level Approach, $L = 3$)}
+\label{sec:2level-example}
+Consideriamo l'approccio a due livelli (\textit{two-level approach}) su una posting list $A$ costituita da $n = 12$ elementi, impostando una dimensione fissa del blocco $L = 3$:
+\begin{equation}
+  A = [2, \; 5, \; 8, \quad 11, \; 14, \; 19, \quad 23, \; 27, \; 31, \quad 36, \; 40, \; 45].
+\end{equation}
+La lista delle query $B$ (breve) \`e composta da $m = 3$ elementi:
+\begin{equation}
+  B = [5, \; 27, \; 31].
+\end{equation}
+
+\paragraph{Organizzazione della Struttura a Due Livelli.}
+Con $L = 3$, la sequenza $A$ viene suddivisa in $\frac{n}{L} = \frac{12}{3} = 4$ blocchi contigui:
+\begin{itemize}
+  \item \textbf{Livello 2 (Dati / Blocchi di Base):}
+  \begin{align*}
+    A_1 &= [2, \; 5, \; 8], & \max(A_1) &= 8, \\
+    A_2 &= [11, \; 14, \; 19], & \max(A_2) &= 19, \\
+    A_3 &= [23, \; 27, \; 31], & \max(A_3) &= 31, \\
+    A_4 &= [36, \; 40, \; 45], & \max(A_4) &= 45.
+  \end{align*}
+  \item \textbf{Livello 1 (Lista Ausiliaria dei Massimi / Skip Pointers $A'$):}
+  Memorizza unicamente i valori massimi di ciascun blocco e i relativi puntatori all'inizio del blocco:
+  \begin{equation}
+    A' = [8, \; 19, \; 31, \; 45].
+  \end{equation}
+\end{itemize}
+
+\paragraph{Fase 1: Instradamento di $B$ sui Massimi del Livello 1.}
+Si effettua una scansione coordinata tra la lista $B$ e l'indice compatto $A'$:
+\begin{itemize}
+  \item Per $b_1 = 5$: si confronta con $A'[1] = 8$. Poich\'e $5 \le 8$, il valore $5$ viene instradato nel sottoinsieme $B_1$ di competenza del blocco $A_1$.
+  \item Per $b_2 = 27$: poich\'e $27 > 8$ e $27 > 19$, l'indice del Livello 1 avanza fino ad $A'[3] = 31$. Poich\'e $27 \le 31$, il valore $27$ viene assegnato a $B_3$.
+  \item Per $b_3 = 31$: si confronta con il massimo corrente $A'[3] = 31$. Poich\'e $31 \le 31$, anche $31$ appartiene a $B_3$.
+\end{itemize}
+Al termine della Fase 1, la ripartizione dei dati di $B$ nei 4 blocchi risulta:
+\begin{equation}
+  B_1 = \{5\}, \quad B_2 = \emptyset, \quad B_3 = \{27, \; 31\}, \quad B_4 = \emptyset.
+\end{equation}
+
+\paragraph{Fase 2: Intersezione Locale e Salto dei Blocchi Inattivi.}
+Si ispezionano i blocchi di $A$ al Livello 2:
+\begin{itemize}
+  \item \textbf{Blocco $A_1$ (Attivo, $B_1 \neq \emptyset$):} Si carica il blocco $A_1 = [2, 5, 8]$ e si esegue la scansione lineare con $B_1 = [5]$. Si riscontra la corrispondenza sull'elemento $5$, che viene emesso in output.
+  \item \textbf{Blocco $A_2$ (Inattivo, $B_2 = \emptyset$):} \textbf{Saltato integralmente (\textit{skipped})}. Gli elementi $[11, 14, 19]$ non vengono mai caricati in memoria n\'e confrontati.
+  \item \textbf{Blocco $A_3$ (Attivo, $B_3 \neq \emptyset$):} Si carica il blocco $A_3 = [23, 27, 31]$ e si esegue la scansione lineare con $B_3 = [27, 31]$. Si riscontrano entrambe le corrispondenze ($27$ e $31$), che vengono emesse in output.
+  \item \textbf{Blocco $A_4$ (Inattivo, $B_4 = \emptyset$):} \textbf{Saltato integralmente (\textit{skipped})}. Gli elementi $[36, 40, 45]$ non vengono mai letti dalla memoria.
+\end{itemize}
+
+\paragraph{Bilancio e Valutazione Prestazionale.}
+\begin{itemize}
+  \item \textbf{Risultato Finale:} $A \cap B = \{5, \; 27, \; 31\}$.
+  \item \textbf{Elementi Saltati:} Solo $6$ elementi su $12$ della lista $A$ sono stati effettivamente caricati ed esaminati al Livello 2. Il restante 50\% della lista $A$ \`e stato scavalcato a costo zero.
+  \item \textbf{Costo di Scansione al Livello 1:} Soli $4$ confronti sulla lista $A'$.
+  \item \textbf{Confronto con la Scansione Lineare Piatta:} Una scansione lineare ordinaria avrebbe dovuto esaminare tutti i $12$ elementi di $A$, effettuando fino a $12 + 3 - 1 = 14$ confronti complessivi.
+\end{itemize}
+
 

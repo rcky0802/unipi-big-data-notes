@@ -5,7 +5,7 @@
 \section{Introduzione e Definizione Formale del Treap}
 \label{sec:treap-definition-and-foundations}
 
-La combinazione delle propriet\`a di un albero binario di ricerca con quelle di una coda di priorit\`a heap permette di realizzare una struttura dati elegantemente bilanciata per via probabilistica. In questa sezione formalizziamo la nozione di Treap e ne dimostriamo il teorema fondamentale di unicit\`a topologica.
+La combinazione delle propriet\`a di un albero binario di ricerca con quelle di una coda di priorit\`a heap permette di realizzare una struttura dati elegantemente bilanciata per via probabilistica. In questa sezione formalizziamo la nozione di Treap e i suoi invarianti strutturali.
 
 \FloatBarrier
 \subsection{Motivazione e Concetto Fondamentale}
@@ -57,44 +57,9 @@ Un albero binario $T$ \`e un Treap valido se e solo se soddisfa congiuntamente d
     Ne consegue che la radice dell'albero possiede sempre la priorit\`a massima assoluta di tutto il Treap.
 \end{enumerate}
 
-\FloatBarrier
-\subsection{Teorema di Unicit\`a della Struttura}
-Un risultato teorico di primaria importanza stabilisce che la forma dell'albero non dipende dalla sequenza temporale con cui le coppie sono state inserite.
-
-\begin{theorem}[Unicit\`a del Treap]
-\label{thm:treap-uniqueness}
-Sia $S = \{ \langle x_1, p_1 \rangle, \dots, \langle x_n, p_n \rangle \}$ un insieme di $n$ coppie distinte aventi chiavi mutualmente distinte ($x_i \neq x_j$) e priorit\`a mutualmente distinte ($p_i \neq p_j$). Allora esiste \textbf{uno ed un solo} Treap $T$ che memorizza l'insieme $S$.
-\end{theorem}
-
-\begin{proof}
-Procediamo per induzione matematica sulla cardinalit\`a $n = |S|$.
-\begin{itemize}
-    \item \textbf{Caso base ($n = 0$ o $n = 1$):}\\
-    Se $n = 0$, l'unico albero possibile \`e l'albero vuoto (NIL). Se $n = 1$, l'unico albero ammissibile \`e costituito da un singolo nodo isolato contenente l'unica coppia $\langle x_1, p_1 \rangle$. In entrambi i casi, la topologia \`e banale ed univoca.
-
-    \item \textbf{Passo induttivo ($n > 1$):}\\
-    Assumiamo che il teorema sia valido per ogni insieme di cardinalit\`a strettamente inferiore a $n$. Consideriamo l'insieme $S$ di $n$ elementi.
-    
-    Poich\'e le priorit\`a $\{p_1, \dots, p_n\}$ sono tutte distinte, esiste un unico indice $r \in \{1, \dots, n\}$ tale che:
-    \begin{equation}
-      p_r = \max_{1 \le i \le n} \{ p_i \}.
-    \end{equation}
-    Affinch\'e l'invariante di Max-Heap sia soddisfatto su tutto l'albero, la radice di $T$ deve necessariamente essere il nodo $\langle x_r, p_r \rangle$. Non esiste alcuna altra scelta ammissibile per la radice.
-
-    Fissata la radice $\langle x_r, p_r \rangle$, la propriet\`a di Binary Search Tree impone in modo deterministico e categorico l'assegnazione di tutti i rimanenti $n - 1$ elementi ai sottoalberi sinistro e destro:
-    \begin{align}
-      S_L &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i < x_r \}, \\
-      S_R &= \{ \langle x_i, p_i \rangle \in S \setminus \{\langle x_r, p_r \rangle\} \mid x_i > x_r \}.
-    \end{align}
-    Poich\'e le chiavi sono distinte, la partizione $S_L \cup S_R = S \setminus \{\langle x_r, p_r \rangle\}$ con $S_L \cap S_R = \emptyset$ \`e univoca.
-    
-    Inoltre, $|S_L| < n$ e $|S_R| < n$. Per ipotesi induttiva, esiste un unico Treap valido $T_L$ costruito su $S_L$ e un unico Treap valido $T_R$ costruito su $S_R$. Assegnando $T_L$ come sottoalbero sinistro della radice e $T_R$ come sottoalbero destro, otteniamo l'unico albero binario che soddisfa simultaneamente la propriet\`a di BST e la propriet\`a di Heap. L'unicit\`a della struttura \`e pertanto dimostrata per ogni $n \ge 0$.
-\end{itemize}
-\end{proof}
-
-\begin{corollary}[Isomorfismo con il Random BST]
+\begin{property}[Isomorfismo con il Random BST]
 Se le priorit\`a $p_i$ sono estratte in modo indipendente e identicamente distribuito (\textit{i.i.d.}) da una variabile aleatoria continua uniforme $\mathcal{U}[0, 1]$, l'ordinamento decrescente delle priorit\`a induce una permutazione uniforme casuale $\pi \in \mathcal{S}_n$ sull'insieme delle chiavi. Pertanto, il Treap generato \`e \textbf{topologicamente indistinguibile da un albero binario di ricerca costruito inserendo le chiavi nell'ordine della permutazione casuale $\pi$}.
-\end{corollary}
+\end{property}
 
 \FloatBarrier
 \section{Operazioni Elementari: Rotazioni nel Treap}
@@ -184,24 +149,7 @@ Le operazioni di manipolazione del Treap orchestrano la ricerca su BST con il ri
 
 \FloatBarrier
 \subsection{Ricerca (\textsc{Search})}
-La procedura di ricerca ignora completamente le priorit\`a dei nodi e coincide esattamente con la ricerca binaria standard in un BST:
-
-\begin{algorithm}[H]
-\caption{Ricerca di una chiave nel Treap ($\textsc{Search}(u, k)$)}
-\label{alg:treap-search}
-\KwIn{Riferimento alla radice $u$ del sottoalbero corrente, chiave cercata $k \in \mathcal{U}$}
-\KwOut{Riferimento al nodo contenente $k$, oppure NIL se non presente}
-\BlankLine
-\If{$u = \mathrm{NIL}$ \textbf{or} $k = k(u)$}{
-    \Return $u$\;
-}
-\If{$k < k(u)$}{
-    \Return $\textsc{Search}(\operatorname{left}(u), k)$\;
-}
-\Else{
-    \Return $\textsc{Search}(\operatorname{right}(u), k)$\;
-}
-\end{algorithm}
+La procedura di ricerca ignora completamente le priorit\`a dei nodi e coincide esattamente con la ricerca binaria standard in un BST: si confronta la chiave cercata $k$ con la chiave del nodo corrente $k(u)$, scendendo ricorsivamente nel sottoalbero sinistro se $k < k(u)$ o nel sottoalbero destro se $k > k(u)$, fino a trovare la chiave o terminare su NIL se non presente.
 
 La complessit\`a temporale \`e proporzionale all'altezza del cammino percorso: $\mathcal{O}(h)$. Come dimostreremo nella Sezione~\ref{sec:probabilistic-analysis}, l'altezza attesa \`e $\mathcal{O}(\log n)$.
 
@@ -212,45 +160,11 @@ L'inserimento di una nuova chiave $k$ procede in due fasi distinte:
     \item \textbf{Inserimento BST standard a foglia:} Si genera una priorit\`a casuale indipendente $p \sim \mathcal{U}[0, 1]$. Si individua la posizione della foglia seguendo la classica discesa binaria BST e si alloca il nuovo nodo $z = \langle k, p \rangle$.
     \item \textbf{Ripristino dell'invariante di Max-Heap (Bubble-Up):} Fintanto che il nodo $z$ non \`e la radice e la sua priorit\`a supera quella del padre ($p(z) > p(\operatorname{parent}(z))$), si esegue una rotazione locale per far salire $z$:
     \begin{itemize}
-        \item Se $z$ \`e figlio sinistro, si applica $\textsc{Rotate-Right}(\operatorname{parent}(z))$;
-        \item Se $z$ \`e figlio destro del padre, si applica $\textsc{Rotate-Left}(\operatorname{parent}(z))$.
+        \item Se $z$ \`e figlio sinistro, si esegue $\textsc{Rotate-Right}(\operatorname{parent}(z))$;
+        \item Se $z$ \`e figlio destro, si esegue $\textsc{Rotate-Left}(\operatorname{parent}(z))$.
     \end{itemize}
 \end{enumerate}
-
-\begin{algorithm}[H]
-\caption{Inserimento di una nuova coppia nel Treap ($\textsc{Insert}(T, k)$)}
-\label{alg:treap-insert}
-\KwIn{Radice $T$ del Treap, chiave $k$ da inserire}
-\KwOut{Nuova radice del Treap contenente $k$}
-\BlankLine
-$p \leftarrow \textsc{RandomUniform}(0, 1)$\;
-$z \leftarrow \textsc{CreateNode}(k, p)$\;
-\Return $\textsc{InsertNode}(T, z)$\;
-\end{algorithm}
-
-\begin{algorithm}[H]
-\caption{Inserimento ricorsivo con rotazioni di risalita ($\textsc{InsertNode}(u, z)$)}
-\label{alg:treap-insert-node}
-\KwIn{Nodo radice del sottoalbero corrente $u$, nuovo nodo da inserire $z$}
-\KwOut{Radice aggiornata del sottoalbero}
-\BlankLine
-\If{$u = \mathrm{NIL}$}{
-    \Return $z$\;
-}
-\If{$k(z) < k(u)$}{
-    $\operatorname{left}(u) \leftarrow \textsc{InsertNode}(\operatorname{left}(u), z)$\;
-    \If{$p(\operatorname{left}(u)) > p(u)$}{
-        $u \leftarrow \textsc{Rotate-Right}(u)$\;
-    }
-}
-\ElseIf{$k(z) > k(u)$}{
-    $\operatorname{right}(u) \leftarrow \textsc{InsertNode}(\operatorname{right}(u), z)$\;
-    \If{$p(\operatorname{right}(u)) > p(u)$}{
-        $u \leftarrow \textsc{Rotate-Left}(u)$\;
-    }
-}
-\Return $u$\;
-\end{algorithm}
+Ciascuna rotazione preserva invariato l'ordinamento simmetrico delle chiavi, incrementando di un livello la profondit\`a del genitore e riducendo quella di $z$. Il processo si arresta non appena $p(z) \le p(\operatorname{parent}(z))$ oppure $z$ diviene la nuova radice. Il costo complessivo \`e proporzionale all'altezza dell'albero, ossia $\mathcal{O}(\log n)$ in valore atteso.
 
 \subsubsection{Esempio di Traccia: Inserimento con Risalita Bubble-Up}
 Per comprendere concretamente la dinamica dell'inserimento, consideriamo il Treap contenente l'insieme di coppie:
@@ -362,38 +276,7 @@ Per eliminare una chiave $k$ senza violare le propriet\`a del Treap, si adotta u
     \item Quando $u$ diventa foglia (entrambi i figli sono NIL), viene deallocato e il puntatore del padre viene impostato a NIL in tempo $\mathcal{O}(1)$.
 \end{enumerate}
 
-\begin{algorithm}[H]
-\caption{Cancellazione di una chiave dal Treap ($\textsc{Delete}(u, k)$)}
-\label{alg:treap-delete}
-\KwIn{Radice $u$ del sottoalbero, chiave $k$ da rimuovere}
-\KwOut{Nuova radice del sottoalbero privo di $k$}
-\BlankLine
-\If{$u = \mathrm{NIL}$}{
-    \Return $\mathrm{NIL}$\;
-}
-\If{$k < k(u)$}{
-    $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
-}
-\ElseIf{$k > k(u)$}{
-    $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
-}
-\Else{
-    \tcp{Nodo $u$ trovato}
-    \If{$\operatorname{left}(u) = \mathrm{NIL}$ \textbf{and} $\operatorname{right}(u) = \mathrm{NIL}$}{
-        $\textsc{Deallocate}(u)$\;
-        \Return $\mathrm{NIL}$\;
-    }
-    \ElseIf{$\operatorname{left}(u) \neq \mathrm{NIL}$ \textbf{and} $(\operatorname{right}(u) = \mathrm{NIL}$ \textbf{or} $p(\operatorname{left}(u)) > p(\operatorname{right}(u)))$}{
-        $u \leftarrow \textsc{Rotate-Right}(u)$\;
-        $\operatorname{right}(u) \leftarrow \textsc{Delete}(\operatorname{right}(u), k)$\;
-    }
-    \Else{
-        $u \leftarrow \textsc{Rotate-Left}(u)$\;
-        $\operatorname{left}(u) \leftarrow \textsc{Delete}(\operatorname{left}(u), k)$\;
-    }
-}
-\Return $u$\;
-\end{algorithm}
+Anche in questo caso, il numero massimo di rotazioni \`e limitato superiormente dall'altezza dell'albero, garantendo un tempo di calcolo atteso pari a $\mathcal{O}(\log n)$.
 
 \subsubsection{Esempio di Traccia: Cancellazione con Discesa Trickle-Down}
 Supponiamo ora di voler rimuovere il nodo interno $H$ dal Treap ottenuto al termine dell'inserimento precedente:
@@ -733,31 +616,12 @@ Il punto con ordinata massima coincide con la radice dell'albero; la sua ascissa
 
 \FloatBarrier
 \subsection{Costruzione Deterministica Lineare $\mathcal{O}(n)$ tramite Stack Monotono}
-Se i punti sono preordinati per ascissa crescente ($x_1 < x_2 < \dots < x_n$), l'albero cartesiano pu\`o essere costruito in tempo deterministico strettamente lineare $\mathcal{O}(n)$ mediante un algoritmo incrementale a \textbf{stack monotono} (Algoritmo~\ref{alg:cartesian-build}):
+Se i punti sono preordinati per ascissa crescente ($x_1 < x_2 < \dots < x_n$), l'albero cartesiano pu\`o essere costruito in tempo deterministico strettamente lineare $\mathcal{O}(n)$ mediante un algoritmo incrementale a \textbf{stack monotono}.
 
-\begin{algorithm}[H]
-\caption{Costruzione Lineare dell'Albero Cartesiano ($\textsc{Build-Cartesian}(A[1 \dots n])$)}
-\label{alg:cartesian-build}
-\KwIn{Array di punti $A[1 \dots n]$ preordinati per chiave $x$ crescente}
-\KwOut{Radice dell'albero cartesiano}
-\BlankLine
-Inizializza uno stack vuoto $S$\;
-\For{$i \leftarrow 1$ \KwTo $n$}{
-    $last \leftarrow \mathrm{NIL}$\;
-    \While{$S$ \textbf{non \`e vuoto} \textbf{and} $y(S.\textsc{Top}()) < y(A[i])$}{
-        $last \leftarrow S.\textsc{Pop}()$\;
-    }
-    $\operatorname{left}(A[i]) \leftarrow last$\;
-    \If{$S$ \textbf{non \`e vuoto}}{
-        $\operatorname{right}(S.\textsc{Top}()) \leftarrow A[i]$\;
-    }
-    $S.\textsc{Push}(A[i])$\;
-}
-\Return elemento pi\`u profondo nello stack (la radice globale)\;
-\end{algorithm}
+\paragraph{Meccanismo Operativo e Analisi Ammortizzata.}
+L'algoritmo scansiona i punti da sinistra a destra mantenendo in uno stack la cosiddetta \textit{spina destra} (\textit{right spine}) dell'albero corrente. A ogni iterazione, l'elemento $A[i]$ estrae dallo stack tutti i nodi con ordinata inferiore alla propria ($y(S.\textsc{Top}()) < y(A[i])$); l'ultimo nodo estratto diventa il figlio sinistro di $A[i]$, mentre $A[i]$ diviene il figlio destro del nodo rimasto in cima allo stack. Infine, $A[i]$ viene inserito nello stack.
 
-\paragraph{Analisi di Complessit\`a Ammortizzata:}
-L'algoritmo mantiene nello stack la cosiddetta \textit{spina destra} (\textit{right spine}) dell'albero corrente. A ogni iterazione, l'elemento $A[i]$ rimuove dallo stack tutti i nodi con ordinata inferiore alla propria; l'ultimo nodo estratto diventa il suo figlio sinistro, mentre $A[i]$ diviene il figlio destro del nuovo elemento in cima allo stack. Poich\'e ciascuno degli $n$ nodi viene inserito nello stack esattamente una volta ($\textsc{Push}$) ed estratto al massimo una volta ($\textsc{Pop}$), il numero complessivo di operazioni sullo stack \`e al pi\`u $2n$. Il tempo di esecuzione complessivo \`e pertanto strettamente deterministico e lineare: $\mathcal{O}(n)$.
+Poich\'e ciascuno degli $n$ nodi viene inserito nello stack esattamente una volta ($\textsc{Push}$) ed estratto al massimo una volta ($\textsc{Pop}$), il numero complessivo di operazioni sullo stack \`e limitato superiormente da $2n$. Il tempo di esecuzione complessivo \`e pertanto strettamente deterministico e lineare: $\mathcal{O}(n)$.
 
 \FloatBarrier
 \subsection{Risoluzione Ottimale di Range Minimum Query (RMQ) in $\mathcal{O}(1)$}

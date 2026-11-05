@@ -278,36 +278,48 @@ Il ciclo operativo procede elemento per elemento:
 \end{enumerate}
 
 \FloatBarrier
-\subsection{Esempio Passo-Passo dell'Algoritmo}
+\subsection{Traccia Esecutiva dell'Algoritmo}
 \label{subsec:snow-plow-trace}
 
-Consideriamo una memoria rapida di capacità $M = 3$ elementi e una sequenza di input non ordinata:
+Consideriamo una memoria rapida di capacit\`a $M = 4$ elementi. Supponiamo che la RAM contenga inizialmente l'insieme di chiavi $\{2, 4, 8, 9\}$ e che il flusso residuo memorizzato su disco sia:
 \[
-  S = [1, \, 7, \, 5, \, 3, \, 2, \, 9, \, 0, \, 4, \, \dots].
+  S_{\text{disco}} = [1, \, 7, \, 3, \, 6, \, 5, \, 10, \, \dots].
 \]
-In \autoref{tab:snow-plow-trace} viene tracciata dettagliatamente l'evoluzione dello stato interno della memoria e dei run emessi.
+In \autoref{tab:snow-plow-trace} viene illustrata la traccia esecutiva dettagliata della Replacement Selection (Snow Plow). A ogni passo, il minimo elemento attivo viene estratto dal Min-Heap e inviato al buffer del run corrente; contestualmente si legge il nuovo elemento in arrivo dal disco:
+\begin{itemize}
+  \item Se il nuovo elemento \`e maggiore o uguale all'ultimo emesso ($x \ge \text{ultimo}$), entra direttamente nella parte \textbf{attiva} del Min-Heap.
+  \item Se il nuovo elemento \`e strettamente minore ($x < \text{ultimo}$), non pu\`o estendere l'ordinamento della run in corso e viene accantonato nell'insieme dei \textbf{congelati $U$} per la run successiva.
+\end{itemize}
 
 \begin{table}[H]
   \centering
-  \caption{Traccia dell'algoritmo Replacement Selection con capacità $M=3$.}
+  \caption{Traccia dell'algoritmo Replacement Selection (Snow Plow) con memoria $M=4$.}
   \label{tab:snow-plow-trace}
   \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabularx}{\textwidth}{c c c Y c c}
+  \resizebox{\columnwidth}{!}{%
+  \begin{tabular}{c c c l c c c}
     \toprule
-    \textbf{Passo} & \textbf{Attivi} & \textbf{Congelati ($U$)} & \textbf{Azione Eseguita} & \textbf{Emesso} & \textbf{Run} \\
+    \textbf{Passo} & \textbf{Estratto} & \textbf{Letto} & \textbf{Confronto e Decisione} & \textbf{RAM: Attivi} & \textbf{RAM: Congelati ($U$)} & \textbf{Run 1 (Output)} \\
     \midrule
-    \textbf{0} & $\{1, 5, 7\}$ & $\emptyset$ & Caricamento di $M=3$ elementi & — & $[\,]$ \\
-    \textbf{1} & $\{5, 7\}$ & $\emptyset$ & Emette $1$; legge $3$. Poiché $3 \ge 1$, resta attivo & \textbf{1} & $[1]$ \\
-    \textbf{2} & $\{5, 7\}$ & $\emptyset$ & Emette $3$; legge $2$. Poiché $2 < 3$, \textbf{$2$ va in $U$} & \textbf{3} & $[1, 3]$ \\
-    \textbf{3} & $\{7, 9\}$ & $\{2\}$ & Emette $5$; legge $9$. Poiché $9 \ge 5$, resta attivo & \textbf{5} & $[1, 3, 5]$ \\
-    \textbf{4} & $\{9\}$ & $\{2, 0\}$ & Emette $7$; legge $0$. Poiché $0 < 7$, \textbf{$0$ va in $U$} & \textbf{7} & $[1, 3, 5, 7]$ \\
-    \textbf{5} & $\emptyset$ & $\{2, 0, 4\}$ & Emette $9$; legge $4$. Poiché $4 < 9$, \textbf{$4$ va in $U$} & \textbf{9} & $[1, 3, 5, 7, 9]$ \\
+    \textbf{0} & — & — & Caricamento iniziale di $M=4$ chiavi in memoria & $\{2, 4, 8, 9\}$ & $\emptyset$ & $[\,]$ \\
+    \addlinespace[3pt]
+    \textbf{1} & $\mathbf{2}$ & $1$ & $1 < 2 \implies$ \textbf{congelato in $U$} per la run successiva & $\{4, 8, 9\}$ & $\{1\}$ & $[2]$ \\
+    \addlinespace[3pt]
+    \textbf{2} & $\mathbf{4}$ & $7$ & $7 \ge 4 \implies$ \textbf{attivo}, entra nel Min-Heap & $\{7, 8, 9\}$ & $\{1\}$ & $[2, 4]$ \\
+    \addlinespace[3pt]
+    \textbf{3} & $\mathbf{7}$ & $3$ & $3 < 7 \implies$ \textbf{congelato in $U$} per la run successiva & $\{8, 9\}$ & $\{1, 3\}$ & $[2, 4, 7]$ \\
+    \addlinespace[3pt]
+    \textbf{4} & $\mathbf{8}$ & $6$ & $6 < 8 \implies$ \textbf{congelato in $U$} per la run successiva & $\{9\}$ & $\{1, 3, 6\}$ & $[2, 4, 7, 8]$ \\
+    \addlinespace[3pt]
+    \textbf{5} & $\mathbf{9}$ & $5$ & $5 < 9 \implies$ \textbf{congelato in $U$}; \textbf{RAM satura ($\vert U\vert = 4$)} & $\emptyset$ & $\{1, 3, 5, 6\}$ & $[2, 4, 7, 8, 9]$ \\
+    \midrule[\heavyrulewidth]
+    \multicolumn{7}{c}{\textbf{Chiusura Run 1 e Reset:} $\vert\text{Attivi}\vert = 0 \implies$ la Run 1 termina con \textbf{5 elementi} ($> M=4$). $U$ forma l'Heap per Run 2.} \\
     \bottomrule
-  \end{tabularx}
+  \end{tabular}%
+  }
 \end{table}
 
-Al passo 5, la memoria attiva si azzera ed è interamente saturata dai congelati: $\vert{}U\vert{} = M = 3$. Il run corrente si chiude formalmente con una lunghezza pari a \textbf{5 elementi}, sensibilmente superiore alla capacità nominale della RAM ($M = 3$). L'insieme $\{0, 2, 4\}$ forma immediatamente l'heap di avvio del secondo run ordinato.
+Come evidenziato al Passo 5 di \autoref{tab:snow-plow-trace}, la memoria attiva si svuota completamente quando tutti gli $M = 4$ slot risultano occupati da elementi congelati ($\vert{}U\vert{} = M$). La prima run si conclude formalmente con una lunghezza pari a \textbf{5 elementi}, superando la capacit\`a fisica della RAM ($M = 4$). A questo punto, l'insieme dei congelati $\{1, 3, 5, 6\}$ viene convertito istantaneamente nel nuovo Min-Heap attivo, si apre una seconda run su disco e il processo riprende leggendo l'elemento successivo ($10$).
 
 \paragraph{Nota sui Sistemi Reali.}
 Nei sistemi operativi e DBMS reali, il caricamento e l'emissione non avvengono elemento per elemento ma a blocchi fisici di dimensione $B$, integrando opportuni buffer di prefetching in lettura e di accumulo in scrittura (\textit{double buffering}), preservando intatta l'efficienza asintotica di I/O.
