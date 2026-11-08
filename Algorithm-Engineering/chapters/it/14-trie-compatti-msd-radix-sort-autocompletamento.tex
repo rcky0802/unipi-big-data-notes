@@ -612,23 +612,271 @@ La teoria degli algoritmi introduce due paradigmi strutturali fondamentali per r
 \begin{itemize}
   \item \textbf{Modello dei Dati:} Ciascun nodo interno $u$ del Trie viene arricchito con due campi informativi ausiliari precalcolati in fase di indicizzazione:
   \begin{equation}
-    \text{max\_freq}[u] = \max \{ f_i \mid S_i \text{ \`e una foglia discendente di } u \}
+    \text{maxFreq}(u) = \max \{ f_i \mid S_i \text{ \`e una foglia discendente di } u \}
   \end{equation}
-  unitamente a un \textbf{puntatore diretto alla foglia} $\text{best\_leaf}[u] = S^*$ che realizza tale valore massimo.
+  unitamente a un \textbf{puntatore diretto alla foglia} $\text{bestLeaf}(u) = S^*$ che realizza tale valore massimo.
   \item \textbf{Elaborazione della Query:}
   \begin{enumerate}
-    \item Si effettua la consueta discesa lungo il Trie guidati dai $q$ caratteri del prefisso $P$, con costo deterministico $\mathcal{O}(q) = \mathcal{O}(|P|)$.
-    \item Raggiunto il nodo $u_P$ corrispondente all'ultimo carattere di $P$, non \`e richiesta alcuna esplorazione del sottoalbero: \textbf{la risposta ottima $S^*$ viene letta in tempo $\mathcal{O}(1)$} dereferenziando il puntatore precalcolato $u_P.\text{best\_leaf}$.
+    \item Si effettua la discesa lungo il Compact Trie guidati dai simboli del prefisso $P$, con costo deterministico $\mathcal{O}(|P|)$ nell'ipotesi di accesso $\mathcal{O}(1)$ alle transizioni uscenti.
+    \item Raggiunto il nodo $u_P$ corrispondente al prefisso $P$, non \`e richiesta alcuna scansione esaustiva del sottoalbero: \textbf{la risposta ottima $S^*$ viene restituita in tempo $\mathcal{O}(1)$} dereferenziando il puntatore precalcolato $\text{bestLeaf}(u_P)$.
   \end{enumerate}
-  \item \textbf{Complessit\`a Complessiva:} $\mathcal{O}(|P|)$ tempo per interrogazione e un overhead di memoria costante per nodo $\mathcal{O}(1)$ puntatori.
+  \item \textbf{Complessit\`a Complessiva:} $\mathcal{O}(|P|)$ tempo per l'individuazione del riferimento alla foglia ottima sotto l'assunzione di transizioni $\mathcal{O}(1)$ ai nodi figli e metadati precalcolati e aggiornati; qualora la stringa risultante $s^*$ debba essere materialmente copiata in output, la complessit\`a complessiva risulta $\mathcal{O}(|P| + |s^*|)$. L'overhead di memoria \`e limitato a $\mathcal{O}(1)$ puntatori per ciascun nodo.
 \end{itemize}
+
+La Figura~\ref{fig:augmented-trie-autocompletion} illustra visivamente la struttura logica del Compact Trie arricchito per il dizionario pesato didattico:
+\begin{equation}
+  S = \{ (\text{"bar"}, 60), \, (\text{"car"}, 95), \, (\text{"cart"}, 20), \, (\text{"cat"}, 50), \, (\text{"dog"}, 75), \, (\text{"dot"}, 30) \}
+\end{equation}
+durante l'esecuzione della Top-1 Prefix Query $P = \text{"ca"}$.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.98\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    rootnode/.style={
+      draw=navy, fill=codebackground, thick, rounded corners=4pt,
+      minimum width=3.2cm, minimum height=1.05cm,
+      font=\small, align=center, inner sep=3pt
+    },
+    active_intnode/.style={
+      draw=darkgreen!90!black, fill=darkgreen!12, line width=2.2pt, rounded corners=4pt,
+      minimum width=3.2cm, minimum height=1.05cm,
+      font=\small, align=center, inner sep=3pt
+    },
+    unvisited_intnode/.style={
+      draw=gray!55, fill=gray!8, thick, rounded corners=4pt,
+      minimum width=3.2cm, minimum height=1.05cm,
+      font=\small, align=center, inner sep=3pt, text=gray!80!black
+    },
+    unvisited_leaf/.style={
+      draw=gray!55, fill=gray!8, thick, rounded corners=3pt,
+      minimum width=1.55cm, minimum height=0.85cm,
+      font=\small\ttfamily, align=center, inner sep=3pt, text=gray!80!black
+    },
+    winner_leaf/.style={
+      draw=darkgreen!90!black, fill=darkgreen!25, line width=2.0pt, rounded corners=3pt,
+      minimum width=1.55cm, minimum height=0.85cm,
+      font=\small\ttfamily\bfseries, align=center, inner sep=3pt, text=black
+    },
+    unvisited_edge_label/.style={
+      font=\small\ttfamily\bfseries, text=gray!75!black, fill=white, inner sep=2pt, rounded corners=2pt
+    },
+    query_edge_label/.style={
+      font=\small\ttfamily\bfseries, text=darkgreen!90!black, fill=white, inner sep=2.5pt, rounded corners=2pt
+    },
+    unvisited_struct_edge/.style={->, thick, draw=gray!60},
+    query_edge/.style={->, line width=2.4pt, draw=darkgreen!90!black},
+    best_ptr/.style={->, line width=1.8pt, dashed, draw=crimson}
+]
+  % -------------------------------------------------------------
+  % LIVELLO 0: RADICE (y = 6.2)
+  % -------------------------------------------------------------
+  \node[rootnode] (r) at (0, 6.2) {%
+    \textbf{Radice} ($\varepsilon$)\\[2pt]%
+    \scriptsize $\text{maxFreq}(r)=95 \;\mid\; \text{bestLeaf}(r)=\text{"car"}$%
+  };
+
+  % -------------------------------------------------------------
+  % LIVELLO 1: NODI INTERMEDI (y = 3.6, distanziamento verticale aumentato)
+  % -------------------------------------------------------------
+  \node[active_intnode] (nca) at (-1.4, 3.6) {%
+    \textbf{Prefisso "ca"} \scriptsize (Target Query $P$)\\[2pt]%
+    \scriptsize $\text{maxFreq}(u)=95 \;\mid\; \text{bestLeaf}(u)=\text{"car"}$%
+  };
+
+  \node[unvisited_intnode] (ndo) at (4.5, 3.6) {%
+    \textbf{Prefisso "do"}\\[2pt]%
+    \scriptsize $\text{maxFreq}(u)=75 \;\mid\; \text{bestLeaf}(u)=\text{"dog"}$%
+  };
+
+  % Archi da Radice
+  \draw[query_edge] (r) -- (nca) node[midway, query_edge_label] {"ca"};
+  \draw[unvisited_struct_edge] (r) -- (ndo) node[midway, unvisited_edge_label] {"do"};
+
+  % -------------------------------------------------------------
+  % LIVELLO 2: NODO INTERMEDIO "car" (y = 1.3)
+  % -------------------------------------------------------------
+  \node[unvisited_intnode] (ncar) at (-3.1, 1.3) {%
+    \textbf{Prefisso "car"}\\[2pt]%
+    \scriptsize $\text{maxFreq}(u)=95 \;\mid\; \text{bestLeaf}(u)=\text{"car"}$%
+  };
+
+  % Ramo da "ca" a "car" (sottostringa 'r')
+  \draw[unvisited_struct_edge] (nca) -- (ncar) node[midway, unvisited_edge_label] {"r"};
+
+  % -------------------------------------------------------------
+  % LIVELLO 3: TUTTE LE 6 FOGLIE ALLINEATE ORIZZONTALMENTE A y = -1.0
+  % -------------------------------------------------------------
+  \node[unvisited_leaf] (lbar) at (-6.2, -1.0) {%
+    \texttt{"bar"}\\[1pt]%
+    \scriptsize $f=60$%
+  };
+
+  \node[winner_leaf] (lcar) at (-4.0, -1.0) {%
+    \textbf{"car"}\\[1pt]%
+    \scriptsize \textbf{Top-1} ($f=95$)%
+  };
+
+  \node[unvisited_leaf] (lcart) at (-1.9, -1.0) {%
+    \texttt{"cart"}\\[1pt]%
+    \scriptsize $f=20$%
+  };
+
+  \node[unvisited_leaf] (lcat) at (0.5, -1.0) {%
+    \texttt{"cat"}\\[1pt]%
+    \scriptsize $f=50$%
+  };
+
+  \node[unvisited_leaf] (ldog) at (3.4, -1.0) {%
+    \texttt{"dog"}\\[1pt]%
+    \scriptsize $f=75$%
+  };
+
+  \node[unvisited_leaf] (ldot) at (5.6, -1.0) {%
+    \texttt{"dot"}\\[1pt]%
+    \scriptsize $f=30$%
+  };
+
+  % Archi strutturali verso le foglie
+  % 1. Radice -> bar (curva morbida a sinistra che non tocca "ca")
+  \draw[unvisited_struct_edge] (r.west) to[out=195, in=90] node[midway, above left=1pt, unvisited_edge_label] {"bar"} (lbar.north);
+
+  % 2. "ca" -> cat (ramo destro di "ca", perfettamente separato da "car")
+  \draw[unvisited_struct_edge] (nca.south east) -- (lcat.north) node[midway, above right=1pt, unvisited_edge_label] {"t"};
+
+  % 3. "car" -> car e "car" -> cart (rami figli di "car")
+  \draw[unvisited_struct_edge] (ncar.south west) -- (lcar.north) node[midway, left=2pt, unvisited_edge_label] {"\$"};
+  \draw[unvisited_struct_edge] (ncar.south east) -- (lcart.north) node[midway, right=2pt, unvisited_edge_label] {"t"};
+
+  % 4. "do" -> dog e "do" -> dot
+  \draw[unvisited_struct_edge] (ndo.south west) -- (ldog.north) node[midway, left=2pt, unvisited_edge_label] {"g"};
+  \draw[unvisited_struct_edge] (ndo.south east) -- (ldot.north) node[midway, right=2pt, unvisited_edge_label] {"t"};
+
+  % -------------------------------------------------------------
+  % PUNTATORE AUSILIARIO: bestLeaf(ca) -> "car" (Freccia rossa tratteggiata)
+  % -------------------------------------------------------------
+  \draw[best_ptr] (nca.west) to[out=175, in=90] 
+    node[midway, above left=1pt, font=\small\bfseries, text=crimson, align=right] {%
+      \texttt{bestLeaf(ca)}\\[1pt]%
+      \scriptsize Accesso $\mathcal{O}(1)$%
+    } (lcar.north);
+
+  % -------------------------------------------------------------
+  % LEGENDA SEPARATA SOTTO IL DIAGRAMMA
+  % -------------------------------------------------------------
+  \node[draw=gray!50, fill=white, rounded corners=3pt, inner sep=5pt, anchor=north] at (0, -2.1) {%
+    \footnotesize
+    \textbf{Legenda:}\quad
+    \tikz[baseline=-0.5ex]{\draw[line width=2.4pt, darkgreen!90!black, ->] (0,0) -- (0.55,0);} \ Percorso query ($P=\text{"ca"}$) \qquad
+    \tikz[baseline=-0.5ex]{\draw[thick, gray!60, ->] (0,0) -- (0.55,0);} \ Arco strutturale Trie \qquad
+    \tikz[baseline=-0.5ex]{\draw[line width=1.8pt, dashed, crimson, ->] (0,0) -- (0.55,0);} \ Puntatore ausiliario $\text{bestLeaf}(u)$ \qquad
+    \tikz[baseline=-0.5ex]{\fill[gray!15, draw=gray!55, rounded corners=1pt] (0,-0.12) rectangle (0.4,0.18);} \ Sottoalberi non attraversati (grigio)
+  };
+\end{tikzpicture}%
+}
+\caption{\textbf{Compact Trie aumentato per l'autocompletamento pesato.} Ogni nodo interno ($u$) memorizza la massima frequenza ($\text{maxFreq}(u)$) del proprio sottoalbero e un puntatore ($\text{bestLeaf}(u)$) alla foglia corrispondente. La Top-1 Prefix Query con prefisso ($P=\texttt{"ca"}$) attraversa il percorso strutturale evidenziato in verde e raggiunge il nodo associato al prefisso. Da questo nodo, il puntatore ausiliario rosso tratteggiato permette di individuare direttamente la stringa ottima (\texttt{"car"}), con frequenza ($95$), senza esplorare i sottoalberi non pertinenti (grigio). Il costo di individuazione del risultato \`e $\mathcal{O}(|P|)$, assumendo accesso costante ai figli e metadati precalcolati e aggiornati.}
+\label{fig:augmented-trie-autocompletion}
+\end{figure}
 
 \paragraph{2. Treap (Albero Ibrido Trie-Heap)}
 \begin{itemize}
-  \item \textbf{Modello dei Dati:} Il Treap per stringhe~\cite{seidel1996} unifica la semantica lessicografica di un albero digitale di prefissi (chiavi primarie) con la propriet\`a strutturale di \textbf{Max-Heap} governata dalle frequenze $f_i$ (chiavi di priorit\`a).
-  \item \textbf{Propriet\`a Strutturale:} Le chiavi caratterizzate da elevata frequenza d'accesso risalgono naturalmente verso i livelli pi\`u alti dell'albero mediante rotazioni bilanciate.
-  \item \textbf{Ottimizzazione della Query:} Quando si naviga l'albero per soddisfare una query di autocompletamento (o per estrarre le prime $k$ opzioni pi\`u frequenti, \textit{Top-$k$ Prefix Queries}), le priorit\`a dello heap consentono un \textbf{pruning anticipato}: qualsiasi sottoalbero la cui priorit\`a massima sia inferiore al miglior candidato gi\`a rilevato viene immediatamente potato senza essere visitato.
+  \item \textbf{Modello dei Dati:} Il Treap per stringhe~\cite{seidel1996} unifica la semantica lessicografica di un albero di ricerca binario sulle chiavi (ordinamento simmetrico orizzontale) con la propriet\`a strutturale di \textbf{Max-Heap} governata dalle frequenze $f_i$ (ordinamento verticale delle quote).
+  \item \textbf{Propriet\`a Strutturale:} Le chiavi caratterizzate da frequenza d'accesso elevata risalgono naturalmente verso i livelli superiori dell'albero mediante rotazioni bilanciate.
+  \item \textbf{Intervallo di Prefisso e Pruning:} La Top-1 Prefix Query per un prefisso $P$ individua l'intervallo lessicografico continuo:
+  \begin{equation}
+    I_P = [P, \operatorname{succPrefix}(P))
+  \end{equation}
+  dove $\operatorname{succPrefix}(P)$ denota il successore lessicografico immediato del prefisso (ad esempio, per $P = \texttt{"ca"}$, si ha $\operatorname{succPrefix}(P) = \texttt{"cb"}$, definendo l'intervallo semichiuso $[\texttt{"ca"}, \texttt{"cb"})$). Durante l'attraversamento, qualsiasi sottoalbero la cui priorit\`a massima sia inferiore al miglior candidato gi\`a rilevato viene immediatamente potato (\textit{pruning}) senza essere ispezionato.
 \end{itemize}
+
+La Figura~\ref{fig:treap-stringhe-autocompletion} visualizza l'isomorfismo cartesiano del Treap sul medesimo dizionario pesato didattico $S$.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    treapnode/.style={draw=navy!80, fill=white, thick, rounded corners=3pt, font=\small, align=center, inner sep=3.5pt},
+    besttreap/.style={draw=darkgreen!90!black, fill=darkgreen!20, line width=1.8pt, rounded corners=3pt, font=\small, align=center, inner sep=4pt},
+    tree_edge/.style={line width=0.9pt, color=navy!55},
+    pruned_edge/.style={line width=0.9pt, dashed, color=crimson!65}
+]
+  % Griglia cartesiana di sfondo molto leggera
+  \draw[very thin, color=gray!10, step=1.0] (0, 0) grid (12.2, 11.2);
+
+  % Assi cartesiani principali
+  \draw[thick, color=gray!75, ->] (0, 0) -- (12.5, 0) node[below=14pt, midway, font=\small\bfseries, color=navy] {Chiave lessicografica $x$ (Propriet\`a BST: $K_{\text{sin}} < K_{\text{padre}} < K_{\text{des}}$)};
+  \draw[thick, color=gray!75, ->] (0, 0) -- (0, 11.8) node[above=4pt, font=\small\bfseries, color=navy] {Priorit\`a / Frequenza $y$ (Propriet\`a Max-Heap)};
+
+  % Tacche asse Y (Frequenze)
+  \foreach \y/\val in {2.0/20, 3.0/30, 5.0/50, 6.0/60, 7.5/75, 9.5/95} {
+    \draw[color=gray!60] (-0.12, \y) -- (0.12, \y);
+    \node[left=3pt, font=\scriptsize, color=gray!80!black] at (0, \y) {\val};
+  }
+
+  % Tacche asse X (Chiavi ordinate)
+  \foreach \x/\k in {1.6/\texttt{"bar"}, 3.6/\texttt{"car"}, 5.2/\texttt{"cart"}, 6.8/\texttt{"cat"}, 8.8/\texttt{"dog"}, 10.8/\texttt{"dot"}} {
+    \draw[color=gray!60] (\x, -0.12) -- (\x, 0.12);
+    \node[below=3pt, font=\scriptsize\bfseries, color=navy] at (\x, 0) {\k};
+  }
+
+  % Fascia evidenziata dell'intervallo di prefisso I_P = ["ca", "cb")
+  \fill[darkgreen!14, draw=darkgreen!75, dashed, line width=1.1pt] (2.5, 0) rectangle (7.8, 10.6);
+  \node[font=\footnotesize\bfseries, text=darkgreen!90!black, anchor=south] at (5.15, 10.8) {Intervallo di Prefisso $I_P = [P, \operatorname{succPrefix}(P)) = [\texttt{"ca"}, \texttt{"cb"})$};
+
+  % Archi dell'albero (Heap + BST), sottili e poco invasivi
+  \draw[tree_edge] (3.6, 9.5) -- (1.6, 6.0);
+  \draw[tree_edge] (3.6, 9.5) -- (8.8, 7.5);
+  \draw[tree_edge] (8.8, 7.5) -- (6.8, 5.0);
+  \draw[pruned_edge] (8.8, 7.5) -- (10.8, 3.0);
+  \draw[tree_edge] (6.8, 5.0) -- (5.2, 2.0);
+
+  % Nodi del Treap (coordinate cartesiane (x_rank, f))
+  \node[treapnode] (nbar) at (1.6, 6.0) {\texttt{"bar"}\\[1pt]\scriptsize $f=60$};
+  \node[besttreap] (ncar) at (3.6, 9.5) {\textbf{"car"}\\[1pt]\scriptsize \textbf{Top-1 ($f=95$)}};
+  \node[treapnode] (ndog) at (8.8, 7.5) {\texttt{"dog"}\\[1pt]\scriptsize $f=75$};
+  \node[treapnode] (ncat) at (6.8, 5.0) {\texttt{"cat"}\\[1pt]\scriptsize $f=50$};
+  \node[treapnode] (ndot) at (10.8, 3.0) {\texttt{"dot"}\\[1pt]\scriptsize $f=30$};
+  \node[treapnode] (ncart) at (5.2, 2.0) {\texttt{"cart"}\\[1pt]\scriptsize $f=20$};
+
+  % Annotazioni operative sintetiche e leggibili
+  \node[font=\footnotesize\bfseries, text=darkgreen!90!black, above=5pt of ncar] {Top-1 Winner! ($f=95$)};
+  \node[font=\scriptsize\bfseries, text=crimson, left=3pt of nbar] {Escluso ($< \text{"ca"}$)};
+  \node[font=\scriptsize\bfseries, text=gray!60!black, right=3pt of ndog] {Transito ($> \text{"cb"}$)};
+  \node[font=\scriptsize\bfseries, text=crimson, right=3pt of ndot] {Potato ($> \text{"cb"}$)};
+\end{tikzpicture}%
+}
+\caption{\textbf{Rappresentazione cartesiana di un Treap per stringhe pesate.} L'asse orizzontale rappresenta l'ordinamento lessicografico delle chiavi, mentre quello verticale indica le frequenze associate, utilizzate come priorit\`a Max-Heap. La Top-1 Prefix Query con prefisso ($P=\texttt{"ca"}$) corrisponde all'intervallo lessicografico $I_P = [P, \operatorname{succPrefix}(P)) = [\texttt{"ca"}, \texttt{"cb"})$, evidenziato dalla fascia verde. I candidati sono \texttt{"car"}, \texttt{"cart"} e \texttt{"cat"}. La stringa ottima \`e \texttt{"car"}, con frequenza $95$. In questo caso, essendo la radice del Treap gi\`a compresa nell'intervallo e dotata della massima priorit\`a globale, il risultato pu\`o essere restituito immediatamente senza esplorare gli altri sottoalberi.}
+\label{fig:treap-stringhe-autocompletion}
+\end{figure}
+
+\paragraph{Confronto Critico: Compact Trie Aumentato vs. Treap per Autocompletamento}
+La Tabella~\ref{tab:confronto-trie-treap} pone a confronto diretto le due strategie strutturali per la risoluzione della medesima query $\operatorname{Top1}(\texttt{"ca"}) = \texttt{"car"}$.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.8cm} >{\raggedright\arraybackslash}p{5.2cm} >{\raggedright\arraybackslash}p{5.2cm}}
+\toprule
+\textbf{Propriet\`a Architetturale} & \textbf{Compact Trie Aumentato} & \textbf{Treap per Stringhe} \\
+\midrule
+\textbf{Meccanismo di Ricerca} & Attraversa direttamente i simboli del prefisso $P$ & Individua l'intervallo lessicografico continuo $I_P$ \\
+\midrule
+\textbf{Sorgente del Risultato} & Puntatore ausiliario $\text{bestLeaf}(u)$ & Propriet\`a Max-Heap sulle quote verticali \\
+\midrule
+\textbf{Rappresentazione Massimi} & Esplicita (precalcolata nei metadati dei nodi) & Implicita (codificata nella topologia dell'albero) \\
+\midrule
+\textbf{Costo della Top-1 Query} & $\mathcal{O}(|P|)$ deterministico & $\mathcal{O}(|P|)$ nel caso fortunato (radice in $I_P$), generale dipendente da split e visite \\
+\midrule
+\textbf{Comportamento Generale} & Risposta $\mathcal{O}(1)$ alla fine del prefisso per qualunque query & Se il massimo locale \`e profondo in $I_P$, richiede discesa BST e potatura \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo tra Compact Trie Aumentato e Treap per query di autocompletamento pesate.}
+\label{tab:confronto-trie-treap}
+\end{table}
 
 \FloatBarrier
 \subsection{Quadro Sinottico Comparativo delle Strutture Dati per Stringhe}

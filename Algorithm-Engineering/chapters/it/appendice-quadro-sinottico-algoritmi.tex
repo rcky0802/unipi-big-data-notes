@@ -1,0 +1,176 @@
+\chapter{Tavole Sinottiche e Comparazione degli Algoritmi}
+\label{ch:appendice-quadro-sinottico-algoritmi}
+
+\FloatBarrier
+\section{Guida alla Consultazione e Modello di Riferimento}
+\label{sec:guida-consultazione-sinottico}
+
+La presente appendice raccoglie e sistematizza l'insieme delle metodologie algoritmiche, dei paradigmi di calcolo e delle strutture dati analizzati nel corso di \textit{Algorithm Engineering}. 
+
+Per ciascun algoritmo vengono formalizzate:
+\begin{itemize}
+  \item \textbf{Complessit\`a Temporale:} valutata nel caso medio ($\mathbb{E}[T]$) e nel caso pessimo ($T_{\text{worst}}$), considerando sia il numero di confronti sia le operazioni CPU.
+  \item \textbf{Complessit\`a Spaziale:} memoria primaria (RAM) ausiliaria strettamente necessaria all'esecuzione, oltre allo spazio per contenere i dati.
+  \item \textbf{Complessit\`a di I/O (DAM Model):} numero di trasferimenti a blocchi tra memoria secondaria e memoria primaria secondo il Disk Access Machine Model di Aggarwal e Vitter~\cite{aggarwal1988}, ove:
+  \begin{equation}
+    \text{Scan}(N) = \Theta\left(\frac{N}{B}\right), \qquad \text{Sort}(N) = \Theta\left(\frac{N}{B} \log_{M/B} \frac{N}{M}\right)
+  \end{equation}
+  con $N$ taglia totale del dataset, $M$ capacit\`a della RAM e $B$ dimensione del blocco fisico di trasferimento.
+  \item \textbf{Note Operative e Trade-off:} contesto applicativo ideale, presupposti architetturali e colli di bottiglia hardware.
+\end{itemize}
+
+\FloatBarrier
+\section{Ordinamento e Selezione in Memoria Primaria e Gerarchica}
+\label{sec:sinottico-ordinamento-selezione}
+
+La Tabella~\ref{tab:sinottico-ordinamento-selezione} sintetizza gli algoritmi di ordinamento esterno e selezione discussi nei Capitoli da~\ref{cha:lecture-three} a~\ref{chap:external-distribution-sort}.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{4.2cm} c >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{3.4cm} >{\raggedright\arraybackslash}p{6.6cm}}
+\toprule
+\textbf{Algoritmo / Tecnica} & \textbf{Cap.} & \textbf{Tempo CPU} & \textbf{Spazio RAM} & \textbf{I/O Disco (DAM)} & \textbf{Note Operative e Punti di Forza} \\
+\midrule
+2-Way External Merge Sort & \ref{cha:lecture-three} & $\mathcal{O}(N \log N)$ & $\mathcal{O}(B)$ & $\mathcal{O}\left(\frac{N}{B} \log_2 \frac{N}{M}\right)$ & Paradigma Divide-et-Impera base: genera run da $M$ elementi e li fonde a coppie. Subottimale con RAM ampia. \\
+\midrule
+Multiway Merge Sort ($d$-way) & \ref{cha:lecture-four} & $\mathcal{O}(N \log N)$ & $\mathcal{O}(M)$ & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{M}\right)$ & \textbf{Ottimo asintotico $\text{Sort}(N)$}: sfrutta un ventaglio $d \approx M/B - 1$, minimizzando i passi di fusione ad albero. \\
+\midrule
+Replacement Selection (Snow Plow) & \ref{cha:lecture-four} & $\mathcal{O}(N \log(M/B))$ & $\mathcal{O}(M)$ (Min-Heap) & Invariato ($\text{Sort}(N)$) & Algoritmo dello spazzaneve: produce run di lunghezza media attesa pari a $\mathbf{2M}$, dimezzando i run iniziali. \\
+\midrule
+Multi-Disk Striping (RAID-0) & \ref{cha:lecture-four} & $\mathcal{O}(N \log N)$ & $\mathcal{O}(D \cdot B)$ & $\mathcal{O}\left(\frac{N}{D \cdot B} \log_{M/B} \frac{N}{M}\right)$ & Distribuisce i blocchi in round-robin su $D$ dischi indipendenti, scalando il throughput di I/O di un fattore $D$. \\
+\midrule
+Quicksort Dual-Pivot (Yaroslavskiy) & \ref{cha:lecture-five} & $\approx 1.9 n \ln n$ / $\mathcal{O}(n^2)$ & $\mathcal{O}(\log n)$ stack & Cache-friendly & Due pivot e 3 partizioni; riduce i cache miss L1/L2 e il traffico di memoria rispetto a Quicksort classico. \\
+\midrule
+Bounded Quicksort & \ref{cha:lecture-five} & $\mathcal{O}(N \log N)$ & $\mathcal{O}(M)$ & $\mathcal{O}\left(\frac{N}{B} \log_2 \frac{N}{M}\right)$ & Arresta la ricorsione esterna quando i sottoproblemi hanno dimensione $\le M$, ordinandoli in RAM con 0 I/O. \\
+\midrule
+Bounded Max-Heap (Top-$k$) & \ref{cha:lecture-six} & $\mathcal{O}(n \log k)$ & $\mathcal{O}(k)$ heap & $0$ I/O (in RAM) & Mantiene un Max-Heap di $k$ elementi; eccellente per $k \ll n$, evitando l'ordinamento globale del dataset. \\
+\midrule
+Quickselect (Hoare) & \ref{cha:lecture-six} & $\mathcal{O}(n)$ medio / $\mathcal{O}(n^2)$ & $\mathcal{O}(\log n)$ ricors. & $\mathcal{O}(N/B)$ streaming & Scende nel solo ramo del pivot che racchiude il rango target; media teorica di $3.38\,n$ confronti atomici. \\
+\midrule
+Quickselect con Campionamento & \ref{cha:lecture-six} & $\mathcal{O}(n)$ medio & $\mathcal{O}(\log n)$ & $\mathcal{O}(N/B)$ streaming & Seleziona il pivot su un piccolo campione casuale, abbattendo i confronti attesi a $\approx 2n + o(n)$. \\
+\midrule
+Median-of-Medians (BFPRT) & \ref{cha:lecture-six} & $\mathcal{O}(n)$ deterministico & $\mathcal{O}(\log n)$ & $\mathcal{O}(N/B)$ & Partiziona a gruppi di 5; garantisce sbilanciamento massimo $30/70$. Costanti elevate per uso pratico. \\
+\midrule
+External Distribution Sort & \ref{chap:external-distribution-sort} & $\mathcal{O}(N \log N)$ & $\mathcal{O}(M)$ & $\mathcal{O}\left(\frac{N}{B} \log_{M/B} \frac{N}{M}\right)$ & Duale del Merge Sort: campiona $a \cdot k$ pivot con over-sampling $a = \Theta(\ln k)$ garantendo bucket bilanciati con alta probabilit\`a. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo degli algoritmi di ordinamento e selezione in memoria primaria e gerarchica.}
+\label{tab:sinottico-ordinamento-selezione}
+\end{table}
+
+\FloatBarrier
+\section{Dizionari, Strutture Dati Randomizzate e Flussi di Dati}
+\label{sec:sinottico-dizionari-streaming}
+
+La Tabella~\ref{tab:sinottico-dizionari-streaming} confronta le strutture dinamiche per dizionari e il campionamento su flussi continui (Capitoli~\ref{cha:lecture-two}, \ref{chap:random-sampling-data-streams}, \ref{chap:randomized-data-structures}, \ref{chap:randomized-search-trees-treaps}).
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{4.2cm} c >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{3.4cm} >{\raggedright\arraybackslash}p{6.6cm}}
+\toprule
+\textbf{Struttura / Algoritmo} & \textbf{Cap.} & \textbf{Tempo Operativo} & \textbf{Spazio RAM} & \textbf{I/O Disco (DAM)} & \textbf{Note Operative e Punti di Forza} \\
+\midrule
+$B$-Tree / $B^+$-Tree & \ref{cha:lecture-two} & $\mathcal{O}(\log_B N)$ per op. & Nodi su disco & $\mathcal{O}(\log_B N)$ & Albero bilanciato a grado elevato proporzionato a $B$; garantisce saturazione $\ge 50\%$ e range query ottime su foglie collegate ($B^+$). \\
+\midrule
+Rejection Sampling & \ref{chap:external-distribution-sort} & $\mathcal{O}(m)$ atteso & $\mathcal{O}(m)$ dizionario & $\mathcal{O}(m/B)$ & Estrae indici pseudo-random scartando le collisioni; subottimale per $m \to n$ e impraticabile su data stream infiniti. \\
+\midrule
+Reservoir Sampling (Algoritmo R) & \ref{chap:random-sampling-data-streams} & $\mathcal{O}(n)$ & $\mathcal{O}(m)$ campioni & $1$ passaggio streaming & Campiona $m$ elementi uniformi ($p = m/n$) su flussi a lunghezza $n$ a priori sconosciuta senza buffering su disco. \\
+\midrule
+Reservoir Sampling (Algoritmo Z) & \ref{chap:random-sampling-data-streams} & $\mathcal{O}(m(1 + \log(n/m)))$ & $\mathcal{O}(m)$ campioni & $1$ passaggio streaming & Algoritmo di Vitter: modella il numero di elementi da scartare come variabile aleatoria geometrica, riducendo le estrazioni random. \\
+\midrule
+Skip List (Pugh) & \ref{chap:randomized-data-structures} & Search/Insert: $\mathcal{O}(\log n)$ att. / $\mathcal{O}(n)$ w.c. & $\mathcal{O}(n)$ nodi attesi & RAM-oriented & Liste collegate a pi\`u livelli generate tramite lanci di moneta; evita rotazioni complesse offrendo parallelismo lock-free. \\
+\midrule
+Treap (Aragon-Seidel) & \ref{chap:randomized-search-trees-treaps} & Search/Insert: $\mathcal{O}(\log n)$ att. / $\mathcal{O}(n)$ w.c. & $\mathcal{O}(n)$ nodi & RAM-oriented & Combina ordinamento BST sulle chiavi con priorit\`a Max-Heap random; supporta \textsc{Split} e \textsc{Merge} in $\mathcal{O}(\log n)$ atteso. \\
+\midrule
+Albero Cartesiano (Stack Monotono) & \ref{chap:randomized-search-trees-treaps} & Costruzione: $\mathcal{O}(n)$ deterministica & $\mathcal{O}(n)$ & RAM-oriented & Costruito linearmente con stack; trasforma query RMQ su intervalli continui in query di Lowest Common Ancestor (LCA) $\mathcal{O}(1)$. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo delle strutture dati per dizionari, campionamento streaming e alberi cartesiani.}
+\label{tab:sinottico-dizionari-streaming}
+\end{table}
+
+\FloatBarrier
+\section{Intersezione di Liste e Algoritmi su Stringhe in RAM}
+\label{sec:sinottico-stringhe-ram}
+
+La Tabella~\ref{tab:sinottico-stringhe-ram} espone le tecniche di query processing su posting lists e le strutture ad albero per insiemi di stringhe (Capitoli da~\ref{chap:posting-lists-intersection} a~\ref{chap:trie-compatti-msd-radix-sort-autocompletamento}).
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{4.2cm} c >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{3.4cm} >{\raggedright\arraybackslash}p{6.6cm}}
+\toprule
+\textbf{Algoritmo / Struttura} & \textbf{Cap.} & \textbf{Tempo di Ricerca} & \textbf{Spazio Struttura} & \textbf{Costo Costruzione} & \textbf{Note Operative e Punti di Forza} \\
+\midrule
+Linear Merge-Scan & \ref{chap:posting-lists-intersection} & $\mathcal{O}(n_1 + n_2)$ & $\mathcal{O}(1)$ ausiliario & Liste gi\`a ordinate & Scansione sincrona a due puntatori; ottima per liste di cardinalit\`a bilanciata ($n_1 \approx n_2$). \\
+\midrule
+Binary Search Intersection & \ref{chap:posting-lists-intersection} & $\mathcal{O}(n_1 \log n_2)$ & $\mathcal{O}(1)$ ausiliario & Liste gi\`a ordinate & Esegue ricerca binaria per ciascun termine della lista corta nella lunga; indicata per $n_1 \ll n_2 / \log n_2$. \\
+\midrule
+Doubling / Galloping Search & \ref{chap:posting-lists-intersection} & $\mathcal{O}\left(n_1 \log \frac{n_2}{n_1}\right)$ & $\mathcal{O}(1)$ ausiliario & Liste gi\`a ordinate & \textbf{Ottimo asintotico informativo}: salti esponenziali $2^k$ seguiti da ricerca binaria nell'intervallo ristretto; eguaglia il lower bound. \\
+\midrule
+Skip Pointers su Blocchi & \ref{chap:posting-lists-intersection} & $\mathcal{O}\left(n_1 \log \frac{n_2}{n_1}\right)$ & $\mathcal{O}(\sqrt{n})$ puntatori & $\mathcal{O}(n)$ & Suddivide le liste in blocchi da $\sqrt{n}$ con puntatori di salto; massimizza il throughput hardware evitando decodifiche inutili. \\
+\midrule
+Interpolation Search & \ref{chap:string-sorting-search} & $\mathcal{O}(\log \log n)$ medio / $\mathcal{O}(n)$ w.c. & $\mathcal{O}(1)$ ausiliario & Array ordinato & Stima la posizione tramite interpolazione lineare; con vincolo a bucket (Bounded) assicura worst-case $\mathcal{O}(\log n)$. \\
+\midrule
+Multi-Key Quicksort & \ref{chap:string-sorting-search} & $\mathcal{O}(D + n \log n)$ & $\mathcal{O}(\log n + \max |s_i|)$ & In-place & Quicksort ternario a 3 vie ($<, =, >$) applicato al singolo carattere; non ricalcola caratteri gi\`a concordi ($D = \sum \text{lcp}$). \\
+\midrule
+Ternary Search Tree (TST) & \ref{chap:strutture-dati-stringhe-tst-radix-sort} & $\mathcal{O}(|P| + \log \Sigma)$ & $\mathcal{O}(n \cdot \bar{L})$ (3 puntatori/nodo) & $\mathcal{O}(D + n \log n)$ & Fonde la flessibilit\`a dei BST con la navigazione a prefisso dei Trie; ideale con alfabeti grandi e dizionari sparsi in RAM. \\
+\midrule
+LSD Radix Sort & \ref{chap:strutture-dati-stringhe-tst-radix-sort} & $\mathcal{O}(L \cdot (n + \Sigma))$ & $\mathcal{O}(n + \Sigma)$ ausiliario & — & Ordina da destra a sinistra con conteggio stabile; eccellente per chiavi a lunghezza fissa $L$ (es. indirizzi IP, hash). \\
+\midrule
+MSD Radix Sort & \ref{chap:trie-compatti-msd-radix-sort-autocompletamento} & $\mathcal{O}(D)$ (tempo ottimo) & $\mathcal{O}(\Sigma \cdot \max |s_i|)$ & — & Ordina dal carattere pi\`u significativo scendendo a bucket; richiede potatura a QuickSort per sottoinsiemi piccoli. \\
+\midrule
+Compact Trie (Patricia) & \ref{chap:trie-compatti-msd-radix-sort-autocompletamento} & $\mathcal{O}(|P|)$ & $\le 2n - 1$ nodi interni & $\mathcal{O}(D)$ & Comprime i cammini unari salvando l'indice di salto; elimina tutti i nodi interni a grado 1, garantendo linearit\`a nei nodi. \\
+\midrule
+Augmented Trie (Top-1) & \ref{chap:trie-compatti-msd-radix-sort-autocompletamento} & $\mathcal{O}(|P|)$ prefisso + $\mathcal{O}(1)$ risposta & $\mathcal{O}(n)$ & $\mathcal{O}(D)$ & Memorizza $\text{maxFreq}(u)$ e $\text{bestLeaf}(u)$; risponde a query di autocompletamento pesate in tempo $\mathcal{O}(1)$ alla fine del prefisso. \\
+\midrule
+Treap 2D per Stringhe & \ref{chap:trie-compatti-msd-radix-sort-autocompletamento} & Sub-lineare su range $I_P$ & $\mathcal{O}(n)$ & $\mathcal{O}(n \log n)$ & Combina ordine lessicografico BST con quote Max-Heap; consente pruning anticipato dei sottoalberi con frequenza inferiore al massimo corrente. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo per intersezione di posting lists, ordinamento di stringhe e alberi digitali.}
+\label{tab:sinottico-stringhe-ram}
+\end{table}
+
+\FloatBarrier
+\section{Indicizzazione Avanzata, Memoria Gerarchica e Sottostringhe}
+\label{sec:sinottico-indicizzazione-sottostringhe}
+
+La Tabella~\ref{tab:sinottico-indicizzazione-sottostringhe} raccoglie le strutture di indicizzazione esterna per stringhe e la ricerca di sottostringhe con Suffix Tree, Suffix Array e Array LCP (Capitoli da~\ref{chap:ricerca-stringhe-memoria-gerarchica} a~\ref{ch:kasai-lcp-dizionari-esterni-occorrenze-vicine}).
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{4.2cm} c >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{3.4cm} >{\raggedright\arraybackslash}p{6.6cm}}
+\toprule
+\textbf{Algoritmo / Tecnica} & \textbf{Cap.} & \textbf{Tempo di Ricerca} & \textbf{Spazio Struttura} & \textbf{I/O Disco (DAM)} & \textbf{Note Operative e Punti di Forza} \\
+\midrule
+Three-Phase Blind Search & \ref{chap:ricerca-stringhe-memoria-gerarchica} & $\mathcal{O}(|P|)$ & $\mathcal{O}(n)$ scheletro compresso & $\mathbf{1}$ \textbf{I/O deterministico} & \textbf{Discesa cieca in RAM $\to$ 1 I/O su disco $\to$ Risalita in RAM}: risolve ricerca esatta o predecessore con 1 solo accesso a blocco. \\
+\midrule
+Front-Coding su Blocchi & \ref{chap:ricerca-stringhe-memoria-gerarchica} & $\mathcal{O}(|P| + B)$ scansione & $20\%\text{--}30\%$ della taglia originale & $\mathcal{O}(1)$ blocco caricato & Comprime prefissi comuni consecutivi salvando $\langle \text{lcp}, \text{suffisso} \rangle$; record header non compresso per accesso casuale. \\
+\midrule
+Suffix Tree (Ukkonen) & \ref{ch:indicizzazione-ricerca-sottostringhe-suffix-array-tree} & $\mathcal{O}(|P|)$ o $\mathcal{O}(|P| \log \Sigma)$ & $20n\text{--}45n$ byte (ingombrante) & RAM-oriented & Albero compatto di tutti i suffissi; risolve occorrenze, sottostringhe ripetute e palindromi in tempo ottimo; footprint RAM elevato. \\
+\midrule
+Suffix Array (Dicotomico) & \ref{ch:indicizzazione-ricerca-sottostringhe-suffix-array-tree} & $\mathcal{O}(|P| \log n)$ & $n \log_2 n$ bit ($4n\text{--}8n$ byte) & RAM-oriented & Vettore compatto dei puntatori ai suffissi ordinati; individua l'intervallo contiguo $[L, R]$ con due ricerche binarie indipendenti. \\
+\midrule
+Suffix Array + LCP & \ref{ch:indicizzazione-ricerca-sottostringhe-suffix-array-tree} & $\mathcal{O}(|P| + \log n)$ & $SA + LCP \approx 8n$ byte & RAM-oriented & Sfrutta i prefissi condivisi memorizzati nell'array LCP per non riesaminare i caratteri certificati durante il dimezzamento binario. \\
+\midrule
+Algoritmo di Kasai et al. & \ref{ch:kasai-lcp-dizionari-esterni-occorrenze-vicine} & Costruzione: $\Theta(n)$ ($\le 3n$ confronti) & $\mathcal{O}(n)$ ausiliario ($Rank[1\dots n]$) & $0$ I/O (in RAM) & Calcola l'intero array LCP in tempo deterministico lineare processando i suffissi nell'ordine posizionale naturale $i = 1 \dots n$. \\
+\midrule
+Closest Occurrences (Tagged Merge) & \ref{ch:kasai-lcp-dizionari-esterni-occorrenze-vicine} & $\mathcal{O}(\text{range} + occ \log occ)$ & $\mathcal{O}(occ_P + occ_Q)$ & $0$ I/O (in RAM) & Localizza su $SA$ gli intervalli con sentinelle per $P$ e $Q$; fonde le liste e trova la minima distanza con scansione lineare adiacente. \\
+\midrule
+Distinct Strings Count (Blind Trie) & \ref{ch:kasai-lcp-dizionari-esterni-occorrenze-vicine} & $\mathcal{O}(N_{\text{tot}})$ & $\mathcal{O}(d)$ nodi in RAM & $d$ I/O ($1$ per stringa distinta) & Conteggio stringhe distinte in memoria esterna: mantiene il solo scheletro compresso in RAM, verificando su disco solo i nuovi candidati. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo per indicizzazione gerarchica, strutture per sottostringhe e algoritmi su Suffix Array.}
+\label{tab:sinottico-indicizzazione-sottostringhe}
+\end{table}
