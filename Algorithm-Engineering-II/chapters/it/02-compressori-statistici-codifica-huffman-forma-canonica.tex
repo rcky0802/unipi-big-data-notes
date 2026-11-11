@@ -1,0 +1,662 @@
+\chapter{Compressori Statistici, Codifica di Huffman e Forma Canonica}
+\label{ch:compressori-statistici-huffman-canonica}
+
+\section{Introduzione ai Compressori Statistici e Modello Semi-Statico}
+\label{sec:intro-compressori-statistici}
+
+Nei sistemi di compressione dati basati su modelli statistici, la progettazione del codice fa leva sulla frequenza empirica o sulla probabilit\`a a priori dei simboli emessi dalla sorgente. All'interno di questa famiglia, l'approccio \textbf{semi-statico} (o a due passate) costituisce uno standard di riferimento fondamentale:
+\begin{enumerate}
+  \item \textbf{Prima passata (Modellazione):} il codificatore scansiona l'intero flusso di ingresso per calcolare le frequenze assolute di emissione di ciascun simbolo e derivarne la distribuzione empirica di probabilit\`a;
+  \item \textbf{Seconda passata (Codifica):} sulla base delle probabilit\`a calcolate viene sintetizzato un codice ottimo privo di prefisso (\textit{prefix-free code}), con cui il testo viene trasformato nel corpo del file compresso (\autoref{sec:architettura-semi-statico}).
+\end{enumerate}
+
+L'algoritmo progettato da David Huffman nel 1950 (e formalmente pubblicato nel 1952 \cite{huffman1952}) rappresenta la soluzione esatta al problema di determinare, per una data distribuzione di probabilit\`a su un alfabeto finito, un codice binario privo di prefisso avente la \textbf{minima lunghezza media attesa}.
+
+\FloatBarrier
+\subsection{Definizione Formale della Sorgente e Distribuzione Assegnata}
+\label{subsec:modello-sorgente-huffman}
+
+Per analizzare le propriet\`a dell'algoritmo, consideriamo una sorgente discreta di informazione definita su un alfabeto finito composto da $\vert A \vert = 6$ simboli distinti:
+\begin{equation}
+  A = \{a, b, c, d, e, f\}
+\end{equation}
+
+A ciascun simbolo $\sigma \in A$ \`e associata una probabilit\`a di emissione nota a priori:
+\begin{align}
+  p(a) &= 0.05, \quad p(b) = 0.10, \quad p(c) = 0.15, \nonumber \\
+  p(d) &= 0.30, \quad p(e) = 0.25, \quad p(f) = 0.15
+\end{align}
+
+La distribuzione soddisfa rigorosamente l'assioma di normalizzazione su spazi discreti:
+\begin{equation}
+  \sum_{\sigma \in A} p(\sigma) = 0.05 + 0.10 + 0.15 + 0.30 + 0.25 + 0.15 = 1.00
+\end{equation}
+
+\FloatBarrier
+\section{Costruzione dell'Albero di Huffman: Approccio Greedy}
+\label{sec:costruzione-albero-huffman}
+
+La sintesi dell'albero di codifica nell'algoritmo di Huffman segue una strategia \textbf{ingorda} (\textit{greedy approach}) di tipo bottom-up. L'invariante costruttivo cardine pu\`o essere compendiato nella regola operativa:
+\begin{equation}
+  \text{\textit{``Merge first the smallest probabilities together.''}}
+\end{equation}
+
+\FloatBarrier
+\subsection{Derivazione Passo-Passo delle Fusioni}
+\label{subsec:passi-fusione-huffman}
+
+L'algoritmo mantiene una foresta di nodi pesati, in cui ciascun albero rappresenta un simbolo singolo o un raggruppamento composito. Ad ogni iterazione, vengono estratti i due nodi di peso minimo e fusi in un nuovo nodo padre la cui probabilit\`a \`e pari alla somma dei pesi dei figli (la cui struttura finale converge nell'albero di \autoref{fig:albero-huffman-completo}):
+
+\begin{enumerate}
+  \item \textbf{Passo 1 (Fusione di $a$ e $b$):} 
+  Tra i pesi disponibili nella foresta iniziale $\{a: 0.05, \; b: 0.10, \; c: 0.15, \; f: 0.15, \; e: 0.25, \; d: 0.30\}$, i due minimi assoluti sono $a$ ($0.05$) e $b$ ($0.10$). Viene generato il nodo intermedio $ab$ di peso:
+  \begin{equation}
+    p(ab) = 0.05 + 0.10 = 0.15
+  \end{equation}
+  Foresta attiva: $\{ab: 0.15, \; c: 0.15, \; f: 0.15, \; e: 0.25, \; d: 0.30\}$.
+
+  \item \textbf{Passo 2 (Fusione di $c$ e $f$):} 
+  I due nodi a peso minimo nella nuova configurazione sono $c$ ($0.15$) e $f$ ($0.15$). La loro fusione genera il nodo intermedio $cf$:
+  \begin{equation}
+    p(cf) = 0.15 + 0.15 = 0.30
+  \end{equation}
+  Foresta attiva: $\{ab: 0.15, \; e: 0.25, \; cf: 0.30, \; d: 0.30\}$.
+
+  \item \textbf{Passo 3 (Fusione di $ab$ ed $e$):} 
+  I due elementi correnti a peso minimo sono il sottoalbero $ab$ ($0.15$) e la foglia $e$ ($0.25$). La loro unione d\`a origine al macro-nodo $abe$:
+  \begin{equation}
+    p(abe) = 0.15 + 0.25 = 0.40
+  \end{equation}
+  Foresta attiva: $\{cf: 0.30, \; d: 0.30, \; abe: 0.40\}$.
+
+  \item \textbf{Passo 4 (Fusione di $cf$ e $d$):} 
+  I minimi correnti sono il nodo $cf$ ($0.30$) e la foglia $d$ ($0.30$). Viene generato il nodo composito $cfd$:
+  \begin{equation}
+    p(cfd) = 0.30 + 0.30 = 0.60
+  \end{equation}
+  Foresta attiva: $\{abe: 0.40, \; cfd: 0.60\}$.
+
+  \item \textbf{Passo 5 (Fusione Finale alla Radice):} 
+  I due sottoalberi residui vengono collegati alla radice dell'albero globale, completando la struttura:
+  \begin{equation}
+    p_{\text{root}} = 0.40 + 0.60 = 1.00
+  \end{equation}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Topologia dell'Albero ed Estrazione delle Parole di Codice}
+\label{subsec:topologia-albero-huffman}
+
+Fissata la convenzione topologica che associa il bit \texttt{0} ad ogni diramazione sinistra e il bit \texttt{1} ad ogni diramazione destra, l'albero risultante assume la configurazione illustrata in \autoref{fig:albero-huffman-completo}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    intnode/.style={circle, draw=navy!85, fill=navy!10, thick, minimum size=0.85cm, inner sep=1pt, font=\scriptsize\bfseries, align=center},
+    leafnode/.style={rectangle, draw=darkgreen!85, fill=darkgreen!12, thick, rounded corners=3pt, minimum width=1.1cm, minimum height=0.95cm, font=\small\bfseries, align=center},
+    edge from parent/.style={draw=black!70, thick},
+    level 1/.style={sibling distance=6.0cm, level distance=1.3cm},
+    level 2/.style={sibling distance=3.0cm, level distance=1.3cm},
+    level 3/.style={sibling distance=1.6cm, level distance=1.3cm}
+]
+
+% Radice
+\node[intnode] (root) at (0, 0) {$1.00$}
+    % Sottoalbero Sinistro (abe)
+    child {
+        node[intnode] (abe) {$0.40$}
+        child {
+            node[intnode] (ab) {$0.15$}
+            child {
+                node[leafnode] (a) {$a$\\{\tiny $0.05$}}
+                edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+            }
+            child {
+                node[leafnode] (b) {$b$\\{\tiny $0.10$}}
+                edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+            }
+            edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+        }
+        child {
+            node[leafnode] (e) {$e$\\{\tiny $0.25$}}
+            edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+        }
+        edge from parent node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0}
+    }
+    % Sottoalbero Destro (cfd)
+    child {
+        node[intnode] (cfd) {$0.60$}
+        child {
+            node[intnode] (cf) {$0.30$}
+            child {
+                node[leafnode] (c) {$c$\\{\tiny $0.15$}}
+                edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+            }
+            child {
+                node[leafnode] (f) {$f$\\{\tiny $0.15$}}
+                edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+            }
+            edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+        }
+        child {
+            node[leafnode] (d) {$d$\\{\tiny $0.30$}}
+            edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+        }
+        edge from parent node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1}
+    };
+
+% Didascalie di livello a sinistra, ben distanziate dall'albero
+\node at (-6.8, 0) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 0};
+\node at (-6.8, -1.3) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 1};
+\node at (-6.8, -2.6) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 2};
+\node at (-6.8, -3.9) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 3};
+
+\draw[densely dashed, color=black!25] (-6.7, 0) -- (-0.6, 0);
+\draw[densely dashed, color=black!25] (-6.7, -1.3) -- (-3.5, -1.3);
+\draw[densely dashed, color=black!25] (-6.7, -2.6) -- (-5.0, -2.6);
+\draw[densely dashed, color=black!25] (-6.7, -3.9) -- (-5.95, -3.9);
+
+\end{tikzpicture}
+\caption{Albero binario di Huffman ottenuto dall'applicazione dell'algoritmo greedy sui 6 simboli della sorgente. I cerchi blu denotano i nodi interni con la probabilit\`a cumulata, mentre i rettangoli verdi rappresentano le foglie associate ai singoli simboli con la rispettiva probabilit\`a.}
+\label{fig:albero-huffman-completo}
+\end{figure}
+
+Seguendo il percorso orientato dalla radice verso ciascuna foglia, si deducono in modo univoco le relative parole di codice (\textit{codewords}):
+\begin{itemize}
+  \item $\mathbf{a}$ (Sinistra $\to$ Sinistra $\to$ Sinistra): $\texttt{000}$ (lunghezza: $3\text{ bit}$);
+  \item $\mathbf{b}$ (Sinistra $\to$ Sinistra $\to$ Destra): $\texttt{001}$ (lunghezza: $3\text{ bit}$);
+  \item $\mathbf{e}$ (Sinistra $\to$ Destra): $\texttt{01}$ (lunghezza: $2\text{ bit}$);
+  \item $\mathbf{c}$ (Destra $\to$ Sinistra $\to$ Sinistra): $\texttt{100}$ (lunghezza: $3\text{ bit}$);
+  \item $\mathbf{f}$ (Destra $\to$ Sinistra $\to$ Destra): $\texttt{101}$ (lunghezza: $3\text{ bit}$);
+  \item $\mathbf{d}$ (Destra $\to$ Destra): $\texttt{11}$ (lunghezza: $2\text{ bit}$).
+\end{itemize}
+
+\FloatBarrier
+\section{Analisi di Ottimalit\`a e Limiti Teorici di Efficienza}
+\label{sec:ottimalita-limiti-teorici}
+
+\subsection{Verifica Numerica della Lunghezza Media e Confronto Entropico}
+\label{subsec:calcolo-lunghezza-media}
+
+La lunghezza media attesa del codice di Huffman sintetizzato \`e calcolata come speranza matematica ponderata sulle probabilit\`a dei simboli (\autoref{tab:codici-lunghezze-huffman}):
+\begin{equation}
+  L(C) = \sum_{\sigma \in A} p(\sigma) \cdot \vert c(\sigma) \vert
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro sinottico delle parole di codice, lunghezze e contributi alla lunghezza media attesa.}
+\label{tab:codici-lunghezze-huffman}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Simbolo $\sigma$} & \textbf{Probabilit\`a $p(\sigma)$} & \textbf{Codeword $c(\sigma)$} & \textbf{Lunghezza $\vert c(\sigma) \vert$} & \textbf{Contributo $p(\sigma) \vert c(\sigma) \vert$} \\
+\midrule
+$a$ & $0.05$ & \texttt{000} & 3 & $0.05 \times 3 = 0.15\text{ bit}$ \\
+$b$ & $0.10$ & \texttt{001} & 3 & $0.10 \times 3 = 0.30\text{ bit}$ \\
+$c$ & $0.15$ & \texttt{100} & 3 & $0.15 \times 3 = 0.45\text{ bit}$ \\
+$d$ & $0.30$ & \texttt{11}  & 2 & $0.30 \times 2 = 0.60\text{ bit}$ \\
+$e$ & $0.25$ & \texttt{01}  & 2 & $0.25 \times 2 = 0.50\text{ bit}$ \\
+$f$ & $0.15$ & \texttt{101} & 3 & $0.15 \times 3 = 0.45\text{ bit}$ \\
+\midrule
+\textbf{Totale} & $\mathbf{1.00}$ & --- & --- & $\mathbf{L(C) = 2.45\text{ bit/simb}}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Calcolando l'entropia della sorgente $H(S)$ secondo la definizione di Shannon \cite{shannon1948}:
+\begin{align}
+  H(S) &= -\sum_{\sigma \in A} p(\sigma) \log_2 p(\sigma) \nonumber \\
+  &= - \Big( 0.05 \log_2 0.05 + 0.10 \log_2 0.10 + 2 \times 0.15 \log_2 0.15 \nonumber \\
+  &\qquad + 0.25 \log_2 0.25 + 0.30 \log_2 0.30 \Big) \nonumber \\
+  &\approx 0.2161 + 0.3322 + 0.8211 + 0.5000 + 0.5211 \approx \mathbf{2.3905\text{ bit/simbolo}}
+\end{align}
+
+Si constata immediatamente che:
+\begin{equation}
+  H(S) \approx 2.3905 \le L(C) = 2.45 < H(S) + 1 \approx 3.3905
+\end{equation}
+La ridondanza del codice di Huffman rispetto all'ottimo ideale \`e contenuta in appena:
+\begin{equation}
+  R = L(C) - H(S) \approx 2.45 - 2.3905 = 0.0595\text{ bit/simbolo}
+\end{equation}
+
+\FloatBarrier
+\subsection{Il Limite Discreto: ``We Cannot Fractionate the Bits''}
+\label{subsec:frazionamento-bit}
+
+Il teorema di Shannon sancisce che il limite inferiore teorico assoluto (\textit{theoretic lower bound}) per la compressione priva di perdite \`e dato da $H(S)$. L'algoritmo di Huffman rappresenta il \textbf{miglior compressore reale a livello di singolo simbolo} (\textit{real best compressor}):
+\begin{itemize}
+  \item Per eguagliare esattamente l'entropia ($L(C) = H(S)$), ciascun simbolo dovrebbe essere codificato con un numero ideale di bit pari alla propria auto-informazione:
+  \begin{equation}
+    \ell^*(\sigma) = \log_2 \frac{1}{p(\sigma)}
+  \end{equation}
+  \item In qualsiasi compressore reale che opera mappando singoli simboli in parole binarie, la lunghezza del codice \`e vincolata all'insieme dei numeri interi positivi:
+  \begin{equation}
+    \vert c(\sigma) \vert \in \mathbb{N}^+ = \{1, 2, 3, \dots\}
+  \end{equation}
+  Poich\'e non \`e fisicamente possibile frazionare i bit (\textit{``Because we cannot fractionate the bits''}), $\vert c(\sigma) \vert$ costituisce un'approssimazione intera di $\log_2 \frac{1}{p(\sigma)}$, generando una discrepanza intrinseca ineliminabile.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Punti di Forza e Criticit\`a Operative (Pros \& Cons)}
+\label{subsec:pro-cons-huffman}
+
+L'analisi ingegneristica dell'algoritmo di Huffman evidenzia un netto contrasto tra semplicit\`a teorica e complessit\`a computazionale di runtime:
+
+\begin{itemize}
+  \item \textbf{Vantaggi (Pros):}
+  \begin{enumerate}
+    \item \textit{Semplicit\`a algoritmica:} l'implementazione basata su code a priorit\`a (\textit{min-heap}) richiede tempo $\BigO{\vert A \vert \log \vert A \vert}$ (o $\BigO{\vert A \vert}$ se i simboli sono gi\`a ordinati per frequenza);
+    \item \textit{Ottimalit\`a matematica dimostrata:} nessun altro codice privo di prefisso basato su simboli isolati pu\`o produrre una lunghezza media inferiore.
+  \end{enumerate}
+
+  \item \textbf{Svantaggi e Criticit\`a (Cons):}
+  \begin{enumerate}
+    \item \textit{Decodifica intrinsecamente lenta:} nella decodifica standard basata su albero binario, ogni singolo bit in ingresso richiede il dereferenziamento di un puntatore di memoria (ramo \texttt{0} verso sinistra, ramo \texttt{1} verso destra);
+    \item \textit{Penalizzazioni da cache miss:} a causa dell'imprevedibilit\`a statistica dei bit di input, i cammini attraverso i nodi dell'albero degradano la localit\`a dei riferimenti, innescando continui fallimenti della cache della CPU (\textit{cache misses}) e stalli della pipeline di esecuzione (\textit{branch mispredictions}).
+  \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\section{Teorema sull'Efficienza di Huffman ed Effetto della Distribuzione}
+\label{sec:teorema-efficienza-distribuzione}
+
+\begin{theorem}[Teorema dell'Efficienza di Huffman]
+\label{thm:efficienza-huffman}
+Sia $S$ una sorgente discreta con alfabeto finito $A$ ed entropia $H(S)$. La lunghezza media del codice di Huffman $L(C)$ \`e rigorosamente delimitata dalla doppia disuguaglianza:
+\begin{equation}
+  H(S) \le L(C) < H(S) + 1
+\end{equation}
+\end{theorem}
+
+Il teorema stabilisce che la lunghezza media del codice ottimo differisce dall'entropia teorica per \textbf{meno di 1 bit per simbolo}.
+
+\FloatBarrier
+\subsection{Dimensione Complessiva del File Compresso}
+\label{subsec:dimensione-complessiva-file}
+
+Estendendo il risultato a una sequenza di $m$ simboli emessi dalla sorgente ($m = \text{\# SIMBOLI DA COMPRIMERE}$), la dimensione complessiva del corpo del file compresso in bit soddisfa i limiti (\autoref{fig:schema-dimensione-output}):
+\begin{equation}
+  m \cdot H(S) \le \text{Dimensione Compressa (bit)} < m \cdot H(S) + m
+\end{equation}
+
+Il termine $+m$ rappresenta il \textbf{sovraccosto additivo massimo} (\textit{extra cost w.r.t. entropy}) generato dall'arrotondamento all'intero della lunghezza delle parole di codice.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.95,
+    every node/.style={transform shape}
+]
+% Asse orizzontale dei bit totali
+\draw[->, >=stealth, thick, black!70] (0.6, 0) -- (12.2, 0) 
+    node[right, font=\small\bfseries, color=black!80] {Bit totali};
+
+% Limite inferiore: Minimo Teorico di Shannon
+\draw[very thick, navy!90] (2.0, -0.2) -- (2.0, 0.25);
+\node[below=4pt, align=center, font=\small] at (2.0, -0.2) {
+    \textbf{\color{navy!90}Minimo Shannon}\\[2pt]
+    \color{navy!80}$m \cdot H(S)$
+};
+
+% Limite superiore: Tetto Massimo di Huffman
+\draw[very thick, crimson!85] (10.5, -0.2) -- (10.5, 0.25);
+\node[below=4pt, align=center, font=\small] at (10.5, -0.2) {
+    \textbf{\color{crimson!90}Limite Superiore}\\[2pt]
+    \color{crimson!80}$m \cdot H(S) + m$
+};
+
+% Box dell'output effettivo: coincide esattamente con l'intervallo ammissibile [m*H(S), m*H(S) + m)
+\draw[thick, darkgreen!85, fill=darkgreen!10, rounded corners=5pt] 
+    (2.0, 0.25) rectangle (10.5, 1.35);
+
+\node at (6.25, 0.8) [align=center, font=\small] {
+    \textbf{\color{darkgreen!85!black}Dimensione Effettiva Output: }\color{darkgreen!90!black}$m \cdot L(C)$\\[3pt]
+    {\footnotesize\color{black!75}$m \cdot H(S) \;\le\; m \cdot L(C) \;<\; m \cdot H(S) + m$}
+};
+
+% Parentesi graffa inferiore posizionata sotto le etichette con ampio spazio libero
+\draw[thick, decoration={brace, mirror}, decorate, crimson!85] 
+    (2.0, -1.5) -- (10.5, -1.5) 
+    node[midway, below=6pt, font=\small\bfseries, color=crimson!90] {
+        Overhead di discretizzazione: al pi\`u $+m\text{ bit}$ rispetto a Shannon
+    };
+
+\end{tikzpicture}
+\caption{Delimitazione della dimensione dell'output di Huffman per $m$ simboli: il corpo compresso \`e rigorosamente compreso tra il minimo teorico shannoniano $m \cdot H(S)$ e il tetto massimo $m \cdot H(S) + m$ bit.}
+\label{fig:schema-dimensione-output}
+\end{figure}
+
+\FloatBarrier
+\subsection{Comportamento Asintotico al Variare della Distribuzione}
+\label{subsec:comportamento-asintotico-distribuzione}
+
+L'impatto percentuale dell'overhead di $1\text{ bit}$ per simbolo diverge radicalmente a seconda della forma della distribuzione di probabilit\`a:
+
+\begin{enumerate}
+  \item \textbf{Sorgente Fortemente Sbilanciata ($H(S) \to 0$, Skewed Source):}
+  \begin{itemize}
+    \item Si consideri una sorgente in cui un singolo simbolo domina quasi per intero il flusso (ad es. $p(\sigma_1) = 0.999$, $p(\sigma_2) = 0.001$), per cui l'entropia reale \`e prossima a zero: $H(S) \approx 0.01\text{ bit/simbolo}$;
+    \item Poich\'e nessun codice privo di prefisso pu\`o assegnare a un simbolo una parola di lunghezza inferiore a $1\text{ bit}$ ($\vert c(\sigma) \vert \ge 1$), Huffman \`e costretto ad allocare almeno $1\text{ bit}$ per ciascun simbolo;
+    \item In tale regime, \textbf{Huffman offre prestazioni scadenti} (\textit{``Huffman is bad / loses a lot''}): spendere $1\text{ bit}$ a fronte di un limite teorico di $0.01\text{ bit}$ comporta un incremento di dimensione pari a 100 volte il limite di Shannon ($+10000\%$). In questi scenari si rivelano indispensabili compressori a blocchi (Run-Length Encoding) o compressori aritmetici/ANS.
+  \end{itemize}
+
+  \item \textbf{Sorgente Uniforme ($H(S) \to \log_2 \vert A \vert$, Uniform Source):}
+  \begin{itemize}
+    \item Si consideri una sorgente con distribuzione quasi uniforme su un alfabeto ampio (ad es. byte, $\vert A \vert = 256$), in cui $H(S) \approx \log_2 256 = 8\text{ bit/simbolo}$;
+    \item In questa situazione, la sorgente \`e intrinsecamente poco comprimibile, e le parole di codice di Huffman hanno lunghezze intorno a $8\text{ bit}$;
+    \item L'overhead additivo di frazione di bit incide in misura del tutto trascurabile (\textit{``$+1$ bit is nothing''}): un costo aggiuntivo di al pi\`u $1\text{ bit}$ su una parola da $8\text{ bit}$ corrisponde a una deviazione percentuale minima. In tale scenario \textbf{Huffman \`e pienamente soddisfacente}.
+  \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\section{Architettura del File Semi-Statico e Limiti degli Alberi Standard}
+\label{sec:architettura-semi-statico}
+
+Nelle applicazioni reali, il flusso compresso prodotto da un modello statistico semi-statico deve essere memorizzato o trasmesso in un file autosufficiente:
+\begin{equation}
+  \text{File Compresso} = \big[ \, \text{PREAMBLE} \; \big\vert \; \text{COMPRESSED BODY} \, \big]
+\end{equation}
+
+Quando l'alfabeto di riferimento \`e orientato ai byte (standard de facto nei sistemi informatici reali):
+\begin{equation}
+  A = \text{BYTE} \implies \vert A \vert = 256 = 2^8\text{ simboli}
+\end{equation}
+
+Memorizzare direttamente l'albero di Huffman standard con la sua topologia e i puntatori all'interno del preambolo comporta tre gravi criticit\`a:
+\begin{enumerate}
+  \item \textbf{Overhead di memoria elevato:} serializzare la struttura di puntatori di un albero con centinaia di nodi consuma prezioso spazio nel preambolo, vanificando il guadagno di compressione sui file di piccole o medie dimensioni;
+  \item \textbf{Incompatibilit\`a tra architetture:} la serializzazione dei puntatori richiede convenzioni su indirizzamento ed endianness;
+  \item \textbf{Decodifica inefficiente:} il decodificatore deve ricostruire l'albero dinamico in RAM e navigarlo bit per bit con dereferenziazione di puntatori, saturando la banda della cache del processore.
+\end{enumerate}
+
+\FloatBarrier
+\section{Propriet\`a Strutturali e Combinatorie degli Alberi di Huffman}
+\label{sec:proprieta-strutturali-huffman}
+
+L'analisi geometrica e combinatoria degli alberi binari di Huffman rivela tre propriet\`a fondamentali.
+
+\begin{property}[Numero di Nodi Interni]
+\label{prop:nodi-interni}
+In qualsiasi albero binario completo (\textit{strictly binary tree}) con $\vert A \vert$ foglie, il numero complessivo di nodi interni \`e invariabilmente pari a:
+\begin{equation}
+  \#\text{NODI INTERNI} = \vert A \vert - 1
+\end{equation}
+\end{property}
+\begin{proof}
+Ogni iterazione dell'algoritmo di Huffman estrae esattamente 2 nodi e inserisce 1 nuovo nodo padre intermedio, riducendo la cardinalit\`a della foresta di 1. Partendo da $\vert A \vert$ radici e arrestandosi a 1 radice finale, si compiono esattamente $\vert A \vert - 1$ fusioni, ciascuna delle quali genera un distinto nodo interno.
+\end{proof}
+
+\begin{property}[Molteplicit\`a di Codici Ottimi Equivalenti]
+\label{prop:molteplicita-codici}
+Dato un albero di Huffman con $\vert A \vert$ foglie, esistono esattamente:
+\begin{equation}
+  2^{\vert A \vert - 1} \text{ codici ottimi distinti}
+\end{equation}
+aventi la medesima lunghezza media attesa $L(C)$ e le stesse lunghezze delle parole di codice.
+\end{property}
+\begin{proof}
+Ciascuno dei $\vert A \vert - 1$ nodi interni possiede due rami uscenti a cui vengono assegnate le etichette binarie \texttt{0} e \texttt{1}. Invertendo arbitrariamente l'assegnazione delle etichette (ramo sinistro $= 1$, ramo destro $= 0$) su un qualsiasi nodo interno, le profondit\`a di tutte le foglie rimangono inalterate e la propriet\`a di prefisso \`e rigorosamente conservata. Poich\'e vi sono $\vert A \vert - 1$ scelte binarie indipendenti, lo spazio dei codici isomorfi ha cardinalit\`a $2^{\vert A \vert - 1}$.
+\end{proof}
+
+\begin{property}[Non Esaustivit\`a della Procedura Standard]
+\label{prop:non-esaustivita}
+Esistono configurazioni di codici ottimi a lunghezza variabile che soddisfano il minimo teorico di lunghezza media ma che non possono essere derivate direttamente dall'esecuzione deterministica dell'algoritmo greedy standard di Huffman:
+\begin{equation}
+  \exists \, C^* \text{ ottimo} \quad \text{tale che} \quad C^* \notin \text{HuffmanStandard}(A, p)
+\end{equation}
+\end{property}
+
+\FloatBarrier
+\section{Codifica Canonica di Huffman (Canonical Huffman)}
+\label{sec:codifica-canonica-huffman}
+
+La \textbf{codifica canonica di Huffman} (sviluppata formalmente da Schwartz e Kallick e perfezionata da Hirschberg e Lelewer \cite{hirschberg1990, moffat1997}) risolve in modo definitivo i limiti prestazionali e di occupazione di memoria degli alberi binari standard:
+\begin{itemize}
+  \item Sfrutta il fatto che l'ottimalit\`a del codice dipende \textbf{esclusivamente dall'insieme delle lunghezze} delle parole di codice $\{\vert c(\sigma) \vert\}$, e non dalla specifica conformazione geometrica dell'albero;
+  \item Riorganizza le parole di codice secondo una sequenza numerica strettamente ordinata e compatta;
+  \item Elimina completamente la necessit\`a di memorizzare o navigare alberi a puntatori, consentendo la decodifica istantanea basata su comparazioni aritmetiche tra registri interi.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Definizione delle Strutture Dati Fondamentali}
+\label{subsec:strutture-dati-canonica}
+
+Sia $L$ la massima lunghezza di parola di codice presente nell'albero ($L = \max_{\sigma} \vert c(\sigma) \vert$). Il formalismo canonico definisce tre strutture dati di supporto:
+
+\begin{definition}[Vettore $\text{NUM}$]
+Il vettore $\text{NUM}[1 \dots L]$ \`e un array di interi in cui ogni elemento $\text{NUM}[\ell]$ indica il numero totale di simboli dell'alfabeto associati a parole di codice di lunghezza esattamente pari a $\ell$:
+\begin{equation}
+  \text{NUM}[\ell] = \big\vert \{ \sigma \in A : \vert c(\sigma) \vert = \ell \} \big\vert, \quad \forall \ell \in \{1, \dots, L\}
+\end{equation}
+\end{definition}
+
+\begin{definition}[Tabella $\text{SYMB}$]
+La struttura $\text{SYMB}[1 \dots L]$ memorizza, per ciascuna lunghezza $\ell$, l'elenco ordinato (lessicograficamente) dei simboli aventi parola di codice di lunghezza $\ell$:
+\begin{equation}
+  \text{SYMB}[\ell] = \langle \sigma_{i_1}, \sigma_{i_2}, \dots, \sigma_{i_{\text{NUM}[\ell]}} \rangle
+\end{equation}
+\end{definition}
+
+\begin{definition}[Vettore $FC$ (First Code)]
+Il vettore $FC[1 \dots L]$ memorizza il valore intero associato alla \textbf{prima parola di codice} (codice lessicograficamente minimo) di lunghezza $\ell$.
+\end{definition}
+
+\FloatBarrier
+\section{Esempio Completo di Costruzione del Codice Canonico}
+\label{sec:esempio-costruzione-canonico}
+
+Si consideri l'esempio didattico analizzato nel corso, basato su un alfabeto di $\vert A \vert = 7$ simboli:
+\begin{equation}
+  A = \{a, b, c, d, e, f, g\}
+\end{equation}
+con un albero di Huffman di profondit\`a massima $L = 4$. Il numero di nodi interni \`e $\#\text{NODI INTERNI} = 7 - 1 = 6$.
+
+\FloatBarrier
+\subsection{Calcolo dei Vettori $\text{NUM}$ e $\text{SYMB}$}
+\label{subsec:vettori-num-symb-esempio}
+
+Analizzando la profondit\`a a cui sono collocate le foglie nell'albero di partenza:
+\begin{itemize}
+  \item Livello $\ell = 1$: 1 foglia ($g$) $\implies \text{NUM}[1] = 1, \; \text{SYMB}[1] = [g]$;
+  \item Livello $\ell = 2$: nessuna foglia $\implies \text{NUM}[2] = 0, \; \text{SYMB}[2] = \emptyset$;
+  \item Livello $\ell = 3$: 2 foglie ($c, d$) $\implies \text{NUM}[3] = 2, \; \text{SYMB}[3] = [c, d]$;
+  \item Livello $\ell = 4$: 4 foglie ($a, b, e, f$) $\implies \text{NUM}[4] = 4, \; \text{SYMB}[4] = [a, b, e, f]$.
+\end{itemize}
+
+Il vettore complessivo delle occorrenze di lunghezza \`e:
+\begin{equation}
+  \text{NUM}[1 \dots 4] = [1, \, 0, \, 2, \, 4]
+\end{equation}
+
+\FloatBarrier
+\subsection{Calcolo Ricorsivo di $FC[\ell]$ (Formula Bottom-Up)}
+\label{subsec:formula-ricorsiva-fc}
+
+Nella formalizzazione adottata nelle lezioni di Algorithm Engineering, il vettore dei primi codici $FC[\ell]$ viene calcolato risalendo dall'estremit\`a inferiore dell'albero (livello massimo $L = 4$) verso la radice ($\ell = 1$), applicando la formula di ricorrenza:
+\begin{equation}
+  \begin{cases}
+    FC[L] = 0 \\
+    FC[\ell - 1] = \left\lfloor \dfrac{FC[\ell] + \text{NUM}[\ell]}{2} \right\rfloor, \quad \text{per } \ell = L, L-1, \dots, 2
+  \end{cases}
+\end{equation}
+
+Applicando la formula passo dopo passo:
+\begin{enumerate}
+  \item \textbf{Inizializzazione ($\ell = 4$):}
+  \begin{equation}
+    FC[4] = 0 \qquad (0000_2)
+  \end{equation}
+  \item \textbf{Livello $\ell = 3$:}
+  \begin{equation}
+    FC[3] = \left\lfloor \frac{FC[4] + \text{NUM}[4]}{2} \right\rfloor = \left\lfloor \frac{0 + 4}{2} \right\rfloor = \mathbf{2} \qquad (010_2)
+  \end{equation}
+  \item \textbf{Livello $\ell = 2$:}
+  \begin{equation}
+    FC[2] = \left\lfloor \frac{FC[3] + \text{NUM}[3]}{2} \right\rfloor = \left\lfloor \frac{2 + 2}{2} \right\rfloor = \mathbf{2} \qquad (10_2)
+  \end{equation}
+  \item \textbf{Livello $\ell = 1$:}
+  \begin{equation}
+    FC[1] = \left\lfloor \frac{FC[2] + \text{NUM}[2]}{2} \right\rfloor = \left\lfloor \frac{2 + 0}{2} \right\rfloor = \mathbf{1} \qquad (1_2)
+  \end{equation}
+\end{enumerate}
+
+Il quadro riassuntivo dei parametri canonici per ciascun livello \`e sintetizzato in \autoref{tab:parametri-canonici-livello}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro riepilogativo delle strutture canoniche: livello $\ell$, conteggio $\text{NUM}$, primo codice $FC$ e simboli associati.}
+\label{tab:parametri-canonici-livello}
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tabular}{ccccl}
+\toprule
+\textbf{Livello $\ell$} & \textbf{$\text{NUM}[\ell]$} & \textbf{$FC[\ell]$ (Decimale)} & \textbf{$FC[\ell]$ (Binario)} & \textbf{Simboli $\text{SYMB}[\ell]$} \\
+\midrule
+\textbf{4} & 4 & $0$ & $0000_2$ & $[a, b, e, f]$ \\
+\textbf{3} & 2 & $2$ & $010_2$  & $[c, d]$ \\
+\textbf{2} & 0 & $2$ & $10_2$   & $\emptyset$ (nessun simbolo) \\
+\textbf{1} & 1 & $1$ & $1_2$    & $[g]$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Analisi Critica: I ``Prefissi Fittizi'' e la Correttezza Formale}
+\label{subsec:prefissi-fittizi}
+
+Osservando il valore calcolato per il livello 2 ($FC[2] = 2$, ovvero $10_2$), emerge un'interessante propriet\`a discussa dal docente:
+\begin{alertblock}{Annotazione del Docente sui Prefissi Fittizi}
+\centering
+\textit{``Apparently we create a bad prefix, but it will not play any role, so it is correct.''}
+\end{alertblock}
+
+\textbf{Spiegazione formale della correttezza:}
+A prima vista, il valore $FC[2] = 2$ ($10_2$) sembrerebbe violare la propriet\`a di prefisso rispetto ad altri cammini. Tuttavia, poich\'e al livello $\ell = 2$ non esiste alcun simbolo reale ($\text{NUM}[2] = 0$ e $\text{SYMB}[2] = \emptyset$), il decodificatore non emetter\`a mai alcun simbolo a questa lunghezza. Il valore $FC[2] = 2$ funge puramente da \textbf{soglia aritmetica di transito} che permette alla formula di ricorrenza di calcolare correttamente la soglia per il livello superiore ($FC[1] = 1$). Non essendoci simboli attivi a lunghezza 2, non pu\`o generarsi alcuna ambiguit\`a di decodifica.
+
+\FloatBarrier
+\section{Decodifica Senza Albero (Tree-less Decoding)}
+\label{sec:decodifica-tree-less}
+
+L'innovazione applicativa fondamentale della codifica canonica risiede nella possibilit\`a di eseguire la decodifica del flusso binario \textbf{senza ricostruire alcun albero in memoria}, utilizzando unicamente registri interi della CPU e lookup su array contigui.
+
+\FloatBarrier
+\subsection{Schema Funzionale della Decodifica}
+\label{subsec:schema-funzionale-decodifica}
+
+La decodifica di un singolo simbolo dal corpo compresso opera iterativamente su una variabile accumulatore intera $V$, inizializzata a 0, leggendo il flusso binario un bit alla volta:
+\begin{enumerate}
+  \item Si inizializzano l'accumulatore $V \leftarrow 0$ e la lunghezza corrente $\ell \leftarrow 1$;
+  \item Per ciascun bit letto, si aggiorna l'accumulatore tramite shift a sinistra: $V \leftarrow (V \ll 1) + \text{bit} \equiv 2V + \text{bit}$;
+  \item Si confronta $V$ con il primo codice valido del livello corrente, $FC[\ell]$:
+  \begin{itemize}
+    \item Se $V < FC[\ell]$, la sequenza esaminata non costituisce ancora una parola di codice terminata: si incrementa la lunghezza $\ell \leftarrow \ell + 1$ e si ripete il procedimento sul bit successivo;
+    \item Se $V \ge FC[\ell]$, la parola di codice \`e stata identificata: l'indice del simbolo all'interno del livello \`e dato dallo scostamento $\text{offset} = V - FC[\ell]$, e l'algoritmo restituisce direttamente il simbolo $\text{SYMB}[\ell][\text{offset}]$.
+  \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Diagramma di Flusso della Decodifica}
+\label{subsec:diagramma-flusso-decodifica}
+
+Il flusso operativo della decodifica a registri \`e formalizzato nel diagramma in \autoref{fig:flowchart-decodifica-tree-less}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.90,
+    every node/.style={transform shape},
+    startstop/.style={rectangle, rounded corners=5pt, minimum width=2.8cm, minimum height=0.9cm, align=center, draw=navy!85, fill=navy!10, thick, font=\small\bfseries},
+    process/.style={rectangle, text width=4.4cm, minimum height=1.0cm, align=center, draw=navy!80, fill=navy!5, thick, font=\small, rounded corners=2pt},
+    decision/.style={diamond, aspect=2, align=center, draw=crimson!85, fill=crimson!10, thick, font=\small\bfseries, inner sep=2pt},
+    arrow/.style={thick, ->, >=stealth, color=black!75}
+]
+
+\node[startstop] (start) at (0, 0) {Inizio Decodifica};
+\node[process, below=0.6cm of start] (init) {$V \leftarrow 0, \quad \ell \leftarrow 1$};
+\node[process, below=0.6cm of init] (read) {Leggi bit dal file\\$V \leftarrow 2V + \text{bit}$};
+\node[decision, below=0.8cm of read] (decide) {$V < FC[\ell]$?};
+\node[process, left=1.8cm of decide, text width=2.2cm] (nextl) {$\ell \leftarrow \ell + 1$};
+\node[process, below=1.0cm of decide, text width=5.2cm] (emit) {Calcola offset $= V - FC[\ell]$\\Estrai $\sigma = \text{SYMB}[\ell][\text{offset}]$};
+\node[startstop, below=0.7cm of emit] (finish) {Emetti $\sigma$ e Ripristina};
+
+\draw[arrow] (start) -- (init);
+\draw[arrow] (init) -- (read);
+\draw[arrow] (read) -- (decide);
+\draw[arrow] (decide) -- node[above=2pt, midway, font=\scriptsize\bfseries, color=crimson!90] {S\`I (TRUE)} (nextl);
+\draw[arrow] (nextl) |- (read);
+\draw[arrow] (decide) -- node[right, font=\scriptsize\bfseries, color=darkgreen!85!black] {NO (FALSE)} (emit);
+\draw[arrow] (emit) -- (finish);
+
+\end{tikzpicture}
+\caption{Diagramma di flusso della decodifica canonica senza albero: ad ogni bit letto, l'accumulatore intero $V$ viene aggiornato e confrontato con la soglia di arresto $FC[\ell]$.}
+\label{fig:flowchart-decodifica-tree-less}
+\end{figure}
+
+\FloatBarrier
+\subsection{Tracciamento Passo-Passo dell'Esempio: Flusso \texttt{0 0 1 0}}
+\label{subsec:tracciamento-esempio-stream}
+
+Si consideri ora il flusso binario in arrivo descritto negli appunti:
+\begin{equation}
+  \text{Flusso di bit in ingresso:} \quad \texttt{0 0 1 0}
+\end{equation}
+
+L'algoritmo di decodifica canonica elabora la sequenza bit per bit (\autoref{tab:tracciamento-decodifica-canonica}):
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento analitico dell'esecuzione dell'algoritmo Tree-less sulla sequenza \texttt{0 0 1 0}.}
+\label{tab:tracciamento-decodifica-canonica}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccccp{5.5cm}}
+\toprule
+\textbf{Iterazione} & \textbf{Bit Letto} & \textbf{Accumulatore $V$} & \textbf{Soglia $FC[\ell]$} & \textbf{Test: $V < FC[\ell]$} & \textbf{Esito} & \textbf{Azione Intrapresa} \\
+\midrule
+$\ell = 1$ & \texttt{0} & $2(0) + 0 = \mathbf{0}$ & $FC[1] = 1$ & $0 < 1$ & \textbf{TRUE}  & Parola non completa $\implies \ell \leftarrow 2$ \\
+$\ell = 2$ & \texttt{0} & $2(0) + 0 = \mathbf{0}$ & $FC[2] = 2$ & $0 < 2$ & \textbf{TRUE}  & Parola non completa $\implies \ell \leftarrow 3$ \\
+$\ell = 3$ & \texttt{1} & $2(0) + 1 = \mathbf{1}$ & $FC[3] = 2$ & $1 < 2$ & \textbf{TRUE}  & Parola non completa $\implies \ell \leftarrow 4$ \\
+$\ell = 4$ & \texttt{0} & $2(1) + 0 = \mathbf{2}$ & $FC[4] = 0$ & $2 < 0$ & \textbf{FALSE} & \textbf{Parola terminata! Arresto a $\ell = 4$} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+All'arresto al livello $\ell = 4$, l'algoritmo calcola l'indice di selezione del simbolo tramite semplice sottrazione:
+\begin{equation}
+  \text{offset} = V - FC[4] = 2 - 0 = \mathbf{2}
+\end{equation}
+
+Accedendo al vettore $\text{SYMB}[4] = [a, b, e, f]$ con offset 2 (assumendo indicizzazione da 0: $\text{offset } 0 \to a, \; 1 \to b, \; 2 \to e, \; 3 \to f$):
+\begin{equation}
+  \text{Simbolo Emesso} = \text{SYMB}[4][2] \implies \mathbf{e}
+\end{equation}
+
+Il simbolo corrispondente alla sequenza di 4 bit \texttt{0010} \`e dunque estratto con sole 4 moltiplicazioni per 2, 4 somme e 4 comparazioni intere, senza alcuna consultazione di tabelle di puntatori.
+
+\FloatBarrier
+\section{Valutazione Architetturale e Prospettive Avanzate}
+\label{sec:valutazione-prospettive}
+
+L'adozione della codifica canonica di Huffman introduce un duplice vantaggio sistemistico fondamentale:
+\begin{enumerate}
+  \item \textbf{Compressione estrema del preambolo:} per consentire la decodifica non serve pi\`u serializzare l'albero di Huffman. \`E sufficiente memorizzare per ogni simbolo dell'alfabeto la sua \textbf{lunghezza di codice in bit} $\vert c(\sigma) \vert$. Dal vettore delle lunghezze, il decodificatore ricostruisce in modo deterministico e immediato i vettori $\text{NUM}$, $\text{SYMB}$ e $FC$ tramite la ricorrenza vista sopra. Con un alfabeto da 256 byte e lunghezze limitate a 16 bit, il preambolo occupa meno di 128 byte;
+  \item \textbf{Massimizzazione del Throughput di Decodifica:} l'eliminazione dei puntatori trasforma l'algoritmo in un ciclo aritmetico perfettamente vettorizzabile dalla CPU, azzerando le fallanze di cache.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Problemi Aperti: Allineamento e Perdita dei Bit Significativi}
+\label{subsec:problemi-aperti-ans}
+
+Nelle architetture concrete a 32 e 64 bit, la gestione dei registri di scorrimento presenta sfide implementative non banali:
+\begin{itemize}
+  \item \textbf{Perdita del bit pi\`u significativo (\textit{losing significant bit}):} durante le continue operazioni di shift $V \leftarrow (V \ll 1) + \text{bit}$, superata la larghezza di parola del registro macchina occorre gestire il trabocco (\textit{overflow}) o segmentare lo scorrimento con buffer circolari;
+  \item \textbf{Transizione verso compressori moderni (ANS):} sebbene Huffman rimanga insostituibile per semplicit\`a e prestazioni su sorgenti uniformi, per superare il limite teorico dell'overhead di 1 bit su sorgenti fortemente sbilanciate la ricerca moderna ha introdotto i sistemi numerici asimmetrici (\textit{Asymmetric Numeral Systems}, ANS \cite{duda2009}), che uniscono la velocit\`a a registri di Huffman con la precisione frazionaria della codifica aritmetica.
+\end{itemize}

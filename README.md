@@ -11,6 +11,7 @@ I PDF aggiornati sono disponibili nella directory [`pdf/`](./pdf/).
 | Materia | Dispensa (Italiano) |
 | --- | --- |
 | Algorithm Engineering | [Scarica PDF](./pdf/Algorithm-Engineering-IT.pdf) |
+| Algorithm Engineering II | [Scarica PDF](./pdf/Algorithm-Engineering-II-IT.pdf) |
 | Computational Mathematics | [Scarica PDF](./pdf/Computational-Mathematics-IT.pdf) |
 | Data Mining | [Scarica PDF](./pdf/Data-Mining-IT.pdf) |
 | Information Retrieval | [Scarica PDF](./pdf/Information-Retrieval-IT.pdf) |

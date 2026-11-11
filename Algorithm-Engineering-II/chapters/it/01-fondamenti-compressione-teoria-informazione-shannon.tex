@@ -1,0 +1,556 @@
+\chapter{Fondamenti di Compressione Dati e Teoria dell'Informazione}
+\label{ch:fondamenti-compressione-teoria-informazione}
+
+\FloatBarrier
+\section{Modello Formale della Sorgente di Informazione}
+\label{sec:modello-sorgente-informazione}
+
+Il modello teorico di riferimento per la compressione dei dati affonda le proprie radici nel lavoro pionieristico di Claude Shannon del 1948~\cite{shannon1948}. In questo paradigma fondazionale, il processo generativo dei dati viene descritto mediante un'entit\`a astratta denominata \textbf{sorgente discreta di informazione}, convenzionalmente indicata con il simbolo $S$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.95,
+    every node/.style={transform shape},
+    sourcebox/.style={rectangle, draw=navy!85, fill=navy!10, thick, minimum width=3.2cm, minimum height=1.3cm, rounded corners=3pt, font=\bfseries\normalsize, align=center},
+    streamnode/.style={font=\normalsize\bfseries, color=navy!90}
+]
+    \node[sourcebox] (src) at (0, 0) {Sorgente $S$\\Alfabeto $A$};
+    \draw[very thick, ->, >=Stealth, navy!85] (src.east) -- (6.2, 0);
+    \node[above=16pt, font=\small\bfseries, color=navy!85] at (3.9, 0) {Emissione discreta nel tempo};
+    \node[streamnode, right] at (6.3, 0) {$s_1, \; s_2, \; s_3, \; \dots, \; s_n, \; \dots$};
+\end{tikzpicture}
+\caption{Modello formale della sorgente discreta di informazione: $S$ emette una successione temporale discreta di simboli appartenenti all'alfabeto finito $A$.}
+\label{fig:modello-sorgente-shannon}
+\end{figure}
+
+\FloatBarrier
+\subsection{Definizione di Alfabeto e Distribuzione di Probabilit\`a}
+\label{subsec:alfabeto-distribuzione}
+
+La sorgente $S$ emette sequenzialmente una successione discreta di simboli nel tempo:
+\begin{equation}
+  S \implies s_1, \; s_2, \; s_3, \; \dots
+\end{equation}
+Ciascun simbolo generato appartiene a un insieme finito, discreto e non vuoto denominato \textbf{alfabeto della sorgente}, indicato formalmente con $A$:
+\begin{itemize}
+  \item La grandezza dell'alfabeto corrisponde alla sua cardinalit\`a finita, denotata con $|A|$;
+  \item Ciascun generico elemento appartenente all'alfabeto \`e indicato con la lettera $\sigma$, per cui $\sigma \in A$;
+  \item Ad ogni simbolo $\sigma \in A$ \`e associata una probabilit\`a a priori di emissione, formalizzata come la probabilit\`a che il generico evento emesso coincida con $\sigma$:
+  \begin{equation}
+    p(\sigma) = \mathbb{P}(s_t = \sigma), \quad \forall \sigma \in A.
+  \end{equation}
+\end{itemize}
+
+Trattandosi di una distribuzione di probabilit\`a valida sullo spazio campionario discreto $A$, i valori di $p(\sigma)$ soddisfano rigidamente gli assiomi fondamentali di Kolmogorov:
+\begin{equation}
+  \sum_{\sigma \in A} p(\sigma) = 1 \quad \text{e} \quad p(\sigma) \ge 0, \quad \forall \sigma \in A.
+  \label{eq:assiomi-probabilita}
+\end{equation}
+
+\FloatBarrier
+\section{L'Entropia della Sorgente \texorpdfstring{$H(S)$}{H(S)}}
+\label{sec:entropia-sorgente}
+
+L'\textbf{entropia} di una sorgente discreta, introdotta da Shannon~\cite{shannon1948}, costituisce la misura quantitativa fondamentale della quantit\`a media di informazione prodotta da $S$ per ciascun simbolo emesso, nonch\'e dell'incertezza intrinseca del processo generativo.
+
+\FloatBarrier
+\subsection{Definizione Matematica e Quantit\`a di Sorpresa}
+\label{subsec:definizione-entropia}
+
+\begin{definition}[Entropia di Shannon]
+Data una sorgente discreta priva di memoria $S$ caratterizzata da un alfabeto finito $A$ e da una distribuzione di probabilit\`a $p(\sigma)$, l'\textbf{entropia} $H(S)$ \`e definita come:
+\begin{equation}
+  H(S) = \sum_{\sigma \in A} p(\sigma) \log_2 \frac{1}{p(\sigma)}.
+  \label{eq:entropia-shannon-inv}
+\end{equation}
+\end{definition}
+
+Sfruttando le propriet\`a fondamentali dei logaritmi ($\log_2 (x^{-1}) = -\log_2 x$), l'espressione~\eqref{eq:entropia-shannon-inv} si riformula nella classica espressione canonica:
+\begin{equation}
+  H(S) = -\sum_{\sigma \in A} p(\sigma) \log_2 p(\sigma).
+  \label{eq:entropia-shannon-canonica}
+\end{equation}
+
+\paragraph{Interpretazione Fisica e Unit\`a di Misura.}
+L'unit\`a di misura dell'entropia, quando la base del logaritmo \`e pari a $2$, \`e il \textbf{bit per simbolo} (indicato anche come \textit{shannon}):
+\begin{itemize}
+  \item Il termine $\log_2 \frac{1}{p(\sigma)}$ rappresenta la \textbf{self-information} (o quantit\`a di sorpresa / informazione propria) apportata dal verificarsi dell'evento $\sigma$;
+  \item Simboli rari ($p(\sigma) \to 0$) posseggono una self-information molto elevata ($\log_2 \frac{1}{p(\sigma)} \to \infty$), in quanto il loro verificarsi apporta una sorpresa notevole;
+  \item Simboli frequenti ($p(\sigma) \to 1$) posseggono una self-information prossima a zero ($\log_2 1 = 0$), poich\'e il loro accadimento \`e ampiamente atteso e apporta scarsa informazione;
+  \item L'entropia $H(S)$ rappresenta dunque la \textbf{speranza matematica} della self-information:
+  \begin{equation}
+    H(S) = \mathbb{E}\left[\log_2 \frac{1}{p(\sigma)}\right].
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Limiti di Estremo dell'Entropia}
+\label{subsec:limiti-entropia}
+
+L'entropia di una qualunque sorgente discreta con alfabeto finito $A$ \`e confinata all'interno di un intervallo chiuso ben determinato:
+\begin{equation}
+  0 \le H(S) \le \log_2 |A|.
+  \label{eq:intervallo-entropia}
+\end{equation}
+
+\begin{property}[Condizioni di Minimo e Massimo dell'Entropia]
+I valori limite dell'entropia corrispondono ai seguenti scenari stocastici estremi:
+\begin{enumerate}
+  \item \textbf{Limite Inferiore ($H(S) = 0$):} si verifica se e solo se la sorgente \`e totalmente priva di incertezza. Ci\`o accade se esiste un simbolo deterministico $\sigma_k \in A$ con probabilit\`a unitaria:
+  \begin{equation}
+    p(\sigma_k) = 1 \quad \text{e} \quad p(\sigma) = 0, \quad \forall \sigma \neq \sigma_k.
+  \end{equation}
+  In questo scenario limite la sorgente emette deterministicamente sempre il medesimo simbolo: l'informazione trasmessa \`e nulla poich\'e non vi \`e alcuna incertezza da dissipare.
+  \item \textbf{Limite Superiore ($H(S) = \log_2 |A|$):} si realizza se e solo se tutti i simboli dell'alfabeto possiedono la medesima probabilit\`a di emissione, ovvero sotto una \textbf{distribuzione di probabilit\`a uniforme}:
+  \begin{equation}
+    p(\sigma) = \frac{1}{|A|}, \quad \forall \sigma \in A.
+  \end{equation}
+\end{enumerate}
+\end{property}
+
+\begin{proof}[Dimostrazione del Massimo Uniforme]
+Sostituendo la distribuzione uniforme $p(\sigma) = \frac{1}{|A|}$ all'interno della definizione~\eqref{eq:entropia-shannon-inv}:
+\begin{align}
+  H(S) &= \sum_{\sigma \in A} \frac{1}{|A|} \log_2 \left(\frac{1}{\frac{1}{|A|}}\right) \nonumber \\
+  &= \sum_{\sigma \in A} \frac{1}{|A|} \log_2 |A| \nonumber \\
+  &= \log_2 |A| \sum_{\sigma \in A} \frac{1}{|A|} \nonumber \\
+  &= \log_2 |A| \cdot 1 = \log_2 |A|.
+\end{align}
+Poich\'e la funzione logaritmo \`e concava, la disuguaglianza di Jensen assicura che tale valore costituisce il massimo assoluto per qualsiasi distribuzione su $|A|$ elementi.
+\end{proof}
+
+\FloatBarrier
+\subsection{Caso Notevole: Alfabeto Booleano}
+\label{subsec:alfabeto-booleano}
+
+Nel caso specifico in cui l'alfabeto della sorgente sia di natura binaria o booleana, la cardinalit\`a dell'insieme \`e pari a $|A| = 2$ (ad esempio $A = \{0, 1\}$):
+\begin{itemize}
+  \item La capacit\`a informativa massima teorica coincide con:
+  \begin{equation}
+    \log_2 |A| = \log_2 2 = 1 \text{ bit};
+  \end{equation}
+  \item L'intervallo operativo dell'entropia per una sorgente booleana \`e pertanto ristretto alla relazione:
+  \begin{equation}
+    0 \le H(S) \le 1 \text{ bit per simbolo}.
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\section{Codici Privi di Prefisso (Prefix-Free Codes) e Decodificabilit\`a Univoca}
+\label{sec:codici-prefisso}
+
+La trasmissione e l'archiviazione compressa dei dati generati dalla sorgente $S$ richiedono un'operazione di mappatura biunivoca dei simboli dell'alfabeto in opportune sequenze binarie.
+
+\FloatBarrier
+\subsection{Definizione Formale di Codice Prefisso}
+\label{subsec:definizione-codice-prefisso}
+
+\begin{definition}[Codice Privo di Prefisso / Prefix-Free Code]
+Dato un alfabeto di sorgente $A$, uno schema di codifica binaria $C$ assegna a ciascun simbolo $\sigma \in A$ una sequenza finita di bit, denominata \textbf{parola di codice} (\textit{codeword}), indicata con $c(\sigma)$.
+Il codice $C$ si dice \textbf{privo di prefisso} (\textit{prefix-free code}, spesso abbreviato per consuetudine come codice prefisso) se nessuna parola di codice valida costituisce il prefisso iniziale di un'altra parola di codice valida appartenente allo stesso codice:
+\begin{equation}
+  \forall \sigma_i, \sigma_j \in A \text{ con } \sigma_i \neq \sigma_j \implies c(\sigma_i) \text{ non \`e prefisso di } c(\sigma_j).
+  \label{eq:prefix-property}
+\end{equation}
+\end{definition}
+
+\paragraph{Decodificabilit\`a Univoca Istantanea.}
+La propriet\`a di prefisso garantisce che il codice sia \textbf{univocamente decodificabile in modo istantaneo}:
+\begin{itemize}
+  \item La scansione del flusso di bit pu\`o avvenire rigorosamente da sinistra verso destra (\textit{online streaming});
+  \item Non appena una sottosequenza di bit ricevuta coincide con una parola di codice valida, il decodificatore riconosce con certezza il simbolo emesso, senza necessit\`a di attendere i bit futuri, n\'e di impiegare separatori speciali tra parole, n\'e di ricorrere a costosi algoritmi di \textit{backtracking}.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Controesempio Operativo: Violazione della Propriet\`a di Prefisso}
+\label{subsec:controesempio-prefisso}
+
+Per cogliere l'essenzialit\`a del vincolo~\eqref{eq:prefix-property}, consideriamo un alfabeto ternario $A = \{a, b, c\}$ a cui viene applicato lo schema di codifica:
+\begin{itemize}
+  \item $a \to 0$
+  \item $b \to 1$
+  \item $c \to 00$
+\end{itemize}
+
+\begin{alertblock}{Analisi dell'Ambiguit\`a di Decodifica}
+In questo schema, la parola di codice $c(a) = 0$ \`e un prefisso proprio della parola $c(c) = 00$.
+Se il decodificatore riceve in ingresso il flusso binario:
+\begin{equation}
+  \texttt{00\dots}
+\end{equation}
+si genera un'ambiguit\`a irrisolvibile:
+\begin{itemize}
+  \item La sequenza $\texttt{00}$ pu\`o essere interpretata come la concatenazione di due simboli $a$ ($c(a)c(a) = 00 \implies aa$);
+  \item Oppure pu\`o rappresentare una singola emissione del simbolo $c$ ($c(c) = 00 \implies c$).
+\end{itemize}
+Tale codice \textbf{non \`e privo di prefisso} e risulta \textbf{non univocamente decodificabile} senza informazione contestuale ausiliaria.
+\end{alertblock}
+
+\FloatBarrier
+\section{Teorema di Shannon per la Compressione e Lunghezza Media}
+\label{sec:teorema-shannon-compressione}
+
+\FloatBarrier
+\subsection{Definizione di Lunghezza Media di un Codice}
+\label{subsec:lunghezza-media}
+
+\begin{definition}[Lunghezza Media del Codice]
+Data una sorgente discreta $S$ con distribuzione di probabilit\`a $p(\sigma)$ e uno schema di codifica privo di prefisso $C$ che mappa ogni $\sigma \in A$ nella parola $c(\sigma)$, si definisce \textbf{lunghezza media del codice} $L(C)$ (spesso indicata con $\bar{L}$) la speranza matematica della lunghezza in bit delle parole di codice:
+\begin{equation}
+  L(C) = \sum_{\sigma \in A} p(\sigma) \cdot |c(\sigma)|,
+  \label{eq:lunghezza-media-codice}
+\end{equation}
+ove $|c(\sigma)|$ denota il numero intero di bit che costituiscono la codeword $c(\sigma)$.
+\end{definition}
+
+\FloatBarrier
+\subsection{Enunciato del Teorema Fondamentale di Shannon (1948)}
+\label{subsec:enunciato-shannon}
+
+\begin{theorem}[Teorema di Shannon per la Codifica di Sorgente]
+Sia $S$ una sorgente discreta con entropia $H(S)$. Per qualsiasi codice privo di prefisso $C$ definito sull'alfabeto di $S$, la lunghezza media del codice $L(C)$ soddisfa la disuguaglianza:
+\begin{equation}
+  L(C) \ge H(S).
+  \label{eq:shannon-source-coding-theorem}
+\end{equation}
+\end{theorem}
+
+L'entropia di Shannon funge dunque da \textbf{limite inferiore invalicabile} per qualunque algoritmo di compressione senza perdita (\textit{lossless}): nessun algoritmo di codifica a simboli singoli pu\`o rappresentare in media la sorgente impiegando un numero di bit inferiore a $H(S)$.
+
+\FloatBarrier
+\section{Analisi Comparativa: Efficienza ed Ottimalit\`a di Codifica}
+\label{sec:analisi-comparativa-codici}
+
+Per illustrare il divario tra un codice semplicemente univoco e un codice pienamente efficiente, consideriamo un esempio analitico su un alfabeto ternario $A = \{a, b, c\}$.
+
+\FloatBarrier
+\subsection{Calcolo dell'Entropia di Riferimento}
+\label{subsec:calcolo-entropia-riferimento}
+
+Si consideri la seguente distribuzione di probabilit\`a a priori:
+\begin{equation}
+  p(a) = \frac{1}{2}, \quad p(b) = \frac{1}{4}, \quad p(c) = \frac{1}{4}.
+\end{equation}
+Sviluppiamo esplicitamente il calcolo dell'entropia $H(S)$:
+\begin{align}
+  H(S) &= \sum_{\sigma \in \{a,b,c\}} p(\sigma) \log_2 \frac{1}{p(\sigma)} \nonumber \\
+  &= p(a) \log_2\left(\frac{1}{p(a)}\right) + p(b) \log_2\left(\frac{1}{p(b)}\right) + p(c) \log_2\left(\frac{1}{p(c)}\right) \nonumber \\
+  &= \frac{1}{2} \log_2(2) + \frac{1}{4} \log_2(4) + \frac{1}{4} \log_2(4).
+\end{align}
+Poich\'e $\log_2(2) = 1$ e $\log_2(4) = 2$, otteniamo:
+\begin{equation}
+  H(S) = \frac{1}{2} \cdot 1 + \frac{1}{4} \cdot 2 + \frac{1}{4} \cdot 2 = \frac{1}{2} + \frac{1}{2} + \frac{1}{2} = \frac{3}{2} = 1.5 \text{ bit per simbolo}.
+\end{equation}
+Il limite teorico imposto dalla fisica dell'informazione sancisce che nessun codice privo di prefisso potr\`a mai scendere sotto la soglia di $1.5$ bit per simbolo.
+
+\FloatBarrier
+\subsection{Caso 1: Codice Univocamente Decodificabile ma Sub-Ottimo}
+\label{subsec:caso-1-subottimo}
+
+Consideriamo il primo schema di codifica $C_1$:
+\begin{itemize}
+  \item $a \to 0 \quad (|c(a)| = 1 \text{ bit})$
+  \item $b \to 10 \quad (|c(b)| = 2 \text{ bit})$
+  \item $c \to 110 \quad (|c(c)| = 3 \text{ bit})$
+\end{itemize}
+
+Questo codice \`e privo di prefisso (nessuna sequenza \`e prefisso di un'altra), dunque \`e univocamente decodificabile. Calcoliamone la lunghezza media:
+\begin{align}
+  L(C_1) &= \sum_{\sigma \in A} p(\sigma) \cdot |c(\sigma)| \nonumber \\
+  &= p(a) \cdot 1 + p(b) \cdot 2 + p(c) \cdot 3 \nonumber \\
+  &= \frac{1}{2} \cdot 1 + \frac{1}{4} \cdot 2 + \frac{1}{4} \cdot 3 \nonumber \\
+  &= \frac{1}{2} + \frac{1}{2} + \frac{3}{4} = 1 + \frac{3}{4} = \frac{7}{4} = 1.75 \text{ bit per simbolo}.
+\end{align}
+
+\begin{noteblock}{Verifica del Teorema di Shannon per $C_1$}
+La disuguaglianza di Shannon \`e pienamente rispettata:
+\begin{equation}
+  L(C_1) = 1.75 \ge H(S) = 1.5 \text{ bit}.
+\end{equation}
+Tuttavia, il codice presenta una \textbf{ridondanza} non nulla pari a:
+\begin{equation}
+  R(C_1) = L(C_1) - H(S) = 1.75 - 1.5 = 0.25 \text{ bit per simbolo},
+\end{equation}
+causata dal fatto che la parola associata a $c$ ($110$) \`e inutilmente lunga.
+\end{noteblock}
+
+\FloatBarrier
+\subsection{Caso 2: Codice Ottimo ad Efficienza Massima}
+\label{subsec:caso-2-ottimo}
+
+Riassegniamo la codifica per eliminare la ridondanza, abbreviando la codeword di $c$:
+\begin{itemize}
+  \item $a \to 0 \quad (|c(a)| = 1 \text{ bit})$
+  \item $b \to 10 \quad (|c(b)| = 2 \text{ bit})$
+  \item $c \to 11 \quad (|c(c)| = 2 \text{ bit})$
+\end{itemize}
+
+Calcoliamo la lunghezza media del nuovo codice $C_2$:
+\begin{align}
+  L(C_2) &= p(a) \cdot 1 + p(b) \cdot 2 + p(c) \cdot 2 \nonumber \\
+  &= \frac{1}{2} \cdot 1 + \frac{1}{4} \cdot 2 + \frac{1}{4} \cdot 2 \nonumber \\
+  &= \frac{1}{2} + \frac{1}{2} + \frac{1}{2} = \frac{3}{2} = 1.5 \text{ bit per simbolo}.
+\end{align}
+
+Nel codice $C_2$, la lunghezza media coincide esattamente con l'entropia della sorgente:
+\begin{equation}
+  L(C_2) = H(S) = 1.5 \text{ bit per simbolo}.
+\end{equation}
+Ogni ridondanza statistica \`e stata eliminata: il codice \`e a \textbf{efficienza teorica massima} ($100\%$).
+
+\FloatBarrier
+\section{Rappresentazione ad Albero Binario e la Regola Aurea}
+\label{sec:albero-binario-regola-aurea}
+
+\FloatBarrier
+\subsection{Alberi di Codifica e Corrispondenza Geometrica}
+\label{subsec:alberi-codifica}
+
+Qualsiasi codice privo di prefisso ammette una rappresentazione biunivoca mediante un \textbf{albero binario radicato}:
+\begin{itemize}
+  \item Ciascun ramo sinistro corrisponde convenzionalmente all'etichetta binaria \texttt{0};
+  \item Ciascun ramo destro corrisponde convenzionalmente all'etichetta binaria \texttt{1};
+  \item I simboli dell'alfabeto $A$ risiedono \textbf{esclusivamente nei nodi foglia};
+  \item La parola di codice $c(\sigma)$ associata a un simbolo $\sigma$ \`e la sequenza ordinata di bit incontrati lungo il cammino radice-foglia.
+\end{itemize}
+
+Poich\'e nessun simbolo \`e collocato su un nodo interno, nessun cammino pu\`o proseguire oltre una foglia: la propriet\`a di prefisso \`e pertanto garantita dalla topologia stessa dell'albero.
+
+\FloatBarrier
+\subsection{Potatura dei Nodi Unari Ridondanti}
+\label{subsec:potatura-nodi-unari}
+
+La differenza strutturale tra il codice sub-ottimo $C_1$ e il codice ottimo $C_2$ si riflette immediatamente nella geometria dei rispettivi alberi binari (\autoref{fig:confronto-alberi-codifica}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape},
+    treenode/.style={circle, draw=navy!85, fill=navy!8, thick, minimum size=0.65cm, inner sep=0pt, font=\small\bfseries},
+    leafnode/.style={rectangle, draw=darkgreen!85, fill=darkgreen!12, thick, rounded corners=2pt, minimum width=0.8cm, minimum height=0.65cm, font=\small\bfseries},
+    badnode/.style={circle, draw=crimson!85, fill=crimson!15, thick, minimum size=0.65cm, inner sep=0pt, font=\small\bfseries},
+    edge from parent/.style={draw=navy!80, thick, -},
+    level distance=1.2cm,
+    sibling distance=2.2cm
+]
+% Tree 1 (Inefficient)
+\begin{scope}[xshift=-4.5cm]
+\node[treenode] (r1) {}
+    child {
+        node[leafnode] {$a$}
+        edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+    }
+    child {
+        node[treenode] {}
+        child {
+            node[leafnode] {$b$}
+            edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+        }
+        child {
+            node[badnode] {}
+            child {
+                node[leafnode] {$c$}
+                edge from parent node[left, font=\scriptsize\bfseries, color=crimson!90] {0}
+            }
+            edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+        }
+        edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+    };
+\node[above=0.3cm of r1, font=\bfseries\small, color=crimson!90!black] {Albero Inefficiente ($C_1$)};
+\node[below=4.4cm of r1, font=\scriptsize, align=center] {Nodo unario superfluo (rosso):\\$c(c) = 110$ (profondit\`a 3)};
+\end{scope}
+
+% Freccia di transizione
+\draw[thick, ->, >=Stealth, darkgreen!80!black] (-1.3, -1.5) -- (0.5, -1.5) 
+    node[midway, above=2pt, font=\scriptsize\bfseries, color=darkgreen!85!black] {Potatura}
+    node[midway, below=2pt, font=\scriptsize, color=darkgreen!85!black] {Ramo unario};
+
+% Tree 2 (Optimal)
+\begin{scope}[xshift=3.0cm]
+\node[treenode] (r2) {}
+    child {
+        node[leafnode] {$a$}
+        edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+    }
+    child {
+        node[treenode] {}
+        child {
+            node[leafnode] {$b$}
+            edge from parent node[left, font=\scriptsize\bfseries, color=navy!90] {0}
+        }
+        child {
+            node[leafnode] {$c$}
+            edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+        }
+        edge from parent node[right, font=\scriptsize\bfseries, color=navy!90] {1}
+    };
+\node[above=0.3cm of r2, font=\bfseries\small, color=darkgreen!85!black] {Albero Ottimo Pieno ($C_2$)};
+\node[below=4.4cm of r2, font=\scriptsize, align=center] {Albero binario completo:\\$c(c) = 11$ (profondit\`a 2)};
+\end{scope}
+\end{tikzpicture}
+\caption{Confronto strutturale tra albero di codifica sub-ottimo (con nodo unario ridondante) e albero di codifica ottimo privo di prefisso. L'eliminazione del cammino superfluo verso la foglia $c$ riduce la lunghezza della codeword da 3 a 2 bit, portando la lunghezza media del codice a coincidere con l'entropia della sorgente ($L(C) = H(S) = 1.5\text{ bit}$).}
+\label{fig:confronto-alberi-codifica}
+\end{figure}
+
+Nell'albero inefficiente di sinistra, il nodo interno contrassegnato in rosso possiede un unico figlio: esso allunga artificialmente la parola di $c$ senza apportare alcuna distinzione di biforcazione. Potando il ramo unario e collegando direttamente $c$ come figlio destro con etichetta \texttt{1}, l'albero diventa \textbf{binario pieno} (ogni nodo interno ha esattamente 2 figli), massimizzando l'efficienza.
+
+\FloatBarrier
+\subsection{La Regola Aurea della Compressione Dati (Golden Rule)}
+\label{subsec:regola-aurea}
+
+La condizione geometrica di ottimalit\`a si traduce nel principio cardine dell'ingegneria della compressione:
+
+\begin{alertblock}{La Regola Aurea (Golden Rule of Data Compression)}
+\centering
+\Large \textbf{\textit{Probable symbols must be assigned shorter codewords.}}
+\normalsize \vskip 0.2cm
+Ai simboli dotati di probabilit\`a pi\`u elevata devono essere tassativamente associate parole di codice pi\`u corte (foglie a profondit\`a minore nell'albero).
+\end{alertblock}
+
+Per apprezzare l'impatto della regola aurea, confrontiamo due distribuzioni di probabilit\`a:
+\begin{itemize}
+  \item Se le probabilit\`a fossero $p(a) = \frac{1}{4}, p(b) = \frac{1}{2}, p(c) = \frac{1}{4}$, il simbolo pi\`u frequente sarebbe $b$: assegnare a $b$ una parola da 2 bit e ad $a$ una parola da 1 bit violerebbe la regola aurea, determinando una lunghezza media sub-ottima;
+  \item Con la distribuzione effettiva $p(a) = \frac{1}{2}, p(b) = \frac{1}{4}, p(c) = \frac{1}{4}$, il simbolo dominante \`e $a$: ad esso viene riservata la parola di profondit\`a minima ($1$ bit, cammino \texttt{0}), mentre a $b$ e $c$ spettano cammini di lunghezza 2 (\texttt{10} e \texttt{11}), minimizzando la media ponderata.
+\end{itemize}
+
+\FloatBarrier
+\section{Architettura Fisica del File Compresso e Processo di Decodifica}
+\label{sec:architettura-file-compresso}
+
+La finalit\`a pratica di qualsiasi sistema di compressione \`e produrre un flusso di byte persistente o trasmissibile:
+\begin{equation}
+  \text{\textit{``The output of Data Compression is a file.''}}
+\end{equation}
+
+\FloatBarrier
+\subsection{Formato Fisico: Preambolo e Corpo Compresso}
+\label{subsec:formato-fisico-file}
+
+Il file compresso generato presenta una rigida partizione binaria in due macro-sezioni contigue (\autoref{fig:layout-file-compresso}):
+\begin{enumerate}
+  \item \textbf{Preambolo (Preamble / Header):} memorizza la tabella dei codici o la distribuzione delle frequenze necessaria per ricostruire l'albero di decodifica. Senza tale intestazione, un decodificatore privo di conoscenza a priori non potrebbe interpretare il flusso di bit;
+  \item \textbf{Corpo Compresso (Compressed Body):} contiene la sequenza effettiva di bit ottenuta concatenando le parole di codice corrispondenti ai simboli originali.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape},
+    boxPre/.style={
+        rectangle, 
+        draw=navy!85, 
+        fill=navy!8, 
+        thick, 
+        text width=5.8cm, 
+        minimum height=2.0cm, 
+        rounded corners=3pt, 
+        font=\small, 
+        align=center
+    },
+    boxBody/.style={
+        rectangle, 
+        draw=darkgreen!85, 
+        fill=darkgreen!10, 
+        thick, 
+        text width=6.2cm, 
+        minimum height=2.0cm, 
+        rounded corners=3pt, 
+        font=\small, 
+        align=center
+    }
+]
+% Freccia flusso di scrittura/lettura del file in testa
+\draw[->, >=stealth, thick, color=black!60] (-6.0, 1.4) -- (6.3, 1.4) 
+    node[midway, above=2pt, font=\scriptsize\bfseries, color=black!70] {Flusso di byte nel file compresso (offset crescente $\longrightarrow$)};
+
+% Blocco Preambolo (a sinistra dell'origine)
+\node[boxPre, anchor=east] (pre) at (-0.25, 0) {
+    \textbf{\color{navy!90}PREAMBLE (Header)}\\[3pt]
+    Tabella dei codici o frequenze\\
+    $\langle a \to 0, \; b \to 10, \; c \to 11 \rangle$
+};
+
+% Blocco Corpo Compresso (a destra dell'origine)
+\node[boxBody, anchor=west] (body) at (0.25, 0) {
+    \textbf{\color{darkgreen!85!black}COMPRESSED BODY}\\[3pt]
+    Flusso continuo di bit codificati\\
+    $\texttt{0 0 10 11 0} \dots$
+};
+
+% Parentesi graffa Preambolo
+\draw[thick, decoration={brace, mirror, raise=5pt}, decorate, navy!85] 
+    ([yshift=-0.1cm]pre.south west) -- ([yshift=-0.1cm]pre.south east) 
+    node[midway, below=9pt, font=\scriptsize\bfseries, color=navy!90] {Overhead di Codifica};
+
+% Parentesi graffa Corpo
+\draw[thick, decoration={brace, mirror, raise=5pt}, decorate, darkgreen!85!black] 
+    ([yshift=-0.1cm]body.south west) -- ([yshift=-0.1cm]body.south east) 
+    node[midway, below=9pt, font=\scriptsize\bfseries, color=darkgreen!85!black] {Payload Dati Compressi};
+\end{tikzpicture}
+\caption{Architettura fisica del file compresso: il preambolo memorizza le corrispondenze simbolo-codice necessarie al decodificatore per ricostruire l'albero di decodifica, mentre il corpo compresso contiene la concatenazione delle parole di codice binarie dei dati originali.}
+\label{fig:layout-file-compresso}
+\end{figure}
+
+\FloatBarrier
+\subsection{Tracciamento Passo-Passo della Decodifica Istantanea}
+\label{subsec:tracciamento-decodifica}
+
+Consideriamo un file compresso strutturato come segue:
+\begin{table}[H]
+\centering
+\small
+\resizebox{0.92\columnwidth}{!}{%
+\begin{tabular}{p{5.5cm} p{7.5cm}}
+\toprule
+\textbf{Preambolo (Preamble)} & \textbf{Corpo Compresso (Compressed Body)} \\
+\midrule
+$a \to 0$, \quad $b \to 10$, \quad $c \to 11$ & $\texttt{0 0 10 11 0}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Struttura del messaggio compresso per la simulazione di decodifica.}
+\label{tab:esempio-decodifica}
+\end{table}
+
+Il decodificatore scansiona il corpo compresso bit per bit da sinistra verso destra, discendendo lungo l'albero di decodifica fino a toccare una foglia:
+\begin{enumerate}
+  \item \textbf{1\textdegree{} bit (\texttt{0}):} cammino radice-foglia immediato. Simbolo decodificato: $\mathbf{a}$. Ritorno alla radice;
+  \item \textbf{2\textdegree{} bit (\texttt{0}):} cammino radice-foglia immediato. Simbolo decodificato: $\mathbf{a}$. Ritorno alla radice;
+  \item \textbf{3\textdegree{} e 4\textdegree{} bit (\texttt{10}):} il bit \texttt{1} scende nel figlio destro; il successivo \texttt{0} raggiunge la foglia $b$. Simbolo decodificato: $\mathbf{b}$. Ritorno alla radice;
+  \item \textbf{5\textdegree{} e 6\textdegree{} bit (\texttt{11}):} il bit \texttt{1} scende a destra; il successivo \texttt{1} tocca la foglia $c$. Simbolo decodificato: $\mathbf{c}$. Ritorno alla radice;
+  \item \textbf{7\textdegree{} bit (\texttt{0}):} tocca la foglia $a$. Simbolo decodificato: $\mathbf{a}$.
+\end{enumerate}
+
+La sequenza originale viene interamente e univocamente ricostruita:
+\begin{equation}
+  \text{Testo Ricostruito: } \mathbf{a \;\; a \;\; b \;\; c \;\; a}.
+\end{equation}
+
+\FloatBarrier
+\section{Modelli per la Stima delle Probabilit\`a}
+\label{sec:modelli-stima-probabilita}
+
+Poich\'e l'assegnazione ottima delle codeword dipende intimamente dalla distribuzione a priori $p(\sigma)$, qualsiasi compressore deve avvalersi di un \textbf{modello statistico} per stimare le probabilit\`a dei simboli. La letteratura e la pratica ingegneristica distinguono tre paradigmi operativi fondamentali~\cite{navarro2016}.
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.5cm} c >{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}p{6.5cm}}
+\toprule
+\textbf{Modello Statistico} & \textbf{Passaggi} & \textbf{Overhead Preambolo} & \textbf{Caratteristiche Operative e Punti di Forza} \\
+\midrule
+Modello Statico (\textit{Static Model}) & $1$ passaggio & Nullo ($0$ bit) & Probabilit\`a prefissate a priori su standard storici del dominio (es. frequenze delle lettere nell'italiano). Encoder e decoder condividono la stessa tabella immutabile. Subottimale su file specifici. \\
+\midrule
+Modello Semi-Statico (\textit{Semi-Static Model}) & $2$ passaggi & Presente ($\mathcal{O}(|A| \log n)$ bit) & \textbf{Passo 1:} scansione completa del file per calcolare le frequenze esatte; \textbf{Passo 2:} generazione dell'albero ottimo e codifica. Obbliga a memorizzare l'albero/frequenze nel preambolo; non applicabile a data stream infiniti. \\
+\midrule
+Modello Dinamico / Adattivo (\textit{Dynamic Model}) & $1$ passaggio & Nullo & Probabilit\`a aggiornate dinamicamente a runtime man mano che i simboli vengono letti. Encoder e decoder evolvono la struttura in perfetto sincronismo sullo storico condiviso. Si adatta alle variazioni locali del testo. \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Quadro comparativo dei modelli statistici per la stima delle probabilit\`a nei sistemi di compressione.}
+\label{tab:modelli-stima-probabilita}
+\end{table}

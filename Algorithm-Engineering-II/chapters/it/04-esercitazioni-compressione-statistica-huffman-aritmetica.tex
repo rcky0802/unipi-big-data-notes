@@ -1,0 +1,858 @@
+\chapter{Esercitazioni di Compressione Statistica: Huffman e Codifica Aritmetica}
+\label{ch:esercitazioni-compressione-statistica}
+
+\section{Introduzione e Struttura della Sessione di Esercizi}
+\label{sec:intro-esercitazioni}
+
+La presente sessione di esercitazioni \`e dedicata all'applicazione pratica, analitica e implementativa dei due paradigmi fondamentali della compressione dati statistica senza perdita (\textit{lossless}):
+\begin{enumerate}
+  \item \textbf{La Codifica di Huffman} \cite{huffman1952}, affrontata sia nella sua costruzione classica basata su albero binario (\textit{greedy bottom-up}), sia nella sua rappresentazione avanzata in \textbf{Forma Canonica} \cite{hirschberg1990, moffat1997}, analizzando in dettaglio le strutture vettoriali compresse e l'algoritmo di decodifica privo di albero (\textit{tree-less decoding}).
+  \item \textbf{La Codifica Aritmetica} \cite{rissanen1976, witten1987}, esplorata mediante la suddivisione ricorsiva dello spazio di probabilit\`a continuo unitario $[0, 1)$ e l'algoritmo di decodifica a intervalli annidati (\textit{zoom-in decoding}), con particolare attenzione alla gestione rigorosa dei valori di frontiera negli intervalli semiaperti.
+\end{enumerate}
+
+Ciascun esercizio viene sviluppato attraverso la formulazione teorica del modello di sorgente, la derivazione algebrica puntuale di tutti i passaggi di calcolo, la sintesi tabellare dei parametri intermedi e la visualizzazione geometrica mediante diagrammi dedicati.
+
+\FloatBarrier
+\section{Esercizio 1: Codifica di Huffman Standard e Analisi Topologica}
+\label{sec:esercizio-huffman-standard}
+
+\subsection{Definizione della Sorgente e Distribuzione di Probabilit\`a}
+\label{subsec:ex-modello-sorgente-huffman}
+
+Si consideri una sorgente discreta stazionaria e priva di memoria (\textit{Discrete Memoryless Source}, DMS) definita su un alfabeto finito composto da $n = 5$ simboli:
+\begin{equation}
+  A = \{a, b, c, d, e\}
+\end{equation}
+A ciascun simbolo $\sigma \in A$ \`e associata una probabilit\`a di emissione a priori $p(\sigma)$ definita dal seguente vettore di probabilit\`a:
+\begin{align}
+  p(a) &= 0.10 \label{eq:prob-a} \\
+  p(b) &= 0.14 \label{eq:prob-b} \\
+  p(c) &= 0.38 \label{eq:prob-c} \\
+  p(d) &= 0.18 \label{eq:prob-d} \\
+  p(e) &= 0.20 \label{eq:prob-e}
+\end{align}
+Si verifica preliminarmente la condizione di normalizzazione della misura di probabilit\`a sullo spazio campionario discreto:
+\begin{equation}
+  \sum_{\sigma \in A} p(\sigma) = 0.10 + 0.14 + 0.38 + 0.18 + 0.20 = 1.00
+\end{equation}
+
+\FloatBarrier
+\subsection{Costruzione Passo-Passo dell'Albero Greedy}
+\label{subsec:costruzione-greedy-huffman}
+
+L'algoritmo di Huffman opera aggregando iterativamente dal basso verso l'alto (\textit{bottom-up}) le due radici associate ai pesi di probabilit\`a minimi presenti nella foresta attiva di nodi.
+
+\begin{enumerate}
+  \item \textbf{Stato Iniziale (Foresta $F_0$):}\\
+  L'insieme iniziale dei nodi foglia, ordinati in senso debolmente crescente di probabilit\`a, \`e dato da:
+  \begin{equation}
+    F_0 = \{a: 0.10, \quad b: 0.14, \quad d: 0.18, \quad e: 0.20, \quad c: 0.38\}
+  \end{equation}
+
+  \item \textbf{Passo 1 (Fusione di $a$ e $b$):}\\
+  I due elementi a probabilit\`a minima assoluta sono $a$ ($0.10$) e $b$ ($0.14$). Essi vengono estratti e fusi sotto un nuovo nodo composito intermedio $(ab)$ avente peso aggregato:
+  \begin{equation}
+    p(ab) = p(a) + p(b) = 0.10 + 0.14 = 0.24
+  \end{equation}
+  La foresta attiva aggiornata assume la configurazione:
+  \begin{equation}
+    F_1 = \{d: 0.18, \quad e: 0.20, \quad (ab): 0.24, \quad c: 0.38\}
+  \end{equation}
+
+  \item \textbf{Passo 2 (Fusione di $d$ ed $e$):}\\
+  I due minimi correnti nella foresta $F_1$ sono le foglie $d$ ($0.18$) ed $e$ ($0.20$). La loro aggregazione genera un secondo nodo intermedio $(de)$ avente peso cumulato:
+  \begin{equation}
+    p(de) = p(d) + p(e) = 0.18 + 0.20 = 0.38
+  \end{equation}
+  La foresta attiva diviene:
+  \begin{equation}
+    F_2 = \{(ab): 0.24, \quad (de): 0.38, \quad c: 0.38\}
+  \end{equation}
+
+  \item \textbf{Passo 3 (Fusione dei sottoalberi $(ab)$ e $(de)$):}\\
+  I due nodi a peso strettamente minore in $F_2$ sono $(ab)$ ($0.24$) e $(de)$ ($0.38$)\footnote{Si osservi che sia $(de)$ sia la foglia $c$ possiedono peso pari a $0.38$. La scelta di fondere $(ab)$ con $(de)$ oppure con $c$ costituisce uno spareggio arbitrario privo di impatto sulla lunghezza media globale del codice, ma produce alberi topologicamente distinti. In accordo con la traccia della lezione, si procede aggregando $(ab)$ con $(de)$.}. La loro unione genera il nodo intermedio:
+  \begin{equation}
+    p(abde) = p(ab) + p(de) = 0.24 + 0.38 = 0.62
+  \end{equation}
+  La foresta attiva comprende ora soltanto due radici:
+  \begin{equation}
+    F_3 = \{c: 0.38, \quad (abde): 0.62\}
+  \end{equation}
+
+  \item \textbf{Passo 4 (Fusione Finale verso la Radice):}\\
+  L'ultima iterazione unisce la foglia isolata $c$ ($0.38$) con il macro-nodo $(abde)$ ($0.62$), producendo la radice dell'albero di Huffman con peso normalizzato:
+  \begin{equation}
+    p(\text{root}) = p(c) + p(abde) = 0.38 + 0.62 = 1.00
+  \end{equation}
+\end{enumerate}
+
+\FloatBarrier
+\subsection[Topologia dell'Albero e Assegnamento Codeword]{Topologia dell'Albero e\\Assegnamento delle Codeword}
+\label{subsec:ex-topologia-albero-huffman}
+
+Fissata la convenzione standard che assegna il bit \texttt{0} ad ogni diramazione sinistra (\textit{left branch}) e il bit \texttt{1} ad ogni diramazione destra (\textit{right branch}), la struttura topologica risultante \`e illustrata in \autoref{fig:albero-huffman-esercizio}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.90,
+    every node/.style={transform shape},
+    intnode/.style={circle, draw=navy!85, fill=navy!10, thick, minimum size=0.9cm, inner sep=1pt, font=\scriptsize\bfseries, align=center},
+    leafnode/.style={rectangle, draw=darkgreen!85, fill=darkgreen!12, thick, rounded corners=3pt, minimum width=1.15cm, minimum height=0.95cm, font=\small\bfseries, align=center},
+    edge/.style={draw=black!70, thick}
+]
+
+% Nodi dell'albero posizionati esplicitamente per garantire spaziatura ottimale
+% Livello 0
+\node[intnode] (root) at (0, 0) {$1.00$};
+
+% Livello 1
+\node[intnode] (abde) at (-2.4, -1.35) {$0.62$};
+\node[leafnode] (c) at (2.4, -1.35) {$c$\\[2pt]{\tiny $0.38$}};
+
+% Livello 2
+\node[intnode] (ab) at (-3.8, -2.7) {$0.24$};
+\node[intnode] (de) at (-1.0, -2.7) {$0.38$};
+
+% Livello 3
+\node[leafnode] (a) at (-4.7, -4.1) {$a$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (b) at (-2.9, -4.1) {$b$\\[2pt]{\tiny $0.14$}};
+\node[leafnode] (d) at (-1.8, -4.1) {$d$\\[2pt]{\tiny $0.18$}};
+\node[leafnode] (e) at (-0.2, -4.1) {$e$\\[2pt]{\tiny $0.20$}};
+
+% Rami con etichette 0 / 1
+\draw[edge] (root) -- (abde) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (root) -- (c) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (abde) -- (ab) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (abde) -- (de) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (ab) -- (a) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (ab) -- (b) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (de) -- (d) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (de) -- (e) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+% Didascalie di livello a sinistra
+\node at (-6.2, 0) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 0};
+\node at (-6.2, -1.35) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 1};
+\node at (-6.2, -2.7) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 2};
+\node at (-6.2, -4.1) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 3};
+
+\draw[densely dashed, color=black!25] (-6.1, 0) -- (-0.6, 0);
+\draw[densely dashed, color=black!25] (-6.1, -1.35) -- (-3.0, -1.35);
+\draw[densely dashed, color=black!25] (-6.1, -2.7) -- (-4.4, -2.7);
+\draw[densely dashed, color=black!25] (-6.1, -4.1) -- (-5.4, -4.1);
+
+\end{tikzpicture}
+\caption{Albero di Huffman generato per l'Esercizio 1. I nodi circolari blu rappresentano le radici e le fusioni intermedie con la probabilit\`a aggregata; i rettangoli verdi indicano le foglie associate ai caratteri della sorgente.}
+\label{fig:albero-huffman-esercizio}
+\end{figure}
+
+Seguendo il percorso orientato dalla radice a ogni foglia, si ottiene l'insieme delle parole di codice standard riportate in \autoref{tab:codici-huffman-standard}.
+
+\begin{table}[H]
+\centering
+\caption{Insieme delle parole di codice generate dall'albero di Huffman standard per l'alfabeto $A$.}
+\label{tab:codici-huffman-standard}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Simbolo $\sigma$} & \textbf{Probabilit\`a $p(\sigma)$} & \textbf{Percorso Topologico} & \textbf{Codeword Standard} & \textbf{Lunghezza $\ell(\sigma)$} \\
+\midrule
+$c$ & $0.38$ & Destra & \texttt{1} & $1\text{ bit}$ \\
+$a$ & $0.10$ & Sinistra $\to$ Sinistra $\to$ Sinistra & \texttt{000} & $3\text{ bit}$ \\
+$b$ & $0.14$ & Sinistra $\to$ Sinistra $\to$ Destra & \texttt{001} & $3\text{ bit}$ \\
+$d$ & $0.18$ & Sinistra $\to$ Destra $\to$ Sinistra & \texttt{010} & $3\text{ bit}$ \\
+$e$ & $0.20$ & Sinistra $\to$ Destra $\to$ Destra & \texttt{011} & $3\text{ bit}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Propriet\`a Strutturali e Lunghezza Media}
+\label{subsec:proprieta-strutturali-huffman}
+
+Dall'analisi della topologia dell'albero emergono rilevanti propriet\`a analitiche:
+\begin{itemize}
+  \item \textbf{Asimmetria strutturale marcata:} Il simbolo $c$, caratterizzato dalla probabilit\`a dominante ($p(c) = 0.38$), viene isolato come foglia diretta della radice al livello 1 ($\ell(c) = 1$). Gli altri quattro simboli $\{a, b, d, e\}$, possedendo probabilit\`a individuali sensibilmente inferiori, sono confinati al livello 3 ($\ell = 3$).
+  \item \textbf{Assenza di foglie a profondit\`a intermedia:} Non vi sono simboli associati a parole di lunghezza 2 ($\ell = 2$). Il livello 2 \`e popolato esclusivamente da nodi intermedi di raccordo, ossia $(ab)$ e $(de)$.
+\end{itemize}
+
+La lunghezza media attesa del codice \`e pari a:
+\begin{align}
+  L(C) &= \sum_{\sigma \in A} p(\sigma) \cdot \ell(\sigma) \nonumber \\
+       &= 0.38 \cdot 1 + (0.10 + 0.14 + 0.18 + 0.20) \cdot 3 \nonumber \\
+       &= 0.38 + 0.62 \cdot 3 = 0.38 + 1.86 = 2.24 \text{ bit/simbolo}
+\end{align}
+Confrontando tale valore con l'entropia di Shannon $H(S)$ della sorgente:
+\begin{align}
+  H(S) &= -\sum_{\sigma \in A} p(\sigma) \log_2 p(\sigma) \nonumber \\
+       &= -\big(0.10 \log_2 0.10 + 0.14 \log_2 0.14 + 0.38 \log_2 0.38 \nonumber \\
+       &\quad\quad + 0.18 \log_2 0.18 + 0.20 \log_2 0.20\big) \nonumber \\
+       &\approx 2.1855 \text{ bit/simbolo}
+\end{align}
+La ridondanza media del codice risulta estremamente contenuta:
+\begin{equation}
+  R = L(C) - H(S) \approx 2.24 - 2.1855 = 0.0545 \text{ bit/simbolo}
+\end{equation}
+rispettando pienamente il teorema di Shannon $H(S) \le L(C) < H(S) + 1$.
+
+\FloatBarrier
+\section{Esercizio 1: Costruzione della Codifica di Huffman Canonica}
+\label{sec:esercizio-huffman-canonica}
+
+\subsection{Vettori Descrittori NUM e SYMB}
+\label{subsec:vettori-descrittori-canonica}
+
+Richiamando la teoria dei codici canonici introdotta in \autoref{sec:codifica-canonica-huffman}, la standardizzazione delle parole preserva la distribuzione ottimale delle lunghezze $\{\ell(\sigma)\}_{\sigma \in A}$ dell'albero di Huffman (\autoref{fig:albero-huffman-esercizio}), imponendo l'ordinamento lessicografico compatto per eliminare la memorizzazione esplicita dei puntatori.
+
+Dalla topologia dell'albero, la profondit\`a massima \`e $\ell_{\max} = 3$. Si istanziano i vettori descrittori:
+\begin{itemize}
+  \item \textbf{Vettore $\text{NUM}$ delle lunghezze} (conteggio delle foglie per $\ell \in \{1, 2, 3\}$):
+  \begin{equation}
+    \text{NUM} = [\text{NUM}[1], \text{NUM}[2], \text{NUM}[3]] = [1, 0, 4]
+  \end{equation}
+  \item \textbf{Vettore $\text{SYMB}$ dei simboli} (ordinamento alfabetico per livello):
+  \begin{equation}
+    \text{SYMB} = 
+    \begin{cases}
+      \text{Livello 1}: & [c] \\
+      \text{Livello 2}: & \emptyset \\
+      \text{Livello 3}: & [a, b, d, e]
+    \end{cases}
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Derivazione Ricorsiva del Vettore First Code (FC)}
+\label{subsec:calcolo-vettore-fc}
+
+I codici base $FC[\ell]$ vengono determinati mediante la ricorrenza all'indietro introdotta in \autoref{sec:esempio-costruzione-canonico}:
+\begin{equation}
+  FC[\ell_{\max}] = 0, \qquad FC[\ell - 1] = \left\lfloor \frac{FC[\ell] + \text{NUM}[\ell]}{2} \right\rfloor
+\end{equation}
+
+Applicando la relazione ai parametri dell'esercizio ($\ell_{\max} = 3$):
+\begin{enumerate}
+  \item Per il livello massimo $\ell = 3$:
+  \begin{equation}
+    FC[3] = 0
+  \end{equation}
+  \item Per il livello intermedio $\ell = 2$:
+  \begin{equation}
+    FC[2] = \left\lfloor \frac{FC[3] + \text{NUM}[3]}{2} \right\rfloor = \left\lfloor \frac{0 + 4}{2} \right\rfloor = \left\lfloor 2.0 \right\rfloor = 2
+  \end{equation}
+  \item Per il livello minimo $\ell = 1$:
+  \begin{equation}
+    FC[1] = \left\lfloor \frac{FC[2] + \text{NUM}[2]}{2} \right\rfloor = \left\lfloor \frac{2 + 0}{2} \right\rfloor = \left\lfloor 1.0 \right\rfloor = 1
+  \end{equation}
+\end{enumerate}
+
+Il vettore risultante dei codici base di partenza \`e dunque:
+\begin{equation}
+  FC = [FC[1], FC[2], FC[3]] = [1, 2, 0]
+\end{equation}
+
+\FloatBarrier
+\subsection{Assegnamento delle Parole di Codice Canoniche}
+\label{subsec:assegnamento-codici-canonici}
+
+Fissato il vettore $FC$, la parola di codice per il generico simbolo $\sigma$ di lunghezza $\ell$, avente indice ordinale $i \in \{0, 1, \dots, \text{NUM}[\ell]-1\}$ all'interno del sottovettore $\text{SYMB}[\ell]$, si ottiene semplicemente sommando l'offset $i$ al valore di base ed esprimendo il risultato in notazione binaria su esattamente $\ell$ bit:
+\begin{equation}
+  C_{\text{canonico}}(\sigma) = \text{bin}_{\ell}(FC[\ell] + i)
+\end{equation}
+
+Procedendo per ciascuna lunghezza:
+\begin{itemize}
+  \item \textbf{Livello $\ell = 1$ ($FC[1] = 1$):}
+  \begin{itemize}
+    \item Simbolo $c$ ($i = 0$):
+    \begin{equation}
+      \text{Valore} = 1 + 0 = 1 \implies \text{Codeword} = \texttt{1}
+    \end{equation}
+  \end{itemize}
+  \item \textbf{Livello $\ell = 2$ ($FC[2] = 2$):}
+  \begin{itemize}
+    \item Nessun simbolo presente ($\text{NUM}[2] = 0$).
+  \end{itemize}
+  \item \textbf{Livello $\ell = 3$ ($FC[3] = 0$):}
+  \begin{itemize}
+    \item Simbolo $a$ ($i = 0$):
+    \begin{equation}
+      \text{Valore} = 0 + 0 = 0 \implies \text{Codeword} = \texttt{000}
+    \end{equation}
+    \item Simbolo $b$ ($i = 1$):
+    \begin{equation}
+      \text{Valore} = 0 + 1 = 1 \implies \text{Codeword} = \texttt{001}
+    \end{equation}
+    \item Simbolo $d$ ($i = 2$):
+    \begin{equation}
+      \text{Valore} = 0 + 2 = 2 \implies \text{Codeword} = \texttt{010}
+    \end{equation}
+    \item Simbolo $e$ ($i = 3$):
+    \begin{equation}
+      \text{Valore} = 0 + 3 = 3 \implies \text{Codeword} = \texttt{011}
+    \end{equation}
+  \end{itemize}
+\end{itemize}
+
+In \autoref{tab:confronto-standard-canonico} si riporta il confronto sinottico tra il codice standard ricavato dall'albero greedy e il codice canonico formalizzato.
+
+\begin{table}[H]
+\centering
+\caption{Confronto analitico tra codici di Huffman standard e canonici ricavati per l'alfabeto $A$.}
+\label{tab:confronto-standard-canonico}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Simbolo $\sigma$} & \textbf{Probabilit\`a $p(\sigma)$} & \textbf{Lunghezza $\ell$} & \textbf{Codeword Standard} & \textbf{Codeword Canonica} \\
+\midrule
+$c$ & $0.38$ & $1$ & \texttt{1}   & \texttt{1} \\
+$a$ & $0.10$ & $3$ & \texttt{000} & \texttt{000} \\
+$b$ & $0.14$ & $3$ & \texttt{001} & \texttt{001} \\
+$d$ & $0.18$ & $3$ & \texttt{010} & \texttt{010} \\
+$e$ & $0.20$ & $3$ & \texttt{011} & \texttt{011} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{remark}
+Nel caso specifico dell'Esercizio 1, la convenzione di ordinamento $0/1$ adottata nell'albero greedy coincide numericamente con l'output della forma canonica. Tale coincidenza riflette l'ordinamento naturale imposto alle fusioni, ma in scenari generali la forma canonica riordina le parole all'interno di ciascun livello per garantire l'ordine lessicografico rigoroso sui simboli sorgente.
+\end{remark}
+
+\FloatBarrier
+\section[Esercizio 1: Decodifica Senza Albero]{Esercizio 1: Decodifica Senza Albero\\(\textit{Tree-less Decoding})}
+\label{sec:esercizio-huffman-treeless-decoding}
+
+\subsection{Meccanismo del Registro Intero e Ricerca Tabellare}
+\label{subsec:meccanismo-registro-decodifica}
+
+Come analizzato in \autoref{sec:decodifica-tree-less}, la decodifica canonica non richiede l'instanziazione dell'albero binario, ma opera mediante l'aggiornamento iterativo del registro intero $v \leftarrow 2v + b$ e il confronto con la soglia $FC[\ell]$ del livello corrente. Se $v \ge FC[\ell]$, la parola viene identificata con offset $\text{index} = v - FC[\ell]$ nel vettore $\text{SYMB}[\ell]$.
+
+L'assenza di puntatori riduce l'occupazione di memoria ai soli tre compatti array unidimensionali ($\text{NUM}$, $\text{SYMB}$, $FC$), eliminando integralmente le letture casuali nella cache tipiche della visita su trie.
+
+\FloatBarrier
+\subsection{Traccia Analitica di Decodifica su Sequenza di Bit}
+\label{subsec:traccia-decodifica-bitstream}
+
+Si consideri il seguente flusso compresso binario ricevuto dal decodificatore:
+\begin{equation}
+  \mathcal{B} = \texttt{1 0 0 0 1 0 1 1 0 1 1 1 0 0}
+\end{equation}
+Si richiede di tracciare la decodifica analitica dei primi tre simboli della sequenza, documentando le variazioni del registro $v$ e i confronti con il vettore $FC = [1, 2, 0]$.
+
+\subsubsection*{Decodifica del Simbolo 1}
+\begin{itemize}
+  \item Si resetta il registro: $v \leftarrow 0$.
+  \item \textbf{Livello $\ell = 1$}:
+  \begin{itemize}
+    \item Si estrae il primo bit dal flusso: $b = \texttt{1}$.
+    \item Aggiornamento del registro:
+    \begin{equation}
+      v = 2 \cdot 0 + 1 = 1
+    \end{equation}
+    \item Test di confronto con $FC[1] = 1$:
+    \begin{equation}
+      v = 1 \ge FC[1] = 1 \quad \Longrightarrow \quad \textbf{Condizione Verificata!}
+    \end{equation}
+    \item Calcolo dell'offset all'interno del livello 1:
+    \begin{equation}
+      \text{index} = v - FC[1] = 1 - 1 = 0
+    \end{equation}
+    \item Identificazione del simbolo nel vettore $\text{SYMB}[1]$:
+    \begin{equation}
+      \sigma_1 = \text{SYMB}[1][0] = \mathbf{c}
+    \end{equation}
+  \end{itemize}
+  \item Bit consumati: $1$ (\texttt{'1'}). Output emesso: $\mathbf{c}$.
+\end{itemize}
+
+\subsubsection*{Decodifica del Simbolo 2}
+\begin{itemize}
+  \item Si resetta il registro: $v \leftarrow 0$.
+  \item \textbf{Livello $\ell = 1$}:
+  \begin{itemize}
+    \item Si estrae il bit successivo: $b = \texttt{0}$.
+    \item Aggiornamento del registro: $v = 2 \cdot 0 + 0 = 0$.
+    \item Test di confronto con $FC[1] = 1$:
+    \begin{equation}
+      v = 0 \ge FC[1] = 1 \quad \Longrightarrow \quad \text{Falso. Si avanza a } \ell = 2.
+    \end{equation}
+  \end{itemize}
+  \item \textbf{Livello $\ell = 2$}:
+  \begin{itemize}
+    \item Si estrae il bit successivo: $b = \texttt{0}$.
+    \item Aggiornamento del registro: $v = 2 \cdot 0 + 0 = 0$.
+    \item Test di confronto con $FC[2] = 2$:
+    \begin{equation}
+      v = 0 \ge FC[2] = 2 \quad \Longrightarrow \quad \text{Falso. Si avanza a } \ell = 3.
+    \end{equation}
+  \end{itemize}
+  \item \textbf{Livello $\ell = 3$}:
+  \begin{itemize}
+    \item Si estrae il bit successivo: $b = \texttt{0}$.
+    \item Aggiornamento del registro: $v = 2 \cdot 0 + 0 = 0$.
+    \item Test di confronto con $FC[3] = 0$:
+    \begin{equation}
+      v = 0 \ge FC[3] = 0 \quad \Longrightarrow \quad \textbf{Condizione Verificata!}
+    \end{equation}
+    \item Calcolo dell'offset all'interno del livello 3:
+    \begin{equation}
+      \text{index} = v - FC[3] = 0 - 0 = 0
+    \end{equation}
+    \item Identificazione del simbolo nel vettore $\text{SYMB}[3]$:
+    \begin{equation}
+      \sigma_2 = \text{SYMB}[3][0] = \mathbf{a}
+    \end{equation}
+  \end{itemize}
+  \item Bit consumati: $3$ (\texttt{'000'}). Output emesso: $\mathbf{a}$.
+\end{itemize}
+
+\subsubsection*{Decodifica del Simbolo 3}
+\begin{itemize}
+  \item Si resetta il registro: $v \leftarrow 0$.
+  \item \textbf{Livello $\ell = 1$}:
+  \begin{itemize}
+    \item Si estrae il bit successivo: $b = \texttt{1}$.
+    \item Aggiornamento del registro: $v = 2 \cdot 0 + 1 = 1$.
+    \item Test di confronto con $FC[1] = 1$:
+    \begin{equation}
+      v = 1 \ge FC[1] = 1 \quad \Longrightarrow \quad \textbf{Condizione Verificata!}
+    \end{equation}
+    \item Calcolo dell'offset:
+    \begin{equation}
+      \text{index} = v - FC[1] = 1 - 1 = 0 \implies \sigma_3 = \text{SYMB}[1][0] = \mathbf{c}
+    \end{equation}
+  \end{itemize}
+  \item Bit consumati: $1$ (\texttt{'1'}). Output emesso: $\mathbf{c}$.
+\end{itemize}
+
+I primi tre caratteri estratti dalla sequenza sono pertanto:
+\begin{equation}
+  \mathbf{c}, \quad \mathbf{a}, \quad \mathbf{c}
+\end{equation}
+In \autoref{tab:traccia-treeless-decoding} si riassume l'evoluzione temporale degli stati del decodificatore per i tre simboli elaborati.
+
+\begin{table}[H]
+\centering
+\caption{Traccia tabellare dell'algoritmo di decodifica senza albero per i primi tre simboli del flusso $\mathcal{B}$.}
+\label{tab:traccia-treeless-decoding}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Simbolo} & \textbf{Livello $\ell$} & \textbf{Bit Letto $b$} & \textbf{Registro $v$} & \textbf{Soglia $FC[\ell]$} & \textbf{Condizione $v \ge FC[\ell]$} & \textbf{Simbolo Emesso} \\
+\midrule
+$1$ & $1$ & \texttt{1} & $1$ & $1$ & Vero ($\text{idx}=0$) & $\mathbf{c}$ \\
+\midrule
+$2$ & $1$ & \texttt{0} & $0$ & $1$ & Falso & -- \\
+$2$ & $2$ & \texttt{0} & $0$ & $2$ & Falso & -- \\
+$2$ & $3$ & \texttt{0} & $0$ & $0$ & Vero ($\text{idx}=0$) & $\mathbf{a}$ \\
+\midrule
+$3$ & $1$ & \texttt{1} & $1$ & $1$ & Vero ($\text{idx}=0$) & $\mathbf{c}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{remark}[Decodifica dell'intero bitstream]
+Continuando l'elaborazione sui bit rimanenti della stringa $\mathcal{B} = \texttt{\underline{1} \underline{000} \underline{1} 011 011 1 00}$, si osserva:
+\begin{itemize}
+  \item Bit $6, 7, 8$ (\texttt{011}): livello $1 \to v=0<1$; livello $2 \to v=1<2$; livello $3 \to v=3 \ge FC[3]=0$, $\text{idx} = 3-0=3 \implies \mathbf{e}$.
+  \item Bit $9, 10, 11$ (\texttt{011}): parimenti decodificato nel simbolo $\mathbf{e}$.
+  \item Bit $12$ (\texttt{1}): decodificato nel simbolo $\mathbf{c}$.
+\end{itemize}
+La sequenza complessiva decodificata corrisponde a $\mathbf{c\,a\,c\,e\,e\,c}\dots$ confermando l'assoluta integrit\`a del prefisso e l'istantaneit\`a della decodifica.
+\end{remark}
+
+\FloatBarrier
+\section{Esercizio 2: Codifica Aritmetica -- Modello di Sorgente e Partizioni}
+\label{sec:esercizio-aritmetica-modello}
+
+\subsection{Definizione dell'Alfabeto Ternario e Punti di Ancoraggio}
+\label{subsec:modello-ternario-aritmetica}
+
+Si consideri una sorgente discreta definita su un alfabeto ternario $A = \{a, b, c\}$, le cui probabilit\`a di emissione a priori sono assegnate in forma razionale esatta:
+\begin{equation}
+  p(a) = \frac{1}{2} = 0.50, \qquad p(b) = \frac{1}{4} = 0.25, \qquad p(c) = \frac{1}{4} = 0.25
+\end{equation}
+Si verifica immediatamente:
+\begin{equation}
+  \sum_{\sigma \in A} p(\sigma) = \frac{1}{2} + \frac{1}{4} + \frac{1}{4} = 1.00
+\end{equation}
+
+Fissato l'ordinamento naturale dell'alfabeto $a < b < c$, i punti cumulativi di ancoraggio (\textit{cumulative distribution function}, $F$) sul dominio unitario $[0, 1)$ sono formalizzati da:
+\begin{align}
+  F(a) &= 0 \label{eq:cumulativa-a} \\
+  F(b) &= p(a) = \frac{1}{2} \label{eq:cumulativa-b} \\
+  F(c) &= p(a) + p(b) = \frac{1}{2} + \frac{1}{4} = \frac{3}{4} \label{eq:cumulativa-c} \\
+  F(\text{end}) &= F(c) + p(c) = \frac{3}{4} + \frac{1}{4} = 1 \label{eq:cumulativa-end}
+\end{align}
+
+\FloatBarrier
+\subsection{Regola di Partizione Ricorsiva degli Intervalli Semiaperti}
+\label{subsec:regola-partizione-intervalli}
+
+Dato un generico intervallo semiaperto a destra $[l, l + s)$ avente base $l \in [0, 1)$ e ampiezza $s \in (0, 1]$, la comparsa di ciascun simbolo dell'alfabeto $A$ restringe lo spazio al sotto-intervallo definito dalle seguenti equazioni analitiche:
+\begin{align}
+  I(a) &= [l + s \cdot F(a), \; l + s \cdot F(b)) = \left[ l, \; l + \frac{1}{2}s \right) \label{eq:intervallo-a} \\
+  I(b) &= [l + s \cdot F(b), \; l + s \cdot F(c)) = \left[ l + \frac{1}{2}s, \; l + \frac{3}{4}s \right) \label{eq:intervallo-b} \\
+  I(c) &= [l + s \cdot F(c), \; l + s \cdot F(\text{end})) = \left[ l + \frac{3}{4}s, \; l + s \right) \label{eq:intervallo-c}
+\end{align}
+
+Come esposto in \autoref{sec:principi-fondamentali-converter}, ciascun sotto-intervallo $I(\sigma) = [l_\sigma, r_\sigma)$ \`e chiuso a sinistra e aperto a destra. Tale convenzione topologica garantisce che il punto di confine $r_{\sigma_1} = l_{\sigma_2}$ appartenga univocamente a $I(\sigma_2)$ e non a $I(\sigma_1)$, scongiurando ogni ambiguit\`a durante la localizzazione numerica (aspetto critico evidenziato nell'Iterazione~3 al valore di soglia $r_a = l_b = 46/64$, \autoref{subsec:iterazione-3-frontiera}).
+
+\FloatBarrier
+\section{Esercizio 2: Decodifica Aritmetica Passo-Passo Mediante Zoom-In}
+\label{sec:esercizio-aritmetica-zoom-in}
+
+\subsection{Dati Ricevuti e Calcolo del Valore Razionale}
+\label{subsec:valore-razionale-codeword}
+
+Il messaggio compresso trasmesso al decodificatore \`e costituito dalla coppia ordinata:
+\begin{equation}
+  \langle C, m \rangle = \langle 10111_2, \; 4 \rangle
+\end{equation}
+dove:
+\begin{itemize}
+  \item $C = 10111_2$ rappresenta la sequenza binaria di $k = 5$ bit estratta dalla procedura \texttt{CONVERTER};
+  \item $m = 4$ indica la lunghezza esatta della sequenza di caratteri da ricostruire.
+\end{itemize}
+
+Il valore frazionario reale $x \in [0, 1)$ associato alla stringa binaria $C$ \`e espresso dalla somma delle potenze negative di due:
+\begin{align}
+  x &= \sum_{j=1}^{5} b_j \cdot 2^{-j} = \frac{1}{2^1} + \frac{0}{2^2} + \frac{1}{2^3} + \frac{1}{2^4} + \frac{1}{2^5} \nonumber \\
+    &= \frac{16}{32} + \frac{0}{32} + \frac{4}{32} + \frac{2}{32} + \frac{1}{32} = \frac{23}{32} = 0.71875
+\end{align}
+
+Il processo di decodifica opera mantenendo invariato il punto target $x = \frac{23}{32}$ e restringendo progressivamente per $m = 4$ volte l'intervallo attivo, individuando iterativamente quale sotto-intervallo contiene $x$.
+
+\FloatBarrier
+\subsection{Derivazione Dettagliata delle Iterazioni di Zoom-In}
+\label{subsec:derivazione-iterazioni-zoom}
+
+\subsubsection*{Iterazione 1 ($k = 1$)}
+\begin{itemize}
+  \item Intervallo iniziale: $[l_0, r_0) = [0, 1)$, ampiezza $s_0 = 1$.
+  \item Partizione dello spazio in $32$-esimi:
+  \begin{align}
+    I(a) &= \left[ 0, \; \frac{1}{2} \right) = \left[ \frac{0}{32}, \; \frac{16}{32} \right) \\
+    I(b) &= \left[ \frac{1}{2}, \; \frac{3}{4} \right) = \left[ \frac{16}{32}, \; \frac{24}{32} \right) \\
+    I(c) &= \left[ \frac{3}{4}, \; 1 \right) = \left[ \frac{24}{32}, \; \frac{32}{32} \right)
+  \end{align}
+  \item Collocazione del valore target $x = \frac{23}{32}$:
+  \begin{equation}
+    \frac{16}{32} \le \frac{23}{32} < \frac{24}{32} \iff x \in I(b)
+  \end{equation}
+  \item \textbf{1\textsuperscript{o} Simbolo Decodificato:} $\mathbf{b}$.
+  \item Nuovo intervallo per l'iterazione 2:
+  \begin{equation}
+    [l_1, r_1) = \left[ \frac{16}{32}, \; \frac{24}{32} \right), \quad s_1 = \frac{24}{32} - \frac{16}{32} = \frac{8}{32} = \frac{1}{4}
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Iterazione 2 ($k = 2$)}
+\begin{itemize}
+  \item Intervallo corrente: $[l_1, r_1) = \left[ \frac{16}{32}, \; \frac{24}{32} \right)$, con $s_1 = \frac{8}{32}$.
+  \item Calcolo dei sotto-intervalli:
+  \begin{align}
+    I(a) &= \left[ \frac{16}{32}, \; \frac{16}{32} + \frac{1}{2} \cdot \frac{8}{32} \right) = \left[ \frac{16}{32}, \; \frac{20}{32} \right) \\
+    I(b) &= \left[ \frac{20}{32}, \; \frac{20}{32} + \frac{1}{4} \cdot \frac{8}{32} \right) = \left[ \frac{20}{32}, \; \frac{22}{32} \right) \\
+    I(c) &= \left[ \frac{22}{32}, \; \frac{22}{32} + \frac{1}{4} \cdot \frac{8}{32} \right) = \left[ \frac{22}{32}, \; \frac{24}{32} \right)
+  \end{align}
+  \item Collocazione del valore target $x = \frac{23}{32}$:
+  \begin{equation}
+    \frac{22}{32} \le \frac{23}{32} < \frac{24}{32} \iff x \in I(c)
+  \end{equation}
+  \item \textbf{2\textsuperscript{o} Simbolo Decodificato:} $\mathbf{c}$.
+  \item Nuovo intervallo per l'iterazione 3:
+  \begin{equation}
+    [l_2, r_2) = \left[ \frac{22}{32}, \; \frac{24}{32} \right), \quad s_2 = \frac{2}{32} = \frac{1}{16}
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Iterazione 3 ($k = 3$) -- Gestione Critica del Punto di Frontiera}
+\phantomsection\label{subsec:iterazione-3-frontiera}
+\begin{itemize}
+  \item Intervallo corrente: $[l_2, r_2) = \left[ \frac{22}{32}, \; \frac{24}{32} \right)$, ampiezza $s_2 = \frac{2}{32} = \frac{4}{64}$.
+  \item Per operare con frazioni a denominatore comune, esprimiamo l'intervallo e il valore target in $64$-esimi:
+  \begin{equation}
+    [l_2, r_2) = \left[ \frac{44}{64}, \; \frac{48}{64} \right), \qquad x = \frac{23}{32} = \frac{46}{64}
+  \end{equation}
+  \item Calcolo analitico dei tre sotto-intervalli:
+  \begin{align}
+    I(a) &= \left[ \frac{44}{64}, \; \frac{44}{64} + \frac{1}{2} \cdot \frac{4}{64} \right) = \left[ \frac{44}{64}, \; \frac{46}{64} \right) \\
+    I(b) &= \left[ \frac{46}{64}, \; \frac{46}{64} + \frac{1}{4} \cdot \frac{4}{64} \right) = \left[ \frac{46}{64}, \; \frac{47}{64} \right) \\
+    I(c) &= \left[ \frac{47}{64}, \; \frac{47}{64} + \frac{1}{4} \cdot \frac{4}{64} \right) = \left[ \frac{47}{64}, \; \frac{48}{64} \right)
+  \end{align}
+  \item \textbf{Analisi rigorosa della frontiera su $x = \frac{46}{64}$:}
+  \begin{itemize}
+    \item Il sotto-intervallo $I(a) = \left[ \frac{44}{64}, \; \frac{46}{64} \right)$ \`e strettamente aperto a destra:
+    \begin{equation}
+      y \in I(a) \iff \frac{44}{64} \le y < \frac{46}{64} \implies \frac{46}{64} \notin I(a)
+    \end{equation}
+    \item Il sotto-intervallo $I(b) = \left[ \frac{46}{64}, \; \frac{47}{64} \right)$ \`e chiuso a sinistra:
+    \begin{equation}
+      y \in I(b) \iff \frac{46}{64} \le y < \frac{47}{64} \implies \frac{46}{64} \in I(b)
+    \end{equation}
+  \end{itemize}
+  Poich\'e la disuguaglianza $\frac{46}{64} \le x < \frac{47}{64}$ \`e rigorosamente verificata, il punto target appartiene unicamente al sotto-intervallo associato al simbolo $b$.
+  \item \textbf{3\textsuperscript{o} Simbolo Decodificato:} $\mathbf{b}$.
+  \item Nuovo intervallo per l'iterazione 4:
+  \begin{equation}
+    [l_3, r_3) = \left[ \frac{46}{64}, \; \frac{47}{64} \right), \quad s_3 = \frac{1}{64} = \frac{2}{128}
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Iterazione 4 ($k = 4$)}
+\begin{itemize}
+  \item Intervallo corrente scalato in $128$-esimi:
+  \begin{equation}
+    [l_3, r_3) = \left[ \frac{92}{128}, \; \frac{94}{128} \right), \quad s_3 = \frac{2}{128}
+  \end{equation}
+  \item Il valore target in $128$-esimi coincide esattamente con la base dell'intervallo:
+  \begin{equation}
+    x = \frac{46}{64} = \frac{92}{128}
+  \end{equation}
+  \item Suddivisione nei sotto-intervalli:
+  \begin{align}
+    I(a) &= \left[ \frac{92}{128}, \; \frac{92}{128} + \frac{1}{2} \cdot \frac{2}{128} \right) = \left[ \frac{92}{128}, \; \frac{93}{128} \right) \\
+    I(b) &= \left[ \frac{93}{128}, \; \frac{93}{128} + \frac{1}{4} \cdot \frac{2}{128} \right) = \left[ \frac{93}{128}, \; \frac{93.5}{128} \right) = \left[ \frac{186}{256}, \; \frac{187}{256} \right) \\
+    I(c) &= \left[ \frac{187}{256}, \; \frac{188}{256} \right)
+  \end{align}
+  \item Collocazione del valore target $x = \frac{92}{128}$:
+  \begin{equation}
+    \frac{92}{128} \le x = \frac{92}{128} < \frac{93}{128} \iff x \in I(a)
+  \end{equation}
+  \item \textbf{4\textsuperscript{o} Simbolo Decodificato:} $\mathbf{a}$.
+  \item \textbf{Condizione di Terminazione:} Raggiunto il numero prefissato di simboli $m = 4$. L'algoritmo arresta la scansione.
+\end{itemize}
+
+La sequenza complessiva decodificata dalla coppia $\langle 10111_2, 4 \rangle$ \`e pertanto:
+\begin{equation}
+  \mathbf{b} \; \mathbf{c} \; \mathbf{b} \; \mathbf{a}
+\end{equation}
+
+\FloatBarrier
+\subsection{Riepilogo Tabellare e Diagramma Geometrico di Zoom-In}
+\label{subsec:riepilogo-zoom-in}
+
+In \autoref{tab:riepilogo-zoom-in} viene documentata la successione completa dei parametri analitici per ciascun passo di decodifica.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico delle quattro iterazioni di zoom-in per la decodifica aritmetica del valore $x = 23/32$.}
+\label{tab:riepilogo-zoom-in}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Passo $k$} & \textbf{Base $l_{k-1}$} & \textbf{Ampiezza $s_{k-1}$} & \textbf{Rappr. Frazionaria} & \textbf{Valore Target $x$} & \textbf{Intervallo di Caduta} & \textbf{Simbolo} \\
+\midrule
+$1$ & $0$ & $1$ & $[0/32, 32/32)$ & $23/32 = 0.71875$ & $[16/32, 24/32)$ & $\mathbf{b}$ \\
+$2$ & $1/2$ & $1/4$ & $[16/32, 24/32)$ & $23/32 = 0.71875$ & $[22/32, 24/32)$ & $\mathbf{c}$ \\
+$3$ & $11/16$ & $1/16$ & $[44/64, 48/64)$ & $46/64 = 0.71875$ & $[46/64, 47/64)$ & $\mathbf{b}$ \\
+$4$ & $23/32$ & $1/64$ & $[92/128, 94/128)$ & $92/128 = 0.71875$ & $[92/128, 93/128)$ & $\mathbf{a}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+In \autoref{fig:zoom-in-aritmetico} \`e visualizzato il restringimento progressivo dei sotto-intervalli e la posizione invariante del punto $x = 0.71875$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape},
+    interval/.style={draw=black!75, thick},
+    zoomguide/.style={densely dashed, color=navy!50, thick},
+    targetline/.style={crimson, thick, dashed}
+]
+
+% ==============================================================================
+% COLONNA 1: Passo 1 [0, 1) -> y varia da 0 a 8
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (0, 9.2) {Passo 1 ($k=1$)\\[2pt]\scriptsize Intervallo $[0, 1)$};
+
+% Rettangoli dei 3 simboli
+% a: [0, 0.5) -> y da 0 a 4
+\fill[codebackground] (-0.7, 0) rectangle (0.7, 4);
+\draw[interval] (-0.7, 0) rectangle (0.7, 4);
+\node[font=\small\bfseries] at (0, 2) {$a$};
+
+% b: [0.5, 0.75) -> y da 4 a 6 (SELEZIONATO)
+\fill[attivo] (-0.7, 4) rectangle (0.7, 6);
+\draw[interval, draw=navy, thick] (-0.7, 4) rectangle (0.7, 6);
+\node[font=\small\bfseries, color=navy] at (0, 5) {$b$};
+
+% c: [0.75, 1) -> y da 6 a 8
+\fill[codebackground] (-0.7, 6) rectangle (0.7, 8);
+\draw[interval] (-0.7, 6) rectangle (0.7, 8);
+\node[font=\small\bfseries] at (0, 7) {$c$};
+
+% Ticks colonna 1
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.75, 0) {$0$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.75, 4) {$\frac{16}{32}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.75, 6) {$\frac{24}{32}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.75, 8) {$1$};
+
+% Target point: x = 23/32 = 0.71875 -> y = 0.71875 * 8 = 5.75
+\draw[targetline] (-0.7, 5.75) -- (0.7, 5.75);
+\fill[crimson] (0, 5.75) circle (2.2pt);
+
+% ==============================================================================
+% GUIDE DI ZOOM DA COLONNA 1 A COLONNA 2
+% ==============================================================================
+\draw[zoomguide] (0.7, 4) -- (3.0, 0);
+\draw[zoomguide] (0.7, 6) -- (3.0, 8);
+
+% ==============================================================================
+% COLONNA 2: Passo 2 [16/32, 24/32) -> y varia da 0 a 8
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (3.7, 9.2) {Passo 2 ($k=2$)\\[2pt]\scriptsize $\left[\frac{16}{32}, \frac{24}{32}\right)$};
+
+% a: [16/32, 20/32) -> y da 0 a 4
+\fill[codebackground] (3.0, 0) rectangle (4.4, 4);
+\draw[interval] (3.0, 0) rectangle (4.4, 4);
+\node[font=\small\bfseries] at (3.7, 2) {$a$};
+
+% b: [20/32, 22/32) -> y da 4 a 6
+\fill[codebackground] (3.0, 4) rectangle (4.4, 6);
+\draw[interval] (3.0, 4) rectangle (4.4, 6);
+\node[font=\small\bfseries] at (3.7, 5) {$b$};
+
+% c: [22/32, 24/32) -> y da 6 a 8 (SELEZIONATO)
+\fill[attivo] (3.0, 6) rectangle (4.4, 8);
+\draw[interval, draw=navy, thick] (3.0, 6) rectangle (4.4, 8);
+\node[font=\small\bfseries, color=navy] at (3.7, 7) {$c$};
+
+% Ticks colonna 2
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.95, 0) {$\frac{16}{32}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.95, 4) {$\frac{20}{32}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.95, 6) {$\frac{22}{32}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.95, 8) {$\frac{24}{32}$};
+
+% Target point in colonna 2: x = 23/32 -> metà tra 22/32 e 24/32 -> y = 7.0
+\draw[targetline] (3.0, 7.0) -- (4.4, 7.0);
+\fill[crimson] (3.7, 7.0) circle (2.2pt);
+
+% ==============================================================================
+% GUIDE DI ZOOM DA COLONNA 2 A COLONNA 3
+% ==============================================================================
+\draw[zoomguide] (4.4, 6) -- (6.7, 0);
+\draw[zoomguide] (4.4, 8) -- (6.7, 8);
+
+% ==============================================================================
+% COLONNA 3: Passo 3 [44/64, 48/64) -> y varia da 0 a 8
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (7.4, 9.2) {Passo 3 ($k=3$)\\[2pt]\scriptsize $\left[\frac{44}{64}, \frac{48}{64}\right)$};
+
+% a: [44/64, 46/64) -> y da 0 a 4
+\fill[codebackground] (6.7, 0) rectangle (8.1, 4);
+\draw[interval] (6.7, 0) rectangle (8.1, 4);
+\node[font=\small\bfseries] at (7.4, 2) {$a$};
+
+% b: [46/64, 47/64) -> y da 4 a 6 (SELEZIONATO)
+\fill[attivo] (6.7, 4) rectangle (8.1, 6);
+\draw[interval, draw=navy, thick] (6.7, 4) rectangle (8.1, 6);
+\node[font=\small\bfseries, color=navy] at (7.4, 5) {$b$};
+
+% c: [47/64, 48/64) -> y da 6 a 8
+\fill[codebackground] (6.7, 6) rectangle (8.1, 8);
+\draw[interval] (6.7, 6) rectangle (8.1, 8);
+\node[font=\small\bfseries] at (7.4, 7) {$c$};
+
+% Ticks colonna 3
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (6.65, 0) {$\frac{44}{64}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (6.65, 4) {$\frac{46}{64}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (6.65, 6) {$\frac{47}{64}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (6.65, 8) {$\frac{48}{64}$};
+
+% Target point in colonna 3: x = 46/64 -> esattamente sul bordo y = 4.0
+\draw[targetline] (6.7, 4.0) -- (8.1, 4.0);
+\fill[crimson] (7.4, 4.0) circle (2.2pt);
+
+% ==============================================================================
+% GUIDE DI ZOOM DA COLONNA 3 A COLONNA 4
+% ==============================================================================
+\draw[zoomguide] (8.1, 4) -- (10.4, 0);
+\draw[zoomguide] (8.1, 6) -- (10.4, 8);
+
+% ==============================================================================
+% COLONNA 4: Passo 4 [92/128, 94/128) -> y varia da 0 a 8
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (11.1, 9.2) {Passo 4 ($k=4$)\\[2pt]\scriptsize $\left[\frac{92}{128}, \frac{94}{128}\right)$};
+
+% a: [92/128, 93/128) -> y da 0 a 4 (SELEZIONATO)
+\fill[attivo] (10.4, 0) rectangle (11.8, 4);
+\draw[interval, draw=navy, thick] (10.4, 0) rectangle (11.8, 4);
+\node[font=\small\bfseries, color=navy] at (11.1, 2) {$a$};
+
+% b: [93/128, 93.5/128) -> y da 4 a 6
+\fill[codebackground] (10.4, 4) rectangle (11.8, 6);
+\draw[interval] (10.4, 4) rectangle (11.8, 6);
+\node[font=\small\bfseries] at (11.1, 5) {$b$};
+
+% c: [93.5/128, 94/128) -> y da 6 a 8
+\fill[codebackground] (10.4, 6) rectangle (11.8, 8);
+\draw[interval] (10.4, 6) rectangle (11.8, 8);
+\node[font=\small\bfseries] at (11.1, 7) {$c$};
+
+% Ticks colonna 4
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.35, 0) {$\frac{92}{128}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.35, 4) {$\frac{93}{128}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.35, 6) {$\frac{93.5}{128}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.35, 8) {$\frac{94}{128}$};
+
+% Target point in colonna 4: x = 92/128 -> esattamente su y = 0.0
+\draw[targetline] (10.4, 0.0) -- (11.8, 0.0);
+\fill[crimson] (11.1, 0.0) circle (2.2pt);
+
+% Legenda in basso
+\node[draw=black!40, fill=white, rounded corners=3pt, font=\scriptsize, align=center] at (5.55, -0.9) {%
+  \tikz \fill[attivo] (0,0) rectangle (0.35, 0.2);~Sotto-intervallo selezionato \quad
+  \tikz \draw[targetline] (0,0.1) -- (0.5,0.1); \tikz \fill[crimson] (0.25,0.1) circle (1.8pt);~Valore compresso target ($x = 0.71875$)
+};
+
+\end{tikzpicture}
+\caption{Visualizzazione geometrica dei quattro stadi di decodifica aritmetica progressiva (\textit{zoom-in}) per il valore compresso $x = \frac{23}{32} = 0.71875$. I rettangoli azzurri denotano i sotto-intervalli di volta in volta selezionati, mentre la retta tratteggiata rossa identifica la posizione invariante del punto.}
+\label{fig:zoom-in-aritmetico}
+\end{figure}
+
+\FloatBarrier
+\section[Quadro Comparativo e Metodologico]{Quadro Comparativo e\\Considerazioni Metodologiche}
+\label{sec:quadro-comparativo-esercitazioni}
+
+La risoluzione analitica dei due esercizi evidenzia la profonda divergenza metodologica tra i compressori statistici a livello di singolo simbolo e i codificatori d'intervallo continui. In \autoref{tab:confronto-sinottico-esercitazioni} viene delineato un confronto sistematico tra i due approcci.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico comparativo tra la codifica di Huffman canonica (Esercizio 1) e la codifica aritmetica (Esercizio 2).}
+\label{tab:confronto-sinottico-esercitazioni}
+\vspace{2mm}
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Dimensione Analitica} & \textbf{Codifica di Huffman Canonica} & \textbf{Codifica Aritmetica} \\
+\midrule
+\textbf{Natura dell'Assegnamento} & Discreta: ogni simbolo riceve un numero intero $\ell \ge 1$ di bit. & Continua: l'intero messaggio mappa in un sotto-intervallo $[l, l+s)$. \\
+\addlinespace
+\textbf{Struttura Decodificatore} & Array compatti $\text{NUM}, \text{SYMB}, FC$; decodifica \textit{tree-less} via registro intero. & Aritmetica razionale/virgola fissa; restringimento ricorsivo per zoom-in. \\
+\addlinespace
+\textbf{Complessit\`a di Decodifica} & $O(1)$ operazioni elementari (shift e confronti) per bit letto. & $O(1)$ moltiplicazioni/sottrazioni a precisione finita per simbolo estratto. \\
+\addlinespace
+\textbf{Condizioni di Frontiera} & Assenti: il prefisso univoco impedisce sovrapposizioni. & Critiche: rigorosa appartenenza all'estremo chiuso sinistro $[l_\sigma, r_\sigma)$. \\
+\addlinespace
+\textbf{Overhead di Lunghezza} & Limitato da $L(C) < H(S) + 1$, sensibile a simboli con $p(\sigma) > 0.5$. & Strettamente asintotico: overhead totale $< 2\text{ bit}$ per l'intera sequenza. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{remark}[Trattamento delle Frontiere e Precisione Finita]
+L'iterazione 3 dell'Esercizio 2 costituisce un paradigma didattico di primaria importanza per l'ingegneria degli algoritmi: qualora si adotti un confronto errato del tipo $y \le r$ anzich\'e $y < r$, il valore $x = 46/64$ verrebbe erroneamente attribuito al simbolo $a$, alterando l'intero albero di decodifica a valle. L'assoluta coerenza della convenzione semiaperta a destra $[l, r)$ garantisce la natura priva di ambiguit\`a (\textit{injective mapping}) del processo di decompressione.
+\end{remark}

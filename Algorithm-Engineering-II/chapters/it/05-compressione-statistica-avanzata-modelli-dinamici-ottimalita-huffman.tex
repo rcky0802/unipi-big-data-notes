@@ -1,0 +1,820 @@
+\chapter[Compressione Avanzata: Aritmetica Dinamica e Codici Ottimi]{Compressione Statistica Avanzata: Codifica Aritmetica Dinamica, Huffman Canonico e Codici Ottimi Non-Huffman}
+\label{ch:compressione-statistica-avanzata}
+
+\section{Quadro Generale della Sessione di Esercizi}
+\label{sec:quadro-generale-sessione-avanzata}
+
+La presente sessione di approfondimento avanzato esplora i limiti teorici e i confini applicativi dei compressori statistici senza perdita (\textit{lossless}), focalizzandosi su due tematiche cardine dell'ingegneria degli algoritmi:
+\begin{enumerate}
+  \item \textbf{La Codifica Aritmetica Adattiva (Modello Dinamico):} Il superamento dell'ipotesi classica di stazionariet\`a e conoscenza preventiva della distribuzione di probabilit\`a \cite{rissanen1976, witten1987}. Quando le frequenze dei simboli non sono note a priori, il sistema stima e aggiorna i conteggi in modo incrementale e sincrono durante la scansione del testo, impiegando lo stimatore bayesiano uniforme di Laplace per prevenire il problema delle frequenze nulle.
+  \item \textbf{Huffman Canonico e Teoria dell'Ottimalit\`a dei Codici a Prefisso:} La costruzione rigorosa della forma canonica per distribuzioni sbilanciate (\textit{unbalanced}), l'analisi dell'efficienza rispetto all'entropia di Shannon \cite{shannon1948}, e la trattazione formale del problema dell'ottimalit\`a dei codici prefissi. In particolare, si dimostra che l'algoritmo greedy di Huffman \cite{huffman1952} rappresenta una condizione \textbf{sufficiente ma non necessaria} per l'ottimalit\`a, provando l'esistenza di schemi di codifica prefissi ottimi non generabili dall'algoritmo di Huffman.
+\end{enumerate}
+
+\FloatBarrier
+\section{Codifica Aritmetica Adattiva a Modello Dinamico}
+\label{sec:aritmetica-adattiva-dinamica}
+
+\subsection{Formulazione del Problema e Limiti del Modello Statico}
+\label{subsec:formulazione-modello-dinamico}
+
+Nei modelli statistici semi-statici (\autoref{sec:modelli-stima-probabilita} e \autoref{sec:architettura-semi-statico}), il codificatore effettua un passaggio preliminare sul testo per determinarne la distribuzione globale $\{p(\sigma)\}_{\sigma \in A}$, trasmettendola nell'header con relativo overhead in bit. Nel \textbf{modello dinamico o adattivo}, invece, la distribuzione a priori non \`e nota e non viene trasmesso alcun dizionario statico: codificatore e decodificatore mantengono una struttura di conteggio sincronizzata, aggiornando le frequenze cumulative online dopo ogni simbolo elaborato.
+
+L'obiettivo dell'esercizio \`e la codifica della sequenza di $m = 4$ simboli:
+\begin{equation}
+  T = b\,b\,a\,c
+\end{equation}
+definita sull'alfabeto ternario finito $A = \{a, b, c\}$.
+
+\FloatBarrier
+\subsection{Inizializzazione dei Conteggi Mediante Stimatore di Laplace}
+\label{subsec:inizializzazione-laplace}
+
+Se all'avvio dell'algoritmo si assegnassero conteggi nulli ai simboli non ancora osservati, la loro probabilit\`a risulterebbe pari a zero, provocando un'ampiezza dell'intervallo nulla ($s = 0$) che bloccherebbe irreparabilmente il processo di codifica alla prima occorrenza di un nuovo carattere.
+
+Per garantire la convergenza e la correttezza della suddivisione dello spazio reale unitario, si adotta la classica \textbf{correzione bayesiana uniforme} (\textit{stimatore di Laplace} o \textit{add-one smoothing}), inizializzando a 1 il contatore di ciascun simbolo dell'alfabeto:
+\begin{itemize}
+  \item Conteggi iniziali ($k = 0$):
+  \begin{equation}
+    C_0(a) = 1, \qquad C_0(b) = 1, \qquad C_0(c) = 1
+  \end{equation}
+  \item Totale iniziale delle osservazioni virtuali:
+  \begin{equation}
+    N_0 = \sum_{\sigma \in A} C_0(\sigma) = 1 + 1 + 1 = 3
+  \end{equation}
+  \item Probabilit\`a condizionate assegnate al primo simbolo ($k = 1$):
+  \begin{equation}
+    p_1(a) = \frac{C_0(a)}{N_0} = \frac{1}{3}, \qquad p_1(b) = \frac{C_0(b)}{N_0} = \frac{1}{3}, \qquad p_1(c) = \frac{C_0(c)}{N_0} = \frac{1}{3}
+  \end{equation}
+\end{itemize}
+
+Lo spazio di partenza coincide con l'intervallo reale unitario semiaperto:
+\begin{equation}
+  [l_0, l_0 + s_0) = [0, 1), \qquad \text{con } l_0 = 0, \quad s_0 = 1
+\end{equation}
+
+\FloatBarrier
+\subsection{Derivazione Passo-Passo delle Quattro Iterazioni}
+\label{subsec:derivazione-passi-aritmetica-adattiva}
+
+\subsubsection*{Passo 1: Elaborazione del simbolo $T[1] = b$}
+\begin{itemize}
+  \item \textbf{Distribuzione e intervalli locali al passo 1 ($N_0 = 3$):}
+  \begin{align}
+    I_1(a) &= \left[ 0, \; \frac{1}{3} \right), \quad p_1(a) = \frac{1}{3} \\
+    I_1(b) &= \left[ \frac{1}{3}, \; \frac{2}{3} \right), \quad p_1(b) = \frac{1}{3} \\
+    I_1(c) &= \left[ \frac{2}{3}, \; 1 \right), \quad p_1(c) = \frac{1}{3}
+  \end{align}
+  \item \textbf{Aggiornamento dell'intervallo globale:}
+  \begin{align}
+    l_1 &= l_0 + s_0 \cdot \frac{1}{3} = 0 + 1 \cdot \frac{1}{3} = \frac{1}{3} \\
+    s_1 &= s_0 \cdot p_1(b) = 1 \cdot \frac{1}{3} = \frac{1}{3}
+  \end{align}
+  Intervallo globale risultante:
+  \begin{equation}
+    [l_1, l_1 + s_1) = \left[ \frac{1}{3}, \; \frac{2}{3} \right)
+  \end{equation}
+  \item \textbf{Aggiornamento dei conteggi:} Si incrementa il contatore del simbolo $b$:
+  \begin{equation}
+    C_1(b) = C_0(b) + 1 = 1 + 1 = 2 \implies N_1 = 1 + 2 + 1 = 4
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Passo 2: Elaborazione del simbolo $T[2] = b$}
+\begin{itemize}
+  \item \textbf{Distribuzione e intervalli locali al passo 2 ($N_1 = 4$):}
+  \begin{align}
+    p_2(a) &= \frac{1}{4} \implies I_2(a) = \left[ 0, \; \frac{1}{4} \right) \\
+    p_2(b) &= \frac{2}{4} = \frac{1}{2} \implies I_2(b) = \left[ \frac{1}{4}, \; \frac{3}{4} \right) \\
+    p_2(c) &= \frac{1}{4} \implies I_2(c) = \left[ \frac{3}{4}, \; 1 \right)
+  \end{align}
+  \item \textbf{Aggiornamento dell'intervallo globale:}
+  \begin{align}
+    l_2 &= l_1 + s_1 \cdot \frac{1}{4} = \frac{1}{3} + \frac{1}{3} \cdot \frac{1}{4} = \frac{1}{3} + \frac{1}{12} = \frac{4 + 1}{12} = \frac{5}{12} \\
+    s_2 &= s_1 \cdot p_2(b) = \frac{1}{3} \cdot \frac{2}{4} = \frac{1}{6} = \frac{2}{12}
+  \end{align}
+  Intervallo globale risultante:
+  \begin{equation}
+    [l_2, l_2 + s_2) = \left[ \frac{5}{12}, \; \frac{5}{12} + \frac{2}{12} \right) = \left[ \frac{5}{12}, \; \frac{7}{12} \right)
+  \end{equation}
+  \item \textbf{Aggiornamento dei conteggi:} Si incrementa nuovamente il contatore di $b$:
+  \begin{equation}
+    C_2(b) = C_1(b) + 1 = 2 + 1 = 3 \implies N_2 = 1 + 3 + 1 = 5
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Passo 3: Elaborazione del simbolo $T[3] = a$}
+\begin{itemize}
+  \item \textbf{Distribuzione e intervalli locali al passo 3 ($N_2 = 5$):}
+  \begin{align}
+    p_3(a) &= \frac{1}{5} \implies I_3(a) = \left[ 0, \; \frac{1}{5} \right) \\
+    p_3(b) &= \frac{3}{5} \implies I_3(b) = \left[ \frac{1}{5}, \; \frac{4}{5} \right) \\
+    p_3(c) &= \frac{1}{5} \implies I_3(c) = \left[ \frac{4}{5}, \; 1 \right)
+  \end{align}
+  \item \textbf{Aggiornamento dell'intervallo globale:}
+  \begin{align}
+    l_3 &= l_2 + s_2 \cdot 0 = \frac{5}{12} \\
+    s_3 &= s_2 \cdot p_3(a) = \frac{1}{6} \cdot \frac{1}{5} = \frac{1}{30}
+  \end{align}
+  Esprimendo base e ampiezza sul minimo comune denominatore $60$:
+  \begin{equation}
+    l_3 = \frac{5 \cdot 5}{12 \cdot 5} = \frac{25}{60}, \qquad s_3 = \frac{1 \cdot 2}{30 \cdot 2} = \frac{2}{60}
+  \end{equation}
+  Intervallo globale risultante:
+  \begin{equation}
+    [l_3, l_3 + s_3) = \left[ \frac{25}{60}, \; \frac{27}{60} \right)
+  \end{equation}
+  \item \textbf{Aggiornamento dei conteggi:} Si registra la comparsa del simbolo $a$:
+  \begin{equation}
+    C_3(a) = C_2(a) + 1 = 1 + 1 = 2 \implies N_3 = 2 + 3 + 1 = 6
+  \end{equation}
+\end{itemize}
+
+\subsubsection*{Passo 4: Elaborazione del simbolo $T[4] = c$}
+\begin{itemize}
+  \item \textbf{Distribuzione e intervalli locali al passo 4 ($N_3 = 6$):}
+  \begin{align}
+    p_4(a) &= \frac{2}{6} = \frac{1}{3} \\
+    p_4(b) &= \frac{3}{6} = \frac{1}{2} \\
+    p_4(c) &= \frac{1}{6}
+  \end{align}
+  L'estremo inferiore locale del simbolo $c$ \`e definito dalla somma delle probabilit\`a dei simboli che lo precedono:
+  \begin{equation}
+    F_4(c) = \sum_{\tau < c} p_4(\tau) = p_4(a) + p_4(b) = \frac{2}{6} + \frac{3}{6} = \frac{5}{6}
+  \end{equation}
+  L'intervallo locale associato a $c$ \`e pertanto:
+  \begin{equation}
+    I_4(c) = \left[ \frac{5}{6}, \; 1 \right)
+  \end{equation}
+  \item \textbf{Aggiornamento dell'intervallo globale:}
+  \begin{align}
+    l_4 &= l_3 + s_3 \cdot \frac{5}{6} = \frac{25}{60} + \frac{1}{30} \cdot \frac{5}{6} = \frac{25}{60} + \frac{5}{180} \nonumber \\
+        &= \frac{75}{180} + \frac{5}{180} = \frac{80}{180} \\
+    s_4 &= s_3 \cdot p_4(c) = \frac{1}{30} \cdot \frac{1}{6} = \frac{1}{180}
+  \end{align}
+  \item \textbf{Rappresentazione finale su base 360:}
+  Per calcolare agevolmente il punto centrale e semplificare la conversione binaria, si estendono base e ampiezza al denominatore $360$:
+  \begin{equation}
+    l_4 = \frac{80 \cdot 2}{180 \cdot 2} = \frac{160}{360}, \qquad s_4 = \frac{1 \cdot 2}{180 \cdot 2} = \frac{2}{360}
+  \end{equation}
+  L'intervallo compresso definitivo che mappa biunivocamente la stringa $T = bbac$ \`e:
+  \begin{equation}
+    \text{COMPRESS}(bbac) = \left[ \frac{160}{360}, \; \frac{162}{360} \right)
+  \end{equation}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Rappresentazione Geometrica delle Fasi di Compressione}
+\label{subsec:rappresentazione-geometrica-dinamica}
+
+In \autoref{fig:aritmetica-dinamica-subdivision} \`e illustrata l'evoluzione grafica delle suddivisioni dell'intervallo a modello dinamico attraverso i quattro passi di codifica.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.86,
+    every node/.style={transform shape},
+    interval/.style={draw=black!75, thick},
+    zoomguide/.style={densely dashed, color=navy!50, thick},
+    targetline/.style={crimson, thick, dashed}
+]
+
+% ==============================================================================
+% COLONNA 0: Stato Iniziale [0, 1) -> y varia da 0 a 8
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (0, 9.2) {Passo 0\\[2pt]\scriptsize $[0, 1)$};
+
+\fill[codebackground] (-0.6, 0) rectangle (0.6, 8/3);
+\draw[interval] (-0.6, 0) rectangle (0.6, 8/3);
+\node[font=\footnotesize\bfseries] at (0, 4/3) {$a: \frac{1}{3}$};
+
+\fill[attivo] (-0.6, 8/3) rectangle (0.6, 16/3);
+\draw[interval, draw=navy, thick] (-0.6, 8/3) rectangle (0.6, 16/3);
+\node[font=\footnotesize\bfseries, color=navy] at (0, 12/3) {$b: \frac{1}{3}$};
+
+\fill[codebackground] (-0.6, 16/3) rectangle (0.6, 8);
+\draw[interval] (-0.6, 16/3) rectangle (0.6, 8);
+\node[font=\footnotesize\bfseries] at (0, 20/3) {$c: \frac{1}{3}$};
+
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.65, 0) {$0$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.65, 8/3) {$\frac{1}{3}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.65, 16/3) {$\frac{2}{3}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (-0.65, 8) {$1$};
+
+% Guide di zoom da Col 0 a Col 1
+\draw[zoomguide] (0.6, 8/3) -- (2.3, 0);
+\draw[zoomguide] (0.6, 16/3) -- (2.3, 8);
+
+% ==============================================================================
+% COLONNA 1: Passo 1 (Letto 'b') [1/3, 2/3)
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (2.9, 9.2) {Passo 1 ($b$)\\[2pt]\scriptsize $\left[\frac{1}{3}, \frac{2}{3}\right)$};
+
+\fill[codebackground] (2.3, 0) rectangle (3.5, 2);
+\draw[interval] (2.3, 0) rectangle (3.5, 2);
+\node[font=\footnotesize\bfseries] at (2.9, 1) {$a: \frac{1}{4}$};
+
+\fill[attivo] (2.3, 2) rectangle (3.5, 6);
+\draw[interval, draw=navy, thick] (2.3, 2) rectangle (3.5, 6);
+\node[font=\footnotesize\bfseries, color=navy] at (2.9, 4) {$b: \frac{2}{4}$};
+
+\fill[codebackground] (2.3, 6) rectangle (3.5, 8);
+\draw[interval] (2.3, 6) rectangle (3.5, 8);
+\node[font=\footnotesize\bfseries] at (2.9, 7) {$c: \frac{1}{4}$};
+
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.25, 0) {$\frac{1}{3}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.25, 2) {$\frac{5}{12}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.25, 6) {$\frac{7}{12}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (2.25, 8) {$\frac{2}{3}$};
+
+% Guide di zoom da Col 1 a Col 2
+\draw[zoomguide] (3.5, 2) -- (5.2, 0);
+\draw[zoomguide] (3.5, 6) -- (5.2, 8);
+
+% ==============================================================================
+% COLONNA 2: Passo 2 (Letto 'b') [5/12, 7/12)
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (5.8, 9.2) {Passo 2 ($b$)\\[2pt]\scriptsize $\left[\frac{5}{12}, \frac{7}{12}\right)$};
+
+\fill[attivo] (5.2, 0) rectangle (6.4, 1.6);
+\draw[interval, draw=navy, thick] (5.2, 0) rectangle (6.4, 1.6);
+\node[font=\footnotesize\bfseries, color=navy] at (5.8, 0.8) {$a: \frac{1}{5}$};
+
+\fill[codebackground] (5.2, 1.6) rectangle (6.4, 6.4);
+\draw[interval] (5.2, 1.6) rectangle (6.4, 6.4);
+\node[font=\footnotesize\bfseries] at (5.8, 4.0) {$b: \frac{3}{5}$};
+
+\fill[codebackground] (5.2, 6.4) rectangle (6.4, 8);
+\draw[interval] (5.2, 6.4) rectangle (6.4, 8);
+\node[font=\footnotesize\bfseries] at (5.8, 7.2) {$c: \frac{1}{5}$};
+
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (5.15, 0) {$\frac{25}{60}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (5.15, 1.6) {$\frac{27}{60}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (5.15, 6.4) {$\frac{33}{60}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (5.15, 8) {$\frac{35}{60}$};
+
+% Guide di zoom da Col 2 a Col 3
+\draw[zoomguide] (6.4, 0) -- (8.1, 0);
+\draw[zoomguide] (6.4, 1.6) -- (8.1, 8);
+
+% ==============================================================================
+% COLONNA 3: Passo 3 (Letto 'a') [25/60, 27/60)
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (8.7, 9.2) {Passo 3 ($a$)\\[2pt]\scriptsize $\left[\frac{25}{60}, \frac{27}{60}\right)$};
+
+\fill[codebackground] (8.1, 0) rectangle (9.3, 2.67);
+\draw[interval] (8.1, 0) rectangle (9.3, 2.67);
+\node[font=\footnotesize\bfseries] at (8.7, 1.33) {$a: \frac{2}{6}$};
+
+\fill[codebackground] (8.1, 2.67) rectangle (9.3, 6.67);
+\draw[interval] (8.1, 2.67) rectangle (9.3, 6.67);
+\node[font=\footnotesize\bfseries] at (8.7, 4.67) {$b: \frac{3}{6}$};
+
+\fill[attivo] (8.1, 6.67) rectangle (9.3, 8);
+\draw[interval, draw=navy, thick] (8.1, 6.67) rectangle (9.3, 8);
+\node[font=\footnotesize\bfseries, color=navy] at (8.7, 7.33) {$c: \frac{1}{6}$};
+
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (8.05, 0) {$\frac{75}{180}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (8.05, 2.67) {$\frac{77}{180}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (8.05, 6.67) {$\frac{80}{180}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (8.05, 8) {$\frac{81}{180}$};
+
+% Guide di zoom da Col 3 a Col 4
+\draw[zoomguide] (9.3, 6.67) -- (11.0, 0);
+\draw[zoomguide] (9.3, 8) -- (11.0, 8);
+
+% ==============================================================================
+% COLONNA 4: Passo 4 (Letto 'c') [160/360, 162/360)
+% ==============================================================================
+\node[font=\bfseries\small, color=navy, align=center] at (11.6, 9.2) {Passo 4 ($c$)\\[2pt]\scriptsize $\left[\frac{160}{360}, \frac{162}{360}\right)$};
+
+\fill[risultato] (11.0, 0) rectangle (12.2, 8);
+\draw[interval, draw=darkgreen, thick] (11.0, 0) rectangle (12.2, 8);
+\node[font=\scriptsize\bfseries, color=darkgreen, align=center] at (11.6, 5.8) {Intervallo\\Finale};
+\node[font=\scriptsize\bfseries, color=darkgreen, align=center] at (11.6, 2.2) {$s_4 = \frac{1}{180}$};
+
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.95, 0) {$\frac{160}{360}$};
+\node[left, font=\tiny\bfseries, fill=white, inner sep=1pt] at (10.95, 8) {$\frac{162}{360}$};
+
+% Punto medio target: x = 161/360 -> y = 4.0
+\draw[targetline] (11.0, 4.0) -- (12.2, 4.0);
+\fill[crimson] (11.6, 4.0) circle (2.2pt);
+\node[right, font=\tiny\bfseries, color=crimson] at (12.25, 4.0) {$x = \frac{161}{360}$};
+
+% Legenda in basso
+\node[draw=black!40, fill=white, rounded corners=3pt, font=\scriptsize, align=center] at (5.8, -0.9) {%
+  \tikz \fill[attivo] (0,0) rectangle (0.35, 0.2);~Sotto-intervallo selezionato al passo corrente \quad
+  \tikz \fill[risultato] (0,0) rectangle (0.35, 0.2);~Intervallo compresso finale \quad
+  \tikz \draw[targetline] (0,0.1) -- (0.5,0.1); \tikz \fill[crimson] (0.25,0.1) circle (1.8pt);~Punto medio ($x = 161/360$)
+};
+
+\end{tikzpicture}
+\caption{Suddivisione progressiva dello spazio unitario nella codifica aritmetica adattiva per il messaggio $T = bbac$. I rettangoli azzurri indicano i sotto-intervalli selezionati in base ai simboli via via acquisiti, evidenziando la variazione dinamica delle ampiezze proporzionali ai conteggi di Laplace.}
+\label{fig:aritmetica-dinamica-subdivision}
+\end{figure}
+
+\FloatBarrier
+\subsection{Calcolo dei Parametri di Output: Lunghezza in Bit e Punto Medio}
+\label{subsec:output-lunghezza-punto-medio}
+
+In virt\`u del criterio di precisione e del lemma di troncamento dimostrati in \autoref{sec:generazione-output-punto-medio}, la rappresentazione frazionaria non ambigua dell'intervallo finale richiede un numero di bit pari a:
+\begin{equation}
+  \#\text{Bits} = \left\lceil \log_2 \frac{2}{s_4} \right\rceil = \lceil \log_2(360) \rceil = 9 \text{ bit}
+\end{equation}
+poich\'e $2^8 = 256 < 360 \le 512 = 2^9$.
+
+La coordinata reale interna selezionata per la conversione \`e il punto medio esatto dell'intervallo finale $[l_4, l_4 + s_4)$:
+\begin{equation}
+  x = l_4 + \frac{s_4}{2} = \frac{160}{360} + \frac{1}{360} = \frac{161}{360} \approx 0.447222
+\end{equation}
+
+\FloatBarrier
+\subsection[Esecuzione Passo-Passo di CONVERTER]{Esecuzione Passo-Passo dell'Algoritmo \texttt{CONVERTER}}
+\label{subsec:traccia-converter-9bit}
+
+Applicando la procedura \texttt{CONVERTER} formalizzata in \autoref{subsec:algoritmo-moltiplicazioni-due}, la frazione razionale $x = \frac{161}{360}$ viene convertita nella parola binaria di $k = 9$ bit mediante moltiplicazioni successive per 2 ed estrazione della parte intera:
+
+\begin{enumerate}
+  \item \textbf{Iterazione 1 ($j = 1$):}
+  \begin{equation}
+    y_1 = 2 \cdot \frac{161}{360} = \frac{161}{180} < 1 \implies \mathbf{b_1 = 0}, \quad \text{residuo: } x_2 = \frac{161}{180}
+  \end{equation}
+  \item \textbf{Iterazione 2 ($j = 2$):}
+  \begin{equation}
+    y_2 = 2 \cdot \frac{161}{180} = \frac{161}{90} \ge 1 \implies \mathbf{b_2 = 1}, \quad \text{residuo: } x_3 = \frac{161}{90} - 1 = \frac{71}{90}
+  \end{equation}
+  \item \textbf{Iterazione 3 ($j = 3$):}
+  \begin{equation}
+    y_3 = 2 \cdot \frac{71}{90} = \frac{71}{45} \ge 1 \implies \mathbf{b_3 = 1}, \quad \text{residuo: } x_4 = \frac{71}{45} - 1 = \frac{26}{45}
+  \end{equation}
+  \item \textbf{Iterazione 4 ($j = 4$):}
+  \begin{equation}
+    y_4 = 2 \cdot \frac{26}{45} = \frac{52}{45} \ge 1 \implies \mathbf{b_4 = 1}, \quad \text{residuo: } x_5 = \frac{52}{45} - 1 = \frac{7}{45}
+  \end{equation}
+  \item \textbf{Iterazione 5 ($j = 5$):}
+  \begin{equation}
+    y_5 = 2 \cdot \frac{7}{45} = \frac{14}{45} < 1 \implies \mathbf{b_5 = 0}, \quad \text{residuo: } x_6 = \frac{14}{45}
+  \end{equation}
+  \item \textbf{Iterazione 6 ($j = 6$):}
+  \begin{equation}
+    y_6 = 2 \cdot \frac{14}{45} = \frac{28}{45} < 1 \implies \mathbf{b_6 = 0}, \quad \text{residuo: } x_7 = \frac{28}{45}
+  \end{equation}
+  \item \textbf{Iterazione 7 ($j = 7$):}
+  \begin{equation}
+    y_7 = 2 \cdot \frac{28}{45} = \frac{56}{45} \ge 1 \implies \mathbf{b_7 = 1}, \quad \text{residuo: } x_8 = \frac{56}{45} - 1 = \frac{11}{45}
+  \end{equation}
+  \item \textbf{Iterazione 8 ($j = 8$):}
+  \begin{equation}
+    y_8 = 2 \cdot \frac{11}{45} = \frac{22}{45} < 1 \implies \mathbf{b_8 = 0}, \quad \text{residuo: } x_9 = \frac{22}{45}
+  \end{equation}
+  \item \textbf{Iterazione 9 ($j = 9$):}
+  \begin{equation}
+    y_9 = 2 \cdot \frac{22}{45} = \frac{44}{45} < 1 \implies \mathbf{b_9 = 0}, \quad \text{arresto (raggiunti } k = 9 \text{ bit)}
+  \end{equation}
+\end{enumerate}
+
+La parola di codice compressa emessa \`e:
+\begin{equation}
+  C(bbac) = \texttt{011100100}
+\end{equation}
+
+In \autoref{tab:traccia-converter-9bit} si sintetizzano i passaggi della procedura \texttt{CONVERTER}.
+
+\begin{table}[H]
+\centering
+\caption{Traccia computazionale dell'algoritmo \texttt{CONVERTER} per il valore $x = 161/360$ su $9$ bit di precisione.}
+\label{tab:traccia-converter-9bit}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Iterazione $j$} & \textbf{Valore Corrente $x_j$} & \textbf{Raddoppio $y_j = 2 x_j$} & \textbf{Bit Generato $b_j = \lfloor y_j \rfloor$} & \textbf{Residuo Frazionario $x_{j+1}$} & \textbf{Valore Decimale Approssimato} \\
+\midrule
+$1$ & $161/360$ & $161/180 \approx 0.8944$ & \textbf{0} & $161/180$ & $0.0_2$ \\
+$2$ & $161/180$ & $161/90 \approx 1.7889$  & \textbf{1} & $71/90$   & $0.01_2$ \\
+$3$ & $71/90$   & $71/45 \approx 1.5778$   & \textbf{1} & $26/45$   & $0.011_2$ \\
+$4$ & $26/45$   & $52/45 \approx 1.1556$   & \textbf{1} & $7/45$    & $0.0111_2$ \\
+$5$ & $7/45$    & $14/45 \approx 0.3111$   & \textbf{0} & $14/45$   & $0.01110_2$ \\
+$6$ & $14/45$   & $28/45 \approx 0.6222$   & \textbf{0} & $28/45$   & $0.011100_2$ \\
+$7$ & $28/45$   & $56/45 \approx 1.2444$   & \textbf{1} & $11/45$   & $0.0111001_2$ \\
+$8$ & $11/45$   & $22/45 \approx 0.4889$   & \textbf{0} & $22/45$   & $0.01110010_2$ \\
+$9$ & $22/45$   & $44/45 \approx 0.9778$   & \textbf{0} & $44/45$   & $0.011100100_2$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Formato Finale dell'Output e Header di Terminazione}
+\label{subsec:header-terminazione-aritmetica}
+
+Il messaggio finale compresso trasmesso al canale di comunicazione viene formalizzato dalla coppia ordinata:
+\begin{equation}
+  \langle \texttt{011100100}, \; 4 \rangle
+\end{equation}
+
+\begin{remark}[Condizione di Arresto e Parametro di Lunghezza]
+Come approfondito in \autoref{sec:generazione-output-punto-medio}, la codifica aritmetica individua un punto nel continuo reale senza delimitatori intrinseci di parola. Il decodificatore per zoom-in necessita pertanto di una condizione d'arresto deterministica, fornita alternativamente dall'esplicitazione della lunghezza della sequenza ($m = 4$) nell'header oppure dall'emissione di uno speciale simbolo di terminazione dedicato (EOF).
+\end{remark}
+
+\FloatBarrier
+\section{Huffman Canonico con Distribuzione Sbilanciata}
+\label{sec:huffman-canonico-distribuzione-sbilanciata}
+
+\subsection{Definizione della Sorgente e Normalizzazione}
+\label{subsec:definizione-sorgente-sbilanciata}
+
+Si consideri una sorgente discreta definita su un alfabeto composto da $n = 6$ simboli:
+\begin{equation}
+  A = \{a, b, c, d, e, f\}
+\end{equation}
+avente una distribuzione di probabilit\`a fortemente polarizzata:
+\begin{align}
+  p(a) = p(b) = p(c) = p(d) &= 0.10 \\
+  p(e) = p(f) &= 0.30
+\end{align}
+Verifica della misura di probabilit\`a:
+\begin{equation}
+  \sum_{\sigma \in A} p(\sigma) = 4 \cdot 0.10 + 2 \cdot 0.30 = 0.40 + 0.60 = 1.00
+\end{equation}
+
+\FloatBarrier
+\subsection[Topologia dell'Albero Canonico]{Topologia dell'Albero Canonico\\con Foglie a Sinistra}
+\label{subsec:topologia-albero-canonico-sbilanciato}
+
+In conformit\`a ai principi costruttivi della forma canonica esposti in \autoref{sec:codifica-canonica-huffman}, le foglie dell'albero vengono raggruppate per profondit\`a e collocate a sinistra:
+\begin{itemize}
+  \item Le 4 foglie dei simboli a probabilit\`a minore $\{a, b, c, d\}$ risiedono alla profondit\`a massima $\ell = 3$;
+  \item Le 2 foglie dei simboli a probabilit\`a maggiore $\{e, f\}$ risiedono alla profondit\`a $\ell = 2$.
+\end{itemize}
+
+In \autoref{fig:albero-huffman-canonico-sbilanciato} \`e illustrata la topologia dell'albero binario risultante.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.90,
+    every node/.style={transform shape},
+    intnode/.style={circle, draw=navy!85, fill=navy!10, thick, minimum size=0.9cm, inner sep=1pt, font=\scriptsize\bfseries, align=center},
+    leafnode/.style={rectangle, draw=darkgreen!85, fill=darkgreen!12, thick, rounded corners=3pt, minimum width=1.15cm, minimum height=0.95cm, font=\small\bfseries, align=center},
+    edge/.style={draw=black!70, thick}
+]
+
+% Radice (Livello 0)
+\node[intnode] (root) at (0, 0) {$1.00$};
+
+% Livello 1
+\node[intnode] (n_left) at (-3.2, -1.35) {$0.40$};
+\node[intnode] (n_right) at (3.2, -1.35) {$0.60$};
+
+% Livello 2
+\node[intnode] (n_ll) at (-4.8, -2.7) {$0.20$};
+\node[intnode] (n_lr) at (-1.6, -2.7) {$0.20$};
+\node[leafnode] (e) at (1.6, -2.7) {$e$\\[2pt]{\tiny $0.30$}};
+\node[leafnode] (f) at (4.8, -2.7) {$f$\\[2pt]{\tiny $0.30$}};
+
+% Livello 3 (tutte a sinistra)
+\node[leafnode] (a) at (-5.6, -4.1) {$a$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (b) at (-4.0, -4.1) {$b$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (c) at (-2.4, -4.1) {$c$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (d) at (-0.8, -4.1) {$d$\\[2pt]{\tiny $0.10$}};
+
+% Rami con etichette 0 / 1
+\draw[edge] (root) -- (n_left) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (root) -- (n_right) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (n_left) -- (n_ll) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (n_left) -- (n_lr) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (n_right) -- (e) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (n_right) -- (f) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (n_ll) -- (a) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (n_ll) -- (b) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (n_lr) -- (c) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (n_lr) -- (d) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+% Didascalie di livello a sinistra
+\node at (-7.0, 0) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 0};
+\node at (-7.0, -1.35) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 1};
+\node at (-7.0, -2.7) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 2};
+\node at (-7.0, -4.1) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 3};
+
+\draw[densely dashed, color=black!25] (-6.9, 0) -- (-0.6, 0);
+\draw[densely dashed, color=black!25] (-6.9, -1.35) -- (-3.8, -1.35);
+\draw[densely dashed, color=black!25] (-6.9, -2.7) -- (-5.4, -2.7);
+\draw[densely dashed, color=black!25] (-6.9, -4.1) -- (-6.3, -4.1);
+
+\end{tikzpicture}
+\caption{Albero binario di Huffman in forma canonica per la sorgente sbilanciata a 6 simboli. Tutte le foglie a profondit\`a $\ell = 3$ sono aggregate a sinistra, mentre le foglie a profondit\`a $\ell = 2$ occupano la porzione destra.}
+\label{fig:albero-huffman-canonico-sbilanciato}
+\end{figure}
+
+\FloatBarrier
+\subsection{Vettori Descrittori NUM, SYMB e Ricorrenza FC}
+\label{subsec:vettori-fc-sbilanciato}
+
+Dalla topologia canonica a profondit\`a massima $\ell_{\max} = 3$ si ricavano i vettori descrittori introdotti in \autoref{sec:esempio-costruzione-canonico}:
+\begin{itemize}
+  \item \textbf{Vettore $\text{NUM}[\ell]$:} $\text{NUM} = [0, 2, 4]$;
+  \item \textbf{Tabella $\text{SYMB}[\ell]$} (ordinata lessicograficamente per ciascun livello): $\text{SYMB}[1] \to \emptyset$, $\text{SYMB}[2] \to [e, f]$, $\text{SYMB}[3] \to [a, b, c, d]$;
+  \item \textbf{Derivazione del vettore First Code ($FC[\ell]$):} Ponendo la condizione al livello fogliare massimo $FC[3] = 0$ (\texttt{000}$_2$) e applicando la ricorrenza all'indietro:
+  \begin{equation}
+    FC[\ell - 1] = \left\lfloor \frac{FC[\ell] + \text{NUM}[\ell]}{2} \right\rfloor
+  \end{equation}
+  si ricava:
+  \begin{align}
+    FC[2] &= \left\lfloor \frac{0 + 4}{2} \right\rfloor = 2 \quad (\texttt{10}_2) \\
+    FC[1] &= \left\lfloor \frac{2 + 2}{2} \right\rfloor = 2
+  \end{align}
+  da cui il vettore completo $FC = [2, 2, 0]$.
+\end{itemize}
+
+In \autoref{tab:codici-canonici-sbilanciati} sono elencate le parole di codice canoniche generate per tutti i simboli della sorgente.
+
+\begin{table}[H]
+\centering
+\caption{Parole di codice canoniche assegnate all'alfabeto sbilanciato $A$.}
+\label{tab:codici-canonici-sbilanciati}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Simbolo $\sigma$} & \textbf{Probabilit\`a $p(\sigma)$} & \textbf{Lunghezza $\ell$} & \textbf{Offset in $\text{SYMB}[\ell]$} & \textbf{Valore Intero: $FC[\ell] + \text{offset}$} & \textbf{Codeword Canonica} \\
+\midrule
+$e$ & $0.30$ & $2$ & $0$ & $2 + 0 = 2$ & \texttt{10} \\
+$f$ & $0.30$ & $2$ & $1$ & $2 + 1 = 3$ & \texttt{11} \\
+\midrule
+$a$ & $0.10$ & $3$ & $0$ & $0 + 0 = 0$ & \texttt{000} \\
+$b$ & $0.10$ & $3$ & $1$ & $0 + 1 = 1$ & \texttt{001} \\
+$c$ & $0.10$ & $3$ & $2$ & $0 + 2 = 2$ & \texttt{010} \\
+$d$ & $0.10$ & $3$ & $3$ & $0 + 3 = 3$ & \texttt{011} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Lunghezza Media ed Efficienza Rispetto all'Entropia}
+\label{subsec:lunghezza-media-entropia-sbilanciato}
+
+\subsubsection*{Calcolo della Lunghezza Media $L(C)$}
+La lunghezza media attesa del codice canonico \`e data dalla media pesata delle lunghezze:
+\begin{align}
+  L(C) &= \sum_{\sigma \in A} p(\sigma) \cdot |c(\sigma)| \nonumber \\
+       &= 4 \cdot (0.10 \cdot 3) + 2 \cdot (0.30 \cdot 2) \nonumber \\
+       &= 4 \cdot 0.30 + 2 \cdot 0.60 = 1.20 + 1.20 = \mathbf{2.40 \text{ bit/simbolo}}
+\end{align}
+
+\subsubsection*{Calcolo dell'Entropia di Shannon $H(S)$}
+L'entropia teorica della sorgente $S$ \`e espressa da:
+\begin{align}
+  H(S) &= \sum_{\sigma \in A} p(\sigma) \log_2 \frac{1}{p(\sigma)} \nonumber \\
+       &= 4 \cdot \left(0.10 \log_2 \frac{1}{0.10}\right) + 2 \cdot \left(0.30 \log_2 \frac{1}{0.30}\right) \nonumber \\
+       &= 0.40 \log_2(10) + 0.60 \log_2\left(\frac{10}{3}\right)
+\end{align}
+Poich\'e $\log_2(10) \approx 3.321928$ e $\log_2\left(\frac{10}{3}\right) = \log_2(10) - \log_2(3) \approx 3.321928 - 1.584963 = 1.736966$:
+\begin{align}
+  H(S) &\approx 0.40 \cdot 3.321928 + 0.60 \cdot 1.736966 \nonumber \\
+       &= 1.328771 + 1.042179 = \mathbf{2.37095 \text{ bit/simbolo}}
+\end{align}
+
+\subsubsection*{Analisi della Ridondanza}
+La ridondanza associata al codice di Huffman canonico risulta pari a:
+\begin{equation}
+  R = L(C) - H(S) \approx 2.40 - 2.37095 = 0.02905 \text{ bit/simbolo}
+\end{equation}
+Poich\'e ciascun singolo simbolo sorgente deve essere tassativamente codificato con un numero intero di bit, il valore $2.40\text{ bit/simbolo}$ rappresenta il limite inferiore assoluto raggiungibile da qualunque schema di codifica a prefisso simbolo-per-simbolo.
+
+\FloatBarrier
+\section[Codici Ottimi Non Derivabili da Huffman]{Analisi Critica: Esistenza di Codici Ottimi Non Derivabili da Huffman}
+\label{sec:codici-ottimi-non-huffman}
+
+\subsection{Proposta dello Schema Alternativo}
+\label{subsec:proposta-schema-alternativo}
+
+Per verificare i fondamenti della teoria dei codici a prefisso, si consideri la seguente assegnazione alternativa di sequenze binarie definita sulla medesima sorgente:
+\begin{align}
+  a &\longrightarrow \texttt{000} \quad (|c(a)| = 3) \label{eq:alt-a} \\
+  b &\longrightarrow \texttt{001} \quad (|c(b)| = 3) \label{eq:alt-b} \\
+  e &\longrightarrow \texttt{01}  \quad (|c(e)| = 2) \label{eq:alt-e} \\
+  c &\longrightarrow \texttt{100} \quad (|c(c)| = 3) \label{eq:alt-c} \\
+  d &\longrightarrow \texttt{101} \quad (|c(d)| = 3) \label{eq:alt-d} \\
+  f &\longrightarrow \texttt{11}  \quad (|c(f)| = 2) \label{eq:alt-f}
+\end{align}
+
+L'analisi critica di tale codice si articola nella risoluzione analitica di quattro quesiti fondamentali.
+
+\FloatBarrier
+\subsection{Quesito 1: Il Codice \`e Privo di Prefisso (\textit{Prefix-Free})?}
+\label{subsec:quesito-1-prefix-free}
+
+\begin{proposition}
+Il codice alternativo descritto dalle equazioni \eqref{eq:alt-a}--\eqref{eq:alt-f} \`e rigorosamente privo di prefisso (\textit{prefix-free}).
+\end{proposition}
+
+\begin{proof}
+Si consideri l'albero binario associato alla mappatura delle parole (illustrato in \autoref{fig:albero-non-huffman-ottimo}).
+Ciascun simbolo sorgente $\sigma \in \{a, b, c, d, e, f\}$ corrisponde in modo biunivoco a un \textbf{nodo foglia} terminale dell'albero:
+\begin{itemize}
+  \item Le foglie $a, b, c, d$ risiedono a profondit\`a 3 e non possiedono nodi discendenti;
+  \item Le foglie $e$ e $f$ risiedono a profondit\`a 2; i loro nodi omologhi a livello 2 non hanno rami uscenti verso ulteriori simboli, bens\`i rappresentano punti terminali del cammino.
+\end{itemize}
+Poich\'e nessun simbolo \`e collocato su un nodo interno dell'albero, nessuna parola di codice pu\`o costituire il prefisso iniziale di un'altra parola. Il codice garantisce pertanto la decodificabilit\`a istantanea e univoca.
+\end{proof}
+
+\FloatBarrier
+\subsection{Quesito 2: Il Codice \`e in Forma Canonica?}
+\label{subsec:quesito-2-forma-canonica}
+
+\begin{proposition}
+Il codice alternativo non \`e in forma canonica.
+\end{proposition}
+
+\begin{proof}
+La definizione strutturale di codice canonico impone che le parole di codice siano disposte secondo un ordinamento lessicografico coerente con le rispettive lunghezze, confinando tutte le foglie a profondit\`a maggiore verso un'unica estremit\`a dell'albero (generalmente a sinistra).
+Nel codice proposto:
+\begin{itemize}
+  \item Le parole che iniziano con il prefisso \texttt{00} ($a \to \texttt{000}, b \to \texttt{001}$) hanno lunghezza 3;
+  \item La parola $e \to \texttt{01}$ ha lunghezza 2;
+  \item Le parole successive che iniziano per \texttt{10} ($c \to \texttt{100}, d \to \texttt{101}$) hanno nuovamente lunghezza 3;
+  \item La parola $f \to \texttt{11}$ ha lunghezza 2.
+\end{itemize}
+La presenza di parole pi\`u corte (\texttt{01} e \texttt{11}) intervallate e alternate a blocchi di parole pi\`u lunghe (\texttt{00x} e \texttt{10x}) viola radicalmente la sequenzialit\`a compatta della forma canonica, impedendo la decodifica priva di albero mediante il semplice registro intero $v \ge FC[\ell]$.
+\end{proof}
+
+\FloatBarrier
+\subsection{Quesito 3: Il Codice \`e Generabile dall'Algoritmo di Huffman?}
+\label{subsec:quesito-3-generabilita-huffman}
+
+\begin{theorem}
+L'albero binario associato al codice alternativo non pu\`o essere generato da alcuna sequenza di scelte ammissibili dell'algoritmo di Huffman.
+\end{theorem}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.90,
+    every node/.style={transform shape},
+    intnode/.style={circle, draw=navy!85, fill=navy!10, thick, minimum size=0.9cm, inner sep=1pt, font=\scriptsize\bfseries, align=center},
+    leafnode/.style={rectangle, draw=darkgreen!85, fill=darkgreen!12, thick, rounded corners=3pt, minimum width=1.15cm, minimum height=0.95cm, font=\small\bfseries, align=center},
+    edge/.style={draw=black!70, thick}
+]
+
+% Radice
+\node[intnode] (root) at (0, 0) {$1.00$};
+
+% Livello 1
+\node[intnode] (sub_left) at (-3.2, -1.35) {$0.50$};
+\node[intnode] (sub_right) at (3.2, -1.35) {$0.50$};
+
+% Livello 2
+\node[intnode] (ab) at (-4.6, -2.7) {$0.20$};
+\node[leafnode] (e) at (-1.8, -2.7) {$e$\\[2pt]{\tiny $0.30$}};
+
+\node[intnode] (cd) at (1.8, -2.7) {$0.20$};
+\node[leafnode] (f) at (4.6, -2.7) {$f$\\[2pt]{\tiny $0.30$}};
+
+% Livello 3
+\node[leafnode] (a) at (-5.4, -4.1) {$a$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (b) at (-3.8, -4.1) {$b$\\[2pt]{\tiny $0.10$}};
+
+\node[leafnode] (c) at (1.0, -4.1) {$c$\\[2pt]{\tiny $0.10$}};
+\node[leafnode] (d) at (2.6, -4.1) {$d$\\[2pt]{\tiny $0.10$}};
+
+% Rami con etichette 0 / 1
+\draw[edge] (root) -- (sub_left) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (root) -- (sub_right) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (sub_left) -- (ab) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (sub_left) -- (e) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (sub_right) -- (cd) node[above left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (sub_right) -- (f) node[above right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (ab) -- (a) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (ab) -- (b) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+\draw[edge] (cd) -- (c) node[left=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {0};
+\draw[edge] (cd) -- (d) node[right=1pt, midway, font=\scriptsize\bfseries, color=navy!90] {1};
+
+% Didascalie di livello a sinistra
+\node at (-6.8, 0) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 0};
+\node at (-6.8, -1.35) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 1};
+\node at (-6.8, -2.7) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 2};
+\node at (-6.8, -4.1) [anchor=east, font=\scriptsize\bfseries, color=black!60] {Livello 3};
+
+\draw[densely dashed, color=black!25] (-6.7, 0) -- (-0.6, 0);
+\draw[densely dashed, color=black!25] (-6.7, -1.35) -- (-3.8, -1.35);
+\draw[densely dashed, color=black!25] (-6.7, -2.7) -- (-5.2, -2.7);
+\draw[densely dashed, color=black!25] (-6.7, -4.1) -- (-6.1, -4.1);
+
+\end{tikzpicture}
+\caption{Topologia dell'albero associato al codice alternativo ottimo. I due rami principali hanno peso simmetrico $0.50$ ciascuno, ma la loro costruzione interna viola il principio di scelta greedy di Huffman.}
+\label{fig:albero-non-huffman-ottimo}
+\end{figure}
+
+\begin{proof}
+Si analizzi la traccia di esecuzione dell'algoritmo di Huffman a partire dai pesi della sorgente $F_0 = \{a: 0.1, b: 0.1, c: 0.1, d: 0.1, e: 0.3, f: 0.3\}$:
+\begin{enumerate}
+  \item Al primo passo, l'algoritmo greedy individua i due nodi di peso minimo assoluto, ad esempio $a$ ($0.1$) e $b$ ($0.1$), aggregandoli nel nodo intermedio $(ab)$ con peso:
+  \begin{equation}
+    p(ab) = 0.1 + 0.1 = 0.2
+  \end{equation}
+  \item Al secondo passo, i due nodi a peso minimo nella foresta attiva $\{c: 0.1, d: 0.1, (ab): 0.2, e: 0.3, f: 0.3\}$ sono $c$ ($0.1$) e $d$ ($0.1$). La loro fusione genera il nodo intermedio $(cd)$ con peso:
+  \begin{equation}
+    p(cd) = 0.1 + 0.1 = 0.2
+  \end{equation}
+  \item La foresta attiva al terzo passo comprende esattamente quattro nodi:
+  \begin{equation}
+    F_2 = \{(ab): 0.20, \quad (cd): 0.20, \quad e: 0.30, \quad f: 0.30\}
+  \end{equation}
+  \item \textbf{Violazione del vincolo greedy di Huffman:}
+  La regola fondamentale e invariante dell'algoritmo di Huffman impone tassativamente di fondere \textbf{i due nodi con le probabilit\`a minime assolute}. Nella foresta $F_2$, i due pesi strettamente inferiori sono:
+  \begin{equation}
+    \min(F_2) = \{(ab): 0.20, \; (cd): 0.20\}
+  \end{equation}
+  Pertanto, l'algoritmo di Huffman deve \textbf{obbligatoriamente} aggregare il nodo intermedio $(ab)$ con il nodo intermedio $(cd)$, generando un unico macro-nodo a quattro foglie $(abcd)$ avente peso $0.20 + 0.20 = 0.40$.
+  \item Al contrario, nella topologia dell'albero alternativo di \autoref{fig:albero-non-huffman-ottimo}:
+  \begin{itemize}
+    \item Il nodo $(ab)$ ($0.20$) \`e stato fuso con la foglia $e$ ($0.30$) per formare il ramo sinistro $(abe)$ di peso $0.50$;
+    \item Il nodo $(cd)$ ($0.20$) \`e stato fuso con la foglia $f$ ($0.30$) per formare il ramo destro $(cdf)$ di peso $0.50$.
+  \end{itemize}
+  Tale scelta unisce una radice di peso $0.20$ con una di peso $0.30$, ignorando deliberatamente la presenza dell'altro nodo disponibile di peso $0.20$.
+\end{enumerate}
+Poich\'e la fusione effettuata contravviene in modo manifesto alla regola greedy, tale albero non pu\`o derivare da alcuna configurazione ammissibile dell'algoritmo di Huffman.
+\end{proof}
+
+\FloatBarrier
+\subsection{Quesito 4: Il Codice \`e Ottimo?}
+\label{subsec:quesito-4-ottimalita-codice}
+
+\begin{theorem}[Ottimalit\`a Globale del Codice Alternativo]
+Il codice alternativo descritto dalle equazioni \eqref{eq:alt-a}--\eqref{eq:alt-f} \`e un codice a prefisso globale ottimo.
+\end{theorem}
+
+\begin{proof}
+Calcoliamo la lunghezza media ponderata attesa $L_{\text{alt}}$ per lo schema alternativo:
+\begin{align}
+  L_{\text{alt}} &= \sum_{\sigma \in A} p(\sigma) \cdot |c_{\text{alt}}(\sigma)| \nonumber \\
+                 &= p(a)|c(a)| + p(b)|c(b)| + p(c)|c(c)| \nonumber \\
+                 &\quad + p(d)|c(d)| + p(e)|c(e)| + p(f)|c(f)| \nonumber \\
+                 &= 4 \cdot (0.10 \cdot 3) + 2 \cdot (0.30 \cdot 2) \nonumber \\
+                 &= 1.20 + 1.20 = \mathbf{2.40 \text{ bit/simbolo}}
+\end{align}
+Confrontando tale risultato con la lunghezza media del codice di Huffman $L_{\text{Huffman}}$ calcolata nella \autoref{subsec:lunghezza-media-entropia-sbilanciato}:
+\begin{equation}
+  L_{\text{alt}} = L_{\text{Huffman}} = 2.40 \text{ bit/simbolo}
+\end{equation}
+Poich\'e il teorema di Huffman stabilisce che nessun codice a prefisso su base simbolo-per-simbolo pu\`o possedere una lunghezza media strettamente inferiore a $L_{\text{Huffman}}$, e la lunghezza di $L_{\text{alt}}$ coincide esattamente con tale minimo teorico, il codice alternativo \`e \textbf{strettamente ottimo}.
+\end{proof}
+
+\FloatBarrier
+\subsection{Conseguenze Teoriche: Relazione tra Ottimalit\`a e Algoritmo di Huffman}
+\label{subsec:conseguenze-teoriche-ottimalita}
+
+Questo risultato analitico conduce a un principio fondamentale della teoria dell'informazione e della progettazione degli algoritmi:
+
+\begin{corollary}[Sufficienza e Non-Necessit\`a di Huffman]
+L'algoritmo di Huffman costituisce una condizione \textbf{sufficiente} per la determinazione di un codice prefisso ottimo con lunghezze intere, ma \textbf{non necessaria}:
+\begin{equation}
+  \text{Codice Generato da Huffman} \Longrightarrow \text{Codice Ottimo}
+\end{equation}
+\begin{equation}
+  \text{Codice Ottimo} \not\implies \text{Codice Generato da Huffman}
+\end{equation}
+\end{corollary}
+
+Lo spazio di tutti i codici a prefisso ottimi pu\`o contenere configurazioni topologiche alternative con distribuzioni identiche o compatibili di lunghezze di parola $\{\ell(\sigma)\}_{\sigma \in A}$ che non sono esplorate n\'e generate dalla sequenza deterministica di fusioni minime prescritte dall'algoritmo greedy.
+
+\FloatBarrier
+\section[Quadro Comparativo e Metodologico]{Quadro Comparativo dei Paradigmi Avanzati}
+\label{sec:quadro-comparativo-avanzato}
+
+In \autoref{tab:confronto-sinottico-sessione-avanzata} si sintetizza il confronto comparativo tra i tre argomenti cardine approfonditi nella sessione.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico comparativo tra Codifica Aritmetica Adattiva, Huffman Canonico e Codici Ottimi Non-Huffman.}
+\label{tab:confronto-sinottico-sessione-avanzata}
+\vspace{2mm}
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Aspetto Metodologico} & \textbf{Codifica Aritmetica Adattiva} & \textbf{Huffman Canonico vs Non-Huffman} \\
+\midrule
+\textbf{Conoscenza a Priori} & Assente: probabilit\`a stimate dinamicamente tramite conteggi di Laplace. & Necessaria: probabilit\`a statiche note prima della costruzione dell'albero. \\
+\addlinespace
+\textbf{Rappresentazione} & Intervallo razionale continuo e punto medio convertito su 9 bit. & Albero binario discreto e vettori compatti $\text{NUM}, \text{SYMB}, FC$. \\
+\addlinespace
+\textbf{Condizione di Terminazione} & Obbligatorio specificare la lunghezza $m = 4$ o un carattere EOF. & Implicita: la propriet\`a di prefisso individua istantaneamente ogni simbolo. \\
+\addlinespace
+\textbf{Ottimalit\`a Computazionale} & Overhead $< 2\text{ bit}$ globale sull'intera sequenza, esente da troncamento a intero. & Ottimo rispetto al vincolo discreto intero ($2.40\text{ bit}$ vs $H \approx 2.371$). \\
+\addlinespace
+\textbf{Spazio delle Soluzioni} & Mappatura unica per la sequenza di conteggi e convenzione semiaperta. & Molteplicit\`a di alberi ottimi; Huffman esplora solo un sottoinsieme greedy. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{remark}[Implicazioni di Ingegneria degli Algoritmi]
+La comprensione che l'ottimalit\`a prefissa non appartiene in modo esclusivo alle topologie generate da Huffman \`e di primaria importanza per i sistemi di compressione reali. Strutture come i codici canonici vincolano volutamente la topologia dell'albero per massimizzare la localit\`a dei dati nella cache ed eliminare i puntatori, preservando rigorosamente la lunghezza media ottima calcolata da Shannon.
+\end{remark}
