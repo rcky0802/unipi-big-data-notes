@@ -1,0 +1,824 @@
+\chapter{Serie Temporali: Motif Discovery e Matrix Profile}
+\label{chap:dm-motif-discovery-matrix-profile}
+
+\FloatBarrier
+\section{Introduzione al Motif Discovery nelle Serie Temporali}
+\label{sec:ts-motif-intro}
+
+Nell'ambito del Data Mining applicato a sequenze temporali (\textit{Time Series Data Mining}), l'individuazione di strutture ricorrenti e regolarit\`a morfologiche riveste un ruolo primario per la comprensione dei fenomeni dinamici sottostanti~\cite{tan2018, yeh2016}. Mentre i metodi di clustering tradizionali analizzano l'intera traiettoria o segmentazioni statiche a priori (\autoref{sec:ts-clustering}), il paradigma del \textbf{Time Series Motif Discovery} affronta l'estrazione non supervisionata di configurazioni locali che si manifestano con frequenza anomala o sorprendente lungo il flusso dei dati.
+
+\FloatBarrier
+\subsection{Definizione Formale del Problema di Motif Discovery}
+\label{subsec:ts-motif-formal-definition}
+
+Sia data una serie temporale univariata $T = \langle t_1, t_2, \dots, t_n \rangle \in \R^n$ di lunghezza $|T| = n$ campionata a intervalli temporali regolari (\autoref{def:time-series}). 
+
+\begin{definition}[Sottosequenza di Lunghezza $m$]
+\label{def:ts-subsequence}
+Fissato un parametro intero $m \in \N^+$ tale che $m \ll n$, si definisce \textbf{sottosequenza} $T_{i,m}$ (o semplicemente $T_i$) il segmento continuo di lunghezza $m$ estratto da $T$ a partire dalla coordinata temporale $i$:
+\begin{equation}
+\label{eq:ts-subsequence}
+T_{i,m} = \langle t_i, t_{i+1}, \dots, t_{i+m-1} \rangle \in \R^m, \qquad \text{con } 1 \le i \le n - m + 1
+\end{equation}
+\end{definition}
+
+Il quesito fondamentale del Motif Discovery pu\`o essere enunciato formalmente come segue:
+\begin{quote}
+\textbf{Quesito Fondamentale del Motif Discovery:} Esistono due o pi\`u sottosequenze distinte $T_i, T_j$ di lunghezza $m$ all'interno della serie temporale $T$ la cui distanza reciproca risulti minima rispetto a tutte le altre coppie possibili?
+\end{quote}
+
+In termini matematici, data una metrica di distanza opportuna $D(\cdot, \cdot)$ definita su $\R^m$ (tipicamente la distanza Euclidea z-normalizzata, discussa in \autoref{sec:ts-matrix-profile-foundations}), si definisce \textbf{coppia di motivi classica} (\textit{Classic Motif Pair}) la coppia ordinata di indici $(i^*, j^*)$ che minimizza la distanza reciproca sotto vincolo di non-sovrapposizione banale:
+\begin{equation}
+\label{eq:classic-motif-def}
+(i^*, j^*) = \arg\min_{\substack{i, j \\ |i - j| \ge w}} D(T_{i,m}, T_{j,m})
+\end{equation}
+dove $w$ definisce l'ampiezza della zona di esclusione temporale volta a scongiurare accoppiamenti banali (\textit{trivial matches}).
+
+\FloatBarrier
+\subsection{Caso di Studio Reale: Il Winding Dataset}
+\label{subsec:ts-winding-dataset}
+
+Per comprendere la rilevanza fisica e ingegneristica del problema, si consideri il celebre benchmark industriale noto come \textbf{Winding Dataset}~\cite{yeh2016}, che registra la velocit\`a angolare della bobina secondaria (\textit{The angular speed of reel 2}) in un impianto di avvolgimento continuo di nastri d'acciaio.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.85,
+    every node/.style={transform shape},
+    box/.style={rectangle, draw=navy!80, fill=codebackground, thick, rounded corners=3pt, inner sep=6pt},
+    annot/.style={font=\scriptsize\bfseries}
+]
+
+% Serie completa superiore
+\draw[->, thick, color=black!70] (0, 4.2) -- (13.6, 4.2) node[right, font=\scriptsize] {$t$};
+\draw[->, thick, color=black!70] (0, 2.5) -- (0, 5.8) node[above, font=\scriptsize] {Velocit\`a Angolare};
+
+% Tracciato stilizzato della serie Winding (0 a 2500)
+\draw[color=black!40, domain=0:13.8, samples=120, smooth] plot (\x, {4.2 + 0.18*sin(6*\x r) + 0.12*cos(14*\x r)});
+
+% Motivo A (indici 250-380, x ~ 1.5 a 2.5)
+\draw[color=crimson, very thick, smooth] 
+  (1.4, 4.25) -- (1.7, 4.23) -- (1.8, 3.2) -- (2.0, 3.4) -- (2.1, 4.6) -- (2.3, 2.9) -- (2.5, 4.5);
+\node[annot, color=crimson] at (1.95, 5.0) {Motivo A (250--380)};
+\draw[crimson, densely dashed] (1.4, 2.6) rectangle (2.5, 5.3);
+
+% Motivo B (indici 1250-1380, x ~ 6.8 a 7.9)
+\draw[color=darkgreen, very thick, smooth] 
+  (6.8, 4.25) -- (7.1, 4.23) -- (7.2, 3.22) -- (7.4, 3.42) -- (7.5, 4.58) -- (7.7, 2.92) -- (7.9, 4.48);
+\node[annot, color=darkgreen] at (7.35, 5.0) {Motivo B (1250--1380)};
+\draw[darkgreen, densely dashed] (6.8, 2.6) rectangle (7.9, 5.3);
+
+% Motivo C (indici 2250-2380, x ~ 11.8 a 12.9)
+\draw[color=blue!80!black, very thick, smooth] 
+  (11.8, 4.25) -- (12.1, 4.23) -- (12.2, 3.2) -- (12.4, 3.4) -- (12.5, 4.6) -- (12.7, 2.9) -- (12.9, 4.5);
+\node[annot, color=blue!80!black] at (12.35, 5.0) {Motivo C (2250--2380)};
+\draw[blue!80!black, densely dashed] (11.8, 2.6) rectangle (12.9, 5.3);
+
+% Box di dettaglio inferiore (sovrapposizione morfologica)
+\node[box, minimum width=13.8cm, minimum height=2.2cm] at (7.0, 0.8) {};
+\node[anchor=west, font=\footnotesize\bfseries, color=navy] at (0.3, 1.6) {Dettaglio Morfologico Sovrapposto (Finestra Locale $m \approx 130$ campioni):};
+
+% Tracciati isolati sovrapposti in basso
+\begin{scope}[shift={(3.5, 0.6)}]
+  \draw[->, color=black!60] (0, 0) -- (7.5, 0) node[right, font=\tiny] {Finestra Locale $[0, m]$};
+  \draw[->, color=black!60] (0, -0.6) -- (0, 0.8) node[above, font=\tiny] {Valore};
+  
+  % Profilo A
+  \draw[color=crimson!85, thick, smooth] 
+    (0.2, 0.1) -- (1.5, 0.08) -- (2.0, -0.45) -- (2.7, -0.32) -- (3.5, 0.45) -- (4.8, -0.55) -- (6.2, 0.42);
+  % Profilo B (con micro-rumore locale)
+  \draw[color=darkgreen!85, thick, smooth] 
+    (0.2, 0.12) -- (1.5, 0.09) -- (2.0, -0.42) -- (2.7, -0.30) -- (3.5, 0.43) -- (4.0, 0.35) -- (4.8, -0.52) -- (6.2, 0.40);
+  % Profilo C
+  \draw[color=blue!80!black, thick, smooth] 
+    (0.2, 0.09) -- (1.5, 0.07) -- (2.0, -0.46) -- (2.7, -0.33) -- (3.5, 0.47) -- (4.8, -0.56) -- (6.2, 0.43);
+    
+  \node[font=\tiny, color=crimson] at (7.0, 0.4) {Sottoseq. A};
+  \node[font=\tiny, color=darkgreen] at (7.0, 0.1) {Sottoseq. B};
+  \node[font=\tiny, color=blue!80!black] at (7.0, -0.2) {Sottoseq. C};
+\end{scope}
+
+\end{tikzpicture}
+\caption{Rilevamento di motivi nel Winding Dataset. In alto: la serie temporale estesa ($0 \le t \le 2500$) con l'individuazione di tre occorrenze morfologicamente affini $A, B, C$. In basso: dettaglio isolato dei tre segmenti su finestra di osservazione $m \approx 130$, che ne comprova l'elevata invarianza di forma a dispetto di oscillazioni casuali e micro-variazioni locali.}
+\label{fig:ts-winding-motif}
+\end{figure}
+
+L'osservazione del segnale grezzo evidenzia un comportamento altamente irregolare, con marcate oscillazioni di fondo e picchi negativi improvvisi. Tuttavia, un'analisi condotta a livello di sottosequenze con finestra $m \approx 130$ rivela tre segmenti distribuiti lungo l'orizzonte temporale:
+\begin{itemize}
+    \item \textbf{Sottosequenza A} (evidenziata in rosso), posizionata nell'intervallo temporale $t \in [250, 380]$;
+    \item \textbf{Sottosequenza B} (evidenziata in verde), posizionata nell'intervallo temporale $t \in [1250, 1380]$;
+    \item \textbf{Sottosequenza C} (evidenziata in blu), posizionata nell'intervallo temporale $t \in [2250, 2380]$.
+\end{itemize}
+
+Isolando i tre segmenti su un asse temporale locale normalizzato $[0, 140]$, emerge una struttura geometrica condivisa:
+\begin{enumerate}
+    \item \textbf{Regione di Plateau Iniziale ($0 \le \tau \le 35$):} segnale quasi costante con lievi increspature a bassa ampiezza;
+    \item \textbf{Transizione e Primo Minimo ($35 < \tau \le 65$):} brusca discesa intorno a $\tau \approx 40$ verso un primo avvallamento, interrotto da un gradino flessurale intorno a $\tau \in [55, 60]$;
+    \item \textbf{Cresta Intermedia ($65 < \tau \le 85$):} rapida salita con picco relativo pronunciato a $\tau \approx 80$;
+    \item \textbf{Depressione a ``V'' ($85 < \tau \le 110$):} profonda discesa verso il minimo assoluto a $\tau \approx 105$;
+    \item \textbf{Recupero Finale ($110 < \tau \le 130$):} rapida risalita verso una seconda cresta terminale a $\tau \approx 120$.
+\end{enumerate}
+
+Nonostante minime perturbazioni locali (quali micro-oscillazioni stocastiche nella sottosequenza $B$ rispetto alla traiettoria pi\`u levigata di $C$), la forma globale (\textit{macro-shape}) si ripete fedelmente a distanza di oltre 1000 campioni temporali, confermando l'esistenza di un ciclo cinematico rigido nella macchina industriale.
+
+\FloatBarrier
+\subsection{Motivazioni e Applicazioni nel Data Mining}
+\label{subsec:ts-motif-applications}
+
+L'estrazione dei motivi non costituisce una mera operazione descrittiva fine a se stessa, bens\`i rappresenta il blocco costruttivo fondamentale (\textit{primitive component}) per i compiti cardine del Data Mining su serie temporali:
+
+\begin{enumerate}
+    \item \textbf{Estrazione di Regole Associative (\textit{Association Rule Mining})}: 
+    Nelle sequenze categoriche e nei panieri transazionali (\autoref{chap:dm-association-analysis}), le regole associano item discreti del tipo $X \implies Y$. Nelle serie temporali a valori reali continui non esistono elementi discreti nativi: l'estrazione preventiva dei motivi consente di discretizzare il continuum in un vocabolario di \textbf{forme primitive} (\textit{primitive shapes}) e \textbf{pattern frequenti} (\textit{frequent patterns}), abilitando la generazione di regole del tipo:
+    \begin{equation}
+    \text{Motif}_A \xrightarrow{\Delta t} \text{Motif}_B \implies \text{Picco di Pressione Entro } 10\text{ minuti}
+    \end{equation}
+    
+    \item \textbf{Classificazione di Serie Temporali (\textit{Time Series Classification})}:
+    Numerosi modelli predittivi e classificatori supervisonati (quali 1-NN basati su shapelets o prototipi) fondano la frontiera decisionale sull'individuazione di \textbf{prototipi tipici} (\textit{typical prototypes}) caratterizzanti ciascuna classe. I motivi estratti dalle sequenze di addestramento rappresentano i candidati ideali per identificare la ``firma morfologica'' distintiva di patologie cardiache (ECG), malfunzionamenti meccanici o oscillazioni sismiche.
+    
+    \item \textbf{Rilevazione di Anomalie (\textit{Time Series Anomaly Detection})}:
+    Una strategia consolidata di anomaly detection consiste nel modellare il \textbf{comportamento normale} di un apparato mediante l'insieme dei motivi conservati nella serie storica. Qualsiasi sottosequenza futura che presenti una distanza di dissimilarit\`a significativamente elevata rispetto a tutti i motivi tipici noti viene classificata immediatamente come segnale anomalo o discorde (\textit{discord}).
+\end{enumerate}
+
+\FloatBarrier
+\section{La Struttura Dati Matrix Profile: Fondamenti e Componenti}
+\label{sec:ts-matrix-profile-foundations}
+
+Tradizionalmente, la ricerca esatta di motivi richiedeva algoritmi a forza bruta altamente inefficienti con complessit\`a computazionale quadratica rispetto alla lunghezza della serie moltiplicata per la dimensione della finestra. Nel 2016, il gruppo di ricerca di Eamonn Keogh e colleghi ha introdotto la \textbf{Matrix Profile} (\textbf{MP})~\cite{yeh2016}, una struttura dati unificante che annota una serie temporale e consente l'estrazione esatta, deterministica e scalabile di motivi, anomalie e forme discriminanti (\textit{shapelets}).
+
+\FloatBarrier
+\subsection{Definizione e Concetto di Annotazione}
+\label{subsec:ts-mp-concept}
+
+La Matrix Profile \`e una meta-struttura dati bidimensionale composta da due vettori monodimensionali paralleli, la cui funzione \`e \textbf{annotare} la serie temporale originale rispetto a una finestra temporale $m$ prescelta dall'analista.
+
+\begin{definition}[Input della Matrix Profile]
+\label{def:mp-inputs}
+La costruzione della Matrix Profile richiede esclusivamente due parametri in ingresso:
+\begin{enumerate}
+    \item Una serie temporale univariata $T \in \R^n$;
+    \item Un parametro intero $m \in \N^+$ ($m \ll n$) che definisce la lunghezza della finestra di analisi per le sottosequenze.
+\end{enumerate}
+\end{definition}
+
+La Matrix Profile risolve intrinsecamente il problema della sensibilit\`a ai parametri: a differenza di altri metodi euristici o simbolici (come SAX, \autoref{subsec:ts-sax-approximation}, che richiedono la scelta del numero di segmenti PAA e della dimensione dell'alfabeto), la Matrix Profile non necessita di alcuna soglia arbitraria di distanza o euristica di quantizzazione.
+
+\FloatBarrier
+\subsection{Estrazione delle Sottosequenze tramite Finestra Scorrevole}
+\label{subsec:ts-sliding-window}
+
+Il fondamento geometrico della Matrix Profile risiede nell'applicazione di una \textbf{finestra scorrevole} (\textit{sliding window}) di ampiezza $m$ che scorre lungo la serie temporale $T$ a passo unitario $\Delta i = 1$ dall'istante iniziale $1$ all'istante finale $n - m + 1$.
+
+\begin{proposition}[Numero Totale di Sottosequenze Estratte]
+\label{prop:num-subsequences}
+Data una serie temporale $T$ di cardinalit\`a $|T| = n$ e una finestra mobile di ampiezza $m \le n$, il numero totale $N_{\text{sub}}$ di sottosequenze contigue estraibili \`e dato da:
+\begin{equation}
+\label{eq:n-subsequences}
+N_{\text{sub}} = |T| - m + 1 = n - m + 1
+\end{equation}
+\end{proposition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.92,
+    every node/.style={transform shape},
+    box/.style={rectangle, draw=navy!80, fill=navy!10, thick, rounded corners=2pt, minimum height=0.6cm},
+    subbox/.style={rectangle, draw=darkgreen!80, fill=darkgreen!12, thick, rounded corners=2pt, minimum height=0.55cm, font=\scriptsize\bfseries}
+]
+
+% Serie Temporale T
+\draw[->, thick, color=black!70] (0, 4.0) -- (12.5, 4.0) node[right, font=\scriptsize] {$t$};
+\draw[color=crimson!85, very thick, smooth] 
+  (0.2, 4.0) -- (1.0, 4.6) -- (1.8, 3.4) -- (2.6, 4.8) -- (3.4, 3.8) -- (4.2, 4.5) -- 
+  (5.0, 3.6) -- (5.8, 4.7) -- (6.6, 3.5) -- (7.4, 4.9) -- (8.2, 3.7) -- (9.0, 4.6) -- 
+  (9.8, 3.8) -- (10.6, 4.4) -- (11.8, 3.9);
+
+\node[anchor=west, font=\small\bfseries, color=navy] at (0.2, 5.2) {Serie Temporale $T$ ($|T| = n$)};
+
+% Finestra scorrevole evidenziata
+\draw[color=navy, fill=navy!20, opacity=0.4] (1.0, 3.1) rectangle (3.4, 5.0);
+\draw[<->, color=navy, thick] (1.0, 2.9) -- (3.4, 2.9) node[midway, below, font=\scriptsize\bfseries] {Finestra $m$};
+
+\draw[->, very thick, color=navy] (3.6, 3.0) -- (5.5, 3.0) node[midway, above, font=\scriptsize\bfseries] {Scorrimento $\Delta i = 1$};
+
+% Cascata di sottosequenze estratte
+\node[subbox, minimum width=2.4cm] (s1) at (3.5, 1.8) {$T_1 = \langle t_1, \dots, t_m \rangle$};
+\node[subbox, minimum width=2.4cm] (s2) at (4.0, 1.1) {$T_2 = \langle t_2, \dots, t_{m+1} \rangle$};
+\node[subbox, minimum width=2.4cm] (s3) at (4.5, 0.4) {$T_3 = \langle t_3, \dots, t_{m+2} \rangle$};
+\node[font=\bfseries] (dots) at (5.0, -0.2) {$\vdots$};
+\node[subbox, minimum width=2.4cm] (sn) at (5.5, -0.8) {$T_{n-m+1} = \langle t_{n-m+1}, \dots, t_n \rangle$};
+
+% Graffa verticale che raggruppa le sottosequenze
+\draw[decorate, decoration={brace, amplitude=6pt, mirror}, thick, color=navy]
+  (6.9, 2.1) -- (6.9, -1.0) node[midway, right=10pt, font=\small\bfseries, color=navy, align=left] {
+    Insieme di tutte le\\
+    sottosequenze estratte:\\
+    $N_{\text{sub}} = n - m + 1$
+  };
+
+\end{tikzpicture}
+\caption{Processo di estrazione delle sottosequenze tramite finestra scorrevole (\textit{sliding window}) di lunghezza $m$. Ciascuna sottosequenza contigua costituisce un'istanza $T_i \in \R^m$, per un totale complessivo di $N_{\text{sub}} = n - m + 1$ elementi.}
+\label{fig:ts-sliding-window}
+\end{figure}
+
+\FloatBarrier
+\subsection{La Matrice delle Distanze a Coppie (Pairwise Distance Matrix)}
+\label{subsec:ts-pairwise-matrix}
+
+Dato l'insieme ordinato delle $N_{\text{sub}}$ sottosequenze estratte, il passo concettuale ideale consisterebbe nel calcolare la matrice completa delle distanze a coppie (\textit{All-Pairs Distance Matrix}) $\mathcal{D} \in \R^{N_{\text{sub}} \times N_{\text{sub}}}$:
+
+\begin{equation}
+\label{eq:pairwise-dist-matrix}
+\mathcal{D} = 
+\begin{pmatrix}
+D(T_1, T_1) & D(T_1, T_2) & D(T_1, T_3) & \dots & D(T_1, T_{N_{\text{sub}}}) \\
+D(T_2, T_1) & D(T_2, T_2) & D(T_2, T_3) & \dots & D(T_2, T_{N_{\text{sub}}}) \\
+D(T_3, T_1) & D(T_3, T_2) & D(T_3, T_3) & \dots & D(T_3, T_{N_{\text{sub}}}) \\
+\vdots & \vdots & \vdots & \ddots & \vdots \\
+D(T_{N_{\text{sub}}}, T_1) & D(T_{N_{\text{sub}}}, T_2) & D(T_{N_{\text{sub}}}, T_3) & \dots & D(T_{N_{\text{sub}}}, T_{N_{\text{sub}}})
+\end{pmatrix}
+\end{equation}
+
+Si consideri un estratto numerico $3 \times 3$ della matrice $\mathcal{D}$:
+\begin{equation}
+\mathcal{D}_{3 \times 3} = 
+\begin{pmatrix}
+0 & 7.6952 & 7.7399 \\
+7.6952 & 0 & 7.7106 \\
+7.7399 & 7.7106 & 0
+\end{pmatrix}
+\end{equation}
+
+Dalla definizione metrica di distanza scaturiscono due propriet\`a algebriche fondamentali:
+\begin{enumerate}
+    \item \textbf{Diagonale Principale Nulla}: $\mathcal{D}[i, i] = D(T_i, T_i) = 0$ per ogni $i$, in virt\`u dell'assioma di identit\`a degli indiscernibili della metrica.
+    \item \textbf{Simmetria Rispetto alla Diagonale}: $\mathcal{D}[i, j] = \mathcal{D}[j, i] = D(T_i, T_j)$ per ogni coppia $(i, j)$, in forza della simmetria metrica.
+\end{enumerate}
+
+Tuttavia, memorizzare esplicitamente la matrice $\mathcal{D}$ comporta un'occupazione di memoria quadratica $\BigO{N_{\text{sub}}^2} \approx \BigO{n^2}$. Per una serie temporale di moderata entit\`a con $n = 10^6$ campioni, la matrice conterrebbe $10^{12}$ elementi a virgola mobile a 64 bit, richiedendo oltre $8\text{ Terabyte}$ di RAM, rendendo tale rappresentazione impraticabile.
+
+\FloatBarrier
+\subsection{Riduzione al Nearest Neighbor (1-NN)}
+\label{subsec:ts-1nn-reduction}
+
+L'intuizione fondante della Matrix Profile risiede nella consapevolezza che per estrarre motivi e anomalie \textbf{non \`e necessario conservare l'intera matrice delle distanze}: per ciascuna sottosequenza $T_i$ \`e sufficiente conoscere e memorizzare unicamente l'informazione relativa al suo \textbf{vicino pi\`u prossimo} (\textit{closest 1-Nearest Neighbor}, 1-NN) all'interno dell'intera serie.
+
+La \autoref{tab:ts-1nn-reduction} illustra la transizione concettuale tra le sottosequenze estratte, il valore scalare del 1-NN e il corrispondente puntatore temporale.
+
+\begin{table}[H]
+\centering
+\caption{Processo di riduzione al 1-Nearest Neighbor (Slide~7): mappatura tra le sottosequenze estratte, la relativa distanza minima e il rispettivo vicino pi\`u affine.}
+\label{tab:ts-1nn-reduction}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{c l c c l}
+\toprule
+\textbf{Sottosequenza} & \textbf{Profilo Morfologico Locale} & \textbf{Distanza 1-NN ($P[i]$)} & \textbf{Nearest Neighbor ($T_{I[i]}$)} & \textbf{Classificazione Strutturale} \\
+\midrule
+$T_1$ & Rumore piatto privo di struttura & $6.04$ & $T_{840}$ & Rumore stocastico \\
+$T_2$ & Flessione iniziale ad ampiezza contenuta & $2.88$ & $T_{312}$ & Transizione \\
+\addlinespace
+$\mathbf{T_3}$ & \textbf{Forma a doppia cresta conservata} & $\mathbf{0.90}$ & $\mathbf{T_{12}}$ & \textbf{Motif primario} \\
+\addlinespace
+$T_4$ & Discesa dalla cresta morfologica & $1.61$ & $T_{13}$ & Transizione \\
+$T_5$ & Rumore stocastico non correlato & $5.69$ & $T_{1520}$ & Rumore stocastico \\
+\addlinespace
+$\mathbf{T_6}$ & \textbf{Picco ripido seguito da discesa} & $\mathbf{1.23}$ & $\mathbf{T_{145}}$ & \textbf{Motif secondario} \\
+\addlinespace
+$T_7$ & Risalita dalla depressione morfologica & $1.40$ & $T_{146}$ & Transizione \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Dal confronto numerico emerge con immediata evidenza empirica una separazione netta:
+\begin{itemize}
+    \item I segmenti associati a \textbf{forme ricorrenti e conservative} (come $T_3$ con distanza $0.90$, o $T_6$ con distanza $1.23$) presentano una distanza minima dal proprio nearest neighbor straordinariamente contenuta;
+    \item I segmenti composti da \textbf{fluttuazioni casuali o rumore} (come $T_1$ con distanza $6.04$, e $T_5$ con distanza $5.69$) possiedono distanze minime sensibilmente superiori, attestando l'assenza di pattern gemelli nella sequenza.
+\end{itemize}
+
+\FloatBarrier
+\subsection{I Vettori Fondamentali: Matrix Profile ($P$) e Matrix Profile Index ($I$)}
+\label{subsec:ts-vectors-p-and-i}
+
+La condensazione del 1-NN per tutte le $N_{\text{sub}}$ sottosequenze genera due vettori monodimensionali paralleli, la cui combinazione definisce la struttura dati completa della Matrix Profile.
+
+\begin{definition}[Vettore Matrix Profile $P$]
+\label{def:vector-p}
+Il \textbf{Matrix Profile} \`e un vettore monodimensionale continuo $P \in \R^{N_{\text{sub}}}$ di cardinalit\`a $|P| = n - m + 1$. Il valore alla posizione $i$, denotato con $P[i]$, quantifica la distanza minima tra la sottosequenza $T_i$ e il suo vicino pi\`u prossimo in $T$ al di fuori della zona di esclusione:
+\begin{equation}
+\label{eq:matrix-profile-p}
+P[i] = \min_{\substack{j \in \{1, \dots, N_{\text{sub}}\} \\ j \notin \text{Excl}(i)}} D(T_i, T_j)
+\end{equation}
+\end{definition}
+
+\begin{definition}[Vettore Matrix Profile Index $I$]
+\label{def:vector-i}
+Il \textbf{Matrix Profile Index} (o \textit{Profile Companion}) \`e un vettore monodimensionale intero $I \in \N^{N_{\text{sub}}}$ di cardinalit\`a $|I| = n - m + 1$. La coordinata $I[i]$ memorizza l'indice temporale di inizio della sottosequenza che realizza la distanza minima $P[i]$:
+\begin{equation}
+\label{eq:matrix-profile-i}
+I[i] = \arg\min_{\substack{j \in \{1, \dots, N_{\text{sub}}\} \\ j \notin \text{Excl}(i)}} D(T_i, T_j)
+\end{equation}
+\end{definition}
+
+\begin{example}[Meccanismo di Puntamento di $I$]
+Si consideri un estratto del vettore $I$ in corrispondenza degli indici compresi tra $192$ e $196$:
+\begin{equation}
+I[192] = 89, \quad I[193] = 90, \quad \mathbf{I[194] = 91}, \quad I[195] = 92, \quad I[196] = 93
+\end{equation}
+Il valore $I[194] = 91$ certifica inequivocabilmente che la sottosequenza $T_{194}$ ha come vicino pi\`u affine nell'intera serie la sottosequenza che si sviluppa a partire dall'indice $t = 91$, e la loro distanza euclidea coincide con $P[194]$.
+\end{example}
+
+\FloatBarrier
+\subsection{Propriet\`a del Matrix Profile Index e Classic Time Series Motif}
+\label{subsec:ts-mpi-properties-classic-motif}
+
+L'accoppiamento dei vettori $P$ e $I$ conferisce propriet\`a computazionali e strutturali di primaria rilevanza:
+
+\begin{enumerate}
+    \item \textbf{Accesso in Tempo Costante $\BigO{1}$}: 
+    Dato l'indice $i$ di una qualsiasi sottosequenza $T_i$, il suo nearest neighbor viene reperito istantaneamente tramite una singola dereferenziazione in memoria: $T_{\text{NN}} = T_{I[i]}$, senza dover effettuare alcuna scansione o scansione lineare sui dati.
+    
+    \item \textbf{Asimmetria Generale dei Puntatori}: 
+    La relazione di vicinanza indotta da $I$ \textbf{non \`e simmetrica}:
+    \begin{equation}
+    I[A] = B \not\implies I[B] = A
+    \end{equation}
+    Se la sottosequenza $A$ possiede come vicino pi\`u prossimo $B$, non \`e affatto garantito che $B$ punti reciprocamente ad $A$. Ad esempio, $B$ potrebbe risiedere in un cluster pi\`u denso avente una terza sottosequenza $C$ posizionata a distanza ancora inferiore da $B$ rispetto ad $A$ ($D(B, C) < D(B, A)$).
+    
+    \item \textbf{Condizione di Reciprocit\`a del Classic TS Motif}:
+    Una coppia di sottosequenze $(T_a, T_b)$ costituisce il \textbf{motivo classico assoluto} della serie temporale se e solo se sono verificate simultaneamente due condizioni di consistenza globale:
+    \begin{align}
+    \text{Minimo Globale di Distanza:} \quad & P[a] = P[b] = \min_{k} P[k] \label{eq:motif-cond-min} \\
+    \text{Puntatori Reciproci Mutui:} \quad & I[a] = b \quad \land \quad I[b] = a \label{eq:motif-cond-mutual}
+    \end{align}
+\end{enumerate}
+
+In \autoref{fig:ts-mp-alignment} viene schematizzata l'architettura d'integrazione e allineamento tra la serie originale $T$, il profilo delle distanze $P$ e l'indice di puntamento $I$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.90,
+    every node/.style={transform shape},
+    annot/.style={font=\scriptsize\bfseries},
+    box/.style={rectangle, draw=navy!80, fill=codebackground, thick, rounded corners=2pt}
+]
+
+% LIVELLO 1: SERIE TEMPORALE T (In alto)
+\draw[->, thick, color=black!70] (0, 7.5) -- (13.5, 7.5) node[right, font=\tiny] {$t$};
+\node[anchor=west, font=\footnotesize\bfseries, color=navy] at (0, 8.8) {1. Serie Temporale $T$ ($|T| = n \approx 3000$)};
+
+% Segnale T stilizzato con 2 motivi gemelli e 1 discord
+\draw[color=crimson!85, thick, smooth] 
+  (0.2, 7.5) -- (1.5, 7.4) -- 
+  % Motivo 1 (a ~ 375, x = 2.5)
+  (2.0, 7.5) -- (2.3, 8.3) -- (2.5, 6.7) -- (2.7, 8.3) -- (3.0, 7.5) --
+  (4.0, 7.6) -- (5.0, 7.4) --
+  % Motivo 2 (b ~ 1375, x = 6.5)
+  (6.0, 7.5) -- (6.3, 8.3) -- (6.5, 6.7) -- (6.7, 8.3) -- (7.0, 7.5) --
+  (8.0, 7.6) -- 
+  % Discord (anomalia a x = 9.5)
+  (9.0, 7.5) -- (9.3, 8.6) -- (9.5, 6.2) -- (9.7, 8.7) -- (10.0, 7.5) --
+  (11.0, 7.5) -- (12.5, 7.4);
+
+\node[annot, color=darkgreen] at (2.5, 8.6) {Motif ($t = 375$)};
+\node[annot, color=darkgreen] at (6.5, 8.6) {Motif ($t = 1375$)};
+\node[annot, color=crimson] at (9.5, 8.9) {Discord ($t = 2100$)};
+
+% Connessioni verticali tratteggiate verso il basso
+\draw[densely dashed, color=darkgreen!60] (2.5, 7.5) -- (2.5, 0.5);
+\draw[densely dashed, color=darkgreen!60] (6.5, 7.5) -- (6.5, 0.5);
+\draw[densely dashed, color=crimson!60] (9.5, 7.5) -- (9.5, 3.8);
+
+% LIVELLO 2: MATRIX PROFILE P (Al centro)
+\draw[->, thick, color=black!70] (0, 4.5) -- (13.5, 4.5) node[right, font=\tiny] {$i$};
+\node[anchor=west, font=\footnotesize\bfseries, color=navy] at (0, 6.0) {2. Vettore Matrix Profile $P$ (Distanza 1-NN, $|P| = n - m + 1$)};
+
+% Curva P (valli a 2.5 e 6.5, picco a 9.5)
+\draw[color=navy, very thick, smooth] 
+  (0.2, 5.3) -- (1.5, 5.2) -- 
+  (2.5, 4.65) -- % Valle minima (Motif)
+  (3.5, 5.3) -- (5.0, 5.4) -- 
+  (6.5, 4.65) -- % Valle minima (Motif)
+  (8.0, 5.3) -- 
+  (9.5, 5.9) --  % Picco massimo (Discord)
+  (11.0, 5.2) -- (12.5, 5.3);
+
+\fill[darkgreen] (2.5, 4.65) circle (2.5pt);
+\fill[darkgreen] (6.5, 4.65) circle (2.5pt);
+\fill[crimson] (9.5, 5.9) circle (2.5pt);
+
+\node[annot, color=darkgreen] at (2.5, 4.2) {Valle $P[375]$};
+\node[annot, color=darkgreen] at (6.5, 4.2) {Valle $P[1375]$};
+\node[annot, color=crimson] at (9.5, 6.2) {Picco Max (Discord)};
+
+% LIVELLO 3: MATRIX PROFILE INDEX I (In basso)
+\node[anchor=west, font=\footnotesize\bfseries, color=navy] at (0, 2.5) {3. Vettore Matrix Profile Index $I$ (Puntatori Temporali)};
+
+\begin{scope}[shift={(0, 1.0)}]
+  % Celle schematiche del vettore I
+  \draw[thick, draw=black!60] (1.5, 0) rectangle (3.5, 0.7);
+  \node[font=\scriptsize\bfseries] at (2.5, 0.35) {$I[375] = \mathbf{1375}$};
+  
+  \draw[thick, draw=black!60] (5.5, 0) rectangle (7.5, 0.7);
+  \node[font=\scriptsize\bfseries] at (6.5, 0.35) {$I[1375] = \mathbf{375}$};
+  
+  \draw[thick, draw=black!60] (9.5, 0) rectangle (11.5, 0.7);
+  \node[font=\scriptsize\bfseries] at (10.5, 0.35) {$I[2400] = 1800$};
+
+  % Freccia bidirezionale mutua (Motif)
+  \draw[<->, very thick, color=darkgreen] (3.6, 0.35) -- (5.4, 0.35) 
+    node[midway, above=2pt, font=\scriptsize\bfseries, color=darkgreen] {Puntatori Mutui (Motif)};
+
+  % Freccia unidirezionale (Asimmetrica)
+  \draw[->, thick, color=black!50] (11.6, 0.35) -- (12.8, 0.35) 
+    node[midway, above=1pt, font=\tiny\bfseries, color=black!60] {Unidirezionale};
+\end{scope}
+
+\end{tikzpicture}
+\caption{Integrazione e allineamento verticale dei tre livelli della Matrix Profile. Il vettore $P$ mappa le similarit\`a evidenziando valli profonde in corrispondenza dei motivi e picchi in corrispondenza delle anomalie. Il vettore $I$ codifica i puntatori temporali, distinguendo tra corrispondenze mutuali rigorose ($I[a]=b \land I[b]=a$) e puntatori asimmetrici unidirezionali.}
+\label{fig:ts-mp-alignment}
+\end{figure}
+
+\FloatBarrier
+\section{Interpretazione della Matrix Profile: Motifs e Discords}
+\label{sec:ts-mp-interpretation}
+
+L'ispezione della curva continua del Matrix Profile $P$ fornisce una chiave di lettura topologica immediata dello stato di regolarit\`a della serie temporale originale:
+
+\FloatBarrier
+\subsection{Lettura Topologica del Profilo: Valli e Picchi}
+\label{subsec:ts-topological-reading}
+
+L'ordinata del profilo $P[i]$ quantifica l'isolamento o la prossimit\`a di $T_i$ rispetto al resto della serie:
+
+\begin{itemize}
+    \item \textbf{Valori Relativamente Bassi (Valli e Minimi Locali)}:
+    Se $P[i]$ assume un valore prossimo allo zero o sensibilmente inferiore al livello medio del profilo, significa che esiste almeno un'altra sottosequenza nella serie la cui conformazione \`e quasi indistinguibile da $T_i$. Di conseguenza, le regioni a bassa magnitudo individuano inequivocabilmente \textbf{forme conservate} (\textbf{Motifs}).
+    
+    \item \textbf{Valori Relativamente Elevati (Picchi e Massimi Globali)}:
+    Se $P[i]$ assume un valore eccezionalmente elevato, significa che anche la sottosequenza pi\`u simile presente nell'intera serie dista notevolmente da $T_i$. La sottosequenza $T_i$ possiede dunque una forma unica ed irripetibile lungo l'intera storia di osservazione. Tali formazioni individuano le anomalie strutturali pi\`u severe, denominate formalmente \textbf{Time Series Discords}.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Quadro Comparativo: Motifs vs Time Series Discords}
+\label{subsec:ts-comparison-motifs-discords}
+
+La \autoref{tab:ts-motifs-vs-discords} riassume formalmente la dualit\`a complementare tra i due concetti cardine della Matrix Profile.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro sinottico comparativo: Time Series Motifs vs Time Series Discords.}
+\label{tab:ts-motifs-vs-discords}
+\vspace{2mm}
+\begin{tabularx}{\textwidth}{p{3.8cm} Y Y}
+\toprule
+\textbf{Propriet\`a / Caratteristica} & \textbf{Time Series Motifs} & \textbf{Time Series Discords} \\
+\midrule
+\textbf{Definizione Concettuale} & Pattern o morfologie frequenti e conservative. & Anomalie morfologiche e pattern rari/unici. \\
+\addlinespace
+\textbf{Firma nel Profilo $P$} & \textbf{Minimi Locali e Assoluti} (valli del profilo). & \textbf{Massimo Globale o Relativo} (picchi del profilo). \\
+\addlinespace
+\textbf{Condizione Formale} & $i^* = \arg\min_i P[i]$ con vincolo di mutua reciprocit\`a in $I$. & $j^* = \arg\max_j P[j]$. \\
+\addlinespace
+\textbf{Struttura dei Puntatori $I$} & Tipicamente \textbf{mutui e bidirezionali} ($I[a]=b \land I[b]=a$). & Spesso \textbf{asimmetrici} verso regioni dense di rumore. \\
+\addlinespace
+\textbf{Spazio Geometrico $\R^m$} & Centro o interno di \textbf{cluster ad alta densit\`a}. & \textbf{Punti isolati (\textit{outlier})} a grande distanza. \\
+\addlinespace
+\textbf{Obiettivo Applicativo} & Estrazione di regole associative, compressione, prototipi. & Rilevamento guasti, aritmie cardiache, intrusioni di rete. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\FloatBarrier
+\section{Algoritmo di Calcolo della Matrix Profile e Complessit\`a}
+\label{sec:ts-mp-algorithm-complexity}
+
+Per illustrare il funzionamento algoritmico della Matrix Profile, si analizza l'algoritmo \textbf{STAMP} (\textit{Scalable Time series Anytime Matrix Profile})~\cite{yeh2016}, descrivendone la convergenza iterativa attraverso un modello didattico (\textit{toy example}) monodimensionale su un vettore di 19 posizioni campionarie.
+
+\FloatBarrier
+\subsection{Fase 0: Inizializzazione}
+\label{subsec:ts-algo-phase0}
+
+Dati in ingresso la serie $T$ e la dimensione della finestra $m$, si determina il numero di sottosequenze $N_{\text{sub}} = n - m + 1 = 19$. 
+
+Poich\'e l'algoritmo procede per minimizzazioni successive, il vettore della Matrix Profile viene inizializzato ponendo ogni suo elemento pari a infinito ($+\infty$):
+\begin{equation}
+\label{eq:p-init}
+P^{(0)} = [\infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty, \infty]
+\end{equation}
+
+Parallelamente, il vettore $I$ viene inizializzato con valori nulli o indefiniti ($I^{(0)} = [\text{null}, \dots, \text{null}]$).
+
+\FloatBarrier
+\subsection{Traccia Didattica Dettagliata delle Iterazioni}
+\label{subsec:ts-toy-example-trace}
+
+L'algoritmo opera selezionando a ogni iterazione una sottosequenza $T_i$ non ancora elaborata, calcolando il vettore delle distanze rispetto a tutte le altre sottosequenze e aggiornando $P$ mediante il minimo elemento per elemento (\textit{elementwise minimum}).
+
+\subsubsection{Iterazione 1 ($k = 1$)}
+\begin{enumerate}
+    \item \textbf{Selezione della Sottosequenza}: Si seleziona (eventualmente in modo casuale o sequenziale) la sottosequenza all'indice $i = 3$, corrispondente alla prima occorrenza di un pattern morfologico strutturato.
+    \item \textbf{Calcolo del Vettore delle Distanze $D^{(1)}$}: Si calcolano le distanze tra la sottosequenza perno $T_3$ e ciascuna delle $19$ sottosequenze della serie, producendo il vettore delle distanze:
+    \begin{equation}
+    D^{(1)} = [3, 2, \mathbf{0}, 5, 3, 4, 5, 1, 2, 9, 8, 4, 2, 3, 4, 8, 6, 2, 1]
+    \end{equation}
+    Si noti che l'elemento alla posizione $3$ vale rigorosamente $D^{(1)}[3] = 0$, esprimendo la distanza identica della sottosequenza $T_3$ rispetto a se stessa (\textit{self-match}).
+    
+    \item \textbf{Aggiornamento Elementwise Minimum con Esclusione del Self-Match}:
+    Il vettore $P$ viene aggiornato confrontando ciascun elemento corrente con la nuova distanza calcolata:
+    \begin{equation}
+    P^{(1)}[j] = \min(P^{(0)}[j], D^{(1)}[j]), \qquad \text{per ogni } j \neq 3
+    \end{equation}
+    Per la posizione del perno ($j = 3$), il valore $0$ viene escluso per prevenire l'auto-accoppiamento banale, mantenendo $P^{(1)}[3] = \infty$.
+    
+    L'applicazione dell'operatore di minimo determina:
+    \begin{align}
+    P^{(1)}[1] &= \min(\infty, 3) = 3 \\
+    P^{(1)}[2] &= \min(\infty, 2) = 2 \\
+    P^{(1)}[3] &= \infty \quad \text{(esclusione auto-distanza)} \\
+    P^{(1)}[4 \dots 19] &= D^{(1)}[4 \dots 19]
+    \end{align}
+    Il profilo al termine dell'iterazione 1 risulta pertanto:
+    \begin{equation}
+    P^{(1)} = [3, 2, \boldsymbol{\infty}, 5, 3, 4, 5, 1, 2, 9, 8, 4, 2, 3, 4, 8, 6, 2, 1]
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Iterazione 2 ($k = 2$)}
+\begin{enumerate}
+    \item \textbf{Selezione della Sottosequenza}: Viene selezionata una seconda sottosequenza perno, collocata all'indice $j = 12$ (corrispondente alla seconda occorrenza del pattern strutturato).
+    \item \textbf{Calcolo del Vettore delle Distanze $D^{(2)}$}: Il calcolo delle distanze da $T_{12}$ rispetto a tutte le sottosequenze produce il vettore:
+    \begin{equation}
+    D^{(2)} = [2, 3, \mathbf{1}, 4, 4, 3, 6, 2, 1, 5, 8, \mathbf{0}, 2, 3, 5, 9, 4, 2, 2]
+    \end{equation}
+    In $D^{(2)}$ si evidenziano due valori cruciali:
+    \begin{itemize}
+        \item In posizione $12$: $D^{(2)}[12] = 0$ (auto-distanza del perno);
+        \item In posizione $3$: $D^{(2)}[3] = 1$, a testimonianza della quasi-identit\`a morfologica tra la sottosequenza $T_{12}$ e la sottosequenza $T_3$.
+    \end{itemize}
+    
+    \item \textbf{Aggiornamento Elementwise Minimum}:
+    Si applica l'aggiornamento $P^{(2)}[k] = \min(P^{(1)}[k], D^{(2)}[k])$ escludendo l'auto-match $k = 12$:
+    \begin{align}
+    P^{(2)}[1] &= \min(3, 2) = \mathbf{2} \quad \text{(miglioramento da } 3 \text{ a } 2\text{)} \\
+    P^{(2)}[2] &= \min(2, 3) = 2 \quad \text{(invariato)} \\
+    P^{(2)}[3] &= \min(\infty, 1) = \mathbf{1} \quad \text{(trovato vicino } T_{12} \text{ a dist. } 1\text{)} \\
+    P^{(2)}[4] &= \min(5, 4) = 4 \quad \text{(miglioramento da } 5 \text{ a } 4\text{)}
+    \end{align}
+    Al termine del passaggio, il profilo $P^{(2)}$ ha aggiornato significativamente le proprie stime, convergendo progressivamente verso la vera frontiera inferiore delle distanze minime.
+\end{enumerate}
+
+La \autoref{tab:ts-stamp-trace} sintetizza l'evoluzione passo-passo dei vettori $D$ e $P$ per le prime due iterazioni dell'algoritmo.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Traccia numerica delle prime due iterazioni dell'algoritmo Matrix Profile su vettore a 19 celle.}
+\label{tab:ts-stamp-trace}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{c c c c c c c c c c c c c c c c c c c c}
+\toprule
+\textbf{Vettore / Indice} & \textbf{1} & \textbf{2} & \textbf{3} & \textbf{4} & \textbf{5} & \textbf{6} & \textbf{7} & \textbf{8} & \textbf{9} & \textbf{10} & \textbf{11} & \textbf{12} & \textbf{13} & \textbf{14} & \textbf{15} & \textbf{16} & \textbf{17} & \textbf{18} & \textbf{19} \\
+\midrule
+$P^{(0)}$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ & $\infty$ \\
+$D^{(1)}$ (Perno $i=3$) & $3$ & $2$ & \textbf{0} & $5$ & $3$ & $4$ & $5$ & $1$ & $2$ & $9$ & $8$ & $4$ & $2$ & $3$ & $4$ & $8$ & $6$ & $2$ & $1$ \\
+$P^{(1)}$ & $3$ & $2$ & $\boldsymbol{\infty}$ & $5$ & $3$ & $4$ & $5$ & $1$ & $2$ & $9$ & $8$ & $4$ & $2$ & $3$ & $4$ & $8$ & $6$ & $2$ & $1$ \\
+\midrule
+$D^{(2)}$ (Perno $i=12$) & $2$ & $3$ & $1$ & $4$ & $4$ & $3$ & $6$ & $2$ & $1$ & $5$ & $8$ & \textbf{0} & $2$ & $3$ & $5$ & $9$ & $4$ & $2$ & $2$ \\
+$P^{(2)}$ & \textbf{2} & $2$ & \textbf{1} & \textbf{4} & $3$ & \textbf{3} & $5$ & $1$ & \textbf{1} & \textbf{5} & $8$ & $4$ & $2$ & $3$ & $4$ & $8$ & \textbf{4} & $2$ & $1$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Algoritmo Generale e Analisi di Complessit\`a Temporale}
+\label{subsec:ts-algo-stamp-complexity}
+
+In \autoref{algo:matrix-profile-stamp} viene formalizzata la struttura procedurale completa per il calcolo della Matrix Profile.
+
+\begin{algorithm}[H]
+\caption{Calcolo Esatto della Matrix Profile mediante Algoritmo STAMP}
+\label{algo:matrix-profile-stamp}
+\KwInput{Serie temporale $T \in \R^n$, ampiezza finestra $m \in \N^+$, ampiezza zona esclusione $w \in \N^+$}
+\KwOutput{Vettore Matrix Profile $P \in \R^{N_{\text{sub}}}$, Vettore Profile Index $I \in \N^{N_{\text{sub}}}$}
+
+$N_{\text{sub}} \leftarrow n - m + 1$\;
+Inizializza $P[1 \dots N_{\text{sub}}] \leftarrow +\infty$\;
+Inizializza $I[1 \dots N_{\text{sub}}] \leftarrow \text{null}$\;
+Genera permutazione casuale degli indici $\Pi \leftarrow \text{RandomPermutation}(\{1, \dots, N_{\text{sub}}\})$\;
+
+\For{$k \leftarrow 1$ \KwTo $N_{\text{sub}}$}{
+    $i \leftarrow \Pi[k]$\; \tcp{Sottosequenza perno corrente $T_i$}
+    $D \leftarrow \text{MASS}(T_i, T)$\; \tcp{Calcolo distanze in tempo $\BigO{n \log n}$}
+    
+    \For{$j \leftarrow 1$ \KwTo $N_{\text{sub}}$}{
+        \If{$|i - j| \ge w$}{ \tcp{Verifica zona di esclusione per trivial matches}
+            \If{$D[j] < P[j]$}{
+                $P[j] \leftarrow D[j]$\;
+                $I[j] \leftarrow i$\;
+            }
+            \If{$D[j] < P[i]$}{
+                $P[i] \leftarrow D[j]$\;
+                $I[i] \leftarrow j$\;
+            }
+        }
+    }
+}
+\Return{$P, I$}\;
+\end{algorithm}
+
+\begin{theorem}[Complessit\`a Computazionale della Matrix Profile]
+\label{thm:mp-complexity}
+Sia data una serie temporale $T$ di lunghezza $n$ e una finestra di sottosequenza $m$. L'algoritmo di calcolo della Matrix Profile possiede:
+\begin{enumerate}
+    \item \textbf{Complessit\`a Temporale}: $\BigO{n^2 \log n}$;
+    \item \textbf{Complessit\`a Spaziale Ausiliaria}: $\BigO{n}$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+La complessit\`a deriva dalla combinazione di due fattori analitici:
+\begin{enumerate}
+    \item \textbf{Numero di Iterazioni del Ciclo Esterno}: Il ciclo scorre su tutte le $N_{\text{sub}} = n - m + 1$ sottosequenze della serie temporale. Asintoticamente, per $m \ll n$, il numero di iterazioni \`e dell'ordine di $\BigO{n}$.
+    \item \textbf{Costo di Ciascuna Iterazione (Algoritmo MASS)}: Per calcolare le distanze euclidee z-normalizzate tra la sottosequenza perno $T_i$ e tutte le $n - m + 1$ sottosequenze estratte da $T$, non si impiega il ciclo interno a forza bruta di complessit\`a $\BigO{n \cdot m}$. Si impiega l'algoritmo \textbf{MASS} (\textit{Mueen's Algorithm for Similarity Search})~\cite{mueen2009}, basato sulla Trasformata Rapida di Fourier (FFT) e sulla convoluzione nel dominio delle frequenze (\textit{cross-correlation theorem}). La complessit\`a di MASS \`e indipendente da $m$ e pari a $\BigO{n \log n}$.
+\end{enumerate}
+Moltiplicando il numero complessivo di iterazioni per il costo di ciascun calcolo delle distanze si ottiene la complessit\`a temporale globale:
+\begin{equation}
+\label{eq:total-time-complexity}
+\text{Complessit\`a Temporale Totale} = \BigO{n} \cdot \BigO{n \log n} = \BigO{n^2 \log n}
+\end{equation}
+
+Per quanto concerne la memoria primaria, l'algoritmo non materializza la matrice $\mathcal{D} \in \R^{n \times n}$. Vengono allocati unicamente i vettori $P \in \R^{n-m+1}$, $I \in \N^{n-m+1}$ e un buffer ausiliario per il vettore temporaneo delle distanze $D$, determinando un'occupazione di memoria rigorosamente lineare pari a $\BigO{n}$.
+\end{proof}
+
+\begin{remark}[Propriet\`a \textit{Anytime} dell'Algoritmo STAMP]
+Poich\'e le sottosequenze perno possono essere elaborate secondo una permutazione puramente casuale $\Pi$, l'algoritmo STAMP gode della propriet\`a \textbf{Anytime}: l'utente o il sistema pu\`o interrompere l'esecuzione in qualsiasi istante prima del completamento naturale del ciclo. Il vettore $P$ parzialmente calcolato costituisce gi\`a un'eccellente approssimazione superiore della Matrix Profile esatta, consentendo di individuare con elevatissima confidenza i motivi principali anche dopo una frazione limitata (es. $5\%$) del tempo di calcolo complessivo.
+\end{remark}
+
+\FloatBarrier
+\section[Estrazione dei Motifs e Geometria nello Spazio m-Dimensionale]{Estrazione dei Motifs e Geometria nello Spazio $m$-Dimensionale}
+\label{sec:ts-geometric-interpretation}
+
+Una volta calcolato il vettore $P$, l'estrazione operativa dei motivi si traduce nella ricerca sistematica dei suoi \textbf{minimi locali}, mentre la comprensione del fenomeno trae beneficio da un'elegante interpretazione geometrica nello spazio euclideo multidimensionale.
+
+\FloatBarrier
+\subsection{Localizzazione dei Motifs tramite Minimi Locali}
+\label{subsec:ts-motif-extraction-local-minima}
+
+Ciascun minimo locale di $P$ corrisponde all'epicentro temporale di una sottosequenza dotata di forte corrispondenza nella serie. Tuttavia, nella pratica applicativa, non tutti i minimi locali rappresentano motivi distinti. Per isolare i motivi dominanti di rango $1, 2, \dots, K$ si adotta una procedura iterativa:
+\begin{enumerate}
+    \item Si individua il minimo assoluto globale di $P$: $i_1 = \arg\min_i P[i]$. La coppia $(T_{i_1}, T_{I[i_1]})$ definisce il \textbf{1\textsuperscript{o} Motivo della Serie}.
+    \item Per identificare il secondo motivo indipendente, si applica una finestra di esclusione di raggio $w = m/2$ attorno sia a $i_1$ sia a $I[i_1]$, azzerando o ponendo a $+\infty$ i rispettivi valori in $P$, al fine di escludere repliche leggermente sfasate del medesimo fenomeno fisico.
+    \item Si ricerca il nuovo minimo di $P$: la nuova coppia individua il \textbf{2\textsuperscript{o} Motivo della Serie}, e si itera fino al raggiungimento del numero $K$ di motivi desiderato.
+\end{enumerate}
+
+\FloatBarrier
+\subsection[Interpretazione Geometrica nello Spazio $m$-Dimensionale]{Interpretazione Geometrica\\nello Spazio $m$-Dimensionale ($\R^m$)}
+\label{subsec:ts-rm-geometry}
+
+Il legame tra i minimi della Matrix Profile e i pattern ricorrenti della serie temporale pu\`o essere compreso geometricamente considerando ciascuna delle $N_{\text{sub}}$ sottosequenze di lunghezza $m$ come un singolo punto $\mathbf{x}_i \in \R^m$:
+\begin{equation}
+T_i = \langle t_i, t_{i+1}, \dots, t_{i+m-1} \rangle \longleftrightarrow \mathbf{x}_i = (x_1, x_2, \dots, x_m) \in \R^m
+\end{equation}
+
+In questa rappresentazione vettoriale:
+\begin{itemize}
+    \item Sottosequenze aventi forma o morfologia identica si mappano in punti geometricamente vicini nello spazio Euclideo $\R^m$;
+    \item Di conseguenza, l'esistenza di pattern che si ripetono pi\`u volte lungo la sequenza genera \textbf{regioni dense} (\textit{dense regions} o cluster compatti di punti in $\R^m$);
+    \item Ciascun punto appartenente a una regione densa possiede un vicino a distanza infinitesima o minima, determinando una pronunciata \textbf{valle (valore basso)} nel profilo $P$;
+    \item Al contrario, sottosequenze isolate, singolarit\`a morfologiche e fluttuazioni anomale (\textit{discords}) si collocano in regioni iper-sparse di $\R^m$, lontane da qualunque altro addensamento, generando un picco elevato nel profilo $P$.
+\end{itemize}
+
+In \autoref{fig:ts-geometry-rm} viene illustrata la proiezione bidimensionale dello spazio $\R^m$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.84,
+    every node/.style={transform shape},
+    cluster/.style={circle, draw=navy!70, fill=navy!10, thick, dashed},
+    point/.style={circle, fill=black!75, inner sep=1.8pt},
+    mpt/.style={circle, fill=darkgreen!90!black, inner sep=2.4pt},
+    dpt/.style={diamond, fill=crimson!90!black, inner sep=2.8pt},
+    box/.style={rectangle, draw=black!60, fill=codebackground, rounded corners=2pt, font=\tiny\bfseries, inner sep=3pt}
+]
+
+% Assi spazio R^m
+\draw[->, thick, color=black!70] (0, 0) -- (12.0, 0) node[right, font=\scriptsize] {Dimensione $1$ ($t_i$)};
+\draw[->, thick, color=black!70] (0, 0) -- (0, 6.8) node[above, font=\scriptsize] {Dimensione $2$ ($t_{i+1}$)};
+\node[anchor=west, font=\small\bfseries, color=navy] at (0.2, 6.5) {Spazio Euclideo $m$-Dimensionale ($\R^m$)};
+
+% Punti sparsi (Rumore stocastico)
+\node[point] at (1.2, 1.8) {};
+\node[point] at (2.4, 0.8) {};
+\node[point] at (4.5, 2.1) {};
+\node[point] at (6.2, 1.5) {};
+\node[point] at (7.8, 5.8) {};
+\node[point] at (9.4, 2.7) {};
+\node[point] at (11.0, 3.4) {};
+\node[point] at (5.2, 6.1) {};
+\node[point] at (0.8, 4.2) {};
+\node[point] at (3.8, 4.8) {};
+
+% REGIONE DENSA 1: Sinusoidi (In alto a sinistra)
+\draw[cluster, minimum size=2.8cm] (2.8, 3.2) circle (1.4cm);
+\node[mpt] (m1) at (2.4, 3.0) {};
+\node[mpt] (m2) at (2.7, 3.4) {};
+\node[mpt] (m3) at (3.1, 2.9) {};
+\node[box, align=center] at (2.8, 1.3) {Cluster Denso 1: Motivo A\\$\to$ Valli Minime in $P$};
+
+% Profilo sinusoidale mini
+\draw[darkgreen, thick, smooth] (1.9, 3.7) sin (2.3, 4.0) cos (2.7, 3.7) sin (3.1, 3.4) cos (3.5, 3.7);
+
+% REGIONE DENSA 2: Doppia cresta (Centro-destra)
+\draw[cluster, minimum size=3.2cm] (8.2, 4.2) circle (1.6cm);
+\node[mpt] (m4) at (7.8, 4.0) {};
+\node[mpt] (m5) at (8.1, 4.5) {};
+\node[mpt] (m6) at (8.5, 3.9) {};
+\node[mpt] (m7) at (8.4, 4.3) {};
+\node[box, align=center] at (8.2, 2.1) {Cluster Denso 2: Motivo B\\$\to$ Valli Minime in $P$};
+
+% Profilo doppia cresta mini
+\draw[darkgreen, thick, smooth] (7.4, 4.9) -- (7.7, 5.4) -- (8.0, 4.7) -- (8.3, 5.4) -- (8.6, 4.9);
+
+% PUNTO ISOLATO: Anomalia / Discord (In basso a destra)
+\node[dpt] (d1) at (10.8, 0.9) {};
+\node[box, align=center, draw=crimson, fill=crimson!10] at (10.8, 1.8) {\textbf{Discord Isolato}\\$\to$ Massimo in $P$};
+
+\draw[<->, crimson, densely dashed, thick] (d1) -- (9.4, 2.7) 
+  node[midway, right=2pt, font=\tiny\bfseries, color=crimson] {Distanza 1-NN Elevata};
+
+\end{tikzpicture}
+\caption{Interpretazione geometrica delle sottosequenze nello spazio $m$-dimensionale $\R^m$. Gli addensamenti compatti (\textit{dense clusters}) raggruppano sottosequenze con forma affine e generano le valli minime della Matrix Profile. I punti isolati (\textit{discords}) distano marcatamente da qualunque altro vicino e generano i picchi del profilo.}
+\label{fig:ts-geometry-rm}
+\end{figure}
+
+\FloatBarrier
+\subsection{La Zona di Esclusione (\textit{Exclusion Zone}) e Trivial Matches}
+\label{subsec:ts-exclusion-zone}
+
+Nella formulazione iniziale dell'algoritmo (e nella semplificazione didattica presentata nella Slide 16 e Slide 18), l'aggiornamento della Matrix Profile si limita ad escludere l'auto-distanza della sottosequenza rispetto a se stessa ($j = i$, con $D(T_i, T_i) = 0$).
+
+In un contesto reale di serie temporali continue, tale esclusione \`e \textbf{condizione necessaria ma non sufficiente}:
+\begin{alertblock}{Il Problema dei Trivial Matches (Accoppiamenti Banali)}
+Due sottosequenze consecutive $T_i$ e $T_{i+1}$ differiscono per una sola osservazione iniziale $t_i$ e una finale $t_{i+m}$, condividendo integralmente $m - 1$ campioni intermedi. A causa di tale massiccia sovrapposizione geometrica, la distanza $D(T_i, T_{i+1})$ risulta artificialmente quasi nulla, generando un falso minimo banale (\textit{trivial match}) che non riflette affatto una vera ricorrenza strutturale, bens\`i un semplice sfasamento unitario.
+\end{alertblock}
+
+Per eliminare rigorosamente questo artefatto, la letteratura standard della Matrix Profile~\cite{yeh2016} impone una \textbf{Zona di Esclusione} (\textit{Exclusion Zone}) simmetrica attorno all'indice perno $i$:
+\begin{equation}
+\label{eq:exclusion-zone}
+\text{Excl}(i) = \{ j \in \N \mid |i - j| < w \}
+\end{equation}
+dove l'ampiezza di esclusione viene convenzionalmente fissata pari alla met\`a della lunghezza della finestra:
+\begin{equation}
+w = \left\lfloor \frac{m}{2} \right\rfloor
+\end{equation}
+In tal modo, nessun segmento che condivida pi\`u del $50\%$ delle osservazioni con $T_i$ pu\`o concorrere all'assegnazione del 1-Nearest Neighbor in $P[i]$ e $I[i]$.
+
+\FloatBarrier
+\section{Quadro Sinottico e Riferimenti Bibliografici}
+\label{sec:ts-mp-summary-references}
+
+A conclusione del capitolo, in \autoref{tab:ts-mp-global-synoptic} viene proposto un quadro sinottico riassuntivo dei concetti cardine, delle strutture algebriche e dei vincoli computazionali della Matrix Profile.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro sinottico riassuntivo dei parametri, vettori e complessit\`a della Matrix Profile.}
+\label{tab:ts-mp-global-synoptic}
+\vspace{2mm}
+\begin{tabularx}{\textwidth}{l c Y}
+\toprule
+\textbf{Elemento} & \textbf{Dominio / Notazione} & \textbf{Descrizione e Rilevanza Operativa} \\
+\midrule
+Serie Temporale & $T \in \R^n$ & Sequenza univariata di osservazioni continue campionate regolarmente. \\
+\addlinespace
+Ampiezza Finestra & $m \in \N^+$ ($m \ll n$) & Unico parametro essenziale: definisce la scala temporale dei pattern cercati. \\
+\addlinespace
+Numero Sottosequenze & $N_{\text{sub}} = n - m + 1$ & Numero di segmenti contigui analizzati tramite sliding window unitaria. \\
+\addlinespace
+Matrix Profile & $P \in \R^{N_{\text{sub}}}$ & Vettore continuo delle distanze dal 1-NN; valli = motivi, picchi = discords. \\
+\addlinespace
+Profile Index & $I \in \N^{N_{\text{sub}}}$ & Vettore intero dei puntatori al 1-NN; accesso $\BigO{1}$ al compagno pi\`u affine. \\
+\addlinespace
+Classic TS Motif & $P[a] = P[b] = \min P$ & Coppia di minima distanza globale avente puntatori mutui ($I[a]=b \land I[b]=a$). \\
+\addlinespace
+Time Series Discord & $j^* = \arg\max P$ & Sottosequenza pi\`u isolata nella serie; rileva anomalie e guasti operativi. \\
+\addlinespace
+Zona di Esclusione & $|i - j| \ge m/2$ & Filtro vincolante per eliminare i falsi motivi dovuti a sovrapposizione temporale. \\
+\addlinespace
+Complessit\`a STAMP & $\BigO{n^2 \log n}$ & Tempo di calcolo totale esatto basato sull'algoritmo MASS (FFT); memoria $\BigO{n}$. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{remark}[Nota Bibliografica e Storiografica]
+Nelle slide di riferimento il lavoro scientifico fondamentale sulla Matrix Profile viene attribuito a \textit{Chin-Chia Michael Yeh et al., 1997}. Si tratta di un refuso tipografico presente nel materiale didattico originale: il lavoro seminale \textit{``Matrix Profile I: All Pairs Similarity Joins for Time Series: A Unifying View that Includes Motifs, Discords and Shapelets''} \`e stato ufficialmente pubblicato nel \textbf{2016} negli atti della conferenza IEEE ICDM (\textit{IEEE International Conference on Data Mining})~\cite{yeh2016}, scaturendo dalla collaborazione tra l'Universit\`a della California (Riverside) e l'Universit\`a del New Mexico.
+\end{remark}

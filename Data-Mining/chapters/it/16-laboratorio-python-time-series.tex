@@ -1,0 +1,593 @@
+\chapter{Laboratorio Python: Analisi, Trasformazioni e Mining di Serie Temporali}
+\label{chap:dm-python-lab-time-series}
+
+\FloatBarrier
+\section{Ambiente di Lavoro, Stack Software e Dataset del Laboratorio}
+\label{sec:ts-lab-environment}
+
+Il presente laboratorio traduce in pratica computazionale i fondamenti teorici esposti nei Capitoli~\ref{chap:dm-time-series} e~\ref{chap:dm-motif-discovery-matrix-profile}, guidando lo studente nell'implementazione di pipeline complete per l'analisi, la trasformazione, il calcolo delle distanze elastiche, il clustering e la scoperta di motivi (\textit{motif discovery}) su serie temporali mediante lo stack scientifico di Python~\cite{tan2018}.
+
+\begin{noteblock}{Ambiente Interattivo e Riproducibilit\`a del Laboratorio}
+Tutti gli esempi, le pipeline di trasformazione e i blocchi di codice presentati in questo capitolo sono riproducibili ed eseguibili interattivamente tramite i tre notebook Jupyter inclusi nella cartella \texttt{Data-Mining/notebooks/10\_time\_series/}:
+\begin{enumerate}[noitemsep]
+    \item \texttt{8\_TimeSeries1.ipynb}: Trasformazioni, scaling, distanze (Euclidea, DTW vincolata), estrazione di feature, dissimilarit\`a CDM e approssimazioni discrete (PAA, SAX, 1D-SAX);
+    \item \texttt{9\_TimeSeries2.ipynb}: Clustering di serie temporali (Shape-based con K-Means e DBA, Feature-based, Compression-based con DBSCAN, PAA-based);
+    \item \texttt{10\_TimeSeries\_motif.ipynb}: Calcolo della Matrix Profile (STOMP), estrazione dei motivi (\textit{motifs}) e rilevamento di anomalie morfologiche (\textit{discords}).
+\end{enumerate}
+
+\textbf{Avvio con Docker}:
+\begin{itemize}[noitemsep]
+    \item Da terminale nella radice del repository: \texttt{docker compose up jupyter}
+    \item Interfaccia web: \href{http://localhost:8888/lab/tree/notebooks/10_time_series/}{\texttt{http://localhost:8888/}} (cartella \texttt{10\_time\_series}).
+\end{itemize}
+\end{noteblock}
+
+Lo stack software fondamentale per il Time Series Mining in Python fa perno sulle librerie specialistiche \texttt{tslearn}, \texttt{pyts} e \texttt{matrixprofile}, integrate con l'ecosistema scientifico standard:
+
+\begin{lstlisting}[language=Python, style=code]
+import math
+import numpy as np
+import pandas as pd
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import seaborn as sns
+import zlib
+
+# Librerie specialistiche per serie temporali
+import tslearn
+from tslearn.preprocessing import TimeSeriesScalerMeanVariance, TimeSeriesScalerMinMax, TimeSeriesResampler
+from tslearn.metrics import dtw, dtw_path, cdist_dtw
+from tslearn.piecewise import PiecewiseAggregateApproximation, SymbolicAggregateApproximation, OneD_SymbolicAggregateApproximation
+from tslearn.clustering import TimeSeriesKMeans
+
+import pyts
+from pyts.datasets import make_cylinder_bell_funnel
+from pyts.metrics import dtw as dtw_pyts
+
+import matrixprofile as mp
+from matrixprofile import matrixProfile
+from matrixprofile.motifs import motifs
+from matrixprofile.discords import discords
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{I Dataset Sperimentali del Laboratorio}
+\label{subsec:ts-lab-datasets}
+
+Le esercitazioni si sviluppano su tre scenari di dati a complessit\`a crescente:
+\begin{enumerate}
+    \item \textbf{Sequenze Sintetiche Armoniche ($ts_1, ts_2$)}: due traiettorie continue di 200 campioni generate combinando una componente deterministica sinusoidale con rumore stocastico uniforme:
+    \begin{equation}
+    ts_1(t) = \sin\left(\frac{t}{20}\right) + \frac{\epsilon_1(t)}{2}, \qquad ts_2(t) = \sin\left(\frac{t}{20}\right) + \frac{\epsilon_2(t)}{2}, \quad \epsilon_i \sim \mathcal{U}(0, 1)
+    \end{equation}
+    utilizzate per validare visivamente le trasformazioni elementari, il filtraggio e l'effetto dello scaling.
+    
+    \item \textbf{Dataset Internazionale AirPassengers}: serie storica mensile composta da $n = 144$ osservazioni (dal 1949 al 1960) del numero totale di passeggeri di linee aeree internazionali espresso in migliaia. Il segnale manifesta sia un pronunciato \textbf{trend lineare esponenziale crescente}, sia una forte \textbf{componente stagionale periodica annuale} ($T = 12$ mesi), costituendo il banco di prova ideale per la detrendizzazione, la Matrix Profile e il rilevamento di motivi e anomalie.
+    
+    \item \textbf{Benchmark Multiclasse Cylinder-Bell-Funnel (CBF)}: archivio sintetico generato tramite la funzione \path{pyts.datasets.make_cylinder_bell_funnel} composto da 60 serie temporali di 128 campioni equamente ripartite in tre classi morfologiche distinte (Cylinder: plateau rettangolare; Bell: campana asimmetrica a salita ripida e discesa dolce; Funnel: imbuto a salita dolce e discesa ripida).
+\end{enumerate}
+
+In \autoref{fig:ts-lab-pipeline-arch} viene schematizzata la pipeline globale delle attivit\`a di laboratorio sviluppate nel capitolo.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    box/.style={rectangle, draw=navy!85, fill=codebackground, thick, rounded corners=3pt, minimum height=0.9cm, font=\small\bfseries, align=center},
+    stepbox/.style={rectangle, draw=darkgreen!85, fill=darkgreen!10, thick, rounded corners=3pt, minimum height=0.9cm, font=\small\bfseries, align=center},
+    taskbox/.style={rectangle, draw=crimson!85, fill=crimson!10, thick, rounded corners=3pt, minimum height=0.9cm, font=\small\bfseries, align=center},
+    arrow/.style={->, >=Stealth, very thick, color=navy!80}
+]
+
+% Livello 1: Ingestione
+\node[box, minimum width=3.8cm] (raw) at (0, 4.0) {Serie Grezze\\(AirPassengers / CBF)};
+
+% Livello 2: Preprocessing
+\node[stepbox, minimum width=4.2cm] (prep) at (5.2, 4.0) {Preprocessing \& Scaling\\(\texttt{TimeSeriesScaler})};
+
+% Livello 3: Due rami (Distanze/Rappresentazioni vs Matrix Profile)
+\node[stepbox, minimum width=4.5cm] (dist) at (11.0, 5.2) {Metriche \& Allineamento\\(DTW vincolata, CDM, PAA/SAX)};
+\node[stepbox, minimum width=4.5cm] (mp) at (11.0, 2.8) {Matrix Profile\\(\texttt{STOMP} con finestra $w$)};
+
+% Livello 4: Task downstream
+\node[taskbox, minimum width=4.8cm] (clust) at (11.0, 6.8) {Clustering di Serie\\(Shape-, Feature-, CDM-based)};
+\node[taskbox, minimum width=4.8cm] (motif) at (11.0, 1.2) {Motif Discovery \&\\Anomaly Detection (Discords)};
+
+% Frecce di collegamento
+\draw[arrow] (raw) -- (prep);
+\draw[arrow] (prep.east) -- ++(0.8, 0) |- (dist.west);
+\draw[arrow] (prep.east) -- ++(0.8, 0) |- (mp.west);
+\draw[arrow] (dist.north) -- (clust.south);
+\draw[arrow] (mp.south) -- (motif.north);
+
+\end{tikzpicture}%
+}
+\caption{Architettura metodologica della pipeline di Time Series Mining del laboratorio: dall'ingestione e scaling alla quantificazione delle distanze, clustering e scoperta di motivi/anomalie.}
+\label{fig:ts-lab-pipeline-arch}
+\end{figure}
+
+\FloatBarrier
+\section{Trasformazioni, Preprocessing e Scaling delle Sequenze}
+\label{sec:ts-lab-transformations}
+
+L'applicazione diretta di metriche di distanza su segnali grezzi conduce frequentemente a risultati fuorvianti qualora le sequenze siano affette da sfasamenti di ampiezza, offset verticali, trend macroscopici o frequenze di campionamento disomogenee (\autoref{sec:ts-similarity-metrics-transformations}).
+
+\FloatBarrier
+\subsection{Trasformazioni Elementari con NumPy e Pandas}
+\label{subsec:ts-lab-elementary-transf}
+
+Le quattro trasformazioni fondamentali analizzate nel notebook didattico operano secondo le formulazioni della teoria:
+
+\begin{lstlisting}[language=Python, style=code]
+np.random.seed(0)
+# Generazione di due serie armoniche sintetiche
+ts1 = pd.Series([np.sin(float(x) / 20.0) + np.random.rand() / 2.0 for x in range(200)])
+ts2 = pd.Series([np.sin(float(x) / 20.0) + np.random.rand() / 2.0 for x in range(200)])
+
+# 1. Offset Translation: traslazione verticale per annullare la media
+ts1_offset = ts1 - ts1.mean()
+ts2_offset = ts2 - ts2.mean()
+
+# 2. Amplitude Scaling: normalizzazione z-score (media nulla e varianza unitaria)
+ts1_zscore = (ts1 - ts1.mean()) / ts1.std()
+ts2_zscore = (ts2 - ts2.mean()) / ts2.std()
+
+# 3. Noise Smoothing: abbattimento del rumore ad alta frequenza via media mobile
+w = 15
+ts1_smoothed = ts1_zscore.rolling(window=w).mean()
+
+# 4. Linear Trend Removal su AirPassengers: rimozione del trend stagionale a 12 mesi
+df = pd.read_csv('air_passengers.csv', parse_dates=True, index_col='Month')
+ts_air = df['#Passengers']
+ts_air_trend_removed = ts_air - ts_air.rolling(window=12).mean()
+\end{lstlisting}
+
+La sottrazione della media mobile con finestra stagionale $w = 12$ isola le oscillazioni cicliche dell'aviazione civile, rendendo la serie stazionaria in media ed eliminando la deriva asintotica positiva che inficerebbe le distanze geometriche.
+
+\FloatBarrier
+\subsection{Pipeline di Normalizzazione con \texttt{tslearn}}
+\label{subsec:ts-lab-tslearn-preprocessing}
+
+La libreria \texttt{tslearn} fornisce trasformatore conformi allo standard di Scikit-Learn (\texttt{fit}, \texttt{transform}, \texttt{fit\_transform}) per l'elaborazione di dataset tridimensionali di serie temporali aventi forma shape \texttt{(n\_series, n\_timestamps, n\_features)}:
+
+\begin{lstlisting}[language=Python, style=code]
+from tslearn.preprocessing import TimeSeriesScalerMeanVariance, TimeSeriesScalerMinMax, TimeSeriesResampler
+
+# A. Standardizzazione Z-Score a media zero e varianza uno per ciascuna serie
+scaler_mv = TimeSeriesScalerMeanVariance(mu=0.0, std=1.0)
+ts1_mv = scaler_mv.fit_transform(ts1.values.reshape(1, -1)).flatten()
+
+# B. Normalizzazione Min-Max su intervallo arbitrario [a, b]
+scaler_mm = TimeSeriesScalerMinMax(value_range=(1.0, 2.0))
+ts1_mm = scaler_mm.fit_transform(ts1.values.reshape(1, -1)).flatten()
+
+# C. Ricampionamento Temporale (Resampling) per allineare serie di lunghezza diversa
+resampler = TimeSeriesResampler(sz=1000)
+ts1_resampled = resampler.fit_transform(ts1.values.reshape(1, -1)).flatten()
+\end{lstlisting}
+
+Il \texttt{TimeSeriesResampler} esegue un'interpolazione lineare uniforme lungo l'asse delle ascisse, riconducendo sequenze acquisite a frequenze variabili verso una comune risoluzione discretizzata di $1000$ istanti temporali, prerequisito vincolante per matrici di input ad alta dimensionalit\`a.
+
+\FloatBarrier
+\section{Metriche di Distanza ed Allineamento Elastico (DTW)}
+\label{sec:ts-lab-distances-dtw}
+
+Il notebook \texttt{8\_TimeSeries1.ipynb} pone a confronto sistematico le metriche rigide (Euclidea, Manhattan) con l'allineamento elastico non lineare (\textbf{Dynamic Time Warping}, DTW).
+
+\FloatBarrier
+\subsection{Distanze Rigide vs Allineamento Elastico}
+\label{subsec:ts-lab-euclidean-vs-dtw}
+
+Mentre la distanza Euclidea e la Manhattan (\texttt{cityblock}) impongono un accoppiamento punto-a-punto rigorosamente sincrono ad ascissa identica ($t_i \leftrightarrow s_i$):
+\begin{lstlisting}[language=Python, style=code]
+from scipy.spatial.distance import euclidean, cityblock
+
+d_euc = euclidean(ts1, ts2)      # Somma degli scarti quadratici punto-a-punto
+d_man = cityblock(ts1, ts2)      # Somma dei valori assoluti degli scarti
+\end{lstlisting}
+l'algoritmo DTW risolve l'allineamento ottimale tra serie temporali sfasate o a velocit\`a di evoluzione non omogenea, determinando il percorso di costo minimo (\textit{warping path}) sulla matrice delle distanze locali (\autoref{sec:ts-dynamic-time-warping}):
+
+\begin{lstlisting}[language=Python, style=code]
+from tslearn.metrics import dtw, dtw_path
+
+# Calcolo della distanza DTW e recupero del warping path ottimale
+path, dist_dtw = dtw_path(ts1, ts2)
+print(f"Distanza DTW: {dist_dtw:.4f}")
+# path e' una lista di tuple [(0, 0), (0, 1), (1, 2), ..., (n-1, m-1)]
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Vincoli Globali sul Warping Path: Sakoe-Chiba e Itakura}
+\label{subsec:ts-lab-dtw-constraints}
+
+L'applicazione di DTW senza vincoli pu\`o condurre a distorsioni patologiche e a singolarit\`a numeriche, accoppiando un singolo istante di una serie con centinaia di campioni dell'altra (\textit{pathological warping}). Nel laboratorio vengono applicati i due vincoli classici:
+
+\begin{enumerate}
+    \item \textbf{Banda di Sakoe-Chiba}: restringe la ricerca della coordinata ottima a una fascia simmetrica di raggio costante $r$ attorno alla diagonale principale ($|i - j| \le r$):
+\begin{lstlisting}[language=Python, style=code]
+# Esecuzione DTW con vincolo Sakoe-Chiba di raggio r = 3 sui primi 10 campioni
+path_sc, dist_sc = dtw_path(ts1[:10], ts2[:10], 
+                            global_constraint="sakoe_chiba", 
+                            sakoe_chiba_radius=3)
+\end{lstlisting}
+
+    \item \textbf{Parallelogramma di Itakura}: vincola la pendenza dell'allineamento tra due estremi prefissati (es. $1/2 \le \frac{\Delta j}{\Delta i} \le 2$), confinando la ricerca entro una regione romboidale/parallelogramma mediante la libreria \texttt{pyts}:
+\begin{lstlisting}[language=Python, style=code]
+from pyts.metrics import dtw as dtw_pyts
+
+# Calcolo DTW con parallelogramma di Itakura tramite pyts
+dist_itakura, path_itakura = dtw_pyts(ts1[:10].to_numpy(), ts2[:10].to_numpy(), 
+                                      dist='square', method='itakura', return_path=True)
+\end{lstlisting}
+\end{enumerate}
+
+In \autoref{fig:ts-lab-dtw-constraints-tikz} viene raffigurata geometricamente la comparazione delle regioni ammissibili indotte dai due vincoli sul reticolo delle celle di allineamento.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.88,
+    every node/.style={transform shape},
+    grid/.style={step=0.6cm, gray!30, very thin},
+    annot/.style={font=\scriptsize\bfseries}
+]
+
+% Riquadro 1: Banda di Sakoe-Chiba
+\begin{scope}[shift={(0, 0)}]
+  \node[annot, color=navy] at (2.4, 5.2) {Banda di Sakoe-Chiba ($|i - j| \le r$)};
+  \draw[grid] (0, 0) grid (4.8, 4.8);
+  \draw[thick] (0, 0) rectangle (4.8, 4.8);
+  
+  % Banda colorata
+  \fill[darkgreen!20, opacity=0.7] 
+    (0, 0) -- (1.2, 0) -- (4.8, 3.6) -- (4.8, 4.8) -- (3.6, 4.8) -- (0, 1.2) -- cycle;
+    
+  % Diagonale
+  \draw[densely dashed, thick, color=black!60] (0, 0) -- (4.8, 4.8);
+  % Bordi della banda
+  \draw[darkgreen, thick] (1.2, 0) -- (4.8, 3.6);
+  \draw[darkgreen, thick] (0, 1.2) -- (3.6, 4.8);
+  
+  \draw[<->, navy, thick] (0, 0.6) -- (0.6, 0.6) node[midway, above, font=\tiny] {$r$};
+  \node[font=\tiny] at (2.4, -0.4) {Indice Sequenza 1 ($i$)};
+  \node[font=\tiny, rotate=90] at (-0.4, 2.4) {Indice Sequenza 2 ($j$)};
+\end{scope}
+
+% Riquadro 2: Parallelogramma di Itakura
+\begin{scope}[shift={(7.2, 0)}]
+  \node[annot, color=navy] at (2.4, 5.2) {Parallelogramma di Itakura ($1/2 \le \text{slope} \le 2$)};
+  \draw[grid] (0, 0) grid (4.8, 4.8);
+  \draw[thick] (0, 0) rectangle (4.8, 4.8);
+  
+  % Parallelogramma colorato
+  \fill[crimson!20, opacity=0.7] 
+    (0, 0) -- (2.4, 1.2) -- (4.8, 4.8) -- (2.4, 3.6) -- cycle;
+    
+  % Diagonale
+  \draw[densely dashed, thick, color=black!60] (0, 0) -- (4.8, 4.8);
+  % Bordi del parallelogramma
+  \draw[crimson, thick] (0, 0) -- (2.4, 1.2) -- (4.8, 4.8);
+  \draw[crimson, thick] (0, 0) -- (2.4, 3.6) -- (4.8, 4.8);
+  
+  \node[font=\tiny] at (2.4, -0.4) {Indice Sequenza 1 ($i$)};
+  \node[font=\tiny, rotate=90] at (-0.4, 2.4) {Indice Sequenza 2 ($j$)};
+\end{scope}
+
+\end{tikzpicture}
+\caption{Confronto geometrico dei vincoli globali sul reticolo della matrice di costo DTW. A sinistra: Banda di Sakoe-Chiba a larghezza costante $r$. A destra: Parallelogramma di Itakura con limitazione di pendenza che preserva l'inizio e la fine dell'allineamento.}
+\label{fig:ts-lab-dtw-constraints-tikz}
+\end{figure}
+
+\FloatBarrier
+\subsection{Similarit\`a Basata su Feature Strutturali}
+\label{subsec:ts-lab-structure-features}
+
+Quando la lunghezza delle serie \`e particolarmente elevata o il segnale \`e contaminato da rumore ad alta frequenza, il confronto punto-a-punto pu\`o essere rimpiazzato dall'estrazione di un vettore di \textbf{statistiche descrittive globali} (\textit{Feature-based similarity}):
+
+\begin{lstlisting}[language=Python, style=code]
+import scipy.stats as stats
+
+def calculate_features(values):
+    """Estrae 13 descrittori statistici di forma e distribuzione."""
+    features = {
+        'avg': np.mean(values),
+        'std': np.std(values),
+        'var': np.var(values),
+        'med': np.median(values),
+        '10p': np.percentile(values, 10),
+        '25p': np.percentile(values, 25),
+        '50p': np.percentile(values, 50),
+        '75p': np.percentile(values, 75),
+        '90p': np.percentile(values, 90),
+        'iqr': np.percentile(values, 75) - np.percentile(values, 25),
+        'cov': float(np.mean(values)) / (np.std(values) + 1e-9),
+        'skw': float(stats.skew(values)),
+        'kur': float(stats.kurtosis(values))
+    }
+    return features
+
+# Calcolo del vettore di feature ed estrazione della distanza Euclidea
+f1 = calculate_features(ts1)
+f2 = calculate_features(ts2)
+dist_features = euclidean(list(f1.values()), list(f2.values()))
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Dissimilarit\`a Universale Basata su Compressione (CDM)}
+\label{subsec:ts-lab-cdm}
+
+Come teorizzato nel Teorema di Kolmogorov e Keogh (\autoref{subsec:ts-compression-cdm}), la distanza non parametrica CDM quantifica la quantit\`a di informazione condivisa tra due flussi numerici misurando l'efficienza di compressione congiunta mediante l'algoritmo Deflate/Lempel-Ziv di \texttt{zlib}:
+
+\begin{lstlisting}[language=Python, style=code]
+import zlib
+
+def CDM(x_bytes, y_bytes):
+    """Calcola la Compression Dissimilarity Measure tra due stringhe di byte."""
+    c_x = len(zlib.compress(x_bytes))
+    c_y = len(zlib.compress(y_bytes))
+    c_xy = len(zlib.compress(x_bytes + y_bytes))
+    return float(c_xy) / (c_x + c_y)
+
+# Conversione delle serie in sequenze di byte UTF-8
+ts1_enc = (' '.join([f"{v:.4f}" for v in ts1])).encode('utf-8')
+ts2_enc = (' '.join([f"{v:.4f}" for v in ts2])).encode('utf-8')
+
+cdm_score = CDM(ts1_enc, ts2_enc)
+print(f"Valore Dissimilarita CDM: {cdm_score:.4f}")
+\end{lstlisting}
+
+Valori di CDM prossimi a $0.5$ attestano che le due sequenze sono quasi identiche e la loro concatenazione non aggiunge entropia al dizionario di compressione; valori prossimi a $1.0$ indicano sequenze statisticamente indipendenti.
+
+\FloatBarrier
+\section{Rappresentazioni Discrete: PAA, SAX e 1D-SAX}
+\label{sec:ts-lab-approximations}
+
+Il notebook \texttt{8\_TimeSeries1.ipynb} implementa le tecniche di approssimazione e discretizzazione simbolica per l'abbattimento della dimensionalit\`a:
+
+\begin{lstlisting}[language=Python, style=code]
+from tslearn.piecewise import PiecewiseAggregateApproximation, SymbolicAggregateApproximation, OneD_SymbolicAggregateApproximation
+
+# Preprocessing: standardizzazione Z-Score
+scaler = TimeSeriesScalerMeanVariance(mu=0.0, std=1.0)
+ts1_norm = scaler.fit_transform(ts1.values.reshape(1, -1))
+ts2_norm = scaler.fit_transform(ts2.values.reshape(1, -1))
+
+# 1. PAA: riduzione a w = 10 segmenti a media locale costante
+n_segments = 10
+paa = PiecewiseAggregateApproximation(n_segments=n_segments)
+ts1_paa = paa.fit_transform(ts1_norm)
+# Ricostruzione della traiettoria continua interpolata
+ts1_paa_inv = paa.inverse_transform(ts1_paa)
+
+# 2. SAX: discretizzazione simbolica su alfabeto a = 8 simboli
+n_symbols = 8
+sax = SymbolicAggregateApproximation(n_segments=n_segments, alphabet_size_avg=n_symbols)
+ts1_sax = sax.fit_transform(ts1_norm)
+ts1_sax_inv = sax.inverse_transform(ts1_sax)
+
+# 3. 1D-SAX: quantizzazione congiunta di media e pendenza locale (slope)
+one_d_sax = OneD_SymbolicAggregateApproximation(
+    n_segments=n_segments,
+    alphabet_size_avg=8,
+    alphabet_size_slope=4
+)
+ts1_sax1d = one_d_sax.fit_transform(ts1_norm)
+ts1_sax1d_inv = one_d_sax.inverse_transform(ts1_sax1d)
+\end{lstlisting}
+
+L'approccio \textbf{1D-SAX} supera il limite storico di SAX convenzionale: invece di modellare ciascun intervallo PAA come una linea orizzontale piatta priva di pendenza, memorizza una coppia ordinata di simboli per intervallo:
+\begin{equation}
+\langle \sigma_{\text{mean}}, \sigma_{\text{slope}} \rangle \in \Sigma_{\text{avg}} \times \Sigma_{\text{slope}}
+\end{equation}
+preservando la derivata temporale locale ed eliminando le distorsioni gradonate tipiche di SAX classico.
+
+\FloatBarrier
+\section{Clustering di Serie Temporali: Paradigmi a Confronto}
+\label{sec:ts-lab-clustering}
+
+Il notebook \texttt{9\_TimeSeries2.ipynb} affronta l'apprendimento non supervisionato sul benchmark \textbf{Cylinder-Bell-Funnel} (CBF), confrontando i quattro paradigmi di clustering.
+
+\begin{lstlisting}[language=Python, style=code]
+from pyts.datasets import make_cylinder_bell_funnel
+# Generazione di N = 60 serie (20 cilindri, 20 campane, 20 imbuti)
+X, y = make_cylinder_bell_funnel(n_samples=60, random_state=42)
+X = X.reshape(X.shape[0], X.shape[1], 1) # Formato 3D (60, 128, 1)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Shape-Based Clustering: K-Means Euclideo vs K-Means con DTW e DBA}
+\label{subsec:ts-lab-shape-clustering}
+
+L'algoritmo \texttt{TimeSeriesKMeans} di \texttt{tslearn} viene instanziato configurando dapprima la metrica Euclidea e successivamente la metrica DTW con centroide calcolato mediante \textbf{DTW Barycenter Averaging} (DBA):
+
+\begin{lstlisting}[language=Python, style=code]
+from tslearn.clustering import TimeSeriesKMeans
+
+k = 3
+# 1. K-Means con distanza Euclidea e media aritmetica punto-a-punto
+km_euc = TimeSeriesKMeans(n_clusters=k, metric="euclidean", max_iter=10, random_state=0)
+km_euc.fit(X)
+
+# 2. K-Means con distanza DTW e centroide DBA (Barycenter Averaging)
+km_dtw = TimeSeriesKMeans(n_clusters=k, metric="dtw", max_iter=5, random_state=0)
+km_dtw.fit(X)
+
+print(f"Inerzia Euclidea: {km_euc.inertia_:.2f}")
+print(f"Inerzia DTW:      {km_dtw.inertia_:.2f}")
+\end{lstlisting}
+
+\begin{alertblock}{Risultato Empirico Fondamentale del Laboratorio}
+Sotto distanza Euclidea, il centroide punto-a-punto appiattisce le creste e i fronti di salita a causa dei leggeri sfasamenti temporali presenti tra le istanze della medesima classe, producendo prototipi smussati e poco discriminanti. Al contrario, il centroide \textbf{DBA} (calcolato sotto metrica \texttt{"dtw"}) allinea elasticamente le coordinate prima di mediarle, riproducendo con fedelt\`a assoluta la sagoma spigolosa del cilindro (\textit{Cylinder}), il picco asimmetrico della campana (\textit{Bell}) e l'imbuto (\textit{Funnel}).
+\end{alertblock}
+
+\FloatBarrier
+\subsection{Feature-Based, Compression-Based e PAA Clustering}
+\label{subsec:ts-lab-alternative-clusterings}
+
+Le sezioni conclusive del notebook esplorano gli approcci alternativi:
+
+\begin{enumerate}
+    \item \textbf{Feature-Based Clustering}: ciascuna delle 60 serie viene mappata nel vettore a 11 dimensioni delle feature statistiche, dopodich\'e si esegue il partizionamento con \texttt{sklearn.cluster.KMeans}:
+\begin{lstlisting}[language=Python, style=code]
+from sklearn.cluster import KMeans
+F = [list(calculate_features(x.flatten()).values())[:-2] for x in X]
+km_features = KMeans(n_clusters=k, n_init=10, random_state=0).fit(F)
+\end{lstlisting}
+
+    \item \textbf{Compression-Based Clustering con DBSCAN}: si genera la matrice simmetrica completa di dissimilarit\`a $M \in \R^{60 \times 60}$ applicando la metrica CDM su tutte le coppie di serie, aggregando successivamente i dati mediante DBSCAN su distanze precalcolate:
+\begin{lstlisting}[language=Python, style=code]
+from sklearn.metrics import pairwise_distances
+from sklearn.cluster import DBSCAN
+
+def cdm_dist(x, y):
+    x_str = (' '.join([f"{v:.3f}" for v in x.ravel()])).encode('utf-8')
+    y_str = (' '.join([f"{v:.3f}" for v in y.ravel()])).encode('utf-8')
+    return float(len(zlib.compress(x_str + y_str))) / (len(zlib.compress(x_str)) + len(zlib.compress(y_str)))
+
+M_cdm = pairwise_distances(X.reshape(X.shape[0], X.shape[1]), metric=cdm_dist)
+dbscan_cdm = DBSCAN(eps=0.965, min_samples=5, metric='precomputed').fit(M_cdm)
+\end{lstlisting}
+
+    \item \textbf{Approximation-Based Clustering su Sequenze PAA}: ciascuna serie viene compressa preventivamente a 10 coefficienti PAA; il clustering K-Means viene eseguito nello spazio compresso a 10 dimensioni, abbattendo il tempo di convergenza di oltre l'80\%:
+\begin{lstlisting}[language=Python, style=code]
+paa = PiecewiseAggregateApproximation(n_segments=10)
+X_paa = paa.fit_transform(X) # Riduzione da 128 a 10 dimensioni
+km_paa = TimeSeriesKMeans(n_clusters=k, metric="euclidean", max_iter=5, random_state=0).fit(X_paa)
+\end{lstlisting}
+\end{enumerate}
+
+\FloatBarrier
+\section{Motif Discovery ed Anomaly Detection con Matrix Profile}
+\label{sec:ts-lab-motif-matrixprofile}
+
+Nel notebook \texttt{10\_TimeSeries\_motif.ipynb} viene impiegata la libreria Python ad alte prestazioni \texttt{matrixprofile} per eseguire l'estrazione non supervisionata di motivi e anomalie sul dataset \textbf{AirPassengers} ($n = 144$).
+
+\FloatBarrier
+\subsection[Calcolo della Matrix Profile con Algoritmo STOMP]{Calcolo della Matrix Profile\\con Algoritmo STOMP}
+\label{subsec:ts-lab-stomp-computation}
+
+A differenza dell'algoritmo STAMP basato su permutazioni casuali (\autoref{subsec:ts-algo-stamp-complexity}), la libreria implementa \textbf{STOMP} (\textit{Scalable Time series Ordered Matrix Profile}), che sfrutta l'aggiornamento iterativo ordinato delle distanze riducendo la complessit\`a temporale da $\BigO{n^2 \log n}$ a un deterministico $\BigO{n^2}$:
+
+\begin{lstlisting}[language=Python, style=code]
+from matrixprofile import matrixProfile
+
+# Ingestione e isolamento della componente passeggeri
+df = pd.read_csv('air_passengers.csv', parse_dates=True, index_col='Month')
+ts = df['#Passengers'].values
+
+# Esperimento 1: Finestra annuale completa (w = 12 mesi)
+w_annual = 12
+mp_12, mpi_12 = matrixProfile.stomp(ts, w_annual)
+
+# Esperimento 2: Finestra trimestrale (w = 3 mesi)
+w_quarter = 3
+mp_3, mpi_3 = matrixProfile.stomp(ts, w_quarter)
+\end{lstlisting}
+
+\begin{remark}[Confronto Funzionale tra le Finestre $w=12$ e $w=3$]
+\begin{itemize}
+    \item Con finestra annuale $w = 12$, il profilo $P$ evidenzia valli ampie e regolari in corrispondenza del ripetersi dei cicli di vacanza estiva (luglio--agosto);
+    \item Con finestra trimestrale $w = 3$, il profilo cattura micro-variazioni stagionali locali (es. picco pasquale o flessione autunnale), producendo un segnale $P$ a maggiore frequenza di campionamento.
+\end{itemize}
+\end{remark}
+
+\FloatBarrier
+\subsection{Estrazione dei Motifs Principali}
+\label{subsec:ts-lab-extracting-motifs}
+
+La funzione \texttt{motifs.motifs} analizza congiuntamente il vettore delle distanze \texttt{mp} e il vettore degli indici \texttt{mpi}, estraendo le prime $K = 5$ famiglie di motivi non banali sotto rigorosa applicazione della zona di esclusione:
+
+\begin{lstlisting}[language=Python, style=code]
+from matrixprofile.motifs import motifs
+
+# Estrazione dei primi 5 motivi morfologici
+mo, mod = motifs(ts, (mp_12, mpi_12), max_motifs=5)
+
+# Visualizzazione e sovrapposizione cromatica dei motivi sulla serie originale
+plt.figure(figsize=(12, 5))
+plt.plot(ts, color='gray', alpha=0.6, label='Serie AirPassengers')
+colors = ['red', 'green', 'black', 'blue', 'orange'][:len(mo)]
+
+for m_indices, d, c in zip(mo, mod, colors):
+    for idx in m_indices:
+        m_shape = ts[idx : idx + w_annual]
+        plt.plot(range(idx, idx + w_annual), m_shape, color=c, lw=2.5, 
+                 label=f"Motif (dist={d:.2f})" if idx == m_indices[0] else "")
+
+plt.title("Primi Motivi Stagionali Estratti dalla Matrix Profile (w = 12)")
+plt.xlabel("Mese (1949 - 1960)")
+plt.ylabel("Numero Passeggeri (migliaia)")
+plt.legend()
+plt.show()
+\end{lstlisting}
+
+I segmenti estratti corrispondono esattamente ai cicli annuali con identica velocit\`a di incremento primaverile e flessione invernale, dimostrando l'invarianza della Matrix Profile rispetto all'ampiezza scalare del trend di fondo.
+
+\FloatBarrier
+\subsection{Rilevamento di Anomalie (Time Series Discords)}
+\label{subsec:ts-lab-discords-detection}
+
+Le anomalie strutturali corrispondono ai massimi locali e globali del vettore $P$ al di fuori della zona di esclusione temporale:
+
+\begin{lstlisting}[language=Python, style=code]
+from matrixprofile.discords import discords
+
+# Ricerca dei primi k = 5 discords con zona di esclusione w/2 = 6 campioni
+anoms = discords(mp_12, ex_zone=6, k=5)
+
+# Visualizzazione delle anomalie sulla serie storica
+plt.figure(figsize=(12, 5))
+plt.plot(ts, color='gray', alpha=0.6, label='Serie AirPassengers')
+colors = ['crimson', 'darkorange', 'purple', 'magenta', 'brown'][:len(anoms)]
+
+for a_idx, c in zip(anoms, colors):
+    a_shape = ts[a_idx : a_idx + w_annual]
+    plt.plot(range(a_idx, a_idx + w_annual), a_shape, color=c, lw=3, 
+             label=f"Discord a t={a_idx} (P={mp_12[a_idx]:.2f})")
+
+plt.title("Rilevamento di Anomalie Morfologiche (Discords) su AirPassengers")
+plt.xlabel("Mese")
+plt.ylabel("Numero Passeggeri")
+plt.legend()
+plt.show()
+\end{lstlisting}
+
+I primi due discords individuati cadono in corrispondenza dell'estate del 1958 e dell'autunno del 1960: in tali periodi il traffico passeggeri registr\`o fluttuazioni improvvise non conformi alla curva stagionale standard degli anni precedenti, evidenziando picchi eccezionali dovuti all'introduzione dei primi aerei commerciali a reazione (\textit{Jet Age}).
+
+\FloatBarrier
+\section{Quadro Comparativo delle Librerie e Sintesi Operativa}
+\label{sec:ts-lab-summary}
+
+In \autoref{tab:ts-lab-libraries-comparison} si sintetizza il confronto operativo tra le quattro librerie Python impiegate nel laboratorio per l'analisi di serie temporali.
+
+\begin{table}[H]
+\centering
+\caption{Quadro comparativo delle librerie Python per l'elaborazione di serie temporali.}
+\label{tab:ts-lab-libraries-comparison}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l l l l}
+\toprule
+\textbf{Libreria Python} & \textbf{Competenze Cardine e Moduli} & \textbf{Punti di Forza} & \textbf{Limitazioni / Vincoli} \\
+\midrule
+\texttt{tslearn} & Preprocessing, DTW, DBA, PAA, SAX, K-Means & Integrazione Scikit-Learn, clustering robusto con DBA & Prestazioni moderate su dataset massivi $\ge 10^5$ \\
+\addlinespace
+\texttt{pyts} & DTW vincolata (Itakura), dataset sintetici CBF & Implementazione efficiente di vincoli globali DTW & Meno orientata a pipeline di clustering complesse \\
+\addlinespace
+\texttt{matrixprofile} & STAMP, STOMP, MASS, Motifs, Discords & Complessit\`a quadratica esatta $\BigO{n^2}$, esente da soglie & Limitata all'analisi di sottosequenze con finestra fissa $w$ \\
+\addlinespace
+\texttt{scipy} / \texttt{zlib} & Distanze Euclidea/Manhattan, dissimilarit\`a CDM & Massima generalit\`a teorica, non parametrica & Richiede codifica custom su byte; $\BigO{n^2}$ per matrici pairwise \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{remark}[Linee Guida per la Scelta della Tecnica di Mining]
+\begin{enumerate}
+    \item Nel \textbf{clustering di sequenze a lunghezza moderata sfasate temporalmente}: impiegare \texttt{TimeSeriesKMeans(metric="dtw")} con centroide DBA di \texttt{tslearn}.
+    \item Nelle serie estese per la \textbf{ricerca di pattern o guasti}: applicare \texttt{matrixprofile.stomp} ed estrarre motifs e discords con opportuna zona di esclusione ($w/2$).
+    \item Con \textbf{alta dimensionalit\`a e forte rumore}: adottare la discretizzazione 1D-SAX (\texttt{OneD\_SAX}) per comprimere il segnale preservando le pendenze locali.
+\end{enumerate}
+\end{remark}

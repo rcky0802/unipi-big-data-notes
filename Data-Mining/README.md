@@ -48,6 +48,11 @@ latexmk -c
 - **Capitolo 12:** Sequential Pattern Mining: Modelli, Definizioni ed Esercizi (`12`)
 - **Capitolo 13:** Mining di Regole di Associazione (FP-Growth), Simulazioni di Clustering e Pattern Sequenziali (GSP) (`13`)
 - **Capitolo 14:** Serie Temporali: Similarità, Distanze, Trasformazioni e Clustering (`14`)
+- **Capitolo 15:** Serie Temporali: Motif Discovery e Matrix Profile (`15`)
+- **Capitolo 16:** Laboratorio Python: Analisi, Trasformazioni e Mining di Serie Temporali (`16`)
+- **Capitolo 17:** Laboratorio Python: Pattern Mining, Regole di Associazione e Social Network Analysis (`17`)
+- **Capitolo 18:** Laboratorio Python: Clustering per Dati Eterogenei e Multi-View (`18`)
+- **Capitolo 19:** Laboratorio Python: Topic Modeling con BERTopic (`19`)
 
 ```text
 Data-Mining/

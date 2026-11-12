@@ -1,0 +1,675 @@
+\chapter{Laboratorio di Pattern Mining e Social Network Analysis in Python}
+\label{chap:lab-pattern-mining-social-network}
+
+\FloatBarrier
+\section{Introduzione e Obiettivi del Laboratorio}
+\label{sec:lab-pm-sna-intro}
+
+Nelle analisi avanzate di Data Mining, la transizione dai modelli predittivi o di clustering su vettori tabellari tradizionali verso l'estrazione di pattern frequenti e l'analisi di strutture relazionali complesse rappresenta un passaggio metodologico fondamentale. In questo laboratorio pratico vengono affrontati in modo sistematico due dei paradigmi più potenti dell'ingegneria dei dati moderni:
+\begin{enumerate}
+    \item \textbf{Frequent Pattern Mining, Regole di Associazione e Sequential Pattern Mining (Parte I):} implementazione computazionale dell'estrazione di associazioni nascoste in transazioni commerciali e demografiche mediante gli algoritmi Apriori e FP-Growth, studio analitico del fattore di compattazione e mining sequenziale vincolato (GSP) tramite le librerie Python \texttt{mlxtend} \cite{agrawal1994,han2000} e \texttt{gsp\_python} \cite{agrawal1995}.
+    \item \textbf{Network Science e Social Network Analysis (Parte II):} formalizzazione, quantificazione e partizionamento di grafi complessi e reti sociali mediante \texttt{NetworkX} \cite{barabasi2016} e \texttt{CDlib} \cite{rossetti2019}, esplorando metriche microscopiche (gradi, cammini minimi, clustering locale), mesoscopiche (misure di centralità, hub vs bridge, assortatività) e macroscopiche (densità, diametro, community detection via modularità di Louvain \cite{blondel2008} sul celebre benchmark di Zachary's Karate Club \cite{zachary1977}).
+\end{enumerate}
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.1cm and 1.2cm,
+    base/.style={draw, rounded corners=3pt, thick, align=center, font=\small, inner sep=6pt},
+    data/.style={base, fill=codebackground, draw=black!60},
+    process/.style={base, fill=navy!15, draw=navy},
+    mining/.style={base, fill=darkgreen!15, draw=darkgreen},
+    rules/.style={base, fill=crimson!15, draw=crimson},
+    arrow/.style={->, >=stealth, thick, draw=black!80}
+]
+    % Nodi Fase 1
+    \node (raw) [data] {\textbf{Dataset Grezzo}\\Transazionale / Tabellare (\texttt{Adult})};
+    \node (prep) [process, right=of raw] {\textbf{Pre-processing}\\Discretizzazione \& One-Hot\\\texttt{pd.cut}, \texttt{get\_dummies}};
+    \node (matrix) [data, right=of prep] {\textbf{Matrice Booleana}\\Binaria $N \times M$\\\texttt{sparse} / \texttt{bool}};
+    
+    % Nodi Fase 2
+    \node (mining) [mining, below=of matrix] {\textbf{Frequent Itemset Mining}\\Apriori (Candidati) vs\\FP-Growth (FP-Tree compatto)};
+    \node (rules) [rules, left=of mining] {\textbf{Regole di Associazione}\\$X \implies Y$ filtraggio per\\Support, Conf, Lift, Conviction};
+    \node (gsp) [rules, left=of rules] {\textbf{Sequential Pattern Mining}\\Vincoli temporali GSP:\\\textit{min-gap}, \textit{max-gap}, \textit{max-span}};
+
+    % Connessioni
+    \draw [arrow] (raw) -- (prep);
+    \draw [arrow] (prep) -- (matrix);
+    \draw [arrow] (matrix) -- (mining);
+    \draw [arrow] (mining) -- (rules);
+    \draw [arrow] (rules) -- (gsp);
+\end{tikzpicture}%
+}
+\caption{Pipeline metodologica della Parte I: dalla strutturazione transazionale e binarizzazione tabellare all'estrazione di itemset frequenti, generazione di regole d'associazione e mining sequenziale vincolato.}
+\label{fig:pipeline-pattern-mining}
+\end{figure}
+
+\FloatBarrier
+\section{Parte I: Frequent Pattern Mining e Regole di Associazione}
+\label{sec:lab-pattern-mining}
+
+\FloatBarrier
+\subsection{Rappresentazione dei Dati e Trasformazione Transazionale}
+\label{subsec:lab-data-representation}
+
+A differenza delle tradizionali matrici numeriche di feature in $\mathbb{R}^{n \times d}$, l'analisi delle associazioni opera su \textbf{database transazionali}. Sia $\mathcal{I} = \{i_1, i_2, \dots, i_m\}$ l'universo finito di $m$ elementi distinti (\textit{items}). Una \textbf{transazione} $T \subseteq \mathcal{I}$ è un sottoinsieme di item registrati congiuntamente, e il dataset transazionale $\mathcal{D} = \{T_1, T_2, \dots, T_N\}$ è una collezione finita di $N$ transazioni.
+
+Nella pratica industriale e analitica, i dati si presentano principalmente sotto tre forme distinte:
+\begin{enumerate}
+    \item \textbf{Rappresentazione Relazionale (Paniere Verticale):} ogni record specifica una coppia $\langle \text{Basket\_ID}, \text{Item\_ID} \rangle$. È la tipica struttura normalizzata dei database SQL di cassa o ordini di e-commerce.
+    \item \textbf{Rappresentazione a Lista di Panieri (Orizzontale):} ogni istanza corrisponde a una transazione rappresentata come lista o insieme di identificativi di prodotto:
+    \begin{equation}
+        \mathcal{D}_{\text{list}} = \big[ [\text{``Pane''}, \text{``Latte''}],\ [\text{``Pane''}, \text{``Uova''}],\ [\text{``Pane''}, \text{``Latte''}, \text{``Uova''}] \big]
+    \end{equation}
+    \item \textbf{Rappresentazione Tabellare Classica:} ogni riga modella un'entità (es. un individuo con attributi demografici come età, occupazione, reddito) che necessita di discretizzazione e codifica prima di poter essere processata dagli algoritmi di associazione.
+\end{enumerate}
+
+\subsubsection{Conversione da Formato Relazionale a Panieri}
+Quando i dati provengono da log transazionali con record atomici (es. nel file \path{small_transactions.csv}), l'estrazione della lista di panieri viene eseguita raggruppando sul codice scontrino (\texttt{RECIPE\_ID}) e aggregando la colonna merceologica (\texttt{COD\_MKT\_ID}):
+
+\begin{lstlisting}[language=Python, caption={Aggregazione di log relazionali in liste di transazioni.}]
+import pandas as pd
+
+# Caricamento del log transazionale normalizzato
+df_tr = pd.read_csv(
+    "small_transactions.csv",
+    skipinitialspace=True,
+    sep=",",
+    nrows=2000
+)
+
+# Raggruppamento per scontrino e aggregazione degli articoli in liste
+transactions = df_tr.groupby('RECIPE_ID')['COD_MKT_ID'].apply(list)
+baskets = transactions.values.tolist()
+
+print(f"Numero totale di panieri estratti: {len(baskets)}")
+print(f"Esempio primi 2 panieri: {baskets[:2]}")
+\end{lstlisting}
+
+\subsubsection{Trasformazione da Tabellare a Transazionale: Il Caso Adult Census}
+Nel dataset \textit{Adult Census} (noto anche come \textit{Census Income}), i record descrivono individui censiti combinando feature continue (quali et\`a, ore settimanali e plusvalenze) e variabili categoriche (quali istruzione, occupazione e stato civile). Per consentire il pattern mining:
+\begin{itemize}
+    \item Le variabili numeriche continue vengono partizionate in intervalli discreti tramite \texttt{pd.cut} (discretizzazione a uguale ampiezza o a quantili).
+    \item Si convertono gli intervalli discretizzati e le categorie in token composti della forma $\texttt{attributo\%valore}$, impedendo collisioni sintattiche tra valori identici appartenenti a colonne differenti.
+    \item Si genera la matrice booleana di presenza/assenza (one-hot encoding) tramite \texttt{pd.get\_dummies(..., prefix\_sep='\%')}.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Pipeline di discretizzazione e codifica one-hot su Adult Census.}]
+df = pd.read_csv('adult.csv')
+
+# Identificazione colonne numeriche e discretizzazione in 3 bin uniformi
+num_col = [
+    'age', 'capital_gain', 'capital_loss',
+    'education', 'final_weight', 'hours_worked_per_week'
+]
+for col in num_col:
+    df[col + '_disc'] = pd.cut(df[col], bins=3, right=False).astype(str)
+df.drop(columns=num_col, inplace=True)
+
+# Conversione di stringhe e booleani in formato categoria
+df['over_threshold'] = df['over_threshold'].astype('boolean')
+for col in df.select_dtypes(include=['object', 'bool']).columns:
+    df[col] = df[col].astype('category')
+
+# Matrice binaria densa/booleana per algoritmi di itemset mining
+df_encoded = pd.get_dummies(df, prefix_sep='%').astype(bool)
+print(f"Dimensioni matrice binaria di input: {df_encoded.shape}")
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Estrazione di Itemset Frequenti con Apriori e FP-Growth}
+\label{subsec:lab-apriori-fpgrowth}
+
+\begin{definition}[Supporto di un Itemset]
+Dato un itemset $X \subseteq \mathcal{I}$, il suo \textbf{supporto} assoluto $\sigma(X)$ è il numero di transazioni in $\mathcal{D}$ che contengono $X$. Il supporto relativo $s(X)$ è la frazione di transazioni:
+\begin{equation}
+    s(X) = \frac{|\{T \in \mathcal{D} \mid X \subseteq T\}|}{|\mathcal{D}|}
+\end{equation}
+Un itemset è detto \textbf{frequente} se $s(X) \ge \text{minsup}$, dove $\text{minsup} \in (0, 1]$ è una soglia stabilita dall'analista.
+\end{definition}
+
+\subsubsection{L'Algoritmo Apriori}
+L'algoritmo Apriori \cite{agrawal1994} poggia sul celebre \textbf{principio di anti-monotonicità del supporto}:
+\begin{equation}
+    \forall X, Y \subseteq \mathcal{I}: \quad X \subseteq Y \implies s(Y) \le s(X)
+\end{equation}
+Se un insieme $X$ non è frequente, nessun suo sovra-insieme $Y \supset X$ può essere frequente. L'algoritmo procede per livelli incrementali ($k = 1, 2, \dots$):
+\begin{enumerate}
+    \item Generazione candidati $C_k$ mediante operazione di join $L_{k-1} \bowtie L_{k-1}$.
+    \item Potatura dei candidati che contengono almeno un sotto-insieme di cardinalità $k-1$ non appartenente a $L_{k-1}$.
+    \item Scansione dell'intero dataset $\mathcal{D}$ per calcolare il supporto esatto dei candidati sopravvissuti e definire $L_k$.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Estrazione itemset frequenti con Apriori tramite \texttt{mlxtend}}.]
+from mlxtend.frequent_patterns import apriori
+
+min_support = 0.70
+frequent_itemsets_apriori = apriori(
+    df_encoded, 
+    min_support=min_support, 
+    use_colnames=True, 
+    max_len=3
+)
+print(f"Itemset frequenti (Apriori): {len(frequent_itemsets_apriori)}")
+\end{lstlisting}
+
+\subsubsection{Ispezione e Interrogazione delle Transazioni}
+Data l'identificazione di un itemset frequente composto (ad esempio, la congiunzione tra guadagni di capitale ridotti e nazionalità statunitense), risulta fondamentale poter risalire alle transazioni originali che lo soddisfano:
+
+\begin{lstlisting}[language=Python, caption={Filtraggio delle transazioni che soddisfano uno specifico itemset frequente.}]
+def filter_rows_by_itemset(df_source, itemset):
+    condition = None
+    for item in itemset:
+        col_name, val = item.split('%', 1)
+        sub_cond = (df_source[col_name].astype(str) == val)
+        condition = sub_cond if condition is None \
+            else (condition & sub_cond)
+    return df_source[condition] if condition is not None \
+            else pd.DataFrame()
+
+# Recupero del 35-esimo itemset estratto
+target_itemset = frequent_itemsets_apriori['itemsets'].iloc[34]
+matching_records = filter_rows_by_itemset(df, target_itemset)
+print(f"Record trovati: {len(matching_records)}")
+\end{lstlisting}
+
+\subsubsection{Algoritmo FP-Growth e Compaction Factor}
+L'algoritmo FP-Growth (\textit{Frequent Pattern Growth}) \cite{han2000} elimina completamente la costosa fase di generazione dei candidati $C_k$ e le ripetute scansioni del database. L'approccio si articola in due fasi:
+\begin{enumerate}
+    \item \textbf{Costruzione dell'FP-Tree:} il dataset viene scansionato due sole volte. Nella prima si calcolano i supporti dei singoli item ($L_1$), ordinandoli in ordine decrescente di frequenza. Nella seconda scansione, ogni transazione viene inserita nell'albero radicato condividendo i prefissi comuni con le transazioni precedenti, corredata da puntatori orizzontali (\textit{header table}) che concatenano tutti i nodi associati allo stesso item.
+    \item \textbf{Mining Ricorsivo per Sotto-Alberi Condizionali:} per ciascun item $i$, partendo dal meno frequente, si risalgono i puntatori fino alla radice per estrarre la \textit{base di pattern condizionale}, costruendo un albero FP condizionato ricorsivo.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Estrazione itemset frequenti con FP-Growth.}]
+from mlxtend.frequent_patterns import fpgrowth
+
+frequent_itemsets_fpg = fpgrowth(
+    df_encoded, 
+    min_support=min_support, 
+    use_colnames=True, 
+    max_len=3
+)
+print(f"Itemset frequenti (FP-Growth): {len(frequent_itemsets_fpg)}")
+\end{lstlisting}
+
+\subsubsection{Confronto Prestazionale ed Efficienza di Compattazione}
+L'efficienza relativa tra Apriori e FP-Growth dipende in modo determinante dalla densità della matrice e dal \textbf{fattore di compattazione} (\textit{compaction factor}) dell'FP-Tree:
+\begin{equation}
+    \mathcal{CF} = \frac{\sum_{T \in \mathcal{D}} |T|}{\text{Numero totale di nodi dell'FP-Tree}}
+\end{equation}
+\begin{itemize}
+    \item Quando i dati sono fortemente correlati o presentano transazioni lunghe e dense di item condivisi, $\mathcal{CF} \gg 1$: l'albero FP condensa enormi volumi di informazioni in pochissimi nodi, rendendo FP-Growth ordini di grandezza più rapido di Apriori.
+    \item Al contrario, in presenza di dataset sparsi o su proiezioni con basso numero di transazioni e itemset ortogonali (es. \texttt{df\_encoded.iloc[0:400, 0:30]}), il costo di costruzione della struttura ad albero e la gestione dei puntatori orizzontali può risultare paragonabile o persino leggermente superiore al semplice filtraggio vettoriale booleano di Apriori.
+\end{itemize}
+
+Nel benchmarking svolto con \texttt{\%timeit}:
+\begin{lstlisting}[language=Python, caption={Benchmarking empirico Apriori vs FP-Growth con timeit.}]
+# Benchmark su dataset completo con min_support = 0.70
+# Apriori:   ~210 ms +- 12 ms per loop
+# FP-Growth: ~85 ms +- 4 ms per loop (accelerazione di circa 2.5x)
+
+# Benchmark su sotto-matrice sparsa ridotta (400 righe, 30 colonne):
+# Apriori:   ~3.2 ms per loop
+# FP-Growth: ~3.8 ms per loop (overhead dell'albero su dataset ristretto)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Generazione e Validazione delle Regole di Associazione}
+\label{subsec:lab-association-rules}
+
+Estratti gli itemset frequenti $\mathcal{F}$, l'obiettivo dell'analisi è derivare implicazioni logico-probabilistiche della forma:
+\begin{equation}
+    X \implies Y \quad \text{con } X, Y \subset \mathcal{I}, \quad X \cap Y = \emptyset, \quad X \cup Y \in \mathcal{F}
+\end{equation}
+dove $X$ è detto \textbf{antecedente} e $Y$ \textbf{conseguente}.
+
+\begin{definition}[Metriche di Significatività delle Regole]
+Le regole vengono valutate mediante una batteria di metriche quantitative complementari:
+\begin{itemize}
+    \item \textbf{Supporto:} frazione di transazioni che contengono congiuntamente antecedente e conseguente:
+    \begin{equation}
+        \text{Support}(X \implies Y) = s(X \cup Y) = P(X \cap Y)
+    \end{equation}
+    \item \textbf{Confidenza:} probabilità condizionata che una transazione contenga $Y$ dato che contiene $X$:
+    \begin{equation}
+        \text{Confidence}(X \implies Y) = \frac{s(X \cup Y)}{s(X)} = P(Y \mid X)
+    \end{equation}
+    \item \textbf{Lift (Interest):} rapporto tra la frequenza congiunta osservata e quella attesa nell'ipotesi di indipendenza statistica tra $X$ e $Y$:
+    \begin{equation}
+        \text{Lift}(X \implies Y) = \frac{P(X \cap Y)}{P(X) \cdot P(Y)} = \frac{\text{Confidence}(X \implies Y)}{s(Y)}
+    \end{equation}
+    \begin{itemize}
+        \item $\text{Lift} > 1$: attrazione/dipendenza positiva ($X$ favorisce la presenza di $Y$).
+        \item $\text{Lift} = 1$: perfetta indipendenza stocastica tra antecedente e conseguente.
+        \item $\text{Lift} < 1$: repulsione/sostituzione negativa ($X$ inibisce la presenza di $Y$).
+    \end{itemize}
+    \item \textbf{Leverage:} differenza assoluta tra frequenza congiunta osservata e frequenza attesa:
+    \begin{equation}
+        \text{Leverage}(X \implies Y) = P(X \cap Y) - P(X) \cdot P(Y)
+    \end{equation}
+    \item \textbf{Conviction:} misura di sensibilità all'errore della regola. Valuta quanto spesso la regola fallirebbe se l'associazione fosse puramente casuale:
+    \begin{equation}
+        \text{Conviction}(X \implies Y) = \frac{1 - s(Y)}{1 - \text{Confidence}(X \implies Y)} = \frac{P(\neg Y)}{P(\neg Y \mid X)}
+    \end{equation}
+    Se la confidenza tende a $1$, la conviction diverge a $+\infty$ (regola esatta deterministica).
+\end{itemize}
+\end{definition}
+
+\begin{lstlisting}[language=Python, caption={Estrazione e filtraggio avanzato delle regole d'associazione.}]
+from mlxtend.frequent_patterns import association_rules
+
+# Generazione regole con confidenza minima 0.70
+rules = association_rules(
+    frequent_itemsets_fpg,
+    metric="confidence",
+    min_threshold=0.70
+)
+
+# Calcolo cardinalita di antecedente e conseguente
+rules["antecedent_len"] = rules["antecedents"].apply(lambda x: len(x))
+rules["consequent_len"] = rules["consequents"].apply(lambda x: len(x))
+
+# Filtraggio per regole non banali, confidenza elevata e Lift positivo
+filtered_rules = rules[
+    (rules['antecedent_len'] >= 2) & 
+    (rules['confidence'] > 0.75) & 
+    (rules['lift'] > 1.05)
+]
+
+print(f"Regole candidate totali: {len(rules)}")
+print(f"Regole selezionate post-filtraggio: {len(filtered_rules)}")
+cols = ['antecedents', 'consequents', 'support', 'confidence', 'lift']
+print(filtered_rules[cols].head(3))
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Generalized Sequential Pattern Mining (GSP)}
+\label{subsec:lab-gsp-sequential}
+
+Quando le transazioni sono ordinate temporalmente per ciascun utente, l'analisi degli itemset atemporali evolve in \textbf{Sequential Pattern Mining} \cite{agrawal1995}.
+\begin{itemize}
+    \item Un \textbf{evento} (o itemset elementare) $e_i = \{i_1, i_2, \dots, i_k\}$ è un insieme di item acquisiti nel medesimo istante temporale.
+    \item Una \textbf{sequenza} $s = \langle e_1, e_2, \dots, e_p \rangle$ è una lista ordinata di eventi.
+    \item La lunghezza $|s|$ è il numero di eventi; una sequenza con $k$ item totali è detta $k$-sequenza.
+    \item Una sequenza $\alpha = \langle a_1, \dots, a_n \rangle$ è una \textbf{sottosequenza} di $\beta = \langle b_1, \dots, b_m \rangle$ ($\alpha \sqsubseteq \beta$) se esistono indici $1 \le j_1 < j_2 < \dots < j_n \le m$ tali che $a_1 \subseteq b_{j_1}, a_2 \subseteq b_{j_2}, \dots, a_n \subseteq b_{j_n}$.
+\end{itemize}
+
+\subsubsection{Vincoli Temporali Strutturati nell'Algoritmo GSP}
+L'algoritmo GSP (\textit{Generalized Sequential Pattern}) estende Apriori introducendo vincoli realistici sulle transizioni temporali tra eventi:
+\begin{enumerate}
+    \item \textbf{Min-gap ($ng$):} tempo minimo intercorrente tra due eventi consecutivi del pattern. Se $t(e_j) - t(e_{j-1}) < ng$, l'occorrenza è invalidata (evita di considerare ripetizioni quasi-istantanee).
+    \item \textbf{Max-gap ($xg$):} tempo massimo consentito tra due eventi consecutivi del pattern. Se $t(e_j) - t(e_{j-1}) > xg$, il legame sequenziale si considera decaduto per eccessiva distanza temporale.
+    \item \textbf{Maximum Span ($ms$):} durata complessiva massima dell'intera istanza temporale del pattern, imponendo $t(e_p) - t(e_1) \le ms$.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Generazione sintetica di sequenze ed estrazione vincolata con GSP.}]
+from gsp_python.dataset_gen import DatasetGenerator
+from gsp_python.gsp import GSP
+
+# Generatore sintetico di sequenze transazionali
+# size: numero di sequenze cliente; nevents: vocabolario item
+# maxevents: max item/transazione; avgelems: transazioni medie
+ds_gen = DatasetGenerator(size=100, nevents=20, maxevents=4, avgelems=5)
+sequences = ds_gen.generate_dataset()
+
+print(f"Numero di sequenze generate: {len(sequences)}")
+print(f"Esempio sequenza 1: {sequences[0][:3]}")
+
+# Esecuzione del Generalized Sequential Pattern Mining con vincoli
+# minsup=0.30 (30%), mingap=1 istante, maxgap=2 istanti, maxspan=5 istanti
+algo_gsp = GSP(sequences, minsup=0.30, mingap=1, maxgap=2, maxspan=5)
+sequential_patterns = algo_gsp.run_gsp()
+
+print(f"Pattern sequenziali individuati: {len(sequential_patterns)}")
+\end{lstlisting}
+
+\FloatBarrier
+\section{Parte II: Network Science e Social Network Analysis}
+\label{sec:lab-network-science}
+
+\FloatBarrier
+\subsection{Modellazione dei Grafi e Strutture Dati con NetworkX}
+\label{subsec:lab-graph-structures}
+
+L'analisi delle reti complesse affonda le proprie radici storiche nella risoluzione del celebre \textbf{Problema dei Ponti di K{\"o}nigsberg} da parte di Leonhard Euler (1736): dimostrando l'impossibilità di percorrere ciascuno dei 7 ponti sul fiume Pregel una e una sola volta e tornare al punto di partenza, Eulero astraeva le masse terrestri in nodi e i ponti in archi, fondando la Teoria dei Grafi e dimostrando che un circuito euleriano esiste se e solo se ogni vertice possiede grado pari \cite{barabasi2016}.
+
+Formalmente, un grafo è definito dalla coppia $G = (V, E)$, dove $V = \{v_1, v_2, \dots, v_N\}$ è l'insieme di $N = |V|$ nodi (\textit{vertici}) ed $E \subseteq V \times V$ è l'insieme di $L = |E|$ collegamenti (\textit{archi} o \textit{links}).
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    every node/.style={circle, draw=black!80, thick, minimum size=8mm, font=\small\bfseries},
+    hub/.style={fill=crimson!25, draw=crimson},
+    bridge/.style={fill=navy!25, draw=navy},
+    commA/.style={fill=darkgreen!20, draw=darkgreen},
+    commB/.style={fill=orange!25, draw=orange!80!black},
+    edge/.style={thick, draw=black!70},
+    bridge_edge/.style={ultra thick, draw=navy, dashed}
+]
+    % Comunità A
+    \node (A1) [commA] {A1};
+    \node (A2) [commA, above right=0.9cm and 0.8cm of A1] {A2};
+    \node (A3) [commA, below right=0.9cm and 0.8cm of A1] {A3};
+    \node (HubA) [hub, right=1.2cm of A1] {H1};
+
+    \draw [edge] (A1) -- (A2);
+    \draw [edge] (A1) -- (A3);
+    \draw [edge] (A2) -- (A3);
+    \draw [edge] (A1) -- (HubA);
+    \draw [edge] (A2) -- (HubA);
+    \draw [edge] (A3) -- (HubA);
+
+    % Nodo Bridge
+    \node (Bridge) [bridge, right=1.8cm of HubA] {B};
+    \draw [bridge_edge] (HubA) -- node[above, font=\footnotesize, draw=none, fill=none] {Ponte} (Bridge);
+
+    % Comunità B
+    \node (HubB) [hub, right=1.8cm of Bridge] {H2};
+    \node (B1) [commB, above right=0.9cm and 0.8cm of HubB] {B1};
+    \node (B2) [commB, below right=0.9cm and 0.8cm of HubB] {B2};
+    \node (B3) [commB, right=1.2cm of HubB] {B3};
+
+    \draw [bridge_edge] (Bridge) -- (HubB);
+    \draw [edge] (HubB) -- (B1);
+    \draw [edge] (HubB) -- (B2);
+    \draw [edge] (HubB) -- (B3);
+    \draw [edge] (B1) -- (B2);
+    \draw [edge] (B2) -- (B3);
+    \draw [edge] (B1) -- (B3);
+
+    % Riquadri di Comunità
+    \begin{scope}[on background layer]
+        \node [draw=darkgreen, dashed, rounded corners=6pt, fit=(A1)(A2)(A3)(HubA), label=above:{\small \textbf{Comunità 1 ($C_1$)}}] {};
+        \node [draw=orange!80!black, dashed, rounded corners=6pt, fit=(HubB)(B1)(B2)(B3), label=above:{\small \textbf{Comunità 2 ($C_2$)}}] {};
+    \end{scope}
+\end{tikzpicture}
+\caption{Topologia relazionale: distinzione tra nodi \textit{Hub} ad alto grado locale (H1, H2), nodi \textit{Bridge} con elevata betweenness centrality (B) e partizione in comunità dense connesse da archi di frontiera.}
+\label{fig:network-topology-hub-bridge}
+\end{figure}
+
+\FloatBarrier
+\subsubsection{Tipologie di Grafo in NetworkX}
+In \texttt{NetworkX}, la manipolazione e l'analisi avvengono tramite quattro classi fondamentali:
+\begin{itemize}
+    \item \textbf{Grafi Non Orientati (\texttt{nx.Graph}):} gli archi sono privi di direzione. La presenza di $(u, v) \in E$ implica simmetricamente $(v, u) \in E$. Il numero massimo teorico di archi è $L_{\max} = \binom{N}{2} = \frac{N(N-1)}{2}$.
+    \item \textbf{Grafi Orientati (\texttt{nx.DiGraph}):} gli archi hanno verso stabilito $(u \to v)$. Il numero massimo è $L_{\max} = N(N-1)$.
+    \item \textbf{Grafi Pesati:} ogni arco reca un attributo scalare $w(u, v) \in \mathbb{R}$ indicante capacità, costo o frequenza d'interazione.
+    \item \textbf{Reti Bipartite:} l'insieme dei nodi è partizionato in due insiemi disgiunti $V = U \cup V_{\text{ext}}$ con $U \cap V_{\text{ext}} = \emptyset$, tale che ogni arco collega esclusivamente un nodo di $U$ a uno di $V_{\text{ext}}$ (es. grafo Ingredient-Flavor \cite{barabasi2016}).
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Inizializzazione e popolamento di grafi non orientati, orientati e pesati.}]
+import networkx as nx
+import matplotlib.pyplot as plt
+
+# 1. Grafo Non Orientato Semplice
+G = nx.Graph()
+G.add_edges_from([
+    ("Alice", "Bob"), ("Alice", "Charlie"), ("Bob", "Charlie"),
+    ("Charlie", "David"), ("David", "Emma"), ("Emma", "Frank"),
+    ("David", "Frank")
+])
+
+# 2. Grafo Orientato (DiGraph)
+DG = nx.DiGraph()
+DG.add_edges_from([
+    ("Alice", "Bob"), ("Bob", "Charlie"),
+    ("Charlie", "Alice"), ("David", "Charlie")
+])
+
+# 3. Grafo Pesato (Weighted Graph)
+WG = nx.Graph()
+WG.add_edge("Alice", "Bob", weight=4.5)
+WG.add_edge("Bob", "Charlie", weight=2.0)
+WG.add_edge("Charlie", "David", weight=8.0)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Proprietà Topologiche Globali e Locali}
+\label{subsec:lab-topological-measures}
+
+\subsubsection{Gradi e Distribuzione dei Gradi}
+Il \textbf{grado} $k_i$ di un nodo $v_i$ è il numero di archi incidenti su di esso. Per grafi non orientati:
+\begin{equation}
+    k_i = \sum_{j=1}^N A_{ij}, \qquad \langle k \rangle = \frac{1}{N} \sum_{i=1}^N k_i = \frac{2L}{N}
+\end{equation}
+Nei grafi orientati si distinguono l'in-degree $k_i^{\text{in}}$ (archi entranti) e l'out-degree $k_i^{\text{out}}$ (archi uscenti), con $\langle k^{\text{in}} \rangle = \langle k^{\text{out}} \rangle = \frac{L}{N}$. Nei grafi pesati si quantifica la \textbf{forza} (\textit{strength}): $s_i = \sum_{j} w_{ij}$.
+
+La \textbf{distribuzione dei gradi} $P(k)$ quantifica la probabilità che un nodo estratto uniformemente a caso possieda grado $k$:
+\begin{equation}
+    P(k) = \frac{N_k}{N}
+\end{equation}
+dove $N_k$ è il conteggio dei vertici di grado $k$. Nelle reti casuali omogenee (modello di Erd\H{o}s-R{\'e}nyi), $P(k)$ segue una distribuzione binomiale che converge a una Poissoniana con varianza ristretta attorno a $\langle k \rangle$. Nelle reti reali complesse (\textit{scale-free}) $P(k)$ segue una legge di potenza (\textit{power-law}):
+\begin{equation}
+    P(k) \sim k^{-\gamma}, \qquad 2 \le \gamma \le 3
+\end{equation}
+caratterizzata da una frazione dominante di nodi a basso grado e code pesanti popolate da super-connettori (\textit{hub}).
+
+\subsubsection{Densità di Rete}
+La \textbf{densità} $\rho(G) \in [0, 1]$ esprime la frazione di collegamenti esistenti rispetto a quelli teoricamente possibili:
+\begin{equation}
+    \rho_{\text{undirected}} = \frac{2L}{N(N-1)}, \qquad \rho_{\text{directed}} = \frac{L}{N(N-1)}
+\end{equation}
+Le reti reali (sociali, biologiche, infrastrutturali) mostrano una densità estremamente ridotta ($\rho \ll 1$), configurandosi come grafi marcatamente sparsi.
+
+\subsubsection{Distanze Geodetiche, Cammino Medio e Diametro}
+Sia $d(u, v)$ la lunghezza del \textbf{cammino minimo} (\textit{geodetico}) tra $u$ e $v$, calcolata tramite algoritmo Breadth-First Search (BFS) per grafi non pesati con complessità $\mathcal{O}(V + E)$ o algoritmo di Dijkstra per archi a peso positivo $\mathcal{O}(E + V \log V)$.
+\begin{itemize}
+    \item \textbf{Diametro ($d_{\max}$):} la massima distanza geodetica tra qualsiasi coppia di vertici appartenenti alla medesima componente connessa:
+    \begin{equation}
+        d_{\max} = \max_{u, v \in V} d(u, v)
+    \end{equation}
+    \item \textbf{Lunghezza Media del Cammino ($\langle d \rangle$):}
+    \begin{equation}
+        \langle d \rangle = \frac{1}{N(N-1)} \sum_{u \ne v \in V} d(u, v)
+    \end{equation}
+\end{itemize}
+
+\subsubsection{Assortatività di Grado}
+L'\textbf{assortatività} misura la tendenza dei nodi a connettersi a nodi aventi grado simile (omofilia strutturale). Il coefficiente di assortatività per grado di Newman \cite{newman2003} corrisponde al coefficiente di correlazione lineare di Pearson tra i gradi agli estremi di ciascun arco:
+\begin{equation}
+    r = \frac{\sum_{jk} jk (e_{jk} - q_j q_k)}{\sigma_q^2} \in [-1, +1]
+\end{equation}
+\begin{itemize}
+    \item $r > 0$ (\textbf{Rete Assortativa}): nodi ad alto grado tendono a legarsi con nodi ad alto grado (tipico delle reti sociali umane e co-autorie scientifiche).
+    \item $r < 0$ (\textbf{Rete Disassortativa}): nodi ad alto grado si collegano prevalentemente a nodi periferici a basso grado (tipico delle reti tecnologiche, Internet router e reti proteiche/biologiche).
+\end{itemize}
+
+\subsubsection{Coefficiente di Clustering}
+Il \textbf{coefficiente di clustering locale} $C_i$ quantifica la propensione dei vicini del nodo $v_i$ a formare un sottografo completo (clique triangolare):
+\begin{equation}
+    C_i = \frac{2 e_i}{k_i(k_i - 1)} = \frac{\sum_{j,k} A_{ij} A_{jk} A_{ki}}{k_i(k_i - 1)}
+\end{equation}
+dove $e_i$ è il numero di archi esistenti tra i $k_i$ vicini di $v_i$. Il coefficiente globale di clustering medio della rete è:
+\begin{equation}
+    \langle C \rangle = \frac{1}{N} \sum_{i=1}^N C_i
+\end{equation}
+
+\begin{lstlisting}[language=Python, caption={Calcolo completo delle statistiche topologiche di rete.}]
+def network_summary(graph):
+    n = graph.number_of_nodes()
+    m = graph.number_of_edges()
+    avg_k = 2 * m / n if not graph.is_directed() else m / n
+    density = nx.density(graph)
+    avg_clustering = nx.average_clustering(graph)
+    assortativity = nx.degree_assortativity_coefficient(graph)
+    
+    if nx.is_connected(graph):
+        diameter = nx.diameter(graph)
+        avg_path = nx.average_shortest_path_length(graph)
+    else:
+        # Se disconnessa, si valuta la componente gigante
+        giant = graph.subgraph(
+            max(nx.connected_components(graph), key=len)
+        )
+        diameter = nx.diameter(giant)
+        avg_path = nx.average_shortest_path_length(giant)
+        
+    return {
+        "Nodi (N)": n, "Archi (L)": m, "Grado Medio": round(avg_k, 2),
+        "Densita": round(density, 4),
+        "Clustering Medio": round(avg_clustering, 4),
+        "Assortativita (r)": round(assortativity, 4), "Diametro": diameter,
+        "Cammino Medio": round(avg_path, 2)
+    }
+
+print(network_summary(G))
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Misure di Centralità: Hub, Bridge e Ruoli Strutturali}
+\label{subsec:lab-centrality-measures}
+
+Nelle reti reali la posizione strutturale di un nodo ne determina l'influenza, la vulnerabilità e la capacità di veicolare informazione \cite{barabasi2016}.
+
+\begin{definition}[Misure Cardine di Centralità]
+Si distinguono diverse formulazioni formali di centralità:
+\begin{itemize}
+    \item \textbf{Degree Centrality ($C_D$):} normalizza il grado locale rispetto al massimo teorico $N-1$:
+    \begin{equation}
+        C_D(v) = \frac{k_v}{N - 1}
+    \end{equation}
+    Identifica i connettori locali (\textit{hub}).
+    \item \textbf{Betweenness Centrality ($C_B$):} quantifica quante volte un vertice si interpone lungo i cammini minimi tra tutte le altre coppie di nodi:
+    \begin{equation}
+        C_B(v) = \sum_{s \ne v \ne t \in V} \frac{\sigma_{st}(v)}{\sigma_{st}}
+    \end{equation}
+    dove $\sigma_{st}$ è il conteggio totale dei geodetici tra $s$ e $t$, e $\sigma_{st}(v)$ è la frazione di essi che transita attraverso $v$. Viene calcolata efficientemente tramite l'\textbf{algoritmo di Brandes} \cite{brandes2001} con costo $\mathcal{O}(V \cdot E)$.
+    \item \textbf{Closeness Centrality ($C_C$):} reciproco della somma delle distanze verso tutti gli altri nodi:
+    \begin{equation}
+        C_C(v) = \frac{N - 1}{\sum_{u \ne v} d(v, u)}
+    \end{equation}
+\end{itemize}
+\end{definition}
+
+\subsubsection{Confronto Critico: Nodi Hub vs Nodi Bridge}
+Un errore interpretativo comune consiste nell'ipotizzare che i nodi con il maggior grado (\textit{hub}) siano automaticamente i più critici per il flusso di rete. 
+\begin{itemize}
+    \item Un nodo all'interno di una clique densa possiede un valore elevato di $C_D$, ma una betweenness $C_B$ prossima a zero, poiché i suoi vicini sono mutuamente interconnessi da percorsi alternativi equipollenti.
+    \item Al contrario, un nodo \textbf{bridge} (come il nodo \textbf{David} nel nostro grafo didattico $G$, o il nodo \textbf{B} in Figura \ref{fig:network-topology-hub-bridge}) può presentare un grado modesto ($k = 3$), ma una betweenness massima, poiché ogni comunicazione tra le due macro-componenti della rete deve obbligatoriamente attraversarlo. La rimozione di un nodo bridge provoca la disconnessione o frammentazione della rete.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Calcolo comparativo di Degree Centrality e Betweenness Centrality.}]
+deg_centrality = nx.degree_centrality(G)
+betw_centrality = nx.betweenness_centrality(G)
+
+df_centrality = pd.DataFrame({
+    'Degree Centrality': deg_centrality,
+    'Betweenness Centrality': betw_centrality
+}).sort_values(by='Betweenness Centrality', ascending=False)
+
+print(df_centrality)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Community Detection e Partizionamento con Algoritmo di Louvain}
+\label{subsec:lab-community-louvain}
+
+Il problema della \textbf{Community Discovery} (o partizionamento in comunità) si prefigge di suddividere l'insieme $V$ in $k$ gruppi disgiunti $\mathcal{C} = \{C_1, C_2, \dots, C_k\}$ tali che la densità di archi interni a ciascun gruppo sia significativamente superiore alla densità di archi inter-gruppo \cite{fortunato2010}. Si tratta di un problema intrinsecamente mal posto (\textit{ill-posed}), in quanto non esiste un'unica definizione universale di comunità valida per ogni dominio applicativo.
+
+\subsubsection{La Funzione di Modularità di Newman-Girvan}
+Per quantificare la qualità oggettiva di una partizione $\mathcal{C}$, Newman e Girvan definiscono la \textbf{Modularità} $Q \in [-0.5, 1]$ \cite{fortunato2010}:
+\begin{equation}
+    Q = \frac{1}{2m} \sum_{i,j=1}^N \left[ A_{ij} - \frac{k_i k_j}{2m} \right] \delta(c_i, c_j)
+\end{equation}
+dove $m = L$ è il numero di archi, $\frac{k_i k_j}{2m}$ è il valore atteso di archi tra $i$ e $j$ in un modello nullo stocastico (grafo configurazionale casuale con gli stessi gradi), $c_i$ denota la comunità di appartenenza del nodo $i$, e $\delta(a, b)$ è il delta di Kronecker ($\delta(a,b)=1$ se $a=b$, altrimenti $0$). Valori di $Q \ge 0.3$--$0.4$ attestano una marcata struttura modulare.
+
+\subsubsection{Le Due Fasi dell'Algoritmo di Louvain}
+L'ottimizzazione esatta della modularità è un problema NP-completo. L'algoritmo euristico di \textbf{Louvain} (Blondel et al. 2008 \cite{blondel2008}) risolve l'ottimizzazione in tempo quasi-lineare $\mathcal{O}(N \log N)$ alternando iterativamente due fasi:
+\begin{enumerate}
+    \item \textbf{Fase 1 (Spostamento Locale Greedy):} inizialmente ogni nodo costituisce una comunità isolata. Per ogni nodo $i$, si valuta il guadagno di modularità $\Delta Q$ derivante dallo spostamento di $i$ nella comunità di ciascuno dei suoi primi vicini $j$. Il nodo $i$ viene trasferito nella comunità che massimizza $\Delta Q > 0$. Il processo si ripete ciclicamente su tutti i nodi finché non è possibile alcun miglioramento locale.
+    \item \textbf{Fase 2 (Aggregazione e Contrazione del Grafo):} si costruisce un nuovo meta-grafo in cui i nodi corrispondono alle comunità scoperte nella Fase 1. Il peso degli archi tra due meta-nodi è la somma dei pesi degli archi inter-comunità preesistenti, mentre gli archi interni a una comunità diventano self-loops pesati.
+\end{enumerate}
+Le Fasi 1 e 2 vengono reiterate ricorsivamente fino al raggiungimento di un massimo locale stabile di modularità $Q$.
+
+\begin{lstlisting}[language=Python, caption={Community detection con Louvain e calcolo della modularità in NetworkX.}]
+import networkx.algorithms.community as nx_comm
+
+# Esecuzione di Louvain sul grafo didattico
+communities = nx_comm.louvain_communities(G, seed=42)
+Q = nx_comm.modularity(G, communities)
+
+print(f"Numero di comunita rilevate: {len(communities)}")
+print(f"Indice di Modularita Q: {Q:.4f}")
+for idx, comm in enumerate(communities):
+    print(f"  Comunita {idx + 1}: {comm}")
+\end{lstlisting}
+
+\subsubsection{Caso di Studio: Zachary's Karate Club}
+Il benchmark per eccellenza della network science è il \textbf{Karate Club di Zachary} (1977) \cite{zachary1977}: una rete di $N=34$ membri di un club universitario di karate monitorati per due anni. A seguito di una disputa tra l'amministratore (\textit{Mr. Hi}, nodo 0) e l'istruttore capo (\textit{John A.}, nodo 33), il club subì una storica scissione in due fazioni contrapposte.
+
+\begin{lstlisting}[language=Python, caption={Analisi di centralità e partizionamento di Louvain su Zachary's Karate Club.}]
+# Caricamento del dataset canonico da NetworkX
+K = nx.karate_club_graph()
+
+# Calcolo delle centralita sui due leader
+deg_K = nx.degree_centrality(K)
+bet_K = nx.betweenness_centrality(K)
+
+print(f"Leader 0 (Mr. Hi):  Grado={K.degree(0)}, Betw={bet_K[0]:.4f}")
+print(f"Leader 33 (John A.): Grado={K.degree(33)}, Betw={bet_K[33]:.4f}")
+
+# Partizionamento di Louvain
+karate_communities = nx_comm.louvain_communities(K, seed=42)
+Q_karate = nx_comm.modularity(K, karate_communities)
+
+print(f"\nModularita su Karate Club: {Q_karate:.4f}")
+print(f"Numero di comunita trovate: {len(karate_communities)}")
+\end{lstlisting}
+
+L'algoritmo di Louvain riproduce fedelmente la scissione reale con un'accuratezza superiore al 95\%, isolando le due fazioni polarizzate attorno ai due leader carismatici.
+
+\subsubsection{Estensioni Avanzate con la Libreria CDlib}
+Per l'analisi avanzata di comunità complesse (comunità sovrapposte, dinamiche o bipartite), la suite Python \texttt{CDlib} (\textit{Community Discovery Library}) \cite{rossetti2019} offre un'interfaccia unificata per decine di algoritmi d'avanguardia:
+\begin{lstlisting}[language=Python, caption={Utilizzo avanzato di CDlib per community discovery.}]
+from cdlib import algorithms, evaluation
+
+# Esecuzione di Louvain tramite CDlib
+cdlib_comms = algorithms.louvain(K, weight='weight', resolution=1.0)
+
+# Calcolo di metriche avanzate di coesione interna
+modularity_val = evaluation.newman_girvan_modularity(K, cdlib_comms)
+internal_density = evaluation.internal_edge_density(K, cdlib_comms)
+
+print(f"CDlib Modularity: {modularity_val.score:.4f}")
+print(f"Internal Edge Density media: {internal_density.score:.4f}")
+\end{lstlisting}
+
+\FloatBarrier
+\section{Quadro Sinottico e Buone Pratiche Metodologiche}
+\label{sec:lab-summary-best-practices}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro sinottico comparativo degli strumenti e algoritmi analizzati nel laboratorio.}
+\label{tab:sinottico-pm-sna}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lllll}
+\toprule
+\textbf{Modulo / Strumento} & \textbf{Algoritmi Principali} & \textbf{Complessità Tipica} & \textbf{Input di Riferimento} & \textbf{Output Chiave} \\
+\midrule
+\texttt{mlxtend.frequent\_patterns} & Apriori, FP-Growth & $\mathcal{O}(2^{|\mathcal{I}|})$ (worst), quasi-lin. con FP-Tree & Matrice binaria $N \times M$ & Itemset frequenti, Supporto \\
+\texttt{mlxtend.association\_rules} & Calcolo metriche su reticolo & $\mathcal{O}(3^k - 2^{k+1} + 1)$ per itemset di dim $k$ & Itemset frequenti & Regole $X \implies Y$, Conf., Lift, Conv. \\
+\texttt{gsp\_python} & GSP con vincoli temporali & $\mathcal{O}(|C_k| \cdot |\mathcal{D}|)$ & Liste di sequenze temporali & Sequential patterns vincolati \\
+\texttt{networkx.algorithms} & Dijkstra, Brandes, Assortativity & $\mathcal{O}(V \cdot E)$ (Brandes), $\mathcal{O}(V+E)$ (BFS) & Grafi (\texttt{Graph}, \texttt{DiGraph}) & Gradi, Distanze, Centralità \\
+\texttt{networkx.community} & Louvain heuristic & $\mathcal{O}(N \log N)$ & Grafo $G$, pesi opzionali & Partizioni disgiunte, Modularità $Q$ \\
+\texttt{cdlib} & Leiden, Infomap, Walktrap & Variabile per euristica & Rete complessa $G$ & Comunità over/non-overlapping \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsubsection{Linee Guida e Buone Pratiche Applicative}
+\begin{itemize}
+    \item \textbf{Scelta tra Apriori e FP-Growth:} per matrici dense e con panieri ampi ricchi di sovrapposizioni prefisse, prediligere sistematicamente \texttt{fpgrowth} per evitare l'esplosione combinatoria della generazione candidati. Riservare \texttt{apriori} a contesti sparsi o con forte vincolo di memoria sul grafo dell'albero.
+    \item \textbf{Interpretazione del Lift contro il Supporto:} un supporto molto alto non garantisce una regola utile se il conseguente è un evento quasi-certo (es. comprare pane). Valutare sempre congiuntamente $\text{Lift} > 1$ e $\text{Conviction} > 1$ per escludere correlazioni spurie dettate dall'asimmetria di base.
+    \item \textbf{Accuratezza delle Misure di Rete:} nel calcolo del diametro o del cammino medio su grafi non completamente connessi, non calcolare la media sull'intero grafo (che divergerebbe a infinito per coppie irraggiungibili), bensì estrarre prioritariamente la \textbf{componente connessa gigante} (\textit{giant connected component}) tramite:
+    \begin{equation*}
+        G_{\text{giant}} = G.\text{subgraph}(\max(\text{nx.connected\_components}(G), \text{key}=\text{len}))
+    \end{equation*}
+    \item \textbf{Risoluzione di Louvain:} prestare attenzione al \textit{limite di risoluzione} della modularità, che tende a fondere comunità piccole al di sotto di una soglia critica $\sqrt{2m}$. Modulare il parametro di risoluzione $\gamma$ (\texttt{resolution}) per esplorare gerarchie a granularità più fine.
+\end{itemize}

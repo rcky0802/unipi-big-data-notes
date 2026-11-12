@@ -1,0 +1,471 @@
+\chapter{Laboratorio di Topic Modeling con BERTopic}
+\label{chap:lab-topic-modeling-bertopic}
+
+\FloatBarrier
+\section{Introduzione e Obiettivi del Laboratorio}
+\label{sec:lab-bertopic-intro}
+
+Nelle scienze dell'informazione e nel Text Mining, il \textbf{Topic Modeling} si prefigge di estrarre in modo non supervisionato i temi semantici latenti che ricorrono all'interno di una collezione non strutturata di documenti testuali. Storicamente dominata da modelli probabilistici generativi a sacco di parole (\textit{Bag-of-Words}), quali la \textit{Latent Dirichlet Allocation} (LDA) di Blei et al. (2003) \cite{blei2003}, la disciplina è stata rivoluzionata dall'avvento dei modelli linguistici pre-addestrati basati su architettura Transformer e dalle tecniche di clustering ad alta densità.
+
+Il modello \textbf{BERTopic}, introdotto da Maarten Grootendorst (2022) \cite{grootendorst2022}, formalizza una pipeline modulare che combina:
+\begin{enumerate}
+    \item L'estrazione di \textbf{embedding densi contestuali} a livello di frase e documento tramite reti siamesi \textit{Sentence-BERT} (SBERT) \cite{reimers2019}.
+    \item La \textbf{riduzione non-lineare della dimensionalità} preservando le varietà topologiche locali mediante \textit{Uniform Manifold Approximation and Projection} (UMAP) \cite{mcinnes2018}.
+    \item Il \textbf{clustering densitometrico gerarchico} a densità variabile con rilevamento esplicito del rumore tramite \textit{HDBSCAN} \cite{campello2015}.
+    \item La modellazione semantica dei topic mediante una procedura generalizzata di estrazione lessicale basata su \textbf{Class-based TF-IDF} (c-TF-IDF) \cite{grootendorst2022}, eventualmente affinata con meccanismi a similarità di embedding (\textit{KeyBERTInspired}).
+\end{enumerate}
+
+Questo laboratorio illustra sia l'implementazione manuale a basso livello di ciascun singolo modulo algebrico e geometrico della pipeline, sia l'impiego della suite ad alto livello \texttt{BERTopic} su un corpus testuale eterogeneo di discussioni (\textit{20 Newsgroups}).
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.1cm and 0.8cm,
+    base/.style={draw, rounded corners=3pt, thick, align=center, font=\footnotesize, inner sep=5pt},
+    data/.style={base, fill=codebackground, draw=black!70},
+    embed/.style={base, fill=navy!15, draw=navy},
+    umap/.style={base, fill=darkgreen!15, draw=darkgreen},
+    hdbscan/.style={base, fill=orange!20, draw=orange!80!black},
+    tfidf/.style={base, fill=crimson!15, draw=crimson},
+    arrow/.style={->, >=stealth, thick, draw=black!80}
+]
+    % Fasi della Pipeline
+    \node (docs) [data] {\textbf{Corpus Testuale}\\$N$ Documenti non strutturati};
+    \node (sbert) [embed, right=of docs] {\textbf{1. Embedding}\\Sentence-BERT\\\texttt{all-MiniLM-L6-v2}\\$X \in \mathbb{R}^{N \times 384}$};
+    \node (umap) [umap, right=of sbert] {\textbf{2. Riduzione}\\UMAP (Manifold)\\Metrica Coseno\\$Z \in \mathbb{R}^{N \times 5}$};
+    \node (hdb) [hdbscan, below=of umap] {\textbf{3. Clustering}\\HDBSCAN (Densità)\\Stabilità / Excess of Mass\\Cluster $C_1, \dots, C_K$ e Noise $-1$};
+    \node (mega) [data, left=of hdb] {\textbf{Mega-Documenti}\\Aggregazione per cluster\\$\mathcal{D}_c = \bigcup_{d \in C_c} d$};
+    \node (ctfidf) [tfidf, left=of mega] {\textbf{4. c-TF-IDF}\\Class-based TF-IDF\\Estrazione parole chiave\\Raffinamento \textit{KeyBERT}};
+
+    % Frecce di connessione
+    \draw [arrow] (docs) -- (sbert);
+    \draw [arrow] (sbert) -- (umap);
+    \draw [arrow] (umap) -- (hdb);
+    \draw [arrow] (hdb) -- (mega);
+    \draw [arrow] (mega) -- (ctfidf);
+\end{tikzpicture}%
+}
+\caption{Architettura sequenziale della pipeline di BERTopic: dalla conversione in embedding densi alla proiezione UMAP, clustering con HDBSCAN e pesatura lessicale c-TF-IDF.}
+\label{fig:bertopic-pipeline}
+\end{figure}
+
+\FloatBarrier
+\section{Dal Bag-of-Words ai Sentence Transformers}
+\label{sec:lab-text-embeddings}
+
+\FloatBarrier
+\subsection{Limiti delle Rappresentazioni Tradizionali basate sul Conteggio}
+\label{subsec:lab-bow-limits}
+
+Nei modelli linguistici di prima generazione basati su frequenza lessicale (\textit{Bag-of-Words}, matrici Document-Term o TF-IDF classico):
+\begin{itemize}
+    \item Ogni vocabolo distinto costituisce una dimensione ortogonale indipendente. Lo spazio risultante è caratterizzato da altissima dimensionalità e sparsità estrema ($> 99.9\%$).
+    \item Si manifesta una totale cecità semantica: frasi con identico significato concettuale ma composte da sinonimi (ad esempio, \textit{``Il gatto riposa sul divano''} e \textit{``Un felino dorme sulla poltrona''}) possiedono vettori ortogonali aventi similarità del coseno nulla.
+    \item Viene ignorato l'ordine sintattico dei token e il contesto linguistico locale.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Sentence-BERT e lo Spazio Latente Continuo}
+\label{subsec:lab-sbert}
+
+Per consentire l'applicazione di algoritmi di clustering continuo, è indispensabile mappare ciascun documento $d_i$ in un singolo vettore denso $\mathbf{x}_i \in \mathbb{R}^d$ ($d \ll |\mathcal{V}|$) posizionato in modo che la vicinanza metrica rispecchi la vicinanza semantica. 
+
+Mentre il modello BERT standard opera a livello di token ed è computationally proibitivo per il confronto di similarità su scala a coppie $\mathcal{O}(N^2)$ (richiedendo il passaggio congiunto di ogni coppia di frasi attraverso tutti i livelli di attenzione), \textbf{Sentence-BERT} \cite{reimers2019} adotta un'architettura a rete siamese pre-addestrata. Tale rete impiega un meccanismo di pooling medio (\textit{mean pooling}) sull'ultimo stato nascosto dei token, ottimizzando i pesi mediante funzione di perdita \textit{triplet loss} o classificazione di similarità.
+
+Nel nostro laboratorio viene adottato il modello linguistico pre-addestrato \texttt{all-MiniLM-L6-v2} (distribuito dalla libreria Sentence Transformers):
+\begin{itemize}
+    \item \textbf{Parametri:} compatto (6 strati Transformer), altamente ottimizzato per compiti di clustering e semantic search.
+    \item \textbf{Spazio di Output:} vettori densi $\mathbf{x}_i \in \mathbb{R}^{384}$.
+    \item \textbf{Finestra di Troncamento:} lunghezza massima fissata a 256 o 512 token.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Estrazione degli embedding di documento con Sentence Transformers.}]
+import numpy as np
+import pandas as pd
+from sentence_transformers import SentenceTransformer
+
+# Inizializzazione del modello linguistico denso
+MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
+encoder = SentenceTransformer(MODEL_NAME)
+
+# Ispezione preliminare delle lunghezze dei documenti in token
+token_lengths = np.array([
+    len(encoder.tokenizer(d, truncation=False)['input_ids'])
+    for d in docs
+])
+med_l = np.median(token_lengths)
+p95_l = np.percentile(token_lengths, 95)
+print(f"Mediana: {med_l:.1f}, 95-esimo percentile: {p95_l:.1f}")
+
+# Calcolo vettoriale batch-oriented (batch size 32)
+embeddings = encoder.encode(
+    docs, 
+    batch_size=32, 
+    show_progress_bar=True, 
+    normalize_embeddings=True # Normalizzazione unitaria
+)
+print(f"Dimensioni matrice di embedding densa: {embeddings.shape}")
+\end{lstlisting}
+
+\FloatBarrier
+\section[Riduzione Dimensionalità con UMAP]{Riduzione della Dimensionalità\\con UMAP}
+\label{sec:lab-umap-reduction}
+
+\FloatBarrier
+\subsection{Motivazioni Teoriche: Perché la PCA è Inadeguata}
+\label{subsec:lab-why-umap}
+
+L'applicazione diretta di algoritmi di clustering densitometrico su vettori a 384 dimensioni incorre nel fenomeno della \textbf{maledizione della dimensionalità} (\textit{curse of dimensionality}): all'aumentare della dimensionalità dello spazio, la differenza tra la distanza dal vicino più prossimo e la distanza dal punto più lontano decade asintoticamente a zero ($\lim_{d \to \infty} \frac{d_{\max} - d_{\min}}{d_{\min}} = 0$). Lo spazio euclideo diviene uniformemente vuoto, rendendo impossibile identificare valli di densità significativa.
+
+L'impiego della \textbf{PCA} (Principal Component Analysis) non risulta idoneo in quanto opera una mera proiezione lineare ortogonale sulle direzioni di massima varianza globale: se i topic testuali risiedono su varietà (\textit{manifold}) curvilinee o non-lineari, la PCA sovrappone i manifold collassando cluster distinti.
+
+\FloatBarrier
+\subsection{L'Algoritmo UMAP: Fondamenti Topologici}
+\label{subsec:lab-umap-algorithm}
+
+L'algoritmo \textbf{UMAP} (\textit{Uniform Manifold Approximation and Projection}), sviluppato da McInnes et al. (2018) \cite{mcinnes2018}, preserva sia le strutture locali sia quelle mesoscopiche attraverso un framework teorico basato sulla geometria riemanniana e la topologia algebrica:
+\begin{enumerate}
+    \item \textbf{Costruzione del Grafo di Vicinato Sfumato (Fuzzy Simplicial Set):} per ciascun punto $\mathbf{x}_i$, si identificano i suoi $k$ vicini più prossimi $N_k(i)$ nello spazio ad alta dimensionalità mediante la metrica del coseno. La forza di connessione diretta tra $\mathbf{x}_i$ e $\mathbf{x}_j$ è ponderata da:
+    \begin{equation}
+        p_{j|i} = \exp\left( - \frac{\max(0, d(\mathbf{x}_i, \mathbf{x}_j) - \rho_i)}{\sigma_i} \right)
+    \end{equation}
+    dove $\rho_i$ è la distanza dal primo vicino più prossimo (garantendo che ogni punto sia localmente connesso ad almeno un vicino con probabilità $1$), e $\sigma_i$ è un parametro di scala locale calcolato affinché $\sum_{j} p_{j|i} = \log_2(k)$.
+    \item \textbf{Simmetrizzazione via Unione Sfocata:} la matrice di adiacenza del grafo ad alta dimensione è resa simmetrica calcolando:
+    \begin{equation}
+        p_{ij} = p_{i|j} + p_{j|i} - p_{i|j} \cdot p_{j|i}
+    \end{equation}
+    \item \textbf{Rappresentazione a Bassa Dimensionalità:} nello spazio proiettato $\mathbb{R}^q$ (con coordinate $\mathbf{z}_i$), la probabilità di connessione è modellata da una curva t-Student generalizzata:
+    \begin{equation}
+        q_{ij} = \left( 1 + a \|\mathbf{z}_i - \mathbf{z}_j\|_2^{2b} \right)^{-1}
+    \end{equation}
+    dove i coefficienti $a$ e $b$ sono calibrati in base al parametro di compattazione desiderato (\texttt{min\_dist}).
+    \item \textbf{Ottimizzazione per Entropia Incrociata Sfocata:} le coordinate $\mathbf{z}_i$ vengono regolate tramite Stochastic Gradient Descent (SGD) minimizzando la divergenza di cross-entropia:
+    \begin{equation}
+        \mathcal{L}_{\text{UMAP}} = \sum_{i \ne j} \left[ p_{ij} \log\left( \frac{p_{ij}}{q_{ij}} \right) + (1 - p_{ij}) \log\left( \frac{1 - p_{ij}}{1 - q_{ij}} \right) \right]
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Iperparametri Operativi in BERTopic}
+\begin{itemize}
+    \item \texttt{n\_neighbors} ($15$): bilancia attenzione locale vs globale. Valori bassi privilegiano micro-topic compatti; valori alti preservano l'ordinamento tra macro-categorie.
+    \item \texttt{n\_components} ($5$ per clustering, $2$ per visualizzazione): proiettare a 5 dimensioni evita la perdita eccessiva di informazioni topologiche consentendo a HDBSCAN di operare in modo ottimale.
+    \item \texttt{min\_dist} ($0.0$ o $0.1$): controlla quanto densamente i punti simili possono essere raggruppati. Nel clustering si usa tipicamente $0.0$ per consentire a cluster densi di condensarsi.
+    \item \texttt{metric} (\texttt{"cosine"}): rispecchia la natura semantica degli embedding testuali.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Riduzione della dimensionalità con UMAP su vettori di embedding.}]
+from umap import UMAP
+
+# Configurazione UMAP ottimizzata per il successivo clustering
+umap_model = UMAP(
+    n_neighbors=15,
+    n_components=5,       # Proiezione a 5D per il clustering
+    min_dist=0.0,
+    metric='cosine',
+    random_state=42
+)
+reduced_embeddings = umap_model.fit_transform(embeddings)
+
+# Proiezione 2D dedicata esclusivamente alla visualizzazione grafica
+display_xy = UMAP(
+    n_neighbors=30, 
+    n_components=2, 
+    min_dist=0.15, 
+    metric='cosine', 
+    random_state=42
+).fit_transform(embeddings)
+
+print(f"Dimensioni spazio ridotto: {reduced_embeddings.shape}")
+\end{lstlisting}
+
+\FloatBarrier
+\section{Clustering Gerarchico basato su Densità con HDBSCAN}
+\label{sec:lab-hdbscan-clustering}
+
+\FloatBarrier
+\subsection{Superamento di K-Means e DBSCAN}
+\label{subsec:lab-why-hdbscan}
+
+Il clustering dei documenti proiettati richiede proprietà algoritmiche specifiche che escludono i metodi standard:
+\begin{itemize}
+    \item \textbf{K-Means} impone una geometria di partizione forzata a celle di Voronoi convesse, richiede di fissare preventivamente il numero $k$ di topic e non contempla la presenza di rumore, costringendo documenti irrilevanti a essere associati a un topic incongruo.
+    \item \textbf{DBSCAN} utilizza un unico raggio di vicinato globale $\varepsilon$. Nelle collezioni testuali, tuttavia, alcuni argomenti presentano un lessico altamente specifico e concentrato (alta densità), mentre altri sono temi trasversali a lessico variegato (bassa densità). Un unico $\varepsilon$ frammenta i topic a bassa densità o fonde indiscriminatamente quelli densi.
+\end{itemize}
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    scale=0.95,
+    box/.style={draw, thick, rounded corners=3pt, align=center, font=\small, inner sep=5pt}
+]
+    % DBSCAN rigido
+    \node (db_title) at (2.5, 4.5) {\textbf{DBSCAN: Soglia Globale Unica $\varepsilon$}};
+    \draw [thick, navy, dashed] (0.5, 1) rectangle (4.5, 4);
+    \draw [thick, fill=navy!20] (1.5, 3) circle (0.5);
+    \node at (1.5, 3) {\footnotesize Cluster};
+    \draw [thick, fill=navy!5] (3.2, 2.2) circle (0.9);
+    \node at (3.2, 2.2) {\footnotesize Sotto-soglia:};
+    \node at (3.2, 1.7) {\footnotesize \textbf{Rumore}};
+    \node [below, font=\footnotesize, align=center] at (2.5, 0.8) {I cluster a densità variabile\\vengono scartati come rumore.};
+
+    % HDBSCAN flessibile
+    \node (hdb_title) at (8.5, 4.5) {\textbf{HDBSCAN: Gerarchia Condensata $\lambda = 1/\varepsilon$}};
+    \draw [thick, darkgreen] (6.5, 1) rectangle (10.5, 4);
+    % Albero stilizzato
+    \draw [ultra thick, darkgreen] (8.5, 3.8) -- (8.5, 3.2);
+    \draw [thick, darkgreen] (8.5, 3.2) -- (7.5, 2.2);
+    \draw [thick, darkgreen] (8.5, 3.2) -- (9.5, 2.2);
+    \draw [thick, fill=darkgreen!30] (7.5, 2.2) circle (0.35) node {\footnotesize $C_1$};
+    \draw [thick, fill=darkgreen!30] (9.5, 2.2) circle (0.35) node {\footnotesize $C_2$};
+    \node at (10.1, 1.4) [crimson, font=\footnotesize] {Noise ($-1$)};
+    \node [below, font=\footnotesize, align=center] at (8.5, 0.8) {Estrae cluster a densità differenti\\massimizzando la stabilità (\textit{EoM}).};
+\end{tikzpicture}
+\caption{Confronto concettuale tra DBSCAN (soglia globale $\varepsilon$ rigida) e HDBSCAN (albero condensato su scala $\lambda = 1/\varepsilon$ con selezione della partizione ottimale).}
+\label{fig:dbscan-vs-hdbscan}
+\end{figure}
+
+\FloatBarrier
+\subsection{I Meccanismi Interni di HDBSCAN}
+\label{subsec:lab-hdbscan-internals}
+
+L'algoritmo \textbf{HDBSCAN} (\textit{Hierarchical DBSCAN}) \cite{campello2015} risolve il problema operando su tutte le scale di densità contemporaneamente:
+\begin{enumerate}
+    \item \textbf{Distanza Core ($d_{\text{core}}$):} per ogni punto $x$, si calcola la distanza dal suo $k$-esimo vicino più prossimo ($k = \texttt{min\_samples}$):
+    \begin{equation}
+        d_{\text{core}}(x) = d(x, N_{\texttt{min\_samples}}(x))
+    \end{equation}
+    Punti situati in regioni dense presenteranno distanze core ridotte; punti periferici avranno valori elevati.
+    \item \textbf{Distanza di Mutua Raggiungibilità (Mutual Reachability Distance):}
+    \begin{equation}
+        d_{\text{mreach}-k}(a, b) = \max\big( d_{\text{core}}(a),\, d_{\text{core}}(b),\, d(a, b) \big)
+    \end{equation}
+    Tale metrica allontana artificialmente i punti collocati in zone a bassa densità, evitando la formazione di ponti spuri tra ammassi distinti.
+    \item \textbf{Albero di Copertura Minimo (MST):} si costruisce il Minimum Spanning Tree sul grafo completo pesato dalle distanze di mutua raggiungibilità.
+    \item \textbf{Gerarchia Condensata ed Estrazione dei Cluster per Stabilità:} ordinando gli archi in ordine decrescente di densità $\lambda = \frac{1}{\varepsilon}$, l'albero gerarchico viene condensato scartando i rami che perdono meno di \texttt{min\_cluster\_size} elementi (considerati semplice distacco di punti periferici). Per ogni cluster candidato $C$, si misura la sua stabilità integrando la durata di vita dei suoi membri:
+    \begin{equation}
+        S(C) = \sum_{x \in C} \big( \lambda_{\text{death}}(x) - \lambda_{\text{birth}}(C) \big)
+    \end{equation}
+    Vengono infine selezionati i cluster che massimizzano la somma delle stabilità (\textit{Excess of Mass}, EoM) senza generare sovrapposizioni.
+\end{enumerate}
+
+Tutti i punti che non raggiungono la stabilità minima vengono contrassegnati con l'etichetta convenzionale \textbf{$-1$} (\textit{rumore} / \textit{outlier}).
+
+\begin{lstlisting}[language=Python, caption={Clustering dei vettori ridotti tramite HDBSCAN.}]
+from hdbscan import HDBSCAN
+
+# Inizializzazione di HDBSCAN con parametri di densita
+hdbscan_model = HDBSCAN(
+    min_cluster_size=80, # Dimensione minima per topic
+    min_samples=10,      # Vicinato per core distance
+    metric='euclidean',
+    prediction_data=True
+)
+
+cluster_labels = hdbscan_model.fit_predict(reduced_embeddings)
+
+n_topics = len(set(cluster_labels) - {-1})
+noise_ratio = np.mean(cluster_labels == -1)
+print(f"Topic coerenti individuati: {n_topics}")
+print(f"Documenti rumore (-1): {noise_ratio * 100:.2f}%")
+\end{lstlisting}
+
+\FloatBarrier
+\section{Rappresentazione Lessicale con Class-based TF-IDF}
+\label{sec:lab-ctfidf}
+
+\FloatBarrier
+\subsection{Dall'Assegnazione Vettoriale alle Parole Chiave}
+\label{subsec:lab-ctfidf-formulation}
+
+L'output del clustering HDBSCAN associa ciascun documento a un identificativo numerico di cluster $c \in \{0, 1, \dots, K-1\}$. Per trasformare tali partizioni in topic interpretabili per l'utente umano, BERTopic aggrega tutti i documenti appartenenti al medesimo cluster $c$ in un unico testo composito (\textbf{mega-documento}):
+\begin{equation}
+    \mathcal{D}_c = \bigcup_{d \in C_c} d
+\end{equation}
+
+Tuttavia, calcolare la semplice frequenza delle parole all'interno del mega-documento favorirebbe esclusivamente termini generici o verbi ausiliari frequenti nell'intera lingua. Al contempo, il TF-IDF convenzionale calcola l'IDF a livello di singolo documento, penalizzando vocaboli che compaiono in tutti i documenti di un topic compatto.
+
+\FloatBarrier
+\subsection{La Formula del c-TF-IDF}
+\label{subsec:lab-ctfidf-math}
+
+Grootendorst (2022) \cite{grootendorst2022} introduce la metrica \textbf{Class-based TF-IDF} (c-TF-IDF):
+\begin{equation}
+    W_{t, c} = \text{tf}_{t, c} \times \log\left( 1 + \frac{A}{f_t} \right)
+    \label{eq:ctfidf}
+\end{equation}
+dove:
+\begin{itemize}
+    \item $\text{tf}_{t, c}$ è la frequenza assoluta del termine $t$ all'interno della classe/cluster $c$.
+    \item $f_t = \sum_{c=1}^K \text{tf}_{t, c}$ è la frequenza complessiva del termine $t$ sommata attraverso tutti i $K$ cluster dell'intero corpus.
+    \item $A$ è il numero medio di parole per classe:
+    \begin{equation}
+        A = \frac{\sum_{c=1}^K \sum_{t} \text{tf}_{t, c}}{K}
+    \end{equation}
+\end{itemize}
+Il termine logaritmico funge da penalità inversa: se una parola compare massicciamente in tutti i topic (es. \textit{``people''}, \textit{``time''}), $f_t \approx K \cdot \text{tf}_{t, c}$, il rapporto $\frac{A}{f_t}$ decade e il peso si annulla. Se invece il termine compare quasi esclusivamente nel cluster $c$ (es. \textit{``orbit''}, \textit{``spacecraft''} nel topic aerospaziale), $f_t \approx \text{tf}_{t, c}$, conferendogli un punteggio discriminante massimo.
+
+\begin{lstlisting}[language=Python, caption={Implementazione manuale a basso livello di c-TF-IDF.}]
+from sklearn.feature_extraction.text import CountVectorizer
+
+# 1. Raggruppamento dei documenti per cluster escludendo il rumore
+df_docs = pd.DataFrame({'text': docs, 'topic': cluster_labels})
+valid_docs = df_docs[df_docs['topic'] != -1]
+grouped = valid_docs.groupby('topic')['text'].agg(' '.join)
+
+# 2. Matrice di conteggio cluster-termine con eliminazione stopwords
+vectorizer = CountVectorizer(stop_words='english')
+tf_matrix = vectorizer.fit_transform(grouped).toarray() # Shape: (K, Vocab)
+vocab = np.array(vectorizer.get_feature_names_out())
+
+# 3. Calcolo analitico di c-TF-IDF
+f_t = tf_matrix.sum(axis=0) # Frequenza globale del termine
+A = tf_matrix.sum() / tf_matrix.shape[0] # Lunghezza media classe
+idf_class = np.log(1.0 + (A / (f_t + 1e-9)))
+ctfidf_matrix = tf_matrix * idf_class
+
+# 4. Estrazione top-5 parole chiave per il Topic 0
+top_indices = np.argsort(ctfidf_matrix[0])[::-1][:5]
+top_kw = list(zip(vocab[top_indices], ctfidf_matrix[0][top_indices].round(2)))
+print("Top-5 keyword c-TF-IDF:", top_kw)
+\end{lstlisting}
+
+\FloatBarrier
+\section{La Pipeline Completa con BERTopic}
+\label{sec:lab-bertopic-pipeline}
+
+\FloatBarrier
+\subsection{Configurazione e Addestramento End-to-End}
+\label{subsec:lab-bertopic-training}
+
+Nella libreria unificata \texttt{BERTopic}, ciascuno dei passaggi esaminati viene istanziato come un componente intercambiabile collegato in pipeline:
+
+\begin{lstlisting}[language=Python, caption={Inizializzazione ed esecuzione della pipeline modulare BERTopic.}]
+from bertopic import BERTopic
+from bertopic.vectorizers import ClassTfidfTransformer
+
+# Assemblaggio della pipeline completa
+topic_model = BERTopic(
+    embedding_model=encoder,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=CountVectorizer(stop_words='english', min_df=2),
+    ctfidf_model=ClassTfidfTransformer(reduce_frequent_words=True),
+    verbose=True
+)
+
+# Addestramento congiunto ed estrazione topic
+topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
+
+# Ispezione riassuntiva dei principali topic estratti
+topic_info = topic_model.get_topic_info()
+print(topic_info[['Topic', 'Count', 'Name']].head(6))
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Visualizzazione Interattiva e Diagnostica Semantica}
+\label{subsec:lab-visualizations}
+
+\texttt{BERTopic} include primitive grafiche interattive (basate su Plotly) per validare la coerenza della modellazione:
+\begin{itemize}
+    \item \textbf{Intertopic Distance Map (\texttt{visualize\_topics()}):} proietta i topic in uno spazio 2D tramite MDS multidimensionale applicato alle distanze c-TF-IDF. La dimensione del cerchio è proporzionale al numero di documenti, consentendo di verificare se temi affini (es. \textit{Baseball} e \textit{Hockey}) formano super-macroaree contigue.
+    \item \textbf{Topic Word Scores (\texttt{visualize\_barchart()}):} visualizza per ciascun topic un grafico a barre orizzontali indicante i pesi relativi c-TF-IDF delle prime 10 parole chiave.
+    \item \textbf{Gerarchia Dendrogrammatica (\texttt{visualize\_hierarchy()}):} illustra la sequenza agglomerativa di fusione gerarchica tra topic a livelli crescenti di distanza lessicale.
+    \item \textbf{Matrice di Similarità Termini (\texttt{visualize\_heatmap()}):} mostra la matrice di affinità coseno tra tutti i vettori c-TF-IDF.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Generazione di diagnostiche visive con BERTopic.}]
+# Mappa di distanza inter-topic
+fig_topics = topic_model.visualize_topics()
+
+# Barchart delle parole chiave discriminanti
+fig_bars = topic_model.visualize_barchart(top_n_topics=6)
+
+# Albero gerarchico di correlazione tra argomenti
+fig_hier = topic_model.visualize_hierarchy()
+\end{lstlisting}
+
+\FloatBarrier
+\section{Raffinamento Avanzato: Topic Reduction e KeyBERT}
+\label{sec:lab-refinement}
+
+\FloatBarrier
+\subsection{Riduzione Automatica dei Topic Ridondanti}
+\label{subsec:lab-topic-reduction}
+
+Quando HDBSCAN individua un numero eccessivo di micro-cluster iperspecifici, è possibile comprimere la soluzione forzando la fusione dei topic più vicini mediante il metodo \texttt{reduce\_topics()}:
+\begin{equation}
+    \text{topic\_model.reduce\_topics(docs, nr\_topics=10)}
+\end{equation}
+L'algoritmo calcola la matrice di similarità del coseno tra le rappresentazioni c-TF-IDF dei topic e fonde iterativamente le due classi a massima affinità, ricalcolando il c-TF-IDF del mega-documento unificato finché non viene raggiunto il numero desiderato di cluster.
+
+\FloatBarrier
+\subsection{Riassegnazione del Rumore (Outlier Reduction)}
+\label{subsec:lab-outlier-reduction}
+
+Per evitare di perdere i documenti classificati come rumore (etichetta $-1$), BERTopic implementa strategie di riassegnazione euristica (\textit{soft clustering}):
+\begin{lstlisting}[language=Python, caption={Riassegnazione dei documenti classificati come rumore.}]
+# Riassegnazione dei punti rumore al topic semanticamente piu vicino
+new_topics = topic_model.reduce_outliers(
+    docs, 
+    topics, 
+    strategy="embeddings", # Riassegnazione basata su embedding
+    embeddings=embeddings
+)
+topic_model.update_topics(docs, topics=new_topics)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Keyword Extraction Avanzata con KeyBERTInspired}
+\label{subsec:lab-keybert}
+
+La pura frequenza c-TF-IDF può talvolta selezionare singole parole frammentarie. Il modulo di rappresentazione \textbf{\texttt{KeyBERTInspired}} affina le descrizioni estraendo candidati uni-grammi e bi-grammi dal testo e classificandoli in base alla \textbf{similarità del coseno tra l'embedding del candidato e l'embedding globale del cluster}:
+\begin{lstlisting}[language=Python, caption={Raffinamento delle parole chiave tramite KeyBERTInspired.}]
+from bertopic.representation import KeyBERTInspired
+
+# Modulo di rappresentazione basato su allineamento semantico di embedding
+representation_model = KeyBERTInspired()
+
+topic_model.update_topics(
+    docs,
+    representation_model=representation_model
+)
+
+# Ispezione delle nuove etichette descrittive raffinate
+print(topic_model.get_topic(0)[:4])
+\end{lstlisting}
+
+\FloatBarrier
+\section{Quadro Sinottico e Buone Pratiche Metodologiche}
+\label{sec:lab-bertopic-summary}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Quadro sinottico dei componenti architetturali di BERTopic, parametri chiave e trade-off.}
+\label{tab:bertopic-summary}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+\textbf{Modulo Pipeline} & \textbf{Libreria / Classe} & \textbf{Iperparametri Critici} & \textbf{Trade-off Operativo e Note} \\
+\midrule
+1. Embedding Testuale & \texttt{SentenceTransformer} & \texttt{model\_name}, \texttt{batch\_size} & Modelli grandi migliorano la semantica ma aumentano memoria e tempi GPU. \\
+2. Riduzione Manifold & \texttt{UMAP} & \texttt{n\_neighbors}, \texttt{n\_components}, \texttt{min\_dist} & \texttt{n\_neighbors} basso $\implies$ micro-cluster; alto $\implies$ macro-strutture. \\
+3. Density Clustering & \texttt{HDBSCAN} & \texttt{min\_cluster\_size}, \texttt{min\_samples} & \texttt{min\_cluster\_size} alto riduce i topic ed espelle più outlier ($-1$). \\
+4. Tokenizzazione Lessicale & \texttt{CountVectorizer} & \texttt{stop\_words}, \texttt{min\_df}, \texttt{ngram\_range} & Rimuove il lessico comune e definisce n-grammi candidati per i topic. \\
+5. Rappresentazione & \texttt{ClassTfidfTransformer} & \texttt{reduce\_frequent\_words} & Bilancia parole discriminanti rispetto alla frequenza generale del corpus. \\
+6. Rappresentazione Avanzata & \texttt{KeyBERTInspired} & \texttt{top\_n\_words}, \texttt{candidates} & Allinea le parole chiave allo spazio vettoriale del cluster. \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsubsection{Linee Guida e Diagnostica nei Progetti Applicativi}
+\begin{itemize}
+    \item \textbf{Normalizzazione degli Embedding:} applicare sempre la normalizzazione euclidea a norma unitaria ($\|\mathbf{x}\| = 1$) sui vettori prodotti da SBERT; in questo modo il prodotto scalare interno coincide esattamente con la similarità del coseno.
+    \item \textbf{Dimensionalità di UMAP per il Clustering:} evitare di ridurre direttamente a 2 dimensioni prima di HDBSCAN. La proiezione 2D provoca la compressione forzata di manifold complessi causando sovrapposizioni non veritiere. Mantenere $d = 5 \dots 10$ per HDBSCAN e usare $d = 2$ solo a fini di rendering grafico.
+    \item \textbf{Gestione del Parametro di Rumore in HDBSCAN:} se una frazione elevata di documenti ($> 40\%$) viene etichettata come $-1$, ridurre \texttt{min\_cluster\_size} e \texttt{min\_samples}, oppure invocare sistematicamente la procedura di post-processing \texttt{reduce\_outliers()}.
+    \item \textbf{Coerenza con i Requisiti di Dominio:} a differenza dell'approccio generativo a tema fisso di LDA, in BERTopic il numero di topic emerge spontaneamente dalla densità dei dati, offrendo una corrispondenza organica con i veri aggregati informativi presenti nel testo.
+\end{itemize}

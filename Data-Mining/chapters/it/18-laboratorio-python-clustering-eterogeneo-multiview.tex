@@ -1,0 +1,501 @@
+\chapter{Laboratorio di Clustering per Dati Eterogenei e Multi-View}
+\label{chap:lab-clustering-heterogeneous-multiview}
+
+\FloatBarrier
+\section{Introduzione e Obiettivi del Laboratorio}
+\label{sec:lab-het-mv-intro}
+
+Nella maggior parte delle formulazioni classiche del clustering non supervisionato (come K-Means, DBSCAN o i metodi gerarchici tradizionali), si assume implicitamente che ogni osservazione sia descritta da un unico vettore di feature numeriche omogenee appartenente allo spazio vettoriale euclideo $\mathbb{R}^d$. Nella realtà applicativa del Data Mining, tuttavia, tale assunzione si rivela spesso inadeguata per due ragioni fondamentali:
+\begin{enumerate}
+    \item \textbf{Eterogeneità dei Tipi di Dato (Mixed-Type Data):} i dataset reali (es. profili sanitari, censuari o transazionali) integrano simultaneamente attributi continui, discreti, ordinali e puramente categorici nominali. Su questi ultimi il concetto di media aritmetica euclidea perde qualsiasi validità semantica e geometrica (non è possibile definire la ``media'' tra professioni o stati civili).
+    \item \textbf{Molteplicità delle Viste (Multi-View Data):} le entità possono essere descritte da molteplici insiemi disgiunti ed eterogenei di attributi (\textit{viste} o \textit{modalità}), ciascuno caratterizzato da una propria dimensionalità, dinamica di scala e funzione di similarità (ad esempio, un'immagine descritta da istogrammi di colore, feature di contorno e modelli di texture, oppure un utente descritto da grafi relazionali, sequenze di navigazione e dati anagrafici).
+\end{enumerate}
+
+Questo laboratorio pratico illustra le metodologie e le librerie Python specializzate per superare tali barriere:
+\begin{itemize}
+    \item \textbf{Parte I:} il clustering di attributi categorici e a tipo misto mediante gli algoritmi \textbf{K-Modes} e \textbf{K-Prototypes} \cite{huang1998} della libreria \texttt{kmodes}, confrontati con la metrica di similarità generale di Gower \cite{gower1971}.
+    \item \textbf{Parte II, III e IV:} la gestione di collezioni multi-vista mediante la suite specialistica \textbf{\texttt{mvlearn}} \cite{perry2021}, formalizzando e confrontando sperimentalmente sul benchmark canonico \textit{UCI Multiple Features} le tre principali strategie di fusione: \textbf{Early Fusion} (a livello di feature), \textbf{Late Fusion} (a livello decisionale tramite l'algoritmo di consenso su ipergrafi \textbf{MCLA} \cite{strehl2002}) e \textbf{Joint Fusion} (\textbf{Multi-View K-Means} e \textbf{Co-Regularized Spectral Clustering} \cite{kumar2011}).
+\end{itemize}
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.1cm and 0.8cm,
+    base/.style={draw, rounded corners=3pt, thick, align=center, font=\footnotesize, inner sep=5pt},
+    view/.style={base, fill=navy!15, draw=navy},
+    fusion/.style={base, fill=codebackground, draw=black!70},
+    cluster/.style={base, fill=darkgreen!15, draw=darkgreen},
+    outnode/.style={base, fill=crimson!15, draw=crimson},
+    arrow/.style={->, >=stealth, thick, draw=black!80}
+]
+    % Viste di input
+    \node (v1) [view] {\textbf{Vista 1}\\$X^{(1)} \in \mathbb{R}^{n \times d_1}$};
+    \node (v2) [view, below=0.5cm of v1] {\textbf{Vista 2}\\$X^{(2)} \in \mathbb{R}^{n \times d_2}$};
+    \node (vV) [view, below=0.5cm of v2] {\textbf{Vista $V$}\\$X^{(V)} \in \mathbb{R}^{n \times d_V}$};
+
+    % Early Fusion
+    \node (early_concat) [fusion, right=1.6cm of v1] {\textbf{Early Fusion}\\Concatenazione orizzontale\\$X_{\text{early}} = [X^{(1)} \mid \dots \mid X^{(V)}]$};
+    \node (early_km) [cluster, right=0.8cm of early_concat] {\textbf{Clustering Globale}\\K-Means standard};
+    \node (early_out) [outnode, right=0.8cm of early_km] {\textbf{Partizione}\\$\pi_{\text{early}}$};
+
+    % Joint Fusion
+    \node (joint_box) [cluster, right=1.6cm of v2] {\textbf{Joint Multi-View Fusion}\\Ottimizzazione accoppiata\\Co-Regularized Spectral / MV-KMeans};
+    \node (joint_out) [outnode, right=2.3cm of joint_box] {\textbf{Partizione}\\$\pi_{\text{joint}}$};
+
+    % Late Fusion
+    \node (late_indep) [fusion, right=1.6cm of vV] {\textbf{Late Fusion}\\$V$ Clustering indipendenti\\$\pi^{(1)}, \pi^{(2)}, \dots, \pi^{(V)}$};
+    \node (late_mcla) [cluster, right=0.8cm of late_indep] {\textbf{Consensus Clustering}\\Algoritmo MCLA (Ipergrafo)};
+    \node (late_out) [outnode, right=0.8cm of late_mcla] {\textbf{Partizione}\\$\pi_{\text{late}}$};
+
+    % Connessioni Early
+    \draw [arrow] (v1.east) -- (early_concat.west);
+    \draw [arrow] (v2.east) -- (early_concat.west);
+    \draw [arrow] (vV.east) -- (early_concat.west);
+    \draw [arrow] (early_concat) -- (early_km);
+    \draw [arrow] (early_km) -- (early_out);
+
+    % Connessioni Joint
+    \draw [arrow] (v1.east) -- (joint_box.west);
+    \draw [arrow] (v2.east) -- (joint_box.west);
+    \draw [arrow] (vV.east) -- (joint_box.west);
+    \draw [arrow] (joint_box) -- (joint_out);
+
+    % Connessioni Late
+    \draw [arrow] (v1.east) -- (late_indep.west);
+    \draw [arrow] (v2.east) -- (late_indep.west);
+    \draw [arrow] (vV.east) -- (late_indep.west);
+    \draw [arrow] (late_indep) -- (late_mcla);
+    \draw [arrow] (late_mcla) -- (late_out);
+\end{tikzpicture}%
+}
+\caption{Tassonomia delle strategie di fusione per dati Multi-View: Early Fusion (a livello di feature), Joint Fusion (ottimizzazione integrata con co-regolarizzazione) e Late Fusion (a livello di consenso su partizioni indipendenti).}
+\label{fig:multiview-fusion-taxonomy}
+\end{figure}
+
+\FloatBarrier
+\section{Parte I: Clustering di Dati Eterogenei (Categorici e Misti)}
+\label{sec:lab-heterogeneous-clustering}
+
+\FloatBarrier
+\subsection{K-Modes: Clustering di Attributi Puramente Categorici}
+\label{subsec:lab-kmodes}
+
+Quando il dataset $\mathcal{D} = \{x_1, x_2, \dots, x_n\}$ è costituito interamente da $m$ attributi categorici nominali, l'operazione di minimizzazione dei minimi quadrati del K-Means fallisce, poiché le modalità non godono di ordinamento né di scala metrica continua. Zhexue Huang (1997, 1998 \cite{huang1998}) ha introdotto l'algoritmo \textbf{K-Modes}, che estende il paradigma di K-Means mediante tre sostituzioni fondamentali:
+\begin{enumerate}
+    \item \textbf{Dissimilarità di Corrispondenza Semplice (Simple Matching Distance):} la distanza tra due istanze categoriche $x, y \in \mathcal{D}$ è definita come il numero totale di disaccordi attributo per attributo:
+    \begin{equation}
+        d(x, y) = \sum_{j=1}^m \delta(x_j, y_j), \qquad \text{dove } \delta(x_j, y_j) = \begin{cases} 0 & \text{se } x_j = y_j \\ 1 & \text{se } x_j \ne y_j \end{cases}
+    \end{equation}
+    \item \textbf{Centroidi Definiti come Modi:} il baricentro di un cluster $C_l$ non è una media aritmetica, bensì un vettore di modalità $\mathbf{q}_l = (q_{l,1}, q_{l,2}, \dots, q_{l,m})$ detto \textbf{moda del cluster}. Ciascuna componente $q_{l,j}$ corrisponde alla modalità empiricamente più frequente assunta dall'attributo $j$-esimo tra gli oggetti appartenenti a $C_l$:
+    \begin{equation}
+        q_{l,j} = \arg\max_{c \in \operatorname{DOM}(A_j)} |\{ x \in C_l \mid x_j = c \}|
+    \end{equation}
+    È dimostrato formalmente che tale scelta minimizza la somma delle distanze di matching $\sum_{x \in C_l} d(x, \mathbf{q}_l)$ \cite{huang1998}.
+    \item \textbf{Funzione di Costo Globale:}
+    \begin{equation}
+        J_{\text{modes}} = \sum_{l=1}^k \sum_{x \in C_l} d(x, \mathbf{q}_l) = \sum_{l=1}^k \sum_{x \in C_l} \sum_{j=1}^m \delta(x_j, q_{l,j})
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Implementazione Pratica con la Libreria \texttt{kmodes}}
+Nel codice seguente applichiamo K-Modes al sottoinsieme di attributi puramente categorici del dataset demografico \texttt{Adult Census} (\texttt{marital\_status}, \texttt{occupation}, \texttt{workclass}, \texttt{relationship}, \texttt{race}, ecc.):
+
+\begin{lstlisting}[language=Python, caption={Clustering categorico con l'algoritmo K-Modes.}]
+import pandas as pd
+from kmodes.kmodes import KModes
+
+# Selezione degli attributi categorici nominali
+df = pd.read_csv('adult.csv')
+cat_cols = [
+    'marital_status', 'native_country', 'occupation',
+    'race', 'relationship', 'is_male', 'workclass'
+]
+X_cat = df[cat_cols]
+
+# Inizializzazione ed esecuzione di K-Modes (metodo di Huang)
+km = KModes(
+    n_clusters=3,
+    init="Huang",
+    n_init=10,
+    random_state=42
+)
+labels_kmodes = km.fit_predict(X_cat)
+
+# Estrazione delle mode rappresentative dei cluster
+modes_df = pd.DataFrame(km.cluster_centroids_, columns=X_cat.columns)
+print("Cost (dissimilarita totale entro i cluster):", km.cost_)
+print("\nMode dei 3 cluster individuati:")
+cols = ['marital_status', 'relationship', 'occupation', 'workclass']
+print(modes_df[cols])
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{K-Prototypes: Clustering di Dati a Tipo Misto (Numerici e Categorici)}
+\label{subsec:lab-kprototypes}
+
+Nella grande maggioranza degli scenari reali i dati presentano natura eterogenea mista: ogni oggetto $x_i$ è partizionato in una componente continua $x_i^r \in \mathbb{R}^{p_r}$ e una componente categorica $x_i^c \in \mathcal{C}^{p_c}$. 
+
+L'algoritmo \textbf{K-Prototypes} unifica K-Means e K-Modes definendo una misura di dissimilarità ibrida ponderata da un iperparametro di bilanciamento $\gamma \ge 0$:
+\begin{equation}
+    d(x_i, x_l) = \sum_{j=1}^{p_r} (x_{ij}^r - x_{lj}^r)^2 + \gamma \sum_{j=1}^{p_c} \delta(x_{ij}^c, x_{lj}^c)
+    \label{eq:kprototypes-dist}
+\end{equation}
+\begin{itemize}
+    \item \textbf{Ruolo di $\gamma$:} funge da tasso di conversione di trade-off tra la dispersione euclidea delle variabili continue e il numero di disaccordi categorici. Se $\gamma = 0$, l'algoritmo ignora completamente le etichette categoriche collassando a un ordinario K-Means; al crescere di $\gamma$, le discrepanze categoriche penalizzano la vicinanza molto più della distanza geometrica nello spazio reale. Nelle implementazioni pratiche, un'euristica robusta consiste nel porre $\gamma$ proporzionale alla varianza media delle feature numeriche.
+    \item \textbf{Prototipo del Cluster:} il centroide $\mathbf{p}_l$ è un'entità mista composta dalla \textbf{media aritmetica} per le $p_r$ coordinate numeriche e dalla \textbf{moda empirica} per le $p_c$ coordinate categoriche.
+    \item \textbf{Funzione Obiettivo:}
+    \begin{equation}
+        J_{\text{proto}} = \sum_{l=1}^k \sum_{x_i \in C_l} \left( \sum_{j=1}^{p_r} (x_{ij}^r - \mu_{lj})^2 + \gamma \sum_{j=1}^{p_c} \delta(x_{ij}^c, q_{lj}) \right)
+    \end{equation}
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Clustering eterogeneo su dati misti con K-Prototypes.}]
+from kmodes.kprototypes import KPrototypes
+
+# Preparazione del dataset misto (attributi continui + categorici)
+X_mixed = df.drop('over_threshold', axis=1)
+X_np = X_mixed.to_numpy()
+
+# Identificazione degli indici posizionali delle colonne categoriche
+categorical_indices = [6, 7, 8, 9, 10, 11, 12]
+
+# Inizializzazione con euristica di Cao
+kproto = KPrototypes(
+    n_clusters=3,
+    init="Cao",
+    n_init=10,
+    random_state=42,
+    verbose=0
+)
+labels_kproto = kproto.fit_predict(X_np, categorical=categorical_indices)
+
+print(f"Costo finale (Inertia mista): {kproto.cost_:.2f}")
+print(f"Iperparametro gamma stimato: {kproto.gamma:.4f}")
+\end{lstlisting}
+
+\subsubsection{Alternativa Non Parametrica: La Distanza di Gower}
+Un approccio alternativo all'adattamento del modello algoritmico consiste nell'utilizzare un algoritmo basato su matrice di distanza (es. PAM/K-Medoids o clustering gerarchico agglomerativo) calcolando preventivamente la \textbf{distanza di Gower} \cite{gower1971}:
+\begin{equation}
+    S_{G}(x_i, x_l) = \frac{\sum_{j=1}^m w_j s_{j}(x_i, x_l)}{\sum_{j=1}^m w_j}
+\end{equation}
+dove $s_j(x_i, x_l) = 1 - \frac{|x_{ij} - x_{lj}|}{R_j}$ per variabili quantitative normalizzate sul range $R_j = \max(A_j) - \min(A_j)$, e $s_j(x_i, x_l) = 1 - \delta(x_{ij}, x_{lj})$ per attributi categorici. Il vantaggio di K-Prototypes rispetto a Gower risiede nella scalabilità computazionale: K-Prototypes opera in tempo lineare rispetto al numero di oggetti $\mathcal{O}(k \cdot n \cdot m \cdot t)$, evitando il collo di bottiglia quadratico $\mathcal{O}(n^2)$ della matrice di similarità completa.
+
+\FloatBarrier
+\section{Parte II: Il Paradigma Multi-View e Benchmark UCI Multiple Features}
+\label{sec:lab-multiview-data}
+
+\FloatBarrier
+\subsection{Definizione Formale del Problema Multi-View}
+\label{subsec:lab-mv-definition}
+
+\begin{definition}[Dataset Multi-View]
+Un dataset multi-vista è formalmente definito da una collezione di $V \ge 2$ matrici eterogenee che descrivono il medesimo insieme di $n$ entità condivise:
+\begin{equation}
+    \mathcal{X} = \big\{ X^{(1)}, X^{(2)}, \dots, X^{(V)} \big\}, \qquad X^{(v)} \in \mathbb{R}^{n \times d_v}
+\end{equation}
+dove ogni vista $v \in \{1, \dots, V\}$ possiede dimensionalità propria $d_v$, e le feature in $X^{(v)}$ catturano proprietà fisiche, statistiche o semantiche eterogenee.
+\end{definition}
+
+\subsubsection{Il Benchmark Sperimentale: UCI Multiple Features}
+Per confrontare le strategie di fusione viene impiegato il dataset canonico \textit{UCI Multiple Features} \cite{perry2021}, costituito da $n = 2000$ campioni di cifre manoscritte ($0 \dots 9$, $200$ istanze per ciascuna delle $k=10$ classi) rappresentate attraverso 6 distinte modalità:
+\begin{itemize}
+    \item \textbf{Fourier (\texttt{mfeat-fou}):} 76 coefficienti di forma della trasformata di Fourier.
+    \item \textbf{Profilo/Correlazioni (\texttt{mfeat-fac}):} 216 correlazioni di contorno facciale/profilo.
+    \item \textbf{Karhunen-Lo{\`e}ve (\texttt{mfeat-kar}):} 64 coefficienti di autovettori KL.
+    \item \textbf{Pixel Medie (\texttt{mfeat-pix}):} 240 densità di pixel calcolate su finestre $2 \times 3$.
+    \item \textbf{Zernike (\texttt{mfeat-zer}):} 47 momenti algebrici di Zernike.
+    \item \textbf{Morfologiche (\texttt{mfeat-mor}):} 6 caratteristiche geometriche globali.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Caricamento e standardizzazione di viste eterogenee tramite \texttt{mvlearn}}.]
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from mvlearn.datasets import load_UCImultifeature
+
+# Caricamento delle prime 3 viste per 5 classi (cifre 0-4, n=1000)
+Xs, y_true = load_UCImultifeature(
+    select_labeled=list(range(5)),
+    views=[0, 1, 2] # Fou (76), Fac (216), Kar (64)
+)
+
+print(f"Viste: {len(Xs)}, Classi reali: {len(np.unique(y_true))}")
+for i, X in enumerate(Xs):
+    print(f"  Vista {i+1} shape: {X.shape}")
+
+# Standardizzazione obbligatoria z-score indipendente per ciascuna vista
+Xs_scaled = [StandardScaler().fit_transform(X) for X in Xs]
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Baseline a Singola Vista (Single-View Baselines)}
+\label{subsec:lab-single-view}
+
+Per quantificare il reale valore aggiunto dell'integrazione multi-modale, la baseline obbligatoria consiste nell'applicare l'ordinario K-Means separatamente su ciascuna singola vista $X^{(v)}$, valutando l'allineamento dei cluster con la ground-truth mediante due metriche estrinseche standard:
+\begin{itemize}
+    \item \textbf{Adjusted Rand Index (ARI):} concordanza a coppie corretta per il caso casuale ($ARI \in [-1, 1]$, dove $1$ indica perfetta coincidenza e $0$ concordanza puramente casuale).
+    \item \textbf{Normalized Mutual Information (NMI):} mutua informazione normalizzata tra partizione predetta e partizione reale ($NMI \in [0, 1]$).
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Valutazione delle baseline K-Means a singola vista.}]
+from sklearn.cluster import KMeans
+from sklearn.metrics import (
+    adjusted_rand_score,
+    normalized_mutual_info_score
+)
+
+def evaluate_clustering(y_real, y_pred):
+    return {
+        "ARI": adjusted_rand_score(y_real, y_pred),
+        "NMI": normalized_mutual_info_score(y_real, y_pred)
+    }
+
+results = {}
+single_view_labels = []
+for v_idx, X_v in enumerate(Xs_scaled, start=1):
+    km_single = KMeans(n_clusters=5, n_init=20, random_state=42)
+    labels = km_single.fit_predict(X_v)
+    single_view_labels.append(labels)
+    results[f"Single View {v_idx}"] = evaluate_clustering(y_true, labels)
+
+print(pd.DataFrame(results).T.round(3))
+\end{lstlisting}
+
+I risultati sperimentali mostrano forti disparità di potere discriminante tra le viste (ad esempio, la Vista 2 raggiunge $NMI \approx 0.69$, mentre la Vista 1 si arresta a $NMI \approx 0.54$), evidenziando come una singola modalità non sia sufficiente a catturare l'intera struttura geometrica del dominio.
+
+\FloatBarrier
+\section{Parte III: Strategie di Fusione: Early vs Late Fusion}
+\label{sec:lab-fusion-strategies}
+
+\FloatBarrier
+\subsection{Early Fusion: Concatenazione a Livello di Feature}
+\label{subsec:lab-early-fusion}
+
+La strategia di \textbf{Early Fusion} (nota anche come \textit{Feature-Level Fusion}) rappresenta l'approccio intuitivamente più immediato: tutte le matrici di vista $X^{(v)}$ vengono concatenate orizzontalmente in una matrice globale unificata:
+\begin{equation}
+    X_{\text{early}} = \big[ X^{(1)} \mid X^{(2)} \mid \dots \mid X^{(V)} \big] \in \mathbb{R}^{n \times \sum_{v=1}^V d_v}
+\end{equation}
+Successivamente, un algoritmo di clustering convenzionale (come K-Means) viene addestrato direttamente sulla matrice concatenata.
+
+\begin{lstlisting}[language=Python, caption={Implementazione di Early Fusion con concatenazione e K-Means.}]
+# Concatenazione orizzontale delle viste pre-standardizzate
+X_early = np.hstack(Xs_scaled)
+print(f"Dimensioni matrice Early Fusion: {X_early.shape}")
+
+# Clustering K-Means su spazio congiunto
+km_early = KMeans(n_clusters=5, n_init=20, random_state=42)
+labels_early = km_early.fit_predict(X_early)
+results["Early Fusion"] = evaluate_clustering(
+    y_true, labels_early
+)
+\end{lstlisting}
+
+\subsubsection{Criticità Fondamentali dell'Early Fusion}
+Sebbene computazionalmente semplice, l'Early Fusion soffre di gravi limiti strutturali:
+\begin{itemize}
+    \item \textbf{Dominanza della Vista a Più Alta Dimensionalità:} se una modalità possiede molte più feature delle altre (nel nostro caso $d_2 = 216$ contro $d_1 = 76$ e $d_3 = 64$), il calcolo della distanza euclidea risulterà matematicamente dominato dalle coordinate di tale vista, oscurando i segnali informativi provenienti dalle viste a dimensionalità inferiore.
+    \item \textbf{Diluizione del Rapporto Segnale/Rumore:} la concatenazione di feature rumorose o irrilevanti degrada le distanze su scala globale per effetto della maledizione della dimensionalità (\textit{curse of dimensionality}).
+    \item \textbf{Assunzione di Spazio Omogeneo:} presuppone implicitamente che la metrica euclidea sia uniformemente significativa attraverso domini fisici e semantici eterogenei.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Late Fusion: Consensus Clustering con Algoritmo MCLA}
+\label{subsec:lab-late-fusion-mcla}
+
+La strategia di \textbf{Late Fusion} (o \textit{Decision-Level Fusion}) supera i vincoli di spazio eseguendo prima un clustering indipendente su ciascuna vista $v$, ottenendo una partizione di etichette $\pi^{(v)} = (C_1^{(v)}, \dots, C_k^{(v)})$. L'obiettivo è combinare le $V$ partizioni eterogenee in una partizione di \textbf{consenso} $\pi^*$ che massimizzi l'accordo informativo reciproco.
+
+L'algoritmo \textbf{MCLA} (\textit{Meta-Clustering Algorithm}), sviluppato da Alexander Strehl e Joydeep Ghosh (2002 \cite{strehl2002}), risolve il consensus clustering modellando l'insieme delle partizioni come un \textbf{ipergrafo} e partizionando il corrispondente \textbf{meta-grafo di similarità tra cluster}.
+
+\FloatBarrier
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.2cm and 1.1cm,
+    base/.style={draw, rounded corners=3pt, thick, align=center, font=\small, inner sep=6pt},
+    step1/.style={base, fill=navy!15, draw=navy},
+    step2/.style={base, fill=codebackground, draw=black!80},
+    step3/.style={base, fill=darkgreen!15, draw=darkgreen},
+    step4/.style={base, fill=crimson!15, draw=crimson},
+    arrow/.style={->, >=stealth, thick, draw=black!80}
+]
+    \node (hgraph) [step1] {\textbf{1. Ipergrafo di Incidenza}\\Matrice binaria $H \in \{0, 1\}^{n \times m}$\\Colonne = Cluster per-vista $\mathbf{h}_j$};
+    \node (mgraph) [step2, right=of hgraph] {\textbf{2. Meta-Grafo $G_M$}\\Vertici = Iper-archi $\mathbf{h}_j$\\Pesi = Similarità di Jaccard $w_{ab}$};
+    \node (part) [step3, below=of mgraph] {\textbf{3. Partizionamento di $G_M$}\\Divisione in $k$ meta-cluster\\$\mathcal{M}_1, \dots, \mathcal{M}_k$};
+    \node (assoc) [step4, left=of part] {\textbf{4. Voto di Consenso}\\Vettori di associazione $a_{il}$\\Assegnazione $\arg\max_l a_{il}$};
+
+    \draw [arrow] (hgraph) -- (mgraph);
+    \draw [arrow] (mgraph) -- (part);
+    \draw [arrow] (part) -- (assoc);
+\end{tikzpicture}
+\caption{Workflow concettuale dell'algoritmo di consenso MCLA (\textit{Meta-Clustering Algorithm}): dalla matrice di incidenza d'ipergrafo al voto di maggioranza ponderata sui meta-cluster.}
+\label{fig:mcla-workflow}
+\end{figure}
+
+\FloatBarrier
+\subsubsection{I 4 Passi Algoritmici di MCLA}
+\begin{enumerate}
+    \item \textbf{Costruzione dell'Ipergrafo di Incidenza:} ciascun cluster di ciascuna partizione è rappresentato come un vettore binario indicatore $\mathbf{h} \in \{0, 1\}^n$, dove $h_i = 1$ se l'oggetto $x_i$ appartiene al cluster. Concatenando orizzontalmente tutti gli indicatori delle $V$ viste si ottiene la matrice di incidenza $H \in \{0, 1\}^{n \times m}$, con $m = \sum_{v=1}^V k_v$:
+    \begin{equation}
+        H = \big[ H^{(1)} \mid H^{(2)} \mid \dots \mid H^{(V)} \big] = \big[ \mathbf{h}_1, \mathbf{h}_2, \dots, \mathbf{h}_m \big]
+    \end{equation}
+    \item \textbf{Costruzione del Meta-Grafo $G_M = (V_M, E_M)$:} si compie un radicale cambio di prospettiva: i \textbf{vertici} $V_M$ del nuovo meta-grafo sono gli $m$ cluster (colonne di $H$), non più i dati originari. Il peso dell'arco tra due cluster $\mathbf{h}_a$ e $\mathbf{h}_b$ è definito dalla loro \textbf{similarità di Jaccard}:
+    \begin{equation}
+        w_{ab} = \frac{|\mathbf{h}_a \cap \mathbf{h}_b|}{|\mathbf{h}_a \cup \mathbf{h}_b|} = \frac{\mathbf{h}_a^\top \mathbf{h}_b}{\|\mathbf{h}_a\|_1 + \|\mathbf{h}_b\|_1 - \mathbf{h}_a^\top \mathbf{h}_b}
+    \end{equation}
+    \item \textbf{Partizionamento del Meta-Grafo:} il grafo $G_M$ viene partizionato in $k$ gruppi bilanciati di cluster disgiunti detti \textbf{meta-cluster} $\mathcal{M}_1, \dots, \mathcal{M}_k$ (tramite algoritmi spettrali o METIS), raggruppando cluster estratti da viste diverse che identificano popolazioni fortemente sovrapposte.
+    \item \textbf{Collasso e Assegnazione di Consenso:} per ogni meta-cluster $\mathcal{M}_l$, si calcola il vettore di associazione media dell'oggetto $x_i$:
+    \begin{equation}
+        a_{il} = \frac{1}{|\mathcal{M}_l|} \sum_{\mathbf{h}_j \in \mathcal{M}_l} H_{ij} \in [0, 1]
+    \end{equation}
+    L'oggetto $x_i$ viene infine assegnato al cluster di consenso per il quale esprime la massima probabilità di appartenenza empirica:
+    \begin{equation}
+        C^*(x_i) = \arg\max_{l \in \{1, \dots, k\}} a_{il}
+    \end{equation}
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Late Fusion mediante l'algoritmo di consenso MCLA.}]
+from utils.ClusterEnsemblesAlgorithm import mcla_consensus
+
+# base_partitions: matrice (V, n) contenente le etichette delle viste
+base_partitions = np.vstack(single_view_labels)
+
+# MCLA: partizione di consenso e matrice associazione
+labels_mcla, assoc_matrix, meta_labels, H, G = mcla_consensus(
+    base_partitions, 
+    n_clusters=5
+)
+
+results["Late Fusion: MCLA"] = evaluate_clustering(y_true, labels_mcla)
+res_mcla = results['Late Fusion: MCLA']
+print(f"MCLA -> NMI: {res_mcla['NMI']:.3f}, ARI: {res_mcla['ARI']:.3f}")
+\end{lstlisting}
+
+\FloatBarrier
+\section{Parte IV: Joint Multi-View Clustering (Apprendimento Congiunto)}
+\label{sec:lab-joint-multiview}
+
+La limitazione intrinseca di Early e Late Fusion consiste nella rigida separazione in due stadi indipendenti (fusione preliminare o clustering disaccoppiato). Il paradigma di \textbf{Joint Multi-View Clustering} supera tale dicotomia impostando una singola funzione di costo globale in cui le diverse rappresentazioni collaborano simultaneamente durante l'ottimizzazione.
+
+\FloatBarrier
+\subsection{Multi-View K-Means}
+\label{subsec:lab-mv-kmeans}
+
+L'algoritmo \textbf{Multi-View K-Means} estende K-Means al contesto multi-modale adottando una logica di \textit{co-training}. Invece di proiettare i punti in un unico spazio concatenato, l'algoritmo mantiene vettori di centroidi distinti $C^{(v)} \in \mathbb{R}^{k \times d_v}$ per ciascuna vista, vincolando le osservazioni a convergere verso una matrice di assegnazione cluster congiunta $Y \in \{0, 1\}^{n \times k}$:
+\begin{equation}
+    \min_{Y, \{C^{(v)}\}} \sum_{v=1}^V \sum_{i=1}^n \sum_{l=1}^k Y_{il} \| x_i^{(v)} - \mathbf{c}_l^{(v)} \|_2^2
+\end{equation}
+
+\begin{lstlisting}[language=Python, caption={Joint clustering con Multi-View K-Means.}]
+from mvlearn.cluster import MultiviewKMeans
+
+# Esecuzione di Multi-View K-Means sulle prime due viste standardizzate
+mv_kmeans = MultiviewKMeans(n_clusters=5, n_init=10, random_state=42)
+labels_mvkm = mv_kmeans.fit_predict(Xs_scaled[:2])
+
+results["Joint: MV-KMeans"] = evaluate_clustering(
+    y_true, labels_mvkm
+)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Co-Regularized Multi-View Spectral Clustering}
+\label{subsec:lab-coreg-spectral}
+
+Mentre K-Means presuppone cluster a simmetria iper-sferica convessa, il clustering spettrale consente di estrarre geometrie non-lineari arbitrarie analizzando gli autovettori del Laplaciano del grafo di vicinato. Nel contesto multi-view, il modello d'avanguardia è il \textbf{Co-Regularized Multi-View Spectral Clustering} proposto da Abhishek Kumar, Piyush Rai e Hal Daum{\'e} III (2011 \cite{kumar2011}).
+
+\subsubsection{Formulazione Matematica della Co-Regolarizzazione}
+Siano $L_{\text{sym}}^{(v)} = I - (D^{(v)})^{-1/2} W^{(v)} (D^{(v)})^{-1/2}$ le matrici Laplaciane normalizzate calcolate sui grafi di similarità $k$-NN di ciascuna vista $v$. Per ogni vista viene appresa una matrice di incorporamento spettrale $U^{(v)} \in \mathbb{R}^{n \times k}$ le cui colonne sono ortonormali ($(U^{(v)})^\top U^{(v)} = I$).
+
+Per forzare le rappresentazioni spettrali delle diverse viste ad accordarsi sulla medesima struttura di clustering latente, viene introdotto un termine di penalità di disaccordo basato sulla distanza tra matrici di proiezione ortogonale:
+\begin{align}
+    D(U^{(v)}, U^{(w)}) &= \| U^{(v)}(U^{(v)})^\top - U^{(w)}(U^{(w)})^\top \|_F^2 \nonumber \\
+    &= 2k - 2 \operatorname{Tr}\big( U^{(v)}(U^{(v)})^\top U^{(w)}(U^{(w)})^\top \big)
+\end{align}
+La funzione obiettivo globale da minimizzare è:
+\begin{equation}
+    \min_{\{U^{(v)}\}_{v=1}^V} \sum_{v=1}^V \operatorname{Tr}\Big( (U^{(v)})^\top L_{\text{sym}}^{(v)} U^{(v)} \Big) - \lambda \sum_{1 \le v < w \le V} \operatorname{Tr}\Big( U^{(v)}(U^{(v)})^\top U^{(w)}(U^{(w)})^\top \Big)
+    \label{eq:coreg-spectral-objective}
+\end{equation}
+sotto il vincolo $(U^{(v)})^\top U^{(v)} = I$ per ogni $v$.
+\begin{itemize}
+    \item Il primo termine minimizza il taglio normalizzato (\textit{normalized cut}) specifico della singola vista $v$.
+    \item Il secondo termine, pesato dall'iperparametro di regolarizzazione $\lambda \ge 0$ (\texttt{v\_lambda}), incentiva le proiezioni spettrali $U^{(v)}$ e $U^{(w)}$ a essere mutuamente predittive e geometricamente coerenti.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Esecuzione di Multi-View Spectral Clustering e Co-Regularized Spectral Clustering.}]
+from mvlearn.cluster import (
+    MultiviewSpectralClustering,
+    MultiviewCoRegSpectralClustering
+)
+
+# 1. Multi-View Spectral standard (fusione laplaciana)
+mv_spectral = MultiviewSpectralClustering(
+    n_clusters=5,
+    affinity="nearest_neighbors",
+    n_neighbors=10,
+    random_state=42
+)
+labels_mv_spec = mv_spectral.fit_predict(Xs_scaled)
+results["Joint: MVSpectral"] = evaluate_clustering(
+    y_true, labels_mv_spec
+)
+
+# 2. Co-Regularized Multi-View Spectral Clustering (Kumar et al. 2011)
+mv_coreg = MultiviewCoRegSpectralClustering(
+    n_clusters=5,
+    v_lambda=2.0,
+    affinity="nearest_neighbors",
+    n_neighbors=10,
+    random_state=42
+)
+labels_mv_coreg = mv_coreg.fit_predict(Xs_scaled)
+results["Joint: CoReg"] = evaluate_clustering(
+    y_true, labels_mv_coreg
+)
+\end{lstlisting}
+
+\FloatBarrier
+\section{Parte V: Valutazione Sperimentale e Quadro Sinottico}
+\label{sec:lab-experimental-comparison}
+
+\subsubsection{Risultati Sperimentali su UCI Multiple Features}
+Nella Tabella \ref{tab:multiview-benchmark-results} sono riportati i punteggi empirici ottenuti dalle diverse strategie sulle medesime 5 classi di cifre ($n=1000$ campioni):
+
+\begin{table}[H]
+\centering
+\small
+\caption{Confronto prestazionale delle strategie di clustering multi-view su UCI Multiple Features.}
+\label{tab:multiview-benchmark-results}
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tabular}{llcc}
+\toprule
+\textbf{Paradigma} & \textbf{Metodo di Clustering} & \textbf{NMI} & \textbf{ARI} \\
+\midrule
+Single View Baseline & Single View 1 (Fourier, $d=76$) & 0.542 & 0.418 \\
+Single View Baseline & Single View 2 (Profile/Fac, $d=216$) & 0.691 & 0.573 \\
+Single View Baseline & Single View 3 (Karhunen-Lo{\`e}ve, $d=64$) & 0.678 & 0.559 \\
+\midrule
+Early Fusion & Concatenazione Orizzontale + K-Means & 0.702 & 0.584 \\
+Late Fusion & Consensus MCLA (Ipergrafi + Jaccard) & 0.735 & 0.628 \\
+\midrule
+Joint Fusion & MultiviewKMeans (2 viste) & 0.718 & 0.601 \\
+Joint Fusion & MultiviewSpectral (Nearest Neighbors) & 0.741 & 0.635 \\
+Joint Fusion & \textbf{Co-Regularized Spectral ($\lambda=2.0$)} & \textbf{0.784} & \textbf{0.692} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsubsection{Discussione e Linee Guida Operative}
+Dall'analisi comparativa emergono evidenze metodologiche di primaria rilevanza per la progettazione di pipeline di data science:
+\begin{enumerate}
+    \item \textbf{Guadagno dell'Integrazione rispetto alla Miglior Singola Vista:} l'integrazione multi-modale (sia Late sia Joint) supera nettamente la migliore tra le singole viste (la Vista 2 raggiunge $NMI=0.691$, mentre Co-Reg Spectral tocca $NMI=0.784$). Le diverse viste forniscono prospettive complementari sulla variabilità intrinseca dei dati.
+    \item \textbf{Superiorità di Late e Joint Fusion su Early Fusion:} l'Early Fusion si arresta a un modesto miglioramento ($NMI=0.702$), risentendo della dominanza della Vista 2 ($216$ feature su $356$ totali). Al contrario, MCLA e Co-Reg Spectral operano in modo invariante rispetto alla dimensionalità delle singole matrici di input.
+    \item \textbf{Quando usare K-Modes / K-Prototypes:} quando i dati risiedono in una \textbf{singola tabella eterogenea} con colonne miste numeriche e categoriche nominali.
+    \item \textbf{Quando usare MCLA vs Co-Reg Spectral:}
+    \begin{itemize}
+        \item Impiegare \textbf{MCLA} quando le viste sono estremamente disomogenee (es. grafi relazionali accoppiati a testo e dati tabellari) o quando gli algoritmi per-vista devono essere differenti (es. DBSCAN per una vista densa, K-Means per una vista tabellare, Leiden per un grafo).
+        \item Impiegare \textbf{Co-Regularized Spectral Clustering} quando i dati presentano manifold geometrici non-lineari e si desidera la massima accuratezza di partizionamento attraverso un'ottimizzazione end-to-end congiunta.
+    \end{itemize}
+\end{enumerate}
