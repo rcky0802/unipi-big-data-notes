@@ -1,0 +1,638 @@
+\chapter{Classificazione: Concetti di Base e Alberi di Decisione}
+\label{ch:dm-classification-decision-trees}
+
+\section{Introduzione e Fondamenti della Classificazione}
+\label{sec:dm-classif-intro}
+
+Nell'ambito del \textit{Data Mining} e dell'apprendimento automatico, il problema della \textbf{classificazione} rappresenta uno dei pilastri fondamentali dell'analisi predittiva~\cite{tan2018}. A differenza dei compiti descrittivi ed esplorativi --- quali l'analisi dei cluster (\textit{cluster analysis}) o l'estrazione di regole associative (\textit{association rule mining}), nei quali non è presente alcuna variabile obiettivo predeterminata e l'algoritmo indaga la struttura intrinseca dei dati --- la classificazione si colloca a pieno titolo nel paradigma dell'\textbf{apprendimento supervisionato} (\textit{supervised learning}).
+
+\FloatBarrier
+\subsection{Formalizzazione Matematica del Task di Classificazione}
+\label{subsec:dm-classif-formalism}
+
+In un problema di apprendimento supervisionato, l'obiettivo è modellare la relazione predittiva esistente tra un insieme di variabili descrittive e una specifica variabile obiettivo:
+\begin{itemize}
+    \item Sia $\mathcal{X}$ lo \textbf{spazio delle caratteristiche} (\textit{feature space} o \textit{attribute set}), definito dal prodotto cartesiano dei domini di $d$ attributi predittivi:
+    \begin{equation}
+        \mathcal{X} = \mathcal{A}_1 \times \mathcal{A}_2 \times \dots \times \mathcal{A}_d
+    \end{equation}
+    Ciascuna istanza $\mathbf{x} = (x_1, x_2, \dots, x_d) \in \mathcal{X}$ modella un vettore di input (noto anche come predittore, variabile indipendente o covariata).
+    \item Sia $\mathcal{Y}$ il \textbf{dominio dell'attributo target} (\textit{class label}, risposta, variabile dipendente o output).
+\end{itemize}
+
+La natura matematica del dominio $\mathcal{Y}$ definisce la dicotomia cardine dell'apprendimento supervisionato:
+\begin{enumerate}
+    \item \textbf{Classificazione}: il dominio target $\mathcal{Y}$ è un insieme \textbf{finito, discreto e categorico} di etichette mutuamente esclusive:
+    \begin{equation}
+        \mathcal{Y} = \{c_1, c_2, \dots, c_K\}, \quad \text{con } K \ge 2
+    \end{equation}
+    Se $K = 2$, il problema è denominato \textit{classificazione binaria} (es. solvibile vs insolvente, spam vs non-spam, sano vs malato); se $K > 2$, si parla di \textit{classificazione multiclasse} (es. tipologie cellulari, classi morfologiche di galassie).
+    \item \textbf{Regressione}: il dominio target $\mathcal{Y} \subseteq \mathbb{R}$ è una variabile \textbf{continua e quantitativa} (es. stima del prezzo di un immobile, previsione della temperatura o dei consumi energetici).
+\end{enumerate}
+
+\begin{definition}[Compito di Classificazione]
+Dato un insieme di osservazioni storiche etichettate, denominato \textbf{Training Set} $\mathcal{D}_{\text{train}} = \{(\mathbf{x}_i, y_i)\}_{i=1}^N \subset \mathcal{X} \times \mathcal{Y}$, il compito computazionale consiste nell'apprendere una funzione di mappatura (o \textbf{modello predittivo}):
+\begin{equation}
+    f: \mathcal{X} \longrightarrow \mathcal{Y}
+\end{equation}
+tale da minimizzare la discrepanza tra la classe predetta $\hat{y} = f(\mathbf{x})$ e la classe reale $y$.
+\end{definition}
+
+L'obiettivo fondamentale (\textit{goal}) non risiede nella mera memorizzazione mnemonica delle associazioni presenti in $\mathcal{D}_{\text{train}}$, bensì nella capacità di \textbf{generalizzazione}: il classificatore deve essere in grado di assegnare correttamente l'etichetta di classe a record mai osservati in precedenza (\textit{previously unseen records}). Per verificare oggettivamente tale capacità, si impiega un secondo insieme disgiunto di dati, denominato \textbf{Test Set} $\mathcal{D}_{\text{test}} \subset \mathcal{X} \times \mathcal{Y}$, tale che $\mathcal{D}_{\text{train}} \cap \mathcal{D}_{\text{test}} = \emptyset$.
+
+\FloatBarrier
+\subsection{Il Ciclo Induzione-Deduzione}
+\label{subsec:dm-classif-induction-deduction}
+
+Il processo operativo di costruzione e utilizzo di un classificatore si articola in due fasi sequenziali distinte, formalizzate nello schema concettuale:
+\begin{enumerate}
+    \item \textbf{Fase di Induzione (Learning / Training):} l'algoritmo di apprendimento supervisionato riceve in ingresso il \textit{Training Set} (in cui per ogni istanza sono noti sia il vettore di attributi $\mathbf{x}$ sia l'etichetta $y$) ed estrae pattern, regolarità statistiche o regole logiche, costruendo la funzione astratta $f$ (il \textit{Modello}).
+    \item \textbf{Fase di Deduzione (Inference / Prediction):} il modello appreso $f$ viene applicato ai record del \textit{Test Set} (o a dati in produzione), per i quali sono noti esclusivamente gli attributi predittivi, deducendo e assegnando l'etichetta $\hat{y}$ sconosciuta.
+\end{enumerate}
+
+La \autoref{fig:dm-induction-deduction-pipeline} illustra graficamente l'architettura logica del ciclo induzione-deduzione.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=4pt, line width=1pt, align=center, inner sep=6pt},
+    proc/.style={draw=darkgreen, fill=darkgreen!10, rounded corners=4pt, line width=1pt, align=center, inner sep=6pt},
+    model/.style={draw=crimson, fill=crimson!10, rounded corners=4pt, line width=1.2pt, align=center, inner sep=8pt},
+    arrow/.style={->, >=stealth, line width=1.2pt, color=navy}
+]
+    % Fase di Induzione
+    \node[box] (train) at (0, 2) {\textbf{Training Set}\\$\{(\mathbf{x}_i, y_i)\}_{i=1}^N$\\(Attributi e Classi Noti)};
+    \node[proc] (learn) at (4.5, 2) {\textbf{Algoritmo di}\\\textbf{Apprendimento}\\(\textit{Learning Algorithm})};
+    \node[model] (mod) at (9, 2) {\textbf{Modello Predittivo}\\$f: \mathcal{X} \to \mathcal{Y}$\\(Albero, Regole, Rete, SVM)};
+    
+    % Fase di Deduzione
+    \node[box] (test) at (9, -0.8) {\textbf{Test Set}\\$\{\mathbf{x}_j\}_{j=1}^M$\\(Etichetta Sconosciuta)};
+    \node[proc] (apply) at (4.5, -0.8) {\textbf{Applicazione Modello}\\(\textit{Inference / Deduction})};
+    \node[box, draw=darkgreen] (pred) at (0, -0.8) {\textbf{Classi Predette}\\\{$\hat{y}_j = f(\mathbf{x}_j)\}$ e\\\textbf{Valutazione Accuratezza}};
+
+    % Frecce Induzione
+    \draw[arrow] (train) -- (learn);
+    \draw[arrow] (learn) -- (mod);
+    
+    % Frecce Deduzione
+    \draw[arrow] (mod) -- (apply);
+    \draw[arrow] (test) -- (apply);
+    \draw[arrow] (apply) -- (pred);
+
+    % Riquadri logici tratteggiati
+    \node[anchor=south west, color=navy, font=\footnotesize\bfseries] at (-1.5, 3.2) {FASE 1: INDUZIONE (Costruzione del Modello)};
+    \draw[dashed, navy!60, line width=0.8pt] (-1.6, 1.1) rectangle (11.5, 3.5);
+
+    \node[anchor=south west, color=darkgreen, font=\footnotesize\bfseries] at (-1.5, 0.4) {FASE 2: DEDUZIONE (Applicazione e Valutazione)};
+    \draw[dashed, darkgreen!60, line width=0.8pt] (-1.6, -1.8) rectangle (11.5, 0.7);
+\end{tikzpicture}%
+}
+\caption{Pipeline architetturale del processo di classificazione: partizionamento logico tra la fase induttiva (costruzione del modello su dati etichettati) e la fase deduttiva (inferenza su dati non osservati).}
+\label{fig:dm-induction-deduction-pipeline}
+\end{figure}
+
+A titolo esemplificativo, la Tabella~\ref{tab:dm-toy-train-test} illustra un tipico scenario applicativo: un \textit{Training Set} di 10 transazioni storiche con attributi eterogenei (binari, ordinali e continui) e classe nota, a fronte di un \textit{Test Set} composto da nuove richieste in cui l'attributo target deve essere predetto.
+
+\begin{table}[H]
+\centering
+\caption{Esempio di partizionamento tra Training Set (record 1--10) e Test Set (record 11--15).}
+\label{tab:dm-toy-train-test}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Partizione} & \textbf{Tid} & \textbf{Attrib1 (Binario)} & \textbf{Attrib2 (Ordinale)} & \textbf{Attrib3 (Continuo)} & \textbf{Classe Reale} & \textbf{Classe Predetta} \\
+\midrule
+\multirow{10}{*}{\textbf{Training Set}} 
+ & 1  & Yes & Large  & 125K & No  & --- \\
+ & 2  & No  & Medium & 100K & No  & --- \\
+ & 3  & No  & Small  & 70K  & No  & --- \\
+ & 4  & Yes & Medium & 120K & No  & --- \\
+ & 5  & No  & Large  & 95K  & Yes & --- \\
+ & 6  & No  & Medium & 60K  & No  & --- \\
+ & 7  & Yes & Large  & 220K & No  & --- \\
+ & 8  & No  & Small  & 85K  & Yes & --- \\
+ & 9  & No  & Medium & 75K  & No  & --- \\
+ & 10 & No  & Small  & 90K  & Yes & --- \\
+\midrule
+\multirow{5}{*}{\textbf{Test Set}} 
+ & 11 & No  & Small  & 55K  & ? & $f(\mathbf{x}_{11})$ \\
+ & 12 & Yes & Medium & 80K  & ? & $f(\mathbf{x}_{12})$ \\
+ & 13 & Yes & Large  & 110K & ? & $f(\mathbf{x}_{13})$ \\
+ & 14 & No  & Small  & 95K  & ? & $f(\mathbf{x}_{14})$ \\
+ & 15 & No  & Large  & 67K  & ? & $f(\mathbf{x}_{15})$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Tassonomia dei Metodi di Classificazione}
+\label{subsec:dm-classif-taxonomy}
+
+Nella letteratura del Data Mining, gli algoritmi di classificazione si ripartiscono in due grandi famiglie concettuali:
+\begin{enumerate}
+    \item \textbf{Classificatori di Base (\textit{Base Classifiers}):} modelli individuali che apprendono una singola funzione predittiva:
+    \begin{itemize}
+        \item \textbf{Metodi basati su Alberi di Decisione (\textit{Decision Trees}):} modellano la decisione come una gerarchia di test ricorsivi (\textit{Hunt, CART, ID3, C4.5});
+        \item \textbf{Metodi basati su Regole (\textit{Rule-based Methods}):} descrivono il dominio mediante insiemi di regole disgiuntive \textit{IF-THEN} (es. RIPPER);
+        \item \textbf{Classificatori basati su Esempi (\textit{Instance-based / Nearest-Neighbor}):} algoritmi pigri (\textit{lazy learners}) come il $k$-NN, che non creano un modello esplicito ma cercano le istanze più vicine nello spazio metrico al momento del test;
+        \item \textbf{Classificatori Probabilistici e Bayesiani:} modellano la probabilità a posteriori $P(y \mid \mathbf{x})$ tramite il teorema di Bayes sotto assunzione di indipendenza condizionata (\textit{Naïve Bayes}) o tramite reti di credenza bayesiane (\textit{Bayesian Belief Networks});
+        \item \textbf{Modelli Connessionisti e Reti Neurali:} dai percettroni multistrato (\textit{Multi-Layer Perceptron}) alle architetture di \textit{Deep Learning};
+        \item \textbf{Support Vector Machines (SVM):} massimizzano il margine geometrico di separazione iper-planare nello spazio delle caratteristiche trasformate da un nucleo (\textit{kernel}).
+    \end{itemize}
+    \item \textbf{Classificatori Ensemble (\textit{Ensemble Methods}):} paradigmi meta-algoritmici che combinano strategicamente un collettivo di classificatori di base per incrementare la robustezza e ridurre la varianza o il bias dell'errore (tecniche di \textit{Bagging}, \textit{Boosting} e \textit{Random Forests}).
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier
+\section{Il Modello ad Albero di Decisione}
+\label{sec:dm-decision-tree-model}
+
+Un \textbf{albero di decisione} (\textit{Decision Tree}) è una struttura dati ad albero invertito orientata e aciclica utilizzata per risolvere compiti sia di classificazione che di regressione. La sua popolarità deriva dall'intrinseca interpretabilità: la logica di inferenza può essere tradotta in un insieme di regole logiche trasparenti immediatamente comprensibili dall'essere umano.
+
+\FloatBarrier
+\subsection{Definizione e Componenti Strutturali}
+\label{subsec:dm-tree-components}
+
+Un albero di decisione è composto da tre tipologie fondamentali di nodi:
+\begin{enumerate}
+    \item \textbf{Nodo Radice (\textit{Root Node}):} è il nodo sommitale privo di archi entranti, dal quale ha inizio il processo decisionale per qualsiasi nuova istanza. Contiene una condizione di test su uno specifico attributo descrittivo.
+    \item \textbf{Nodi Interni (\textit{Internal Nodes}):} nodi intermedi provvisti di esattamente un arco entrante e due o più archi uscenti. Ciascun nodo interno definisce una condizione di test (\textit{splitting test}) applicata a un attributo del record.
+    \item \textbf{Archi Etichettati (\textit{Branches}):} ciascun arco uscente da un nodo interno corrisponde a uno dei possibili esiti mutualmente esclusivi del test associato al nodo padre.
+    \item \textbf{Nodi Foglia o Terminali (\textit{Leaf / Terminal Nodes}):} nodi privi di archi uscenti provvisti di un solo arco entrante. Ciascuna foglia rappresenta una decisione finale e reca associata un'etichetta di classe $y \in \mathcal{Y}$ (o una distribuzione di probabilità sulle classi).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Inferenza e Non-Unicità dell'Albero di Decisione}
+\label{subsec:dm-tree-inference-nonuniqueness}
+
+Per illustrare il meccanismo operativo, consideriamo il problema di accreditamento creditizio volto a prevedere l'insolvenza di un richiedente prestito (\textit{Defaulted Borrower} $\in \{\text{No}, \text{Yes}\}$), descritto nella Tabella~\ref{tab:dm-borrowers-dataset}~\cite{tan2018}.
+
+\begin{table}[H]
+\centering
+\caption{Dataset storico di addestramento per la previsione dell'insolvenza creditizia.}
+\label{tab:dm-borrowers-dataset}
+\vspace{2mm}
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{ID Richiesta} & \textbf{Home Owner (Categorico)} & \textbf{Marital Status (Categorico)} & \textbf{Annual Income (Continuo)} & \textbf{Defaulted Borrower (Classe)} \\
+\midrule
+1  & Yes & Single   & 125K & No  \\
+2  & No  & Married  & 100K & No  \\
+3  & No  & Single   & 70K  & No  \\
+4  & Yes & Married  & 120K & No  \\
+5  & No  & Divorced & 95K  & Yes \\
+6  & No  & Married  & 60K  & No  \\
+7  & Yes & Divorced & 220K & No  \\
+8  & No  & Single   & 85K  & Yes \\
+9  & No  & Married  & 75K  & No  \\
+10 & No  & Single   & 90K  & Yes \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{example}[Percorso di Inferenza su un Record di Test]
+Dato il record non etichettato:
+\begin{align*}
+    \mathbf{x}_{\text{test}} = (\text{Home Owner}&=\text{No}, \; \text{Marital Status}=\text{Married}, \\
+    \text{Annual Income}&=80\text{K})
+\end{align*}
+la procedura deduttiva opera come segue:
+\begin{enumerate}
+    \item Si valuta la radice (\textit{Home Owner}): poiché il valore è $\text{No}$, si segue il relativo ramo discendente verso il nodo interno \textit{Marital Status};
+    \item Si valuta il nodo \textit{Marital Status}: il valore del record è $\text{Married}$, conducendo direttamente al ramo associato;
+    \item Si approda a un nodo foglia etichettato con la classe $\text{Defaulted} = \text{No}$. Il record viene pertanto classificato come solvente.
+\end{enumerate}
+\end{example}
+
+Un principio epistemologico cardine nella teoria degli alberi di decisione è la \textbf{non-unicità del modello}: sul medesimo dataset di addestramento possono esistere molteplici alberi topologicamente distinti capaci di classificare con accuratezza perfetta ($100\%$) tutti i record di training.
+
+La \autoref{fig:dm-two-equivalent-trees} pone a confronto due alberi alternativi perfettamente consistenti con i dati della Tabella~\ref{tab:dm-borrowers-dataset}: il primo adotta come attributo radice la proprietà dell'immobile (\textit{Home Owner}), mentre il secondo radica la decisione sullo stato civile (\textit{Marital Status}).
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    treenode/.style={draw=navy, fill=codebackground, rounded corners=3pt, font=\small\bfseries, inner sep=4pt, align=center},
+    leafno/.style={draw=darkgreen, fill=darkgreen!15, rounded corners=3pt, font=\small\bfseries, inner sep=4pt, text=darkgreen},
+    leafyes/.style={draw=crimson, fill=crimson!15, rounded corners=3pt, font=\small\bfseries, inner sep=4pt, text=crimson},
+    edge from parent/.style={draw=navy, line width=0.8pt, ->},
+    level distance=1.5cm,
+    sibling distance=3.2cm
+]
+    % Sottoalbero 1
+    \begin{scope}[xshift=0cm]
+        \node[treenode] (r1) {Home Owner}
+            child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {Yes} }
+            child { node[treenode] {Marital Status}
+                child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {Married} }
+                child { node[treenode] {Annual Income}
+                    child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {$< 80\text{K}$} }
+                    child { node[leafyes] {YES} edge from parent node[right, font=\footnotesize] {$\ge 80\text{K}$} }
+                    edge from parent node[right, font=\footnotesize] {Single, Div.}
+                }
+                edge from parent node[right, font=\footnotesize] {No}
+            };
+        \node[below=4.6cm of r1, font=\bfseries\small, color=navy] {Modello A (Radice: Home Owner)};
+    \end{scope}
+
+    % Sottoalbero 2
+    \begin{scope}[xshift=7.5cm]
+        \node[treenode] (r2) {Marital Status}
+            child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {Married} }
+            child { node[treenode] {Home Owner}
+                child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {Yes} }
+                child { node[treenode] {Annual Income}
+                    child { node[leafno] {NO} edge from parent node[left, font=\footnotesize] {$< 80\text{K}$} }
+                    child { node[leafyes] {YES} edge from parent node[right, font=\footnotesize] {$\ge 80\text{K}$} }
+                    edge from parent node[right, font=\footnotesize] {No}
+                }
+                edge from parent node[right, font=\footnotesize] {Single, Div.}
+            };
+        \node[below=4.6cm of r2, font=\bfseries\small, color=navy] {Modello B (Radice: Marital Status)};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Dimostrazione di non-unicità del modello ad albero di decisione: entrambi gli alberi discriminano senza errori il training set dei 10 mutuatari, pur adottando gerarchie di test differenti.}
+\label{fig:dm-two-equivalent-trees}
+\end{figure}
+
+% ====================================================================
+\FloatBarrier
+\section{Induzione degli Alberi: L'Algoritmo di Hunt}
+\label{sec:dm-hunt-algorithm}
+
+La costruzione manuale di un albero di decisione risulta impraticabile su dataset reali contenenti migliaia di record e centinaia di attributi. Poiché lo spazio combinatorio di tutti i possibili alberi generabili cresce in modo super-esponenziale rispetto al numero di feature, determinare l'albero globalmente ottimo è un problema formale computazionalmente intoccabile.
+
+\begin{theorem}[Complessità dell'Induzione Ottima]
+La ricerca dell'albero di decisione ottimale che minimizza l'errore di classificazione o la complessità strutturale (numero totale di nodi) è un problema \textbf{NP-hard}~\cite{breiman1984}.
+\end{theorem}
+
+Di conseguenza, tutti gli algoritmi pratici di induzione --- tra cui l'algoritmo pioniere di Hunt~\cite{hunt1966}, CART~\cite{breiman1984}, ID3~\cite{quinlan1986} e C4.5~\cite{quinlan1993} --- ricorrono a una \textbf{strategia euristica greedy} (ingorda), procedendo dall'alto verso il basso (\textit{top-down}) in modalità divide-et-impera.
+
+\FloatBarrier
+\subsection{Schema Algoritmico Ricorsivo di Hunt}
+\label{subsec:dm-hunt-schema}
+
+Sia $\mathcal{D}_t$ il sottoinsieme dei record di addestramento associati a un generico nodo $t$ dell'albero ($\mathcal{D}_{\text{root}} = \mathcal{D}_{\text{train}}$). La procedura ricorsiva di Hunt opera secondo due regole fondamentali:
+
+\begin{enumerate}
+    \item \textbf{Condizione di Base (Arresto per Purezza):} se tutti i record appartenenti a $\mathcal{D}_t$ appartengono alla medesima classe $y_k \in \mathcal{Y}$, allora il nodo $t$ è \textbf{puro} e viene trasformato in un \textbf{nodo foglia} etichettato con la classe $y_k$.
+    \item \textbf{Passo Ricorsivo (Partizionamento per Impurezza):} se $\mathcal{D}_t$ contiene record appartenenti a due o più classi distinte, il nodo $t$ è \textbf{impuro}. L'algoritmo seleziona una condizione di test su un attributo (\textit{attribute test condition}) per partizionare $\mathcal{D}_t$ in sottoinsiemi mutualmente disgiunti $\mathcal{D}_{t_1}, \mathcal{D}_{t_2}, \dots, \mathcal{D}_{t_m}$. Vengono generati $m$ nodi figli e la procedura viene richiamata ricorsivamente su ciascun figlio.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Traccia di Esecuzione Passo-Passo dell'Algoritmo di Hunt}
+\label{subsec:dm-hunt-step-by-step}
+
+Seguiamo l'esecuzione deterministica dell'algoritmo di Hunt sul dataset dei 10 mutuatari della Tabella~\ref{tab:dm-borrowers-dataset}. Indichiamo in ogni nodo la distribuzione delle classi mediante la coppia ordinata:
+\begin{equation}
+    (n_{\text{No}}, \; n_{\text{Yes}})
+\end{equation}
+
+\begin{itemize}
+    \item \textbf{Passo (a) --- Inizializzazione alla Radice:}
+    Al nodo radice confluiscono tutti i 10 record del dataset. La distribuzione è $(7, 3)$, con classe maggioritaria $\text{Defaulted} = \text{No}$. Poiché il nodo è misto ($3$ record insolventi su $10$), non è possibile dichiararlo foglia e si rende necessario uno split.
+    
+    \item \textbf{Passo (b) --- Primo Split su \textit{Home Owner}:}
+    Si seleziona il test binario $\text{Home Owner} \in \{\text{Yes}, \text{No}\}$:
+    \begin{itemize}
+        \item \textbf{Ramo `Yes'}: raccoglie i record $\{1, 4, 7\}$. Tutti e 3 presentano $\text{Defaulted} = \text{No}$. La distribuzione è $(3, 0)$: il nodo è \textbf{puro} e diventa una \textbf{foglia} con etichetta $\text{Defaulted} = \text{No}$.
+        \item \textbf{Ramo `No'}: raccoglie i restanti 7 record $\{2, 3, 5, 6, 8, 9, 10\}$. La distribuzione è $(4, 3)$. Il nodo è impuro e richiede un ulteriore partizionamento ricorsivo.
+    \end{itemize}
+
+    \item \textbf{Passo (c) --- Secondo Split su \textit{Marital Status}:}
+    Sul sottoinsieme di record con $\text{Home Owner} = \text{No}$, si applica una condizione di test su \textit{Marital Status}:
+    \begin{itemize}
+        \item \textbf{Ramo `Married'}: raccoglie i record $\{2, 6, 9\}$. Tutti e 3 presentano $\text{Defaulted} = \text{No}$. Distribuzione $(3, 0)$: nodo \textbf{puro}, diventa una \textbf{foglia} $\text{Defaulted} = \text{No}$.
+        \item \textbf{Ramo `Single, Divorced'}: raccoglie i 4 record $\{3, 5, 8, 10\}$. Di questi, 1 ha $\text{Defaulted} = \text{No}$ (ID 3) e 3 hanno $\text{Defaulted} = \text{Yes}$ (ID 5, 8, 10). Distribuzione $(1, 3)$: nodo impuro.
+    \end{itemize}
+
+    \item \textbf{Passo (d) --- Terzo Split sull'Attributo Continuo \textit{Annual Income}:}
+    Sui 4 record residui si valuta la soglia di reddito annuo $v = 80\text{K}$:
+    \begin{itemize}
+        \item \textbf{Ramo $< 80\text{K}$}: contiene il solo record ID 3 ($70\text{K}$, $\text{No}$). Distribuzione $(1, 0)$: foglia pura $\text{Defaulted} = \text{No}$.
+        \item \textbf{Ramo $\ge 80\text{K}$}: contiene i record $\{5, 8, 10\}$ (con redditi rispettivamente di $95\text{K}$, $85\text{K}$, $90\text{K}$). Tutti hanno $\text{Defaulted} = \text{Yes}$. Distribuzione $(0, 3)$: foglia pura $\text{Defaulted} = \text{Yes}$.
+    \end{itemize}
+\end{itemize}
+
+L'algoritmo termina poiché tutti i rami periferici approdano a nodi foglia a impurità nulla.
+
+% ====================================================================
+\FloatBarrier
+\section{Specificazione delle Condizioni di Test}
+\label{sec:dm-test-conditions}
+
+La progettazione di un algoritmo di induzione richiede di risolvere due problemi centrali:
+\begin{enumerate}
+    \item Come esprimere le condizioni di test in funzione della tipologia di attributo;
+    \item Come quantificare analiticamente la bontà (\textit{goodness}) di una condizione candidata per selezionare lo split migliore.
+\end{enumerate}
+
+Le condizioni di test dipendono dal dominio dell'attributo e dalla cardinalità della ramificazione (split binario a 2 vie vs split multi-via a $k > 2$ vie).
+
+\FloatBarrier
+\subsection{Attributi Nominali e Categorici}
+\label{subsec:dm-test-nominal}
+
+Gli attributi nominali assumono valori privi di un ordine quantitativo o naturale:
+\begin{itemize}
+    \item \textbf{Split Multi-via (\textit{Multi-way split}):} genera un arco dedicato per ciascun valore distinto presente nel dominio dell'attributo. Se l'attributo assume $k$ modalità distinte, produce $k$ rami figli.
+    \item \textbf{Split Binario (\textit{2-way split}):} partiziona le $k$ modalità in due sottoinsiemi disgiunti e non vuoti $S_1$ e $S_2$ tali che $S_1 \cup S_2 = \text{Dom}(A)$. Il numero totale di partizioni binarie possibili è combinatoriamente pari a:
+    \begin{equation}
+        2^{k-1} - 1
+    \end{equation}
+    Ad esempio, per l'attributo $\text{Marital Status} \in \{\text{Single}, \text{Divorced}, \text{Married}\}$ ($k=3$), esistono $2^{3-1} - 1 = 3$ configurazioni binarie disgiunte ammissibili:
+    \begin{enumerate}
+        \item $\{\text{Married}\}$ contro $\{\text{Single}, \text{Divorced}\}$;
+        \item $\{\text{Single}\}$ contro $\{\text{Married}, \text{Divorced}\}$;
+        \item $\{\text{Divorced}\}$ contro $\{\text{Single}, \text{Married}\}$.
+    \end{enumerate}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Attributi Ordinali e Preservazione dell'Ordine}
+\label{subsec:dm-test-ordinal}
+
+Gli attributi ordinali possiedono un ordinamento totale ben definito (es. taglia di maglietta: $\text{Small} < \text{Medium} < \text{Large} < \text{Extra Large}$). Sebbene sia sempre possibile effettuare uno split multi-via generando un ramo per ciascuna taglia, nella configurazione di uno split binario sorge un vincolo teorico inderogabile:
+
+\begin{theorem}[Vincolo di Preservazione dell'Ordine per Attributi Ordinali]
+Nello split binario di un attributo ordinale, la partizione deve preservare la continuità dell'ordine intrinseco. I raggruppamenti devono essere formati da elementi tra loro contigui nell'ordinamento totale.
+\end{theorem}
+
+Nel caso di quattro taglie ordinate $(\text{S} < \text{M} < \text{L} < \text{XL})$:
+\begin{itemize}
+    \item \textbf{Raggruppamenti Ammissibili:} $\{\text{S}\}$ vs $\{\text{M}, \text{L}, \text{XL}\}$, oppure $\{\text{S}, \text{M}\}$ vs $\{\text{L}, \text{XL}\}$, oppure $\{\text{S}, \text{M}, \text{L}\}$ vs $\{\text{XL}\}$.
+    \item \textbf{Raggruppamento Inammissibile:} $\{\text{S}, \text{L}\} \text{ vs } \{\text{M}, \text{XL}\}$. Questa partizione viola la relazione d'ordine frammentando arbitrariamente la semantica dell'attributo.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Attributi Continui e Ricerca Efficiente della Soglia Ottima}
+\label{subsec:dm-test-continuous}
+
+Per gli attributi numerici a valori continui $A \in \mathbb{R}$, le condizioni di test possono essere formulate come:
+\begin{enumerate}
+    \item \textbf{Discretizzazione preventiva}: suddivisione del dominio in intervalli discreti (\textit{equal-width}, \textit{equal-frequency} o tramite cluster analysis), applicata in modalità statica (una tantum all'inizio) o dinamica (ripetuta localmente in ciascun nodo);
+    \item \textbf{Test di Soglia Binario}: confronto del tipo $A < v$ contro $A \ge v$, dove $v \in \mathbb{R}$ rappresenta il punto di taglio (\textit{split position}).
+\end{enumerate}
+
+\subsubsection{Inefficienza della Ricerca Ingenua e Algoritmo Ottimizzato}
+Se per ciascuna delle $N$ istanze si provasse come soglia $v$ il valore del record scandendo l'intero dataset per calcolare i conteggi di classe, il costo computazionale risulterebbe quadratico:
+\begin{equation}
+    \mathcal{O}(N^2)
+\end{equation}
+Tale approccio è insostenibile per dataset reali. L'algoritmo efficiente riduce la complessità a $\mathcal{O}(N \log N)$ mediante un procedimento in tre fasi:
+\begin{enumerate}
+    \item \textbf{Fase di Ordinamento ($\mathcal{O}(N \log N)$):} si ordinano gli $N$ record in base ai valori crescenti dell'attributo continuo considerato;
+    \item \textbf{Identificazione dei Punti di Taglio Candidati ($\mathcal{O}(N)$):} si selezionano come soglie candidate $v_i$ i punti medi tra coppie di valori consecutivi associati a classi differenti (oltre ai punti estremi);
+    \item \textbf{Scansione Lineare con Aggiornamento Incrementale ($\mathcal{O}(N)$):} scorrendo linearmente i dati ordinati, la matrice dei conteggi di classe per le due partizioni ($\le v$ e $> v$) viene aggiornata incrementalmente in tempo $\mathcal{O}(1)$ a ogni passo, calcolando all'istante l'indice di impurità.
+\end{enumerate}
+
+La Tabella~\ref{tab:dm-continuous-split-trace} illustra la traccia di calcolo completa sul dataset dei 10 mutuatari per l'attributo \textit{Annual Income}.
+
+\begin{table}[H]
+\centering
+\caption{Calcolo incrementale dell'indice di Gini sulle soglie candidate per l'attributo Annual Income.}
+\label{tab:dm-continuous-split-trace}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccccccccccc}
+\toprule
+\textbf{Valori Ordinati} & \multicolumn{11}{c}{(60, No), (70, No), (75, No), (85, Yes), (90, Yes), (95, Yes), (100, No), (120, No), (125, No), (220, No)} \\
+\midrule
+\textbf{Soglia Candidata ($v$)} & \textbf{55} & \textbf{65} & \textbf{72} & \textbf{80} & \textbf{87} & \textbf{92} & \textbf{97} & \textbf{110} & \textbf{122} & \textbf{172} & \textbf{230} \\
+\midrule
+$\le v$ (Defaulted = Yes) & 0 & 0 & 0 & 0 & 1 & 2 & \textbf{3} & 3 & 3 & 3 & 3 \\
+$\le v$ (Defaulted = No)  & 0 & 1 & 2 & 3 & 3 & 3 & \textbf{3} & 4 & 5 & 6 & 7 \\
+$> v$ (Defaulted = Yes)   & 3 & 3 & 3 & 3 & 2 & 1 & \textbf{0} & 0 & 0 & 0 & 0 \\
+$> v$ (Defaulted = No)    & 7 & 6 & 5 & 4 & 4 & 4 & \textbf{4} & 3 & 2 & 1 & 0 \\
+\midrule
+$GINI_{\text{split}}$ & 0.420 & 0.400 & 0.375 & 0.343 & 0.417 & 0.400 & \textbf{0.300} & 0.343 & 0.375 & 0.400 & 0.420 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Dall'ispezione della Tabella~\ref{tab:dm-continuous-split-trace} emerge con evidenza che il minimo valore di impurità ($GINI_{\text{split}} = 0.300$) viene raggiunto alla soglia $v = 97$, che isola perfettamente tutti e tre i casi positivi di insolvenza nel sottoinsieme $\le 97\text{K}$.
+
+% ====================================================================
+\FloatBarrier
+\section{Misure di Impurità e Selezione dello Split Ottimale}
+\label{sec:dm-impurity-measures}
+
+Per selezionare in modo formale la migliore condizione di test tra tutti i candidati ammissibili, l'algoritmo di induzione adotta il \textbf{principio di massima purezza}: si predilige la condizione che produce partizioni figlie quanto più omogenee possibili rispetto alla distribuzione delle classi target.
+
+\FloatBarrier
+\subsection{Formulazione Generale delle Misure di Impurità}
+\label{subsec:dm-impurity-formulations}
+
+Sia $t$ un generico nodo dell'albero e sia $p(j \mid t)$ la frazione relativa di record appartenenti alla classe $j \in \{1, \dots, n_c\}$ presenti in $t$:
+\begin{equation}
+    p(j \mid t) = \frac{|\{\mathbf{x} \in \mathcal{D}_t \mid y = c_j\}|}{|\mathcal{D}_t|}, \quad \text{con } \sum_{j=1}^{n_c} p(j \mid t) = 1
+\end{equation}
+
+Le tre funzioni matematiche fondamentali impiegate in letteratura sono:
+\begin{enumerate}
+    \item \textbf{Indice di Gini (\textit{Gini Index}):}
+    \begin{equation}
+        GINI(t) = 1 - \sum_{j=1}^{n_c} [p(j \mid t)]^2
+    \end{equation}
+    Nel caso binario ($n_c = 2$, con probabilità di classe $p$ e $1-p$), la formula si semplifica analiticamente:
+    \begin{align}
+        GINI(t) &= 1 - p^2 - (1-p)^2 \nonumber \\
+        &= 1 - p^2 - (1 - 2p + p^2) \nonumber \\
+        &= 2p - 2p^2 = 2p(1-p)
+    \end{align}
+    L'indice di Gini assume valore minimo pari a $0.0$ quando il nodo è puro ($p=0$ o $p=1$), e valore massimo pari a $\left(1 - \frac{1}{n_c}\right)$ (ossia $0.5$ per problemi binari) quando le classi sono equidistribuite.
+    
+    \item \textbf{Entropia di Shannon (\textit{Entropy}):}
+    \begin{equation}
+        Entropy(t) = -\sum_{j=1}^{n_c} p(j \mid t) \log_2 p(j \mid t)
+    \end{equation}
+    con la convenzione analitica $0 \log_2 0 = 0$. L'entropia misura il grado di incertezza o disordine informativo presente nel nodo. Varia tra un minimo di $0.0$ (massima purezza) e un massimo di $\log_2(n_c)$ (massima incertezza; pari a $1.0$ bit nel caso binario con $p = 0.5$).
+    
+    \item \textbf{Errore di Classificazione (\textit{Misclassification Error}):}
+    \begin{equation}
+        Error(t) = 1 - \max_{1 \le j \le n_c} p(j \mid t)
+    \end{equation}
+    Rappresenta la frazione di record che verrebbero classificati erroneamente qualora al nodo venisse assegnata la classe maggioritaria. Varia tra $0.0$ (nodo puro) e $\left(1 - \frac{1}{n_c}\right)$ ($0.5$ nel caso binario).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Valutazione dello Split e Criterio del Massimo Guadagno}
+\label{subsec:dm-split-evaluation}
+
+Quando un nodo genitore $p$ contenente $n$ record viene suddiviso da una condizione di test in $k$ nodi figli $\{v_1, \dots, v_k\}$, ciascuno contenente $n_i$ record ($\sum_{i=1}^k n_i = n$), l'impurità complessiva post-split è calcolata come la \textbf{media ponderata} delle impurità dei singoli figli:
+\begin{equation}
+    I_{\text{split}} = \sum_{i=1}^k \frac{n_i}{n} I(v_i)
+\end{equation}
+dove $I(\cdot)$ può essere indifferentemente l'indice di Gini, l'Entropia o l'Errore di classificazione.
+
+Il \textbf{Guadagno di Purezza} (\textit{Gain}) ottenuto dallo split è definito come la differenza tra l'impurità del nodo padre prima dello split e l'impurità pesata dei nodi figli:
+\begin{equation}
+    \Delta = Gain = I(p) - I_{\text{split}} = I(p) - \sum_{i=1}^k \frac{n_i}{n} I(v_i)
+\end{equation}
+Poiché l'impurità del genitore $I(p)$ è invariante rispetto alle diverse condizioni di test candidate, massimizzare il guadagno $\Delta$ equivale esattamente a \textbf{minimizzare l'impurità pesata $I_{\text{split}}$}.
+
+\begin{example}[Calcolo del Guadagno di Gini su Split Binario]
+Si consideri un nodo padre con $n = 12$ record distribuito come $(C_1: 7, \; C_2: 5)$. L'indice di Gini del genitore è:
+\begin{equation}
+    GINI(p) = 1 - \left(\frac{7}{12}\right)^2 - \left(\frac{5}{12}\right)^2 = 1 - \frac{49}{144} - \frac{25}{144} = \frac{70}{144} \approx 0.4861
+\end{equation}
+Uno split binario genera due figli:
+\begin{itemize}
+    \item Figlio $N_1$ ($n_1 = 6$, distribuzione $C_1: 5, C_2: 1$):
+    \begin{equation}
+        GINI(N_1) = 1 - \left(\frac{5}{6}\right)^2 - \left(\frac{1}{6}\right)^2 = 1 - \frac{25}{36} - \frac{1}{36} = \frac{10}{36} \approx 0.2778
+    \end{equation}
+    \item Figlio $N_2$ ($n_2 = 6$, distribuzione $C_1: 2, C_2: 4$):
+    \begin{equation}
+        GINI(N_2) = 1 - \left(\frac{2}{6}\right)^2 - \left(\frac{4}{6}\right)^2 = 1 - \frac{4}{36} - \frac{16}{36} = \frac{16}{36} \approx 0.4444
+    \end{equation}
+\end{itemize}
+L'impurità complessiva post-split e il relativo guadagno risultano:
+\begin{align}
+    GINI_{\text{split}} &= \frac{6}{12}(0.2778) + \frac{6}{12}(0.4444) = 0.1389 + 0.2222 = 0.3611 \\
+    Gain &= 0.4861 - 0.3611 = 0.1250
+\end{align}
+\end{example}
+
+\FloatBarrier
+\subsection{Il Problema del Sovra-Partizionamento e il Gain Ratio}
+\label{subsec:dm-gain-ratio}
+
+L'applicazione standard dell'\textbf{Information Gain} basato sull'Entropia (adottato originariamente da ID3~\cite{quinlan1986}):
+\begin{equation}
+    GAIN_{\text{split}} = Entropy(p) - \sum_{i=1}^k \frac{n_i}{n} Entropy(v_i)
+\end{equation}
+presenta un gravissimo difetto strutturale: \textbf{privilegia sistematicamente attributi dotati di un numero elevato di valori distinti}.
+
+\subsubsection{Il Paradosso dell'Attributo Identificativo (\textit{Customer ID})}
+Si consideri un dataset di $N = 20$ clienti con attributo di classe binario bilanciato $(C_0: 10, C_1: 10)$, la cui entropia del genitore è $Entropy(p) = -\frac{1}{2}\log_2\frac{1}{2} - \frac{1}{2}\log_2\frac{1}{2} = 1.0$.
+Se si effettua lo split sull'attributo $\text{Customer ID}$, l'albero genera $k = 20$ rami figli $c_1, \dots, c_{20}$, ciascuno contenente esattamente un singolo record:
+\begin{itemize}
+    \item Per ogni figlio $i$, essendovi un solo elemento, la frequenza relativa della sua classe è $1.0$, da cui $Entropy(c_i) = -1 \log_2 1 = 0$;
+    \item L'entropia post-split collassa a zero: $\sum_{i=1}^{20} \frac{1}{20}(0) = 0$;
+    \item Il guadagno informativo è massimale: $GAIN = 1.0 - 0 = 1.0$.
+\end{itemize}
+Tuttavia, un simile modello è totalmente privo di capacità predittiva: ogni futuro cliente nel test set avrà un identificativo mai osservato prima, rendendo l'albero incapace di generalizzare.
+
+\subsubsection{Soluzioni Architetturali: CART vs C4.5}
+Per contrastare questa patologia si adottano due differenti strategie:
+\begin{enumerate}
+    \item \textbf{Vincolo Binario Stretto (CART):} impone a priori che ogni split generi esattamente due figli ($k=2$), eliminando alla radice l'esplosione delle ramificazioni.
+    \item \textbf{Penalizzazione dell'Entropia della Partizione (\textit{Gain Ratio} in C4.5):} Quinlan~\cite{quinlan1993} ha introdotto una normalizzazione del guadagno informativo mediante la misura \textbf{Split Information} ($SplitINFO$), che quantifica l'entropia intrinseca della suddivisione dei record:
+    \begin{equation}
+        SplitINFO = -\sum_{i=1}^k \frac{n_i}{n} \log_2\left(\frac{n_i}{n}\right)
+    \end{equation}
+    Il criterio di selezione ottimale diventa il \textbf{Gain Ratio}:
+    \begin{equation}
+        GainRATIO_{\text{split}} = \frac{GAIN_{\text{split}}}{SplitINFO}
+    \end{equation}
+\end{enumerate}
+
+Se uno split genera un numero elevato di frammenti di piccolissime dimensioni, il valore di $SplitINFO$ cresce proporzionalmente a $\log_2(k)$ (nel caso di $Customer ID$, $SplitINFO = -\sum_{i=1}^{20} \frac{1}{20}\log_2(1/20) = \log_2(20) \approx 4.32$ bit), penalizzando drasticamente il rapporto finale e scartando la condizione di test degenerata.
+
+\FloatBarrier
+\subsection{Confronto Teorico e Sensibilità delle Misure di Impurità}
+\label{subsec:dm-impurity-comparison}
+
+La \autoref{fig:dm-impurity-curves} mette a confronto il comportamento geometrico delle tre misure al variare della proporzione $p \in [0, 1]$ della classe $C_1$ in un contesto binario ($n_c = 2$). Per consentire un confronto visivo diretto sulla medesima scala, l'entropia viene normalizzata dividendola per due ($0.5 \times Entropy$).
+
+\begin{figure}[H]
+\centering
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Griglia e assi
+    \draw[help lines, dashed, gray!30] (0,0) grid[xstep=1, ystep=1] (8,5);
+    \draw[->, line width=1pt] (0,0) -- (8.5,0) node[right, font=\small] {$p$ (Probabilit\`a classe $C_1$)};
+    \draw[->, line width=1pt] (0,0) -- (0,5.5) node[above, font=\small] {Impurit\`a};
+
+    % Ticks asse X
+    \foreach \x/\val in {0/0, 2/0.25, 4/0.5, 6/0.75, 8/1.0} {
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\footnotesize] {\val};
+    }
+    % Ticks asse Y
+    \foreach \y/\val in {0/0, 2.5/0.25, 5/0.5} {
+        \draw (0.1, \y) -- (-0.1, \y) node[left, font=\footnotesize] {\val};
+    }
+
+    % 1. Indice di Gini: 2*p*(1-p) * 10
+    \draw[line width=1.5pt, navy, domain=0:8, samples=50] plot (\x, {20*(\x/8)*(1 - \x/8)});
+
+    % 2. Entropia Scalata
+    \draw[line width=1.5pt, crimson, dashed, domain=0.01:7.99, samples=50] 
+        plot (\x, {-5 * ( (\x/8)*ln(\x/8)/ln(2) + (1 - \x/8)*ln(1 - \x/8)/ln(2) )});
+
+    % 3. Misclassification error: rette spezzate da (0,0) a (4,5) a (8,0)
+    \draw[line width=1.5pt, darkgreen, dotted] (0,0) -- (4,5) -- (8,0);
+
+    % Legenda
+    \node[draw=navy!30, fill=codebackground, rounded corners=3pt, anchor=north east, font=\footnotesize] at (8, 5.2) {
+        \begin{tabular}{ll}
+            \tikz\draw[line width=1.2pt, navy] (0,0) -- (0.5,0); & Indice di Gini ($2p(1-p)$) \\
+            \tikz\draw[line width=1.2pt, crimson, dashed] (0,0) -- (0.5,0); & Entropia scalata ($0.5 \times H$) \\
+            \tikz\draw[line width=1.2pt, darkgreen, dotted] (0,0) -- (0.5,0); & Errore di classificazione \\
+        \end{tabular}
+    };
+\end{tikzpicture}%
+}
+\caption{Confronto geometrico tra le funzioni di impurità: Entropia scalata, Indice di Gini ed Errore di Classificazione nel caso binario. Si noti il profilo triangolare non differenziabile dell'errore di classificazione in $p=0.5$ a fronte della concavità stretta di Gini ed Entropia.}
+\label{fig:dm-impurity-curves}
+\end{figure}
+
+Dall'analisi teorica emergono considerazioni cruciali:
+\begin{itemize}
+    \item \textbf{Consistenza d'ordine locale:} se un nodo $A$ possiede un'entropia inferiore a quella di un nodo $B$, allora anche il suo indice di Gini e il suo errore di classificazione risulteranno inferiori a quelli di $B$.
+    \item \textbf{Discrepanza nella selezione globale dello split:} pur essendo tra loro concordi sulla purezza di un singolo nodo, le tre funzioni possono identificare attributi differenti come migliori candidati allo split a causa della diversa ponderazione convessa sui nodi figli.
+    \item \textbf{Minore Sensibilità dell'Errore di Classificazione:} a causa della sua natura lineare a tratti e della presenza di un punto angoloso non differenziabile in $p = 0.5$, l'errore di classificazione non riesce frequentemente a discriminare tra configurazioni di split radicalmente differenti.
+\end{itemize}
+
+\begin{example}[Dimostrazione Formale della Cecità dell'Errore di Classificazione]
+Si consideri un nodo padre $p$ contenente 10 record con distribuzione $(C_1: 7, C_2: 3)$. L'errore di classificazione e l'indice di Gini del genitore sono:
+\begin{equation}
+    Error(p) = 1 - \frac{7}{10} = 0.300, \qquad GINI(p) = 1 - (0.7)^2 - (0.3)^2 = 0.420
+\end{equation}
+Confrontiamo due possibili split binari concorrenti:
+\begin{enumerate}
+    \item \textbf{Split A}: genera i figli $N_1 (C_1: 3, C_2: 0)$ con $n_1 = 3$ e $N_2 (C_1: 4, C_2: 3)$ con $n_2 = 7$.
+    \begin{align}
+        Error_{\text{split}} &= \frac{3}{10}\left(1 - \frac{3}{3}\right) + \frac{7}{10}\left(1 - \frac{4}{7}\right) = 0.300 \\
+        GINI_{\text{split}} &= \frac{3}{10}(0) + \frac{7}{10}\left(1 - \frac{16}{49} - \frac{9}{49}\right) \approx 0.3429
+    \end{align}
+    \item \textbf{Split B}: genera i figli $N_3 (C_1: 3, C_2: 1)$ con $n_3 = 4$ e $N_4 (C_1: 4, C_2: 2)$ con $n_4 = 6$.
+    \begin{align}
+        Error_{\text{split}} &= \frac{4}{10}\left(1 - \frac{3}{4}\right) + \frac{6}{10}\left(1 - \frac{4}{6}\right) = 0.300 \\
+        GINI_{\text{split}} &= \frac{4}{10}\left(1 - \frac{9}{16} - \frac{1}{16}\right) + \frac{6}{10}\left(1 - \frac{16}{36} - \frac{4}{36}\right) \nonumber \\
+        &\approx \frac{4}{10}(0.375) + \frac{6}{10}(0.4444) \approx 0.4167
+    \end{align}
+\end{enumerate}
+\textbf{Conclusione:} dal punto di vista dell'errore di classificazione, entrambi gli split presentano lo stesso valore $0.300$ (pari a quello del genitore, con guadagno nullo $Gain = 0$). L'errore di classificazione non rileva alcun vantaggio. Al contrario, l'indice di Gini premia nettamente lo Split A ($0.3429 < 0.4167$), riconoscendo che esso isola un sottoinsieme completamente puro ($N_1$). Per questa ragione, algoritmi come CART e C4.5 rigettano l'errore di classificazione come criterio di crescita dell'albero, preferendo funzioni strettamente concave come Gini ed Entropia.
+\end{example}
+
+La Tabella~\ref{tab:dm-impurity-measures-summary} riassume sinotticamente le proprietà matematiche delle metriche introdotte.
+
+\begin{table}[H]
+\centering
+\caption{Confronto sinottico tra le misure di impurità per l'induzione di alberi di decisione.}
+\label{tab:dm-impurity-measures-summary}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Caratteristica} & \textbf{Indice di Gini} & \textbf{Entropia di Shannon} & \textbf{Gain Ratio} & \textbf{Classification Error} \\
+\midrule
+\textbf{Formulazione} & $1 - \sum_j p_j^2$ & $-\sum_j p_j \log_2 p_j$ & $\frac{Gain}{SplitINFO}$ & $1 - \max_j p_j$ \\
+\textbf{Valore Minimo} & $0.0$ (Massima purezza) & $0.0$ (Massima purezza) & $0.0$ (Nessun guadagno) & $0.0$ (Massima purezza) \\
+\textbf{Valore Massimo} & $1 - 1/n_c$ ($0.5$ binario) & $\log_2(n_c)$ ($1.0$ binario) & Variabile & $1 - 1/n_c$ ($0.5$ binario) \\
+\textbf{Proprietà Geometriche} & Strettamente concava, liscia & Strettamente concava, liscia & Rapporto di entropie & Concava, non derivabile in 0.5 \\
+\textbf{Sensibilità alle Purezze} & Molto elevata & Molto elevata & Molto elevata & Debole (gradini costanti) \\
+\textbf{Algoritmi Tipici} & CART, SLIQ, SPRINT & ID3 & C4.5, C5.0 & Usato per pruning/eval \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

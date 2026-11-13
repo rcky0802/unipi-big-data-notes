@@ -1,0 +1,1048 @@
+% ====================================================================
+% CAPITOLO 23: METODI ENSEMBLE, RETI NEURALI ARTIFICIALI E BACKPROPAGATION
+% ====================================================================
+\chapter{Metodi Ensemble, Reti Neurali Artificiali e Backpropagation}
+\label{chap:dm-ensemble-neural-networks}
+
+Il presente capitolo approfondisce due delle famiglie algoritmiche più potenti e diffuse nell'ambito dell'apprendimento supervisionato: i \textbf{Metodi Ensemble} (\textit{Ensemble Methods}) e le \textbf{Reti Neurali Artificiali} (\textit{Artificial Neural Networks}, ANN) addestrate tramite l'algoritmo di retropropagazione dell'errore (\textit{Backpropagation})~\cite{tan2018}. Nella terza parte viene presentata una trattazione analitica passo-passo di un ciclo completo di addestramento su una rete multistrato.
+
+% ====================================================================
+% PARTE I: METODI ENSEMBLE
+% ====================================================================
+\FloatBarrier
+\section{Architettura Generale e Fondamenti Teorici degli Ensemble}
+\label{sec:dm-ensemble-foundations}
+
+I metodi ensemble costituiscono un paradigma di machine learning finalizzato a elevare l'accuratezza predittiva combinando le decisioni prodotte da una pluralità di modelli di base (\textit{base classifiers} o \textit{weak learners})~\cite{tan2018}. Invece di selezionare un singolo classificatore ottimo, l'approccio ensemble costruisce una coalizione di modelli a partire dai dati di addestramento e formula la decisione finale attraverso un meccanismo di aggregazione o voto.
+
+\FloatBarrier
+\subsection{Flusso Operativo e Principio della Saggezza della Folla}
+\label{subsec:dm-ensemble-workflow}
+
+Il processo di induzione e inferenza di un ensemble si articola in tre macro-stadi sequenziali, illustrati nello schema di \autoref{fig:dm-ensemble-architecture}:
+\begin{enumerate}
+    \item \textbf{Generazione di Dataset Multipli:} a partire dal dataset originario $\mathcal{D}$ di cardinalità $N$, vengono generati $T$ sottoinsiemi di training $\mathcal{D}_1, \mathcal{D}_2, \dots, \mathcal{D}_T$ mediante opportune procedure di campionamento o perturbazione;
+    \item \textbf{Induzione dei Classificatori di Base:} su ciascun dataset $\mathcal{D}_t$ viene addestrato in modo indipendente o sequenziale un classificatore di base $C_t$ ($t = 1, \dots, T$);
+    \item \textbf{Aggregazione delle Decisioni:} per ogni record non etichettato $\mathbf{x}$, le predizioni individuali $C_1(\mathbf{x}), \dots, C_T(\mathbf{x})$ vengono composte mediante voto a maggioranza (semplice o pesato) o media probabilistica, producendo il classificatore ensemble finale $C^*(\mathbf{x})$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=3pt, line width=1pt, align=center, inner sep=6pt, font=\small},
+    proc/.style={draw=darkgreen, fill=darkgreen!10, rounded corners=3pt, line width=1pt, align=center, inner sep=6pt, font=\small},
+    comb/.style={draw=crimson, fill=crimson!10, rounded corners=3pt, line width=1.2pt, align=center, inner sep=8pt, font=\bfseries\small},
+    arrow/.style={->, >=stealth, line width=1pt, color=navy}
+]
+    % Dataset originale
+    \node[box] (orig) at (0, 0) {\textbf{Dataset Originale $\mathcal{D}$}\\($N$ record, $d$ attributi)};
+
+    % Dataset derivati
+    \node[proc] (d1) at (4, 2.2) {Dataset $\mathcal{D}_1$};
+    \node[proc] (d2) at (4, 0.9) {Dataset $\mathcal{D}_2$};
+    \node (ddot) at (4, -0.1) {$\vdots$};
+    \node[proc] (dt) at (4, -1.5) {Dataset $\mathcal{D}_T$};
+
+    % Classificatori
+    \node[proc] (c1) at (7.5, 2.2) {Classificatore $C_1$};
+    \node[proc] (c2) at (7.5, 0.9) {Classificatore $C_2$};
+    \node (cdot) at (7.5, -0.1) {$\vdots$};
+    \node[proc] (ct) at (7.5, -1.5) {Classificatore $C_T$};
+
+    % Combinazione
+    \node[comb] (ens) at (11.5, 0.35) {Combinatore Ensemble\\$C^*(\mathbf{x}) = \text{Aggreg}(\{C_t(\mathbf{x})\})$};
+
+    % Connessioni
+    \draw[arrow] (orig.east) -- ++(0.7,0) |- (d1.west);
+    \draw[arrow] (orig.east) -- ++(0.7,0) |- (d2.west);
+    \draw[arrow] (orig.east) -- ++(0.7,0) |- (dt.west);
+
+    \draw[arrow] (d1.east) -- (c1.west) node[midway, above, font=\scriptsize] {Train};
+    \draw[arrow] (d2.east) -- (c2.west) node[midway, above, font=\scriptsize] {Train};
+    \draw[arrow] (dt.east) -- (ct.west) node[midway, above, font=\scriptsize] {Train};
+
+    \draw[arrow] (c1.east) -| ++(0.7,0) |- ([yshift=6pt]ens.west);
+    \draw[arrow] (c2.east) -| ++(0.7,0) |- ([yshift=2pt]ens.west);
+    \draw[arrow] (ct.east) -| ++(0.7,0) |- ([yshift=-6pt]ens.west);
+
+    % Fasi sotto
+    \node[font=\footnotesize\bfseries, color=navy] at (4, -2.4) {Passo 1: Generazione Dati};
+    \node[font=\footnotesize\bfseries, color=darkgreen] at (7.5, -2.4) {Passo 2: Induzione Modelli};
+    \node[font=\footnotesize\bfseries, color=crimson] at (11.5, -2.4) {Passo 3: Aggregazione};
+\end{tikzpicture}%
+}
+\caption{Architettura computazionale a tre stadi di un sistema di classificazione ensemble.}
+\label{fig:dm-ensemble-architecture}
+\end{figure}
+
+Il successo teorico dei metodi ensemble risiede nel principio della cosiddetta \textbf{Saggezza della Folla} (\textit{Wisdom of Crowd}) trasposto nell'apprendimento automatico: combinare le predizioni di agenti eterogenei e indipendenti produce una stima statisticamente superiore a quella del miglior singolo componente. A differenza di una folla umana disorganizzata, il machine learning sfrutta i dati supervisionati per garantire due condizioni essenziali:
+\begin{itemize}
+    \item \textbf{Accuratezza Individuale Superiore al Caso:} ciascun classificatore di base deve possedere una probabilità di errore $e < 0.5$;
+    \item \textbf{Diversità ed Indipendenza degli Errori:} i classificatori devono formulare errori non correlati, affinché gli sbagli individuali vengano neutralizzati dalla maggioranza concorde.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Analisi Matematica del Voto a Maggioranza}
+\label{subsec:dm-majority-voting-math}
+
+Consideriamo un comitato di $T = 25$ classificatori binari indipendenti, ciascuno avente la medesima probabilità di commettere un errore di classificazione pari a $e$. L'ensemble assegna la classe mediante voto a maggioranza (\textit{majority voting}), commettendo un errore globale se e solo se almeno la metà più uno dei classificatori (ossia almeno $13$ modelli su $25$) fallisce contemporaneamente.
+
+Distinguiamo due regimi asintotici fondamentali:
+\begin{enumerate}
+    \item \textbf{Classificatori Perfettamente Correlati (Identici):} Se tutti i $25$ classificatori sono identici, essi condividono le medesime superfici di separazione. Quando uno sbaglia, tutti gli altri sbagliano simultaneamente. Di conseguenza, l'errore dell'ensemble coincide con l'errore del singolo:
+    \begin{equation}
+        P_{\text{ens}}(\text{identici}) = e
+    \end{equation}
+    Il voto a maggioranza tra copie identiche non apporta alcun beneficio informativo.
+
+    \item \textbf{Classificatori Mutuamente Indipendenti:} Assumendo che gli eventi di errore dei $25$ classificatori siano statisticamente indipendenti, il numero di modelli errati $K$ segue una distribuzione binomiale $\text{Bin}(T=25, e)$. La probabilità che l'ensemble fallisca è data dalla coda della distribuzione binomiale:
+    \begin{equation}
+        P_{\text{ens}}(e) = \sum_{k=13}^{25} \binom{25}{k} e^k (1 - e)^{25 - k}
+        \label{eq:dm-ensemble-binomial-error}
+    \end{equation}
+\end{enumerate}
+
+\begin{example}[Abbattimento dell'Errore per $e = 0.35$]
+Supponiamo che ogni singolo classificatore di base sia modesto ma migliore del caso casuale, con un tasso di errore $e = 0.35$ ($35\%$). Applicando l'equazione~(\ref{eq:dm-ensemble-binomial-error}) per $T = 25$:
+\begin{align}
+    P_{\text{ens}} &= \sum_{k=13}^{25} \binom{25}{k} (0.35)^k (0.65)^{25 - k} \nonumber \\
+    &= \binom{25}{13} (0.35)^{13} (0.65)^{12} + \dots + (0.35)^{25} \approx 0.060
+\end{align}
+Il tasso di errore crolla drasticamente dal $35\%$ al \textbf{$6.0\%$}, testimoniando il potere di riduzione della varianza del voto a maggioranza.
+\end{example}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.8\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Griglia e assi
+    \draw[help lines, dashed, gray!30] (0,0) grid[xstep=1, ystep=1] (5,5);
+    \draw[->, line width=1pt] (0,0) -- (5.5,0) node[right, font=\small] {Errore Classificatore di Base ($e$)};
+    \draw[->, line width=1pt] (0,0) -- (0,5.5) node[above, font=\small] {Errore Ensemble ($P_{\text{ens}}$)};
+
+    % Ticks assi
+    \foreach \x/\val in {0/0.0, 1/0.2, 2/0.4, 2.5/0.5, 3/0.6, 4/0.8, 5/1.0} {
+        \draw (\x, 0.08) -- (\x, -0.08) node[below, font=\footnotesize] {\val};
+    }
+    \foreach \y/\val in {0/0.0, 1/0.2, 2/0.4, 2.5/0.5, 3/0.6, 4/0.8, 5/1.0} {
+        \draw (0.08, \y) -- (-0.08, \y) node[left, font=\footnotesize] {\val};
+    }
+
+    % Diagonale y = x (Classificatori identici)
+    \draw[dashed, navy, line width=1.2pt] (0,0) -- (5,5) node[pos=0.85, above left, font=\footnotesize] {Identici: $P=e$};
+
+    % Curva Voto Indipendente (S-curve binomiale)
+    \draw[crimson, line width=1.5pt] plot[smooth] coordinates {
+        (0.0, 0.0)
+        (0.5, 0.0001)
+        (1.0, 0.002)
+        (1.5, 0.02)
+        (1.75, 0.06)
+        (2.0, 0.15)
+        (2.5, 2.5)
+        (3.0, 3.85)
+        (3.25, 4.4)
+        (3.5, 4.8)
+        (4.0, 4.98)
+        (4.5, 4.999)
+        (5.0, 5.0)
+    };
+    \node[crimson, font=\footnotesize\bfseries] at (3.8, 3.2) {25 Classificatori Indipendenti};
+
+    % Punto di flesso (0.5, 0.5)
+    \filldraw[black] (2.5, 2.5) circle (2.5pt) node[above left, font=\scriptsize] {Punto Critico $(0.5, 0.5)$};
+    \draw[dotted, black, line width=0.8pt] (2.5, 0) -- (2.5, 2.5) -- (0, 2.5);
+\end{tikzpicture}%
+}
+\caption{Confronto tra l'errore del classificatore di base e l'errore dell'ensemble al variare del grado di indipendenza ($T=25$).}
+\label{fig:dm-majority-voting-curve}
+\end{figure}
+
+L'analisi del grafico di \autoref{fig:dm-majority-voting-curve} evidenzia il comportamento asintotico del voto a maggioranza in funzione della qualità dei singoli classificatori:
+\begin{itemize}
+    \item \textbf{Regime Favorevole ($e < 0.5$):} Ciascun classificatore formula una risposta corretta con probabilità maggiore rispetto a una errata. Il voto a maggioranza amplifica la probabilità di successo, schiacciando la curva dell'ensemble ben al di sotto della diagonale identica ($P_{\text{ens}} \ll e$).
+    \item \textbf{Punto di Flesso Neutro ($e = 0.5$):} Se i classificatori operano a livello puramente casuale, l'aggregazione non può estrarre alcuna informazione strutturale: $P_{\text{ens}} = 0.5$.
+    \item \textbf{Regime Catastrofico ($e > 0.5$):} Se i classificatori falliscono più del $50\%$ delle volte, il voto a maggioranza indipendentemente amplifica l'errore sistematico, producendo prestazioni drammaticamente peggiori rispetto a quelle dei singoli componenti ($P_{\text{ens}} > e$).
+\end{itemize}
+
+\FloatBarrier
+\subsection{Tassonomia dei Metodi Ensemble}
+\label{subsec:dm-ensemble-taxonomy}
+
+Per garantire che i classificatori di base commettano errori non correlati, le metodologie ensemble operano introducendo perturbazioni mirate nei diversi componenti del processo di addestramento:
+\begin{enumerate}
+    \item \textbf{Manipolazione della Distribuzione dei Record:} Si modificano le probabilità di estrazione o i pesi assegnati alle istanze di training. Le tecniche cardine sono il \textbf{Bagging} (estrazione casuale con reinserimento) e il \textbf{Boosting} (pesatura adattiva guidata dagli errori);
+    \item \textbf{Manipolazione dello Spazio delle Caratteristiche (\textit{Feature Subsampling}):} Ciascun modello riceve in ingresso un sottoinsieme casuale dei predittori, rompendo le correlazioni spurie indotte da attributi dominanti (meccanismo fondante delle \textbf{Random Forests});
+    \item \textbf{Manipolazione delle Etichette di Classe (\textit{Output Coding}):} In problemi a molte classi, si converte il problema multiclasse in molteplici sottoproblemi binari mediante matrici di codifica ridondanti a correzione d'errore (\textit{Error-Correcting Output Codes}, ECOC).
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier
+\section{Bagging (\textit{Bootstrap Aggregating})}
+\label{sec:dm-bagging}
+
+Proposto da Leo Breiman nel 1996~\cite{breiman1996bagging}, il \textbf{Bagging} (\textit{Bootstrap AGGregatING}) è un algoritmo ensemble non sequenziale basato sulla teoria statistica del campionamento bootstrap.
+
+\FloatBarrier
+\subsection{Campionamento Bootstrap, Algoritmo e Proprietà Out-Of-Bag}
+\label{subsec:dm-bootstrap-theory}
+
+Dato un dataset di addestramento $\mathcal{D}$ composto da $n$ osservazioni, una replica bootstrap $\mathcal{D}_i$ è generata effettuando $n$ estrazioni casuali \textbf{con reinserimento} (\textit{sampling with replacement}) da $\mathcal{D}$. Ciascuna replica possiede la medesima cardinalità $n$ del dataset originario; tuttavia, a causa del reinserimento, alcune istanze originali compariranno ripetute più volte, mentre altre verranno escluse.
+
+\begin{definition}[Algoritmo di Bagging]
+Fissato il numero $k$ di repliche bootstrap da istanziare:
+\begin{enumerate}
+    \item Per $i = 1, \dots, k$:
+    \begin{itemize}
+        \item Si estrae un campione bootstrap $\mathcal{D}_i$ di dimensione $n$ con reinserimento da $\mathcal{D}$;
+        \item Si addestra il classificatore di base $C_i$ sul campione $\mathcal{D}_i$.
+    \end{itemize}
+    \item In fase di inferenza su un'istanza non etichettata $\mathbf{x}$, la predizione finale $C^*(\mathbf{x})$ è determinata dal voto a maggioranza non ponderato:
+    \begin{equation}
+        C^*(\mathbf{x}) = \arg\max_{y \in \mathcal{Y}} \sum_{i=1}^k \delta\big(C_i(\mathbf{x}) = y\big)
+    \end{equation}
+    dove $\delta(\cdot)$ indica la funzione indicatrice booleana.
+\end{enumerate}
+\end{definition}
+
+\begin{theorem}[Frazione Asintotica Out-Of-Bag]
+La probabilità che una specifica istanza $x \in \mathcal{D}$ non venga mai estratta in un singolo round di $n$ estrazioni indipendenti con reinserimento converge asintoticamente a:
+\begin{equation}
+    P(\text{Esclusa}) = \left(1 - \frac{1}{n}\right)^n \xrightarrow{n \to \infty} \frac{1}{e} \approx 0.368 = 36.8\%
+\end{equation}
+Di conseguenza, ogni campione bootstrap contiene in media il $63.2\%$ delle istanze uniche di $\mathcal{D}$, lasciando un restante $36.8\%$ di campioni non utilizzati, denominati campioni \textbf{Out-Of-Bag} (OOB).
+\end{theorem}
+
+L'insieme OOB associato a ciascun classificatore $C_i$ funge da test set naturale: valutando ogni record unicamente sui modelli nei cui campioni bootstrap non compare, è possibile stimare l'errore di generalizzazione dell'ensemble in modo non distorto senza dover sacrificare dati per un validation set separato.
+
+\FloatBarrier
+\subsection{Esempio Completo di Bagging su Dataset Monodimensionale}
+\label{subsec:dm-bagging-example}
+
+Per chiarire il meccanismo con cui il bagging modella superfici decisionali complesse, consideriamo il problema didattico monodimensionale riportato nella Tabella~\ref{tab:dm-bagging-dataset}, composto da $n = 10$ punti $X \in [0.1, 1.0]$ con etichette binarie $y \in \{+1, -1\}$~\cite{tan2018}.
+
+\begin{table}[H]
+\centering
+\caption{Dataset didattico monodimensionale con etichette binarie $y \in \{+1, -1\}$.}
+\label{tab:dm-bagging-dataset}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccccc}
+\toprule
+\textbf{Coordinata $X$} & \textbf{0.1} & \textbf{0.2} & \textbf{0.3} & \textbf{0.4} & \textbf{0.5} & \textbf{0.6} & \textbf{0.7} & \textbf{0.8} & \textbf{0.9} & \textbf{1.0} \\
+\midrule
+\textbf{Classe Reale $y$} & $+1$ & $+1$ & $+1$ & $-1$ & $-1$ & $-1$ & $-1$ & $+1$ & $+1$ & $+1$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Il classificatore di base prescelto è un \textbf{decision stump} (albero a soglia singola a un solo livello), la cui regola decisionale ha la forma $x \le k \implies y_{\text{left}}$ e $x > k \implies y_{\text{right}}$. Nessun singolo decision stump può classificare correttamente questo dataset, poiché la regione centrale di classe $-1$ è racchiusa tra due regioni separate di classe $+1$: qualunque taglio lineare commetterà almeno 3 errori su 10.
+
+Eseguendo $10$ round di campionamento bootstrap e inducendo su ciascuno uno stump ottimo in termini di entropia, si ottengono i 10 classificatori descritti nella Tabella~\ref{tab:dm-bagging-stumps}.
+
+\begin{table}[H]
+\centering
+\caption{Specifiche dei 10 decision stump indotti sui rispettivi campioni bootstrap.}
+\label{tab:dm-bagging-stumps}
+\vspace{2mm}
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tabular}{cccc}
+\toprule
+\textbf{Round ($i$)} & \textbf{Soglia di Split ($k$)} & \textbf{Ramo Sinistro ($x \le k$)} & \textbf{Ramo Destro ($x > k$)} \\
+\midrule
+1  & $0.35$ & $+1$ & $-1$ \\
+2  & $0.70$ & $+1$ & $+1$ \\
+3  & $0.35$ & $+1$ & $-1$ \\
+4  & $0.30$ & $+1$ & $-1$ \\
+5  & $0.35$ & $+1$ & $-1$ \\
+6  & $0.75$ & $-1$ & $+1$ \\
+7  & $0.75$ & $-1$ & $+1$ \\
+8  & $0.75$ & $-1$ & $+1$ \\
+9  & $0.75$ & $-1$ & $+1$ \\
+10 & $0.05$ & $+1$ & $+1$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+La Tabella~\ref{tab:dm-bagging-voting-trace} riporta la traccia completa delle predizioni emesse da ciascuno dei 10 modelli sulle 10 istanze originarie, la somma algebrica dei voti e la previsione aggregata $\text{sign}(\text{Sum})$.
+
+\begin{table}[H]
+\centering
+\caption{Matrice dei voti e classificazione finale dell'ensemble Bagging sui 10 record originali.}
+\label{tab:dm-bagging-voting-trace}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccccccccc}
+\toprule
+\textbf{Round} & \textbf{$x=0.1$} & \textbf{$x=0.2$} & \textbf{$x=0.3$} & \textbf{$x=0.4$} & \textbf{$x=0.5$} & \textbf{$x=0.6$} & \textbf{$x=0.7$} & \textbf{$x=0.8$} & \textbf{$x=0.9$} & \textbf{$x=1.0$} \\
+\midrule
+1  & $+1$ & $+1$ & $+1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ \\
+2  & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ \\
+3  & $+1$ & $+1$ & $+1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ \\
+4  & $+1$ & $+1$ & $+1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ \\
+5  & $+1$ & $+1$ & $+1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ \\
+6  & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $+1$ & $+1$ & $+1$ \\
+7  & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $+1$ & $+1$ & $+1$ \\
+8  & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $+1$ & $+1$ & $+1$ \\
+9  & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $+1$ & $+1$ & $+1$ \\
+10 & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ & $+1$ \\
+\midrule
+\textbf{Somma} & $\mathbf{+2}$ & $\mathbf{+2}$ & $\mathbf{+2}$ & $\mathbf{-6}$ & $\mathbf{-6}$ & $\mathbf{-6}$ & $\mathbf{-6}$ & $\mathbf{+2}$ & $\mathbf{+2}$ & $\mathbf{+2}$ \\
+\textbf{Predizione} & $\mathbf{+1}$ & $\mathbf{+1}$ & $\mathbf{+1}$ & $\mathbf{-1}$ & $\mathbf{-1}$ & $\mathbf{-1}$ & $\mathbf{-1}$ & $\mathbf{+1}$ & $\mathbf{+1}$ & $\mathbf{+1}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Risultato Fondamentale:} L'aggregazione Bagging raggiunge un'accuratezza del \textbf{$100\%$} (10 predizioni corrette su 10). La combinazione di modelli con tagli sinistri ($k \approx 0.35$) e tagli destri ($k \approx 0.75$) ha generato implicitamente una frontiera decisionale a intervallo chiuso $[0.35, 0.75]$, impossibile da rappresentare per un singolo decision stump.
+
+\FloatBarrier
+\subsection{Proprietà di Riduzione della Varianza e Limiti del Bagging}
+\label{subsec:dm-bagging-tradeoffs}
+
+I punti di forza e le criticità strutturali del Bagging possono essere così sintetizzati:
+\begin{itemize}
+    \item \textbf{Riduzione della Varianza:} Il bagging è straordinariamente efficace quando applicato a \textit{classificatori instabili} (quali alberi di decisione profondi e non potati), nei quali una lieve perturbazione nei dati di training genera una topologia ad albero radicalmente differente. L'aggregazione smussa le oscillazioni riducendo drasticamente la varianza dello stimatore;
+    \item \textbf{Parallelizzazione Massiva:} Poiché le $k$ repliche bootstrap sono generate a priori in modo indipendente, l'addestramento dei $k$ modelli può essere interamente distribuito in parallelo;
+    \item \textbf{Invarianza del Bias:} Il bagging non riduce la distorsione strutturale (\textit{bias}). Se i modelli di base sono eccessivamente semplificati o affetti da grave underfitting, l'ensemble erediterà l'incapacità di modellare pattern complessi;
+    \item \textbf{Perdita di Interpretabilità:} A fronte del guadagno in accuratezza, l'insieme di $k$ alberi cessa di essere facilmente ispezionabile rispetto a un singolo albero interpretabile.
+\end{itemize}
+
+% ====================================================================
+\FloatBarrier
+\section{Boosting e l'Algoritmo AdaBoost}
+\label{sec:dm-boosting-adaboost}
+
+A differenza del bagging, il \textbf{Boosting} è una procedura iterativa e adattiva ideata da Freund e Schapire~\cite{freund1997} per convertire una sequenza di classificatori deboli (*weak learners*) in un singolo predittore forte (*strong learner*).
+
+\FloatBarrier
+\subsection{Principio Iterativo del Boosting}
+\label{subsec:dm-boosting-principles}
+
+Nel boosting i classificatori di base vengono addestrati in modo strettamente \textbf{sequenziale}. A ogni istanza del training set è associato un peso numerico che indica il grado di criticità del record nel processo di apprendimento:
+\begin{itemize}
+    \item All'iterazione iniziale $t = 1$, a tutti gli $N$ record viene attribuito il medesimo peso uniforme $w_j^{(1)} = 1/N$;
+    \item Al termine del round $t$, le predizioni del classificatore corrente $C_t$ vengono verificate sui dati: i pesi delle istanze classificate \textbf{erroneamente} vengono \textbf{incrementati}, mentre quelli delle istanze classificate \textbf{correttamente} vengono \textbf{ridotti};
+    \item Il classificatore successivo $C_{t+1}$ sarà indotto su una distribuzione campionaria in cui i pattern precedentemente falliti risultano dominanti, forzando l'algoritmo a focalizzarsi sulle regioni più complesse dello spazio dei dati.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Formulazione Analitica di AdaBoost}
+\label{subsec:dm-adaboost-algorithm}
+
+L'algoritmo \textbf{AdaBoost} (\textit{Adaptive Boosting}) formalizza questo meccanismo impiegando un voto a maggioranza pesato in cui ciascun classificatore acquisisce un'influenza proporzionale alla propria accuratezza.
+
+Dati $N$ campioni $\{(\mathbf{x}_j, y_j)\}_{j=1}^N$ con etichette $y_j \in \{-1, +1\}$ e pesi normalizzati $\sum_{j=1}^N w_j^{(t)} = 1$:
+\begin{enumerate}
+    \item \textbf{Tasso di Errore Pesato ($\epsilon_t$):} Misura la frazione di peso attribuita ai record falliti dal classificatore $C_t$:
+    \begin{equation}
+        \epsilon_t = \sum_{j=1}^N w_j^{(t)} \delta\big(C_t(\mathbf{x}_j) \neq y_j\big)
+    \end{equation}
+    \item \textbf{Importanza del Classificatore ($\alpha_t$):} Il potere decisionale attribuito a $C_t$ è definito dalla funzione logaritmica:
+    \begin{equation}
+        \alpha_t = \frac{1}{2} \ln\left( \frac{1 - \epsilon_t}{\epsilon_t} \right)
+        \label{eq:dm-adaboost-alpha}
+    \end{equation}
+    L'analisi della formula evidenzia che:
+    \begin{itemize}
+        \item Se $\epsilon_t \to 0$ (modello quasi perfetto), $\alpha_t \to +\infty$;
+        \item Se $\epsilon_t = 0.5$ (accuratezza casuale), $\alpha_t = \frac{1}{2}\ln(1) = 0$ (nessun peso nel voto finale);
+        \item Se $\epsilon_t > 0.5$, l'algoritmo arresta l'iterazione oppure inverte il segno della classificazione con $\alpha_t < 0$.
+    \end{itemize}
+
+    \item \textbf{Regola di Aggiornamento dei Pesi delle Istanze:} Per ciascun esempio $\mathbf{x}_j$, il peso per l'iterazione successiva $t+1$ è:
+    \begin{equation}
+        w_j^{(t+1)} = \frac{w_j^{(t)}}{Z_t} \exp\big( -\alpha_t y_j C_t(\mathbf{x}_j) \big) = \frac{w_j^{(t)}}{Z_t} \begin{cases} e^{-\alpha_t} & \text{se } C_t(\mathbf{x}_j) = y_j \\ e^{+\alpha_t} & \text{se } C_t(\mathbf{x}_j) \neq y_j \end{cases}
+    \end{equation}
+    dove il termine di normalizzazione $Z_t$ garantisce $\sum_{j=1}^N w_j^{(t+1)} = 1$:
+    \begin{equation}
+        Z_t = \sum_{j=1}^N w_j^{(t)} \exp\big( -\alpha_t y_j C_t(\mathbf{x}_j) \big) = 2 \sqrt{\epsilon_t (1 - \epsilon_t)}
+    \end{equation}
+
+    \item \textbf{Classificazione Finale tramite Voto a Maggioranza Pesato:} Al termine dei $T$ round, il comitato finale combina le predizioni ponderate:
+    \begin{equation}
+        C^*(\mathbf{x}) = \text{sign}\left( \sum_{t=1}^T \alpha_t C_t(\mathbf{x}) \right)
+    \end{equation}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio Completo di AdaBoost sul Dataset Monodimensionale}
+\label{subsec:dm-adaboost-example}
+
+Applichiamo AdaBoost sullo stesso dataset didattico della Tabella~\ref{tab:dm-bagging-dataset} ($N = 10$ record) impiegando decision stump.
+
+\begin{enumerate}
+    \item \textbf{Round 1:} Pesi iniziali uniformi $w_j^{(1)} = 0.100$ per ogni $j$.
+    Lo stump ottimo pone lo split a $k = 0.75$ con $x \le 0.75 \implies -1$ e $x > 0.75 \implies +1$. Tale modello commette errore sui primi 3 campioni ($x \in \{0.1, 0.2, 0.3\}$ la cui classe vera è $+1$):
+    \begin{align*}
+        \epsilon_1 &= 3 \times 0.100 = 0.300, \\
+        \alpha_1 &= \frac{1}{2} \ln\left(\frac{0.700}{0.300}\right) \approx 0.4236 \quad (\text{ovvero } \alpha_1 \approx 1.738 \text{ non norm.}).
+    \end{align*}
+    I pesi dei campioni errati salgono a $0.311$, mentre i pesi dei campioni corretti scendono a $0.010$.
+
+    \item \textbf{Round 2:} Il nuovo dataset pesato assegna oltre il $93\%$ della probabilità complessiva ai soli tre record $\{0.1, 0.2, 0.3\}$. Lo stump ottimo si adatta ponendo lo split a $k = 0.05$ classificando l'intero spazio come $+1$. L'errore pesato è ridotto e il peso attribuito al classificatore è $\alpha_2 = 2.7784$.
+
+    \item \textbf{Round 3:} I campioni centrali errati $\{0.4, 0.5, 0.6, 0.7\}$ vengono amplificati a un peso di $0.228$ ciascuno. Lo stump ottimo individua il taglio $k = 0.30$ con ramo sinistro $+1$ e ramo destro $-1$, con coefficiente $\alpha_3 = 4.1195$.
+\end{enumerate}
+
+La Tabella~\ref{tab:dm-adaboost-trace} riassume la matrice dei contributi pesati $\alpha_t C_t(x)$ e la decisione aggregata finale.
+
+\begin{table}[H]
+\centering
+\caption{Traccia analitica del voto pesato AdaBoost sui 10 record del dataset 1D.}
+\label{tab:dm-adaboost-trace}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccccc}
+\toprule
+\textbf{Classificatore ($\alpha_t$)} & \textbf{$x=0.1$} & \textbf{$x=0.2$} & \textbf{$x=0.3$} & \textbf{$x=0.4$} & \textbf{$x=0.5$} & \textbf{$x=0.6$} & \textbf{$x=0.7$} & \textbf{$x=0.8$} & \textbf{$x=0.9$} & \textbf{$x=1.0$} \\
+\midrule
+$C_1$ ($\alpha_1 = 1.738$)  & $-1.738$ & $-1.738$ & $-1.738$ & $-1.738$ & $-1.738$ & $-1.738$ & $-1.738$ & $+1.738$ & $+1.738$ & $+1.738$ \\
+$C_2$ ($\alpha_2 = 2.778$)  & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ & $+2.778$ \\
+$C_3$ ($\alpha_3 = 4.120$)  & $+4.120$ & $+4.120$ & $+4.120$ & $-4.120$ & $-4.120$ & $-4.120$ & $-4.120$ & $-4.120$ & $-4.120$ & $-4.120$ \\
+\midrule
+\textbf{Somma Pesata $\sum$} & $\mathbf{+5.160}$ & $\mathbf{+5.160}$ & $\mathbf{+5.160}$ & $\mathbf{-3.080}$ & $\mathbf{-3.080}$ & $\mathbf{-3.080}$ & $\mathbf{-3.080}$ & $\mathbf{+0.397}$ & $\mathbf{+0.397}$ & $\mathbf{+0.397}$ \\
+\textbf{Classe Predetta}     & $\mathbf{+1}$     & $\mathbf{+1}$     & $\mathbf{+1}$     & $\mathbf{-1}$     & $\mathbf{-1}$     & $\mathbf{-1}$     & $\mathbf{-1}$     & $\mathbf{+1}$     & $\mathbf{+1}$     & $\mathbf{+1}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Efficienza Comparativa:} Mentre il Bagging ha necessitato di $10$ round per stabilizzare la votazione, AdaBoost raggiunge il \textbf{$100\%$ di accuratezza in soli 3 round}, dimostrando l'efficacia della guida adattiva dei residui.
+
+\FloatBarrier
+\subsection{Vantaggi e Limiti del Boosting}
+\label{subsec:dm-boosting-tradeoffs}
+
+\begin{itemize}
+    \item \textbf{Capacità di Riduzione del Bias:} A differenza del bagging, il boosting riduce sistematicamente sia la distorsione che la varianza, consentendo a modelli elementari (come decision stumps) di assemblare frontiere decisionali altamente non lineari;
+    \item \textbf{Sensibilità al Rumore e agli Outlier:} Poiché l'algoritmo incrementa esponenzialmente i pesi delle istanze con errata predizione, in presenza di rumore sull'etichetta o di outlier irrisolvibili AdaBoost concentrerà tutte le risorse sui pattern errati, incorrendo in un severo degrado da overfitting;
+    \item \textbf{Vincolo di Sequenzialità:} L'induzione del modello $t+1$ richiede tassativamente la conoscenza degli errori commessi dal modello $t$, precludendo la parallelizzazione naturale del processo di training.
+\end{itemize}
+
+% ====================================================================
+\FloatBarrier
+\section{Random Forests}
+\label{sec:dm-random-forests}
+
+Introdotte da Leo Breiman nel 2001~\cite{breiman2001random}, le \textbf{Random Forests} costituiscono una delle tecniche di apprendimento automatico più competitive per dati tabulari, combinando i vantaggi del bagging con una procedura di decorrelazione strutturale degli alberi di decisione.
+
+\FloatBarrier
+\subsection{Il Problema della Correlazione e il Meccanismo di Decorrelazione}
+\label{subsec:dm-rf-decorrelation}
+
+Se si applica il semplice bagging a un insieme di alberi di decisione, si osserva frequentemente un fenomeno patologico: qualora nel dataset esista un attributo fortemente discriminante, tale variabile verrà sistematicamente selezionata come test di split nella radice (o nei livelli immediatamente superiori) di quasi tutti gli alberi bootstrap. Di conseguenza:
+\begin{equation}
+    \operatorname{Cov}(C_i, C_j) \gg 0
+\end{equation}
+Gli alberi risultano fortemente correlati tra loro. Ricordando che la varianza della media di $T$ variabili casuali con varianza $\sigma^2$ e correlazione a coppie $\rho$ è data da:
+\begin{equation}
+    \operatorname{Var}\left(\frac{1}{T}\sum_{i=1}^T X_i\right) = \rho \sigma^2 + \frac{1 - \rho}{T} \sigma^2
+    \label{eq:dm-ensemble-variance-reduction}
+\end{equation}
+all'aumentare di $T \to \infty$ il secondo termine decade a zero, ma il termine $\rho \sigma^2$ persiste come limite inferiore invalicabile. Per abbattere ulteriormente la varianza è indispensabile minimizzare il coefficiente di correlazione $\rho \to 0$.
+
+\begin{definition}[I Due Livelli di Casualità nelle Random Forests]
+Le Random Forests introducono due perturbazioni stocastiche indipendenti per massimizzare la diversità degli stimatori:
+\begin{enumerate}
+    \item \textbf{Campionamento Casuale delle Istanze:} Ciascun albero viene addestrato su una replica bootstrap indipendente di dimensione $N$ estratta con reinserimento dai dati originari;
+    \item \textbf{Campionamento Casuale delle Caratteristiche (\textit{Feature Subsampling}):} In corrispondenza di \textbf{ogni singolo nodo interno} dell'albero, l'algoritmo seleziona casualmente senza reinserimento un sottoinsieme ristretto di $m$ attributi tra i $d$ disponibili ($m \ll d$). Il test di split ottimo viene ricercato esclusivamente all'interno di questo sottoinsieme candidato di taglia $m$.
+\end{enumerate}
+\end{definition}
+
+In letteratura e nelle implementazioni standard, i valori euristici raccomandati per $m$ sono:
+\begin{equation}
+    m_{\text{classificazione}} \approx \sqrt{d}, \qquad m_{\text{regressione}} \approx \frac{d}{3} \quad \text{oppure} \quad \lfloor \log_2 d + 1 \rfloor
+\end{equation}
+Se $d = 100$ attributi, a ogni bivio l'albero compete solo su $m = 10$ attributi estratti casualmente. Questa forzatura impedisce all'attributo globalmente dominante di monopolizzare la radice, costringendo gli alberi a esplorare percorsi alternativi basati su predittori secondari.
+
+\FloatBarrier
+\subsection{Proprietà Operative, Importanza delle Variabili e Limiti}
+\label{subsec:dm-rf-properties}
+
+Le Random Forests presentano caratteristiche computazionali uniche:
+\begin{itemize}
+    \item \textbf{Immunità all'Overfitting rispetto a $T$:} Aumentare il numero di alberi $T$ nella foresta non induce overfitting. Per la legge dei grandi numeri, l'errore di generalizzazione converge asintoticamente a un limite superiore costante all'aumentare di $T$;
+    \item \textbf{Stima Interna dell'Errore OOB:} La foresta valuta le proprie prestazioni senza bisogno di cross-validation esterna, impiegando per ogni istanza unicamente il voto espresso dagli alberi in cui essa è risultata Out-Of-Bag;
+    \item \textbf{Importanza delle Variabili (\textit{Variable Importance}):} La rilevanza di un attributo $X_j$ può essere quantificata valutando il decremento medio di accuratezza OOB quando i valori di $X_j$ vengono permutati casualmente (\textit{permutation importance}), rompendo la relazione funzionale tra predittore e target;
+    \item \textbf{Criticità con Molte Feature Irrilevanti:} Quando il numero complessivo di attributi $d$ è molto elevato ma solo una frazione minuscola è autenticamente predittiva, la probabilità che uno split casuale contenga almeno una variabile utile diviene trascurabile ($P \approx m \cdot \frac{d_{\text{utili}}}{d} \ll 1$), provocando il collasso qualitativo dei singoli alberi.
+\end{itemize}
+
+% ====================================================================
+% PARTE II: RETI NEURALI ARTIFICIALI
+% ====================================================================
+\FloatBarrier
+\section{Ispirazione Biologica, Neurone Artificiale e Percettrone}
+\label{sec:dm-neural-networks-perceptron}
+
+Le \textbf{Reti Neurali Artificiali} (\textit{Artificial Neural Networks}, ANN) costituiscono un paradigma computazionale ispirato alla fisiologia dei sistemi nervosi centrali, caratterizzati da miliardi di unità cellulari elementari densamente interconnesse~\cite{rosenblatt1958}.
+
+\FloatBarrier
+\subsection{La Metafora Biologica e il Modello del Neurone Artificiale}
+\label{subsec:dm-biological-metaphor}
+
+Nel tessuto cerebrale, il neurone biologico riceve potenziali di membrana attraverso ramificazioni dendritiche (\textit{dendrites}), integra tali segnali nel corpo cellulare o soma, e quando il potenziale supera una soglia biochimica emette un potenziale d'azione lungo l'assone (\textit{axon}). La connessione inter-neuronale prende il nome di \textbf{sinapsi} (\textit{synapse}). Nel cervello, i meccanismi di plasticità e memorizzazione si attuano attraverso la modulazione dell'efficacia sinaptica (la forza con cui un segnale presinaptico eccita o inibisce il neurone ricevente).
+
+\begin{figure}[H]
+\centering
+\resizebox{0.75\columnwidth}{!}{%
+\begin{tikzpicture}[
+    inputnode/.style={circle, draw=navy, fill=codebackground, line width=1pt, minimum size=24pt, font=\small},
+    somanode/.style={circle, draw=darkgreen, fill=darkgreen!10, line width=1.5pt, minimum size=40pt, align=center, font=\small},
+    actnode/.style={circle, draw=crimson, fill=crimson!10, line width=1.5pt, minimum size=36pt, align=center, font=\small},
+    arrow/.style={->, >=stealth, line width=1pt, color=navy}
+]
+    % Nodi input
+    \node[inputnode] (x0) at (0, 2.0) {$x_0=1$};
+    \node[inputnode] (x1) at (0, 0.8) {$x_1$};
+    \node[inputnode] (x2) at (0, -0.4) {$x_2$};
+    \node (xdot) at (0, -1.2) {$\vdots$};
+    \node[inputnode] (xd) at (0, -2.0) {$x_d$};
+
+    % Nodo somma
+    \node[somanode] (sum) at (4, 0) {$\sum$\\[-2pt]\scriptsize $net$};
+
+    % Nodo attivazione
+    \node[actnode] (act) at (7, 0) {$f(net)$};
+
+    % Uscita
+    \node[font=\bfseries] (out) at (9.2, 0) {$y$};
+
+    % Connessioni
+    \draw[arrow] (x0) -- (sum) node[midway, above, font=\scriptsize] {$w_0 = b$};
+    \draw[arrow] (x1) -- (sum) node[midway, above, font=\scriptsize] {$w_1$};
+    \draw[arrow] (x2) -- (sum) node[midway, above, font=\scriptsize] {$w_2$};
+    \draw[arrow] (xd) -- (sum) node[midway, below, font=\scriptsize] {$w_d$};
+
+    \draw[arrow] (sum) -- (act) node[midway, above, font=\scriptsize] {$net$};
+    \draw[arrow] (act) -- (out);
+\end{tikzpicture}%
+}
+\caption{Modello matematico generale del neurone artificiale con termine di bias integrato.}
+\label{fig:dm-artificial-neuron-model}
+\end{figure}
+
+Nel neurone artificiale (\autoref{fig:dm-artificial-neuron-model}), i segnali di ingresso $x_1, \dots, x_d$ vengono moltiplicati per i rispettivi pesi sinaptici $w_1, \dots, w_d$. L'aggregazione algebrica interna (\textit{net input}) confronta la combinazione lineare con una soglia $t$:
+\begin{equation}
+    net = \sum_{i=1}^d w_i x_i - t = \sum_{i=0}^d w_i x_i = \mathbf{w}^T \mathbf{x}
+\end{equation}
+avendo introdotto il nodo fittizio costante $x_0 = 1$ associato al peso di \textbf{bias} $w_0 = b = -t$. L'uscita è prodotta da una funzione di attivazione $y = f(net)$.
+
+\FloatBarrier
+\subsection{Il Classificatore Percettrone e Regola di Apprendimento Delta}
+\label{subsec:dm-perceptron-delta-rule}
+
+Il \textbf{Percettrone} (\textit{Perceptron}), formalizzato da Frank Rosenblatt nel 1958~\cite{rosenblatt1958}, adotta una funzione di attivazione discontinua a segno:
+\begin{equation}
+    y = \text{sign}(net) = \begin{cases} +1 & \text{se } net \ge 0 \\ -1 & \text{se } net < 0 \end{cases}
+\end{equation}
+
+Dato un insieme di addestramento $\{(\mathbf{x}_i, y_i)\}$, i pesi vengono aggiornati iterativamente per ogni esempio mediante la \textbf{Regola di Apprendimento del Percettrone}:
+\begin{equation}
+    \mathbf{w}^{(k+1)} = \mathbf{w}^{(k)} + \lambda \big(y_i - f(\mathbf{w}^{(k)}, \mathbf{x}_i)\big) \mathbf{x}_i
+    \label{eq:dm-perceptron-update-rule}
+\end{equation}
+dove $\lambda \in (0, 1]$ è il \textbf{tasso di apprendimento} (\textit{learning rate}).
+Analizziamo la dinamica dell'errore $e = y_i - f(\mathbf{x}_i) \in \{0, \pm 2\}$:
+\begin{itemize}
+    \item Se la predizione è corretta ($y_i = f(\mathbf{x}_i)$), $e = 0 \implies \Delta \mathbf{w} = \mathbf{0}$;
+    \item Se $y_i = +1$ e $f(\mathbf{x}_i) = -1$, $e = +2 \implies \Delta \mathbf{w} = +2\lambda \mathbf{x}_i$, ruotando il vettore dei pesi nella direzione di $\mathbf{x}_i$ per aumentare $net$;
+    \item Se $y_i = -1$ e $f(\mathbf{x}_i) = +1$, $e = -2 \implies \Delta \mathbf{w} = -2\lambda \mathbf{x}_i$, ruotando $\mathbf{w}$ in direzione opposta a $\mathbf{x}_i$ per ridurre $net$.
+\end{itemize}
+
+Nel caso di uscite binarie standard $\{0, 1\}$ con soglia esplicita $b$, l'aggiornamento assume la forma della classica \textbf{Regola Delta} (\textit{Delta Rule}):
+\begin{equation}
+    w_i^{\text{new}} = w_i^{\text{old}} + \lambda (t - y) x_i, \qquad b^{\text{new}} = b^{\text{old}} - \lambda (t - y)
+\end{equation}
+
+\FloatBarrier
+\subsection{Esempio Completo di Apprendimento: L'Operatore Logico AND}
+\label{subsec:dm-perceptron-and-trace}
+
+Illustriamo la convergenza della regola delta addestrando un percettrone a due ingressi $x_1, x_2 \in \{0, 1\}$ sull'operatore booleano \textbf{AND}:
+\begin{equation*}
+    \mathcal{D} = \big\{ ((0,0), 0), \; ((0,1), 0), \; ((1,0), 0), \; ((1,1), 1) \big\}
+\end{equation*}
+con $\lambda = 1$, inizializzazione nulla $w_1 = w_2 = b = 0$, ingresso netto $z = w_1 x_1 + w_2 x_2 - b$ e attivazione a gradino $y = 1$ se $z > 0$, $y = 0$ se $z \le 0$~\cite{tan2018}.
+
+\begin{itemize}
+    \item \textbf{Epoca 1:}
+    \begin{itemize}
+        \item $(0,0), t=0 \implies z=0 \implies y=0$ (corretto) $\implies w=(0,0), b=0$;
+        \item $(0,1), t=0 \implies z=0 \implies y=0$ (corretto) $\implies w=(0,0), b=0$;
+        \item $(1,0), t=0 \implies z=0 \implies y=0$ (corretto) $\implies w=(0,0), b=0$;
+        \item $(1,1), t=1 \implies z=0 \implies y=0$ (errore) $\implies \Delta w_1=1, \Delta w_2=1, \Delta b=-1 \implies w=(1,1), b=-1$.
+    \end{itemize}
+    \item \textbf{Epoca 2:}
+    \begin{itemize}
+        \item $(0,0), t=0 \implies z=1 \implies y=1$ (errore) $\implies \Delta b=+1 \implies w=(1,1), b=0$;
+        \item $(0,1), t=0 \implies z=1 \implies y=1$ (errore) $\implies \Delta w_2=-1, \Delta b=+1 \implies w=(1,0), b=1$;
+        \item $(1,0), t=0 \implies z=0 \implies y=0$ (corretto) $\implies w=(1,0), b=1$;
+        \item $(1,1), t=1 \implies z=0 \implies y=0$ (errore) $\implies \Delta w_1=1, \Delta w_2=1, \Delta b=-1 \implies w=(2,1), b=0$.
+    \end{itemize}
+    \item \textbf{Epoca 3:}
+    \begin{itemize}
+        \item $(0,0) \implies z=0 \implies y=0$ (ok);
+        \item $(0,1) \implies z=1 \implies y=1$ (err) $\implies w=(2,0), b=1$;
+        \item $(1,0) \implies z=1 \implies y=1$ (err) $\implies w=(1,0), b=2$;
+        \item $(1,1) \implies z=-1 \implies y=0$ (err) $\implies w=(2,1), b=1$.
+    \end{itemize}
+    \item \textbf{Epoca 4:}
+    \begin{itemize}
+        \item $(0,0) \implies z=-1 \implies y=0$ (ok);
+        \item $(0,1) \implies z=0 \implies y=0$ (ok);
+        \item $(1,0) \implies z=1 \implies y=1$ (err) $\implies w=(1,1), b=2$;
+        \item $(1,1) \implies z=0 \implies y=0$ (err) $\implies w=(2,2), b=1$.
+    \end{itemize}
+    \item \textbf{Epoca 5:}
+    \begin{itemize}
+        \item $(0,0) \implies z=-1 \implies y=0$ (ok);
+        \item $(0,1) \implies z=1 \implies y=1$ (err) $\implies w=(2,1), b=2$;
+        \item $(1,0) \implies z=0 \implies y=0$ (ok);
+        \item $(1,1) \implies z=1 \implies y=1$ (ok).
+    \end{itemize}
+    \item \textbf{Epoca 6 (Convergenza):}
+    Con i parametri finali stabiliti $w_1 = 2, w_2 = 1, b = 2$ (retta di separazione $2x_1 + x_2 - 2 = 0$):
+    tutti e quattro i pattern generano uscite identiche al target ($\Delta w_1 = \Delta w_2 = \Delta b = 0$). L'algoritmo converge con successo.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Separabilità Lineare e il Limite Storico del Problema XOR}
+\label{subsec:dm-xor-problem}
+
+La superficie di decisione di un percettrone è l'iperpiano di equazione $\mathbf{w}^T \mathbf{x} = 0$, che nel piano bidimensionale corrisponde alla retta:
+\begin{equation}
+    x_2 = -\frac{w_1}{w_2} x_1 + \frac{b}{w_2}
+\end{equation}
+Per il \textbf{Teorema di Convergenza del Percettrone} (Novikoff, 1962), se l'insieme di dati è linearmente separabile, l'algoritmo converge in un numero finito di passi; se i dati non sono linearmente separabili, la procedura oscilla all'infinito senza mai convergere.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.8\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Assi
+    \draw[->, line width=1pt] (-0.5,0) -- (3,0) node[right, font=\small] {$x_1$};
+    \draw[->, line width=1pt] (0,-0.5) -- (0,3) node[above, font=\small] {$x_2$};
+
+    % Punti XOR
+    \filldraw[crimson] (0,0) circle (4pt) node[below left, font=\footnotesize] {$(0,0) \in -1$};
+    \filldraw[crimson] (2,2) circle (4pt) node[above right, font=\footnotesize] {$(1,1) \in -1$};
+
+    \filldraw[darkgreen] (0,2) circle (4pt) node[above left, font=\footnotesize] {$(0,1) \in +1$};
+    \filldraw[darkgreen] (2,0) circle (4pt) node[below right, font=\footnotesize] {$(1,0) \in +1$};
+
+    % Linee di taglio H1 e H2
+    \draw[dashed, blue, line width=1.2pt] (-0.5, 1.2) -- (2.2, -0.5) node[right, font=\scriptsize] {$H_1$ (OR)};
+    \draw[dashed, orange!80!black, line width=1.2pt] (0.8, 2.7) -- (2.7, 0.8) node[right, font=\scriptsize] {$H_2$ (NAND)};
+\end{tikzpicture}%
+}
+\caption{Il problema dell'OR Esclusivo (XOR): non linearmente separabile con una retta singola, ma risolvibile mediante due iperpiani congiunti $H_1$ e $H_2$.}
+\label{fig:dm-xor-geometric}
+\end{figure}
+
+Come illustrato in \autoref{fig:dm-xor-geometric}, l'operatore \textbf{OR Esclusivo (XOR)} pone i campioni di classe negativa lungo la diagonale principale $(0,0)$ e $(1,1)$, e quelli di classe positiva sui vertici opposti $(0,1)$ e $(1,0)$. Nessuna retta singola può separare le due classi nel piano.
+
+\textbf{La Soluzione degli Strati Nascosti:} Introducendo uno strato intermedio con due neuroni nascosti $o_1$ e $o_2$, ciascun neurone realizza un singolo iperpiano di separazione (ad esempio una retta di tipo OR $H_1$ e una retta di tipo NAND $H_2$). Lo strato nascosto esegue una mappatura non lineare $\mathbf{x} \mapsto (o_1, o_2)$ verso un nuovo spazio geometrico bidimensionale nel quale le classi risultano linearmente separabili dal neurone di output.
+
+% ====================================================================
+\FloatBarrier
+\section{Reti Neurali Multistrato e Funzioni di Attivazione}
+\label{sec:dm-multilayer-networks}
+
+Una \textbf{Rete Neurale Multistrato} (\textit{Multilayer Perceptron}, MLP) supera i limiti del percettrone singolo strutturando i neuroni in una gerarchia di strati successivi:
+\begin{enumerate}
+    \item \textbf{Input Layer:} riceve i predittori grezzi senza applicare trasformazioni;
+    \item \textbf{Hidden Layers:} uno o più strati intermedi che estraggono rappresentazioni latenti progressivamente più astratte;
+    \item \textbf{Output Layer:} sintetizza i pattern nascosti producendo la predizione di classe o regressione.
+\end{enumerate}
+
+Per il \textbf{Teorema di Approssimazione Universale} (Cybenko 1989, Hornik 1991), una rete feed-forward dotata di un singolo strato nascosto contenente un numero finito di neuroni con attivazione non lineare continua può approssimare con accuratezza arbitraria qualunque funzione continua su compatti di $\mathbb{R}^d$.
+
+\FloatBarrier
+\subsection{Tassonomia delle Funzioni di Attivazione}
+\label{subsec:dm-activation-functions}
+
+L'introduzione della non-linearità nei nodi nascosti è il requisito matematico indispensabile per consentire alla rete di modellare funzioni complesse: una rete composta da molteplici strati lineari collassa algebricamente a una banale regressione lineare.
+
+La Tabella~\ref{tab:dm-activation-summary} riassume sinotticamente le funzioni di attivazione standard, evidenziandone codominio, formulazione analitica, derivata prima e caratteristiche operative.
+
+\begin{table}[H]
+\centering
+\caption{Quadro comparativo delle principali funzioni di attivazione impiegate nelle reti neurali.}
+\label{tab:dm-activation-summary}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccl}
+\toprule
+\textbf{Funzione} & \textbf{Codominio} & \textbf{Espressione $f(z)$} & \textbf{Derivata Prima $f'(z)$} & \textbf{Proprietà e Destinazione d'Uso} \\
+\midrule
+\textbf{Gradino (Step)} & $\{0, 1\}$ & $\begin{cases} 0 & z < 0 \\ 1 & z \ge 0 \end{cases}$ & $0$ q.o. (non diff. in $0$) & Percettroni classici; incompatibile con gradient descent \\
+\addlinespace
+\textbf{Lineare} & $(-\infty, +\infty)$ & $z$ & $1$ & Output per regressione continua; nessun limite superiore \\
+\addlinespace
+\textbf{Sigmoide} & $(0, 1)$ & $\frac{1}{1 + e^{-z}}$ & $f(z)\big(1 - f(z)\big)$ & Uscita probabilistica binaria; soggetta a \textit{vanishing gradient} \\
+\addlinespace
+\textbf{Tangente Iperbolica} & $(-1, 1)$ & $\frac{e^z - e^{-z}}{e^z + e^{-z}}$ & $1 - f(z)^2$ & Simmetrica rispetto all'origine; convergenza più rapida di sigmoid \\
+\addlinespace
+\textbf{ReLU} & $[0, +\infty)$ & $\max(0, z)$ & $\begin{cases} 0 & z < 0 \\ 1 & z > 0 \end{cases}$ & Standard per strati nascosti; previene il vanishing gradient \\
+\addlinespace
+\textbf{Softmax} & $(0, 1)^K$, $\sum z_k = 1$ & $\frac{e^{z_k}}{\sum_{c=1}^K e^{z_c}}$ & $\frac{\partial f_i}{\partial z_j} = f_i(\delta_{ij} - f_j)$ & Output per problemi di classificazione multiclasse mutuamente esclusivi \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{theorem}[Derivata della Funzione Sigmoide]
+La derivata prima della funzione logistica $\sigma(z) = \frac{1}{1 + e^{-z}}$ ammette l'espressione fattorizzata in forma chiusa:
+\begin{equation}
+    \sigma'(z) = \sigma(z)\big(1 - \sigma(z)\big)
+\end{equation}
+\end{theorem}
+\begin{proof}
+Applicando la regola di derivazione per la funzione reciproca:
+\begin{align}
+    \sigma'(z) &= \frac{d}{dz} (1 + e^{-z})^{-1} = - (1 + e^{-z})^{-2} \cdot (-e^{-z}) \nonumber \\
+    &= \frac{e^{-z}}{(1 + e^{-z})^2} = \frac{1}{1 + e^{-z}} \cdot \frac{e^{-z}}{1 + e^{-z}} \nonumber \\
+    &= \frac{1}{1 + e^{-z}} \cdot \left( \frac{1 + e^{-z} - 1}{1 + e^{-z}} \right) = \sigma(z) \big(1 - \sigma(z)\big)
+\end{align}
+Tale proprietà risulta di eccezionale convenienza computazionale, poiché il calcolo della derivata non richiede il ricalcolo dell'esponenziale, bensì sfrutta direttamente il valore di attivazione già memorizzato durante il passaggio in avanti.
+\end{proof}
+
+% ====================================================================
+\FloatBarrier
+\section{Addestramento delle Reti: Discesa del Gradiente e Backpropagation}
+\label{sec:dm-backpropagation-theory}
+
+L'addestramento di una rete neurale consiste nell'identificare la configurazione di pesi e bias $\mathbf{W}^*$ che minimizza una funzione di perdita empirica (\textit{Loss Function}) sull'insieme di addestramento.
+
+\FloatBarrier
+\subsection{Propagazione in Avanti e il Problema dell'Assegnazione del Credito}
+\label{subsec:dm-forward-credit-assignment}
+
+In una rete a uno strato nascosto con $M$ ingressi, $D$ neuroni nascosti e output $y$:
+\begin{equation}
+    a_j = \sum_{i=0}^M \alpha_{ji} x_i, \quad z_j = \sigma(a_j), \quad b = \sum_{j=0}^D \beta_j z_j, \quad y = \sigma(b)
+\end{equation}
+L'errore globale quadratico commesso su un insieme di $N$ istanze con target $y_j^*$ è:
+\begin{equation}
+    E(\mathbf{W}) = \frac{1}{2} \sum_{k=1}^N \big(y_k - y_k^*\big)^2
+\end{equation}
+
+Mentre sui nodi di output l'errore è misurabile direttamente confrontando $y$ con il target supervisionato $y^*$, sui neuroni nascosti non esiste alcun valore target noto. Questo dilemma prende il nome storico di \textbf{Problema dell'Assegnazione del Credito} (\textit{Credit Assignment Problem}): come ripartire la responsabilità dell'errore complessivo tra i neuroni degli strati interni?
+
+\FloatBarrier
+\subsection{Discesa del Gradiente e Derivazione della Backpropagation}
+\label{subsec:dm-gradient-descent-chain-rule}
+
+Per minimizzare $E(\mathbf{W})$, il metodo della \textbf{Discesa del Gradiente} (\textit{Gradient Descent}) aggiorna iterativamente ciascun parametro nella direzione opposta al gradiente locale:
+\begin{equation}
+    w_{ij}^{(k+1)} = w_{ij}^{(k)} - \lambda \frac{\partial E}{\partial w_{ij}}
+\end{equation}
+L'algoritmo di \textbf{Backpropagation} (Rumelhart, Hinton e Williams, 1986~\cite{rumelhart1986}) risolve il calcolo esatto delle derivate parziali applicando sistematicamente la regola della catena (*chain rule*) procedendo a ritroso dallo strato di output verso gli ingressi:
+
+\begin{enumerate}
+    \item \textbf{Segnale di Errore del Neurone di Output ($j \in \text{Output}$):}
+    Posto $E = \frac{1}{2}(y_j - T_j)^2$ (o viceversa $E = \frac{1}{2}(T_j - Z_j)^2$), definendo $\delta_j = -\frac{\partial E}{\partial net_j}$:
+    \begin{equation}
+        \delta_j = (T_j - Z_j) f'(net_j) = (T_j - Z_j) Z_j (1 - Z_j)
+        \label{eq:dm-output-delta}
+    \end{equation}
+
+    \item \textbf{Segnale di Errore del Neurone Nascosto ($j \in \text{Hidden}$):}
+    Sia $\Phi_j$ l'insieme dei nodi dello strato a valle che ricevono segnali dal neurone $j$. Applicando la chain rule su tutte le vie di propagazione uscenti:
+    \begin{equation}
+        \delta_j = f'(net_j) \sum_{k \in \Phi_j} \delta_k w_{jk} = Z_j (1 - Z_j) \sum_{k \in \Phi_j} \delta_k w_{jk}
+        \label{eq:dm-hidden-delta}
+    \end{equation}
+    L'errore del nodo nascosto è una combinazione lineare degli errori dei nodi a valle pesata con i coefficienti di connessione correnti.
+
+    \item \textbf{Aggiornamento dei Pesi Sinaptici:}
+    Per qualunque connessione orientata dal neurone sorgente $i$ al neurone ricevente $j$:
+    \begin{equation}
+        \Delta w_{ij} = \lambda \delta_j Z_i, \qquad w_{ij}^{\text{new}} = w_{ij}^{\text{old}} + \Delta w_{ij}
+        \label{eq:dm-weight-update-general}
+    \end{equation}
+    dove $Z_i$ rappresenta il segnale in uscita dal nodo di provenienza (per un nodo di bias costante, $Z_i = 1$).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Epoche, Strategie di Batch e Considerazioni Progettuali}
+\label{subsec:dm-training-regimes}
+
+L'addestramento pratico di una rete neurale si struttura attorno ai seguenti parametri operativi:
+\begin{itemize}
+    \item \textbf{Epoca (\textit{Epoch}):} Un singolo ciclo completo durante il quale la rete elabora la totalità degli esempi del training set. Addestrare per $E$ epoche implica mostrare ciascun record $E$ volte, rimescolando casualmente i dati a ogni passaggio;
+    \item \textbf{Strategie di Raggruppamento del Gradiente (Batch Size $b$):}
+    \begin{itemize}
+        \item \textbf{Stochastic Gradient Descent (SGD, $b=1$):} I pesi vengono aggiornati immediatamente dopo ogni singolo record. Presenta elevata varianza e traiettorie rumorose ma può fuggire da minimi locali poco profondi;
+        \item \textbf{Mini-Batch Gradient Descent ($1 < b < N$):} Rappresenta lo standard consolidato nel deep learning. Calcola il gradiente medio su un piccolo blocco (es. $b \in \{32, 64, 128\}$), bilanciando l'efficienza delle istruzioni vettoriali hardware con la stabilità statistica;
+        \item \textbf{Batch Gradient Descent Completo ($b=N$):} Calcola il gradiente deterministico sull'intero dataset prima di aggiornare i pesi. Lento su archivi massivi e vulnerabile a stalli su selle e minimi locali non convessi.
+    \end{itemize}
+    \item \textbf{Calibrazione del Learning Rate $\lambda$:} Se $\lambda$ è eccessivamente modesto, l'ottimizzazione progredisce con estrema lentezza; se $\lambda$ è troppo elevato, le correzioni provocano oscillazioni divergenti oltre il fondo della valle dell'errore;
+    \item \textbf{Codifica delle Variabili Categoriche:} Gli attributi nominali a $K$ categorie non devono essere codificati con numeri progressivi (che imporrebbero un ordine metrico fittizio), bensì trasformati tramite codifica \textbf{One-Hot} in $K$ canali binari dedicati.
+\end{itemize}
+
+% ====================================================================
+% PARTE III: ESERCITAZIONE COMPLETA — BACKPROPAGATION PASSO-PASSO
+% ====================================================================
+\FloatBarrier
+\section{Esercitazione Completa: Backpropagation Passo-Passo}
+\label{sec:dm-backprop-worked-example}
+
+In questa sezione viene sviluppata la risoluzione analitica completa e rigorosa dell'esercitazione d'esame sulla retropropagazione dell'errore, formulata secondo gli standard didattici del corso~\cite{mannocci2026}.
+
+\FloatBarrier
+\subsection{Specifiche Architetturali e Parametri Iniziali}
+\label{subsec:dm-exercise-specs}
+
+Consideriamo la rete neurale feed-forward a 7 nodi illustrata nella \autoref{fig:dm-nn-backprop-example}, composta da:
+\begin{itemize}
+    \item \textbf{Strato di Input:} due neuroni recettori $1$ e $2$, che ricevono i valori $Z_1 = 0.9$ e $Z_2 = 0.6$;
+    \item \textbf{Nodi di Bias Costanti:} il nodo $3$ ($Z_3 = 1$) collegato ai neuroni nascosti $4$ e $5$, e il nodo $6$ ($Z_6 = 1$) collegato al neurone di output $7$. Tali unità non applicano la sigmoide e non possiedono segnali di errore; i loro pesi uscenti fungono da parametri di bias addestrabili;
+    \item \textbf{Strato Nascosto:} due neuroni sigmoidali $4$ e $5$;
+    \item \textbf{Strato di Output:} un singolo neurone sigmoidale $7$ con target desiderato $T_7 = 0$;
+    \item \textbf{Tasso di Apprendimento:} $\lambda = 1$;
+    \item \textbf{Inizializzazione dei Pesi:} tutti i 9 pesi sinaptici sono inizialmente configurati al valore simmetrico $w_{ij}^{\text{old}} = 0.5$.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tikzpicture}[
+    inputnode/.style={circle, draw=navy, fill=codebackground, line width=1.2pt, minimum size=30pt, font=\small},
+    hiddennode/.style={circle, draw=darkgreen, fill=darkgreen!10, line width=1.2pt, minimum size=30pt, font=\small},
+    outputnode/.style={circle, draw=crimson, fill=crimson!10, line width=1.4pt, minimum size=32pt, font=\bfseries\small},
+    biasnode/.style={circle, draw=orange!80!black, fill=orange!15, line width=1.2pt, minimum size=26pt, font=\small},
+    arrow/.style={->, >=stealth, line width=1pt, color=navy}
+]
+    % Strato Input
+    \node[inputnode] (n1) at (0, 2.5) {$(1)$};
+    \node[above, font=\footnotesize] at (n1.north) {$Z_1 = 0.9$};
+
+    \node[inputnode] (n2) at (0, 0.5) {$(2)$};
+    \node[below, font=\footnotesize] at (n2.south) {$Z_2 = 0.6$};
+
+    \node[biasnode] (n3) at (0, -1.8) {$(3)$};
+    \node[below, font=\footnotesize] at (n3.south) {$Z_3 = 1$ (Bias)};
+
+    % Strato Nascosto
+    \node[hiddennode] (n4) at (4.5, 2.0) {$(4)$};
+    \node[above, font=\footnotesize] at (n4.north) {Hidden $4$};
+
+    \node[hiddennode] (n5) at (4.5, -0.5) {$(5)$};
+    \node[below, font=\footnotesize] at (n5.south) {Hidden $5$};
+
+    % Bias Output
+    \node[biasnode] (n6) at (4.5, -2.2) {$(6)$};
+    \node[below, font=\footnotesize] at (n6.south) {$Z_6 = 1$ (Bias)};
+
+    % Strato Output
+    \node[outputnode] (n7) at (9, 0.5) {$(7)$};
+    \node[above, font=\footnotesize] at (n7.north) {Output $7$ ($T_7 = 0$)};
+
+    % Connessioni Input -> Hidden
+    \draw[arrow] (n1) -- (n4) node[midway, above, font=\scriptsize] {$w_{14}=0.5$};
+    \draw[arrow] (n1) -- (n5) node[midway, near start, above, font=\scriptsize] {$w_{15}=0.5$};
+    \draw[arrow] (n2) -- (n4) node[midway, near start, below, font=\scriptsize] {$w_{24}=0.5$};
+    \draw[arrow] (n2) -- (n5) node[midway, below, font=\scriptsize] {$w_{25}=0.5$};
+    \draw[arrow] (n3) -- (n4) node[midway, near end, below, font=\scriptsize] {$w_{34}=0.5$};
+    \draw[arrow] (n3) -- (n5) node[midway, below, font=\scriptsize] {$w_{35}=0.5$};
+
+    % Connessioni Hidden -> Output
+    \draw[arrow] (n4) -- (n7) node[midway, above, font=\scriptsize] {$w_{47}=0.5$};
+    \draw[arrow] (n5) -- (n7) node[midway, below, font=\scriptsize] {$w_{57}=0.5$};
+    \draw[arrow] (n6) -- (n7) node[midway, below, font=\scriptsize] {$w_{67}=0.5$};
+\end{tikzpicture}%
+}
+\caption{Topologia della rete neurale multistrato a 7 nodi analizzata nell'esercitazione.}
+\label{fig:dm-nn-backprop-example}
+\end{figure}
+
+\FloatBarrier
+\subsection{Passo 1: Propagazione in Avanti (\textit{Forward Pass})}
+\label{subsec:dm-step1-forward-pass}
+
+Calcoliamo le attivazioni strato per strato partendo dagli ingressi noti:
+\begin{equation}
+    Z_1 = 0.9, \qquad Z_2 = 0.6, \qquad Z_3 = 1.0, \qquad Z_6 = 1.0
+\end{equation}
+
+\subsubsection{1. Neurone Nascosto 4}
+L'ingresso pesato aggregato $net_4$ è:
+\begin{align}
+    net_4 &= w_{14} Z_1 + w_{24} Z_2 + w_{34} Z_3 \nonumber \\
+          &= (0.5)(0.9) + (0.5)(0.6) + (0.5)(1.0) \nonumber \\
+          &= 0.45 + 0.30 + 0.50 = 1.25
+\end{align}
+L'attivazione non lineare prodotta dal neurone 4 è:
+\begin{equation}
+    Z_4 = \sigma(net_4) = \frac{1}{1 + e^{-1.25}} \approx \frac{1}{1 + 0.2865} \approx \mathbf{0.77}
+\end{equation}
+La derivata prima della funzione sigmoide calcolata su $Z_4$ risulta:
+\begin{equation}
+    f'(net_4) = Z_4 (1 - Z_4) \approx (0.77)(1 - 0.77) = (0.77)(0.23) \approx \mathbf{0.17}
+\end{equation}
+
+\subsubsection{2. Neurone Nascosto 5}
+Poiché il neurone $5$ condivide gli stessi identici ingressi e gli stessi pesi simmetrici del neurone $4$:
+\begin{equation}
+    net_5 = w_{15} Z_1 + w_{25} Z_2 + w_{35} Z_3 = (0.5)(0.9) + (0.5)(0.6) + (0.5)(1.0) = 1.25
+\end{equation}
+\begin{equation}
+    Z_5 = \sigma(net_5) \approx \mathbf{0.77}, \qquad f'(net_5) = Z_5 (1 - Z_5) \approx \mathbf{0.17}
+\end{equation}
+
+\subsubsection{3. Neurone di Output 7}
+L'ingresso netto aggregato al nodo finale di output $net_7$ è:
+\begin{align}
+    net_7 &= w_{47} Z_4 + w_{57} Z_5 + w_{67} Z_6 \nonumber \\
+          &\approx (0.5)(0.77) + (0.5)(0.77) + (0.5)(1.0) \nonumber \\
+          &= 0.385 + 0.385 + 0.50 = 1.27
+\end{align}
+L'uscita finale formulata dalla rete neurale per questo pattern è:
+\begin{equation}
+    Z_7 = \sigma(net_7) = \frac{1}{1 + e^{-1.27}} \approx \frac{1}{1 + 0.2808} \approx \mathbf{0.78}
+\end{equation}
+La corrispondente derivata è:
+\begin{equation}
+    f'(net_7) = Z_7 (1 - Z_7) \approx (0.78)(1 - 0.78) = (0.78)(0.22) \approx \mathbf{0.17}
+\end{equation}
+
+\textbf{Diagnostica dell'Errore:} La rete ha emesso una predizione $Z_7 \approx 0.78$, a fronte di un target desiderato $T_7 = 0$. Il segnale di uscita risulta eccessivamente elevato: l'algoritmo di retropropagazione dovrà rimodulare i pesi in modo tale da ridurre drasticamente il potenziale $Z_7$.
+
+\FloatBarrier
+\subsection{Passo 2: Retropropagazione dei Segnali di Errore (\textit{Backward Pass})}
+\label{subsec:dm-step2-error-propagation}
+
+Un vincolo metodologico inderogabile impone che \textbf{tutti i segnali di errore debbano essere calcolati impiegando rigorosamente i pesi originali del forward pass}, prima che qualunque peso venga alterato~\cite{mannocci2026}.
+
+\subsubsection{1. Segnale di Errore del Neurone di Output 7}
+Applicando l'equazione~(\ref{eq:dm-output-delta}):
+\begin{align}
+    \delta_7 &= (T_7 - Z_7) f'(net_7) = (T_7 - Z_7) Z_7 (1 - Z_7) \nonumber \\
+             &\approx (0 - 0.78) \cdot (0.17) \approx -0.1326 \approx \mathbf{-0.13}
+\end{align}
+
+\subsubsection{2. Segnale di Errore del Neurone Nascosto 4}
+Il neurone $4$ proietta la propria attivazione unicamente verso il neurone di output $7$ ($\Phi_4 = \{7\}$). Applicando l'equazione~(\ref{eq:dm-hidden-delta}):
+\begin{align}
+    \delta_4 &= Z_4 (1 - Z_4) \sum_{k \in \Phi_4} \delta_k w_{4k} = Z_4 (1 - Z_4) \delta_7 w_{47} \nonumber \\
+             &\approx (0.17) \cdot (-0.13) \cdot (0.5) \approx (0.17) \cdot (-0.065) \approx -0.011 \approx \mathbf{-0.01}
+\end{align}
+
+\subsubsection{3. Segnale di Errore del Neurone Nascosto 5}
+Simmetricamente, $\Phi_5 = \{7\}$:
+\begin{align}
+    \delta_5 &= Z_5 (1 - Z_5) \sum_{k \in \Phi_5} \delta_k w_{5k} = Z_5 (1 - Z_5) \delta_7 w_{57} \nonumber \\
+             &\approx (0.17) \cdot (-0.13) \cdot (0.5) \approx \mathbf{-0.01}
+\end{align}
+
+I due neuroni nascosti presentano segnali di errore negativi identici ($\delta_4 = \delta_5 = -0.01$), conseguenza diretta della simmetria iniziale dei pesi e degli ingressi.
+
+\FloatBarrier
+\subsection{Passo 3: Aggiornamento Completo dei Pesi Sinaptici}
+\label{subsec:dm-step3-weights-update}
+
+Aggiorniamo singolarmente ciascuna delle nove connessioni applicando la regola generale~(\ref{eq:dm-weight-update-general}):
+\begin{equation}
+    \Delta w_{ij} = \lambda \delta_j Z_i, \qquad w_{ij}^{\text{new}} = w_{ij}^{\text{old}} + \Delta w_{ij}
+\end{equation}
+con $\lambda = 1$ e peso antecedente $w_{ij}^{\text{old}} = 0.5$.
+
+\subsubsection{1. Connessioni verso il Neurone Nascosto 4}
+\begin{itemize}
+    \item Connessione dall'ingresso 1 ($1 \to 4$):
+    \begin{align}
+        \Delta w_{14} &= \lambda \delta_4 Z_1 \approx (1) \cdot (-0.01) \cdot (0.9) = -0.009 \approx \mathbf{-0.01} \nonumber \\
+        w_{14}^{\text{new}} &\approx 0.5 - 0.01 = \mathbf{0.49}
+    \end{align}
+    \item Connessione dall'ingresso 2 ($2 \to 4$):
+    \begin{align}
+        \Delta w_{24} &= \lambda \delta_4 Z_2 \approx (1) \cdot (-0.01) \cdot (0.6) = -0.006 \nonumber \\
+        w_{24}^{\text{new}} &\approx 0.5 - 0.006 = \mathbf{0.494}
+    \end{align}
+    \item Connessione di bias 3 ($3 \to 4$ con $Z_3 = 1$):
+    \begin{align}
+        \Delta w_{34} &= \lambda \delta_4 Z_3 \approx (1) \cdot (-0.01) \cdot (1.0) = \mathbf{-0.01} \nonumber \\
+        w_{34}^{\text{new}} &\approx 0.5 - 0.01 = \mathbf{0.49}
+    \end{align}
+\end{itemize}
+
+\subsubsection{2. Connessioni verso il Neurone Nascosto 5}
+\begin{itemize}
+    \item Connessione dall'ingresso 1 ($1 \to 5$):
+    \begin{align}
+        \Delta w_{15} &= \lambda \delta_5 Z_1 \approx (1) \cdot (-0.01) \cdot (0.9) \approx \mathbf{-0.01} \nonumber \\
+        w_{15}^{\text{new}} &\approx 0.5 - 0.01 = \mathbf{0.49}
+    \end{align}
+    \item Connessione dall'ingresso 2 ($2 \to 5$):
+    \begin{align}
+        \Delta w_{25} &= \lambda \delta_5 Z_2 \approx (1) \cdot (-0.01) \cdot (0.6) = -0.006 \nonumber \\
+        w_{25}^{\text{new}} &\approx 0.5 - 0.006 = \mathbf{0.494}
+    \end{align}
+    \item Connessione di bias 3 ($3 \to 5$ con $Z_3 = 1$):
+    \begin{align}
+        \Delta w_{35} &= \lambda \delta_5 Z_3 \approx (1) \cdot (-0.01) \cdot (1.0) = \mathbf{-0.01} \nonumber \\
+        w_{35}^{\text{new}} &\approx 0.5 - 0.01 = \mathbf{0.49}
+    \end{align}
+\end{itemize}
+
+\subsubsection{3. Connessioni verso il Neurone di Output 7}
+\begin{itemize}
+    \item Connessione dal neurone nascosto 4 ($4 \to 7$ con $Z_4 = 0.77$):
+    \begin{align}
+        \Delta w_{47} &= \lambda \delta_7 Z_4 \approx (1) \cdot (-0.13) \cdot (0.77) = -0.1001 \approx \mathbf{-0.10} \nonumber \\
+        w_{47}^{\text{new}} &\approx 0.5 - 0.10 = \mathbf{0.40}
+    \end{align}
+    \item Connessione dal neurone nascosto 5 ($5 \to 7$ con $Z_5 = 0.77$):
+    \begin{align}
+        \Delta w_{57} &= \lambda \delta_7 Z_5 \approx (1) \cdot (-0.13) \cdot (0.77) = -0.1001 \approx \mathbf{-0.10} \nonumber \\
+        w_{57}^{\text{new}} &\approx 0.5 - 0.10 = \mathbf{0.40}
+    \end{align}
+    \item Connessione di bias 6 ($6 \to 7$ con $Z_6 = 1.0$):
+    \begin{align}
+        \Delta w_{67} &= \lambda \delta_7 Z_6 \approx (1) \cdot (-0.13) \cdot (1.0) = \mathbf{-0.13} \nonumber \\
+        w_{67}^{\text{new}} &\approx 0.5 - 0.13 = \mathbf{0.37}
+    \end{align}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Quadro Sinottico Conclusivo dell'Aggiornamento}
+\label{subsec:dm-summary-weights-table}
+
+La Tabella~\ref{tab:dm-backprop-final-weights} raccoglie la sintesi completa delle variazioni calcolate sull'intera rete.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico finale dell'aggiornamento dei 9 pesi sinaptici mediante Backpropagation.}
+\label{tab:dm-backprop-final-weights}
+\vspace{2mm}
+\resizebox{0.9\columnwidth}{!}{%
+\begin{tabular}{llccc}
+\toprule
+\textbf{Connessione ($i \to j$)} & \textbf{Tipologia Connessione} & \textbf{Peso Precedente ($w_{ij}^{\text{old}}$)} & \textbf{Delta ($\Delta w_{ij}$)} & \textbf{Peso Aggiornato ($w_{ij}^{\text{new}}$)} \\
+\midrule
+$1 \to 4$ & Input $\to$ Hidden & $0.5$ & $-0.01$  & $\mathbf{0.490}$ \\
+$2 \to 4$ & Input $\to$ Hidden & $0.5$ & $-0.006$ & $\mathbf{0.494}$ \\
+$3 \to 4$ & Bias $\to$ Hidden  & $0.5$ & $-0.01$  & $\mathbf{0.490}$ \\
+\midrule
+$1 \to 5$ & Input $\to$ Hidden & $0.5$ & $-0.01$  & $\mathbf{0.490}$ \\
+$2 \to 5$ & Input $\to$ Hidden & $0.5$ & $-0.006$ & $\mathbf{0.494}$ \\
+$3 \to 5$ & Bias $\to$ Hidden  & $0.5$ & $-0.01$  & $\mathbf{0.490}$ \\
+\midrule
+$4 \to 7$ & Hidden $\to$ Output & $0.5$ & $-0.10$ & $\mathbf{0.400}$ \\
+$5 \to 7$ & Hidden $\to$ Output & $0.5$ & $-0.10$ & $\mathbf{0.400}$ \\
+$6 \to 7$ & Bias $\to$ Output   & $0.5$ & $-0.13$ & $\mathbf{0.370}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Interpretazione Teorico-Funzionale:}
+\begin{enumerate}
+    \item Tutti e nove i delta $\Delta w_{ij}$ risultano \textbf{negativi}. Questo comportamento riflette l'azione correttiva della discesa del gradiente: avendo registrato un'attivazione di output $Z_7 \approx 0.78$ ampiamente superiore al target nullo $T_7 = 0$, la retropropagazione riduce la grandezza di tutti i pesi (sia di feed-forward che di bias) al fine di abbassare l'ingresso netto $net_7$ nel passaggio successivo;
+    \item L'ampiezza dell'aggiornamento è notevolmente maggiore per i pesi dello strato di output ($\Delta w \approx -0.10 \dots -0.13$) rispetto a quelli dello strato nascosto ($\Delta w \approx -0.006 \dots -0.01$). Questo fenomeno discende dall'attenuazione introdotta dalla moltiplicazione reiterata per la derivata della sigmoide ($f' \approx 0.17$), che costituisce la manifestazione elementare del fenomeno della \textbf{scomparsa del gradiente} (\textit{vanishing gradient}) nelle reti multistrato con neuroni saturanti.
+\end{enumerate}

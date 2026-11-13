@@ -1,0 +1,660 @@
+\chapter{Valutazione dei Modelli di Classificazione}
+\label{ch:dm-model-evaluation}
+
+\section{Introduzione e Metriche Fondamentali di Prestazione}
+\label{sec:dm-eval-intro-metrics}
+
+Una volta indotto un modello di classificazione attraverso uno degli algoritmi supervisionati esaminati nei capitoli precedenti, risulta metodologicamente imprescindibile sottoporlo a una rigorosa procedura di validazione prima della sua effettiva adozione in contesti operativi o produttivi~\cite{tan2018}. La mera accuratezza empirica riscontrata sui record di addestramento non fornisce alcuna garanzia sulla reale efficacia del classificatore, potendo celare gravi patologie di sovra-adattamento (\textit{overfitting}) o di distorsione campionaria.
+
+La disciplina della \textbf{Valutazione dei Modelli} (\textit{Model Evaluation}) si articola attorno a tre quesiti cardine della metodologia scientifica:
+\begin{enumerate}
+    \item \textbf{Metriche di Valutazione (\textit{Metrics for Performance Evaluation}):} quali indicatori matematici e quantitativi consentono di misurare oggettivamente la qualità delle predizioni formulate da un modello?
+    \item \textbf{Metodi di Valutazione (\textit{Methods for Performance Evaluation}):} quali strategie di partizionamento e ricampionamento dei dati garantiscono stime affidabili, non distorte e statisticamente robuste dell'errore di generalizzazione?
+    \item \textbf{Metodi per il Confronto tra Modelli (\textit{Methods for Model Comparison}):} come stabilire con rigore formale se la superiorità predittiva di un modello rispetto a un altro sia statisticamente significativa e non imputabile a mere fluttuazioni casuali del campione di verifica?
+\end{enumerate}
+
+\FloatBarrier
+\subsection{La Matrice di Confusione e la Metrica di Accuratezza}
+\label{subsec:dm-confusion-matrix-accuracy}
+
+La valutazione delle prestazioni si concentra in via prioritaria sulla \textbf{capacità predittiva} del modello, ponendo in secondo piano aspetti prettamente ingegneristici quali il tempo di convergenza dell'algoritmo o la scalabilità computazionale.
+
+Per un problema di classificazione binaria con classi target $\mathcal{Y} = \{\text{Yes}, \text{No}\}$ (o convenzionalmente positive `$+$' e negative `$-$'), lo strumento algebrico fondamentale per registrare il comportamento predittivo è la \textbf{Matrice di Confusione} (\textit{Confusion Matrix}), strutturata come una tabella $2 \times 2$ che incrocia le classi effettive delle istanze con le classi predette dal modello, come formalizzato nella Tabella~\ref{tab:dm-confusion-matrix}.
+
+\begin{table}[H]
+\centering
+\caption{Matrice di confusione per la classificazione binaria.}
+\label{tab:dm-confusion-matrix}
+\vspace{2mm}
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tabular}{lcc}
+\toprule
+& \textbf{Classe Predetta: Yes ($+$)} & \textbf{Classe Predetta: No ($-$)} \\
+\midrule
+\textbf{Classe Reale: Yes ($+$)} & $a$ (\textbf{True Positive}, $TP$)  & $b$ (\textbf{False Negative}, $FN$) \\
+\textbf{Classe Reale: No ($-$)}  & $c$ (\textbf{False Positive}, $FP$) & $d$ (\textbf{True Negative}, $TN$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+I quattro conteggi elementari che popolano la matrice assumono un significato semantico preciso:
+\begin{itemize}
+    \item \textbf{Veri Positivi ($a = TP$, \textit{True Positives}):} numero di istanze positive realmente appartenenti alla classe target che sono state correttamente identificate dal modello come positive;
+    \item \textbf{Falsi Negativi ($b = FN$, \textit{False Negatives}):} numero di istanze positive che il classificatore ha erroneamente catalogato come negative (errore di omissione o \textit{errore di Tipo II});
+    \item \textbf{Falsi Positivi ($c = FP$, \textit{False Positives}):} numero di istanze negative che il classificatore ha erroneamente catalogato come positive (falso allarme o \textit{errore di Tipo I});
+    \item \textbf{Veri Negativi ($d = TN$, \textit{True Negatives}):} numero di istanze negative che sono state correttamente riconosciute come appartenenti alla classe negativa.
+\end{itemize}
+
+\begin{definition}[Accuratezza ed Errore]
+L'\textbf{Accuratezza} (\textit{Accuracy}) misura la proporzione complessiva di predizioni corrette formulate dal classificatore sul totale dei record analizzati:
+\begin{equation}
+    Accuracy = \frac{a + d}{a + b + c + d} = \frac{TP + TN}{TP + TN + FP + FN}
+\end{equation}
+Il complemento a uno dell'accuratezza definisce il \textbf{Tasso di Errore} (\textit{Error Rate}):
+\begin{equation}
+    Error = 1 - Accuracy = \frac{b + c}{a + b + c + d} = \frac{FN + FP}{TP + TN + FP + FN}
+\end{equation}
+\end{definition}
+
+\FloatBarrier
+\subsection{Il Limite Strutturale dell'Accuratezza: Classi Sbilanciate}
+\label{subsec:dm-accuracy-imbalance-limit}
+
+Sebbene l'accuratezza rappresenti l'indicatore sintetico più intuitivo e diffuso, essa manifesta un gravissimo limite concettuale in presenza di collezioni di dati caratterizzate da una \textbf{distribuzione asimmetrica delle classi} (\textit{class imbalance problem}).
+
+\begin{example}[Il Paradosso del Classificatore Banale su Dati Sbilanciati]
+Si consideri un dataset di $N = 10\,000$ transazioni finanziarie per il rilevamento di frodi bancarie, suddivise in:
+\begin{itemize}
+    \item $N_0 = 9\,990$ transazioni lecite (Classe di maggioranza $C_0$);
+    \item $N_1 = 10$ transazioni fraudolente (Classe rara di minoranza $C_1$).
+\end{itemize}
+Un classificatore degenere o banale che risponda invariabilmente con la classe maggioritaria $C_0$ per qualunque record in ingresso otterrà una matrice di confusione con $TN = 9\,990$, $FN = 10$, $TP = 0$, $FP = 0$.
+L'accuratezza associata a tale modello è:
+\begin{equation}
+    Accuracy = \frac{0 + 9\,990}{10\,000} = 99.9\%
+\end{equation}
+Nonostante un'accuratezza del $99.9\%$, il modello è totalmente inutile sul piano applicativo, avendo mancato la totalità degli eventi critici di frode ($TP = 0$).
+\end{example}
+
+In contesti applicativi sbilanciati (quali diagnostica medica di patologie rare, rilevamento di intrusioni informatiche o prevenzione dei guasti), l'accuratezza standard si rivela pertanto fuorviante.
+
+\FloatBarrier
+\subsection{Matrice dei Costi e Classificazione Sensibile ai Costi}
+\label{subsec:dm-cost-matrix}
+
+Nella realtà operativa, gli errori predittivi raramente comportano il medesimo impatto economico o sociale: mancare l'individuazione di una neoplasia maligna in un paziente comporta conseguenze incomparabilmente più gravi rispetto a sottoporre un individuo sano a un controllo di approfondimento non necessario.
+
+Per quantificare tale asimmetria si definisce la \textbf{Matrice dei Costi} (\textit{Cost Matrix}) $C(i \mid j)$, che assegna un onere economico o penalità associata all'evento di predire la classe $i$ quando la vera classe target è $j$, come riportato nella Tabella~\ref{tab:dm-cost-matrix-formal}.
+
+\begin{table}[H]
+\centering
+\caption{Matrice formale dei costi di classificazione $C(i \mid j)$.}
+\label{tab:dm-cost-matrix-formal}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcc}
+\toprule
+$C(i \mid j)$ & \textbf{Predizione: Yes ($+$)} & \textbf{Predizione: No ($-$)} \\
+\midrule
+\textbf{Classe Reale: Yes ($+$)} & $C(\text{Yes} \mid \text{Yes})$ (Beneficio/Costo Corretto) & $C(\text{No} \mid \text{Yes})$ (Costo Falso Negativo) \\
+\textbf{Classe Reale: No ($-$)}  & $C(\text{Yes} \mid \text{No})$ (Costo Falso Positivo)      & $C(\text{No} \mid \text{No})$ (Beneficio/Costo Corretto) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Il costo totale complessivo generato da un modello $M$ su un insieme di test si calcola come combinazione lineare elemento per elemento:
+\begin{equation}
+    Cost(M) = TP \cdot C(+ \mid +) + FN \cdot C(- \mid +) + FP \cdot C(+ \mid -) + TN \cdot C(- \mid -)
+\end{equation}
+
+\begin{example}[Il Paradosso del Costo: Modello Meno Accurato ma Più Economico]
+Si consideri una matrice dei costi in cui un falso negativo comporta una severa penalità pari a $100$, un falso positivo ha costo $1$, un vero positivo produce un guadagno unitario (costo $-1$) e un vero negativo ha costo nullo ($0$):
+\begin{equation*}
+    C(+ \mid +) = -1, \quad C(- \mid +) = 100, \quad C(+ \mid -) = 1, \quad C(- \mid -) = 0
+\end{equation*}
+Valutiamo due modelli concorrenti $M_1$ ed $M_2$ su un archivio comune di $N = 500$ osservazioni~\cite{tan2018}:
+\begin{enumerate}
+    \item \textbf{Modello $M_1$:} caratterizzato da $TP = 150$, $FN = 40$, $FP = 60$, $TN = 250$.
+    \begin{align}
+        Accuracy(M_1) &= \frac{150 + 250}{500} = \frac{400}{500} = 80.0\% \\
+        Cost(M_1) &= 150(-1) + 40(100) + 60(1) + 250(0) \nonumber \\
+                  &= -150 + 4000 + 60 + 0 = 3910
+    \end{align}
+    \item \textbf{Modello $M_2$:} caratterizzato da $TP = 250$, $FN = 45$, $FP = 5$, $TN = 200$.
+    \begin{align}
+        Accuracy(M_2) &= \frac{250 + 200}{500} = \frac{450}{500} = 90.0\% \\
+        Cost(M_2) &= 250(-1) + 45(100) + 5(1) + 200(0) \nonumber \\
+                  &= -250 + 4500 + 5 + 0 = 4255
+    \end{align}
+\end{enumerate}
+\textbf{Implicazione Decisiva:} Sebbene il modello $M_2$ appaia nettamente superiore sulla base dell'accuratezza ($90\%$ contro $80\%$), esso produce un costo economico aggregato sensibilmente maggiore ($4255$ contro $3910$). La ragione risiede nel fatto che $M_2$ commette 5 falsi negativi in più rispetto a $M_1$, ciascuno penalizzato con un costo asimmetrico di $100$.
+\end{example}
+
+\FloatBarrier
+\subsection{Metriche Asimmetriche: Precision, Recall e Misura F}
+\label{subsec:dm-precision-recall-fmeasure}
+
+Per superare i limiti dell'accuratezza in regimi sbilanciati, la teoria del machine learning e dell'information retrieval adotta indici focalizzati primariamente sulla classe di reale interesse (convenzionalmente la classe positiva):
+
+\begin{definition}[Precisione]
+La \textbf{Precisione} (\textit{Precision}, $p$) quantifica l'affidabilità delle risposte positive fornite dal modello, misurando la frazione di istanze realmente positive tra tutte quelle che il sistema ha etichettato come positive:
+\begin{equation}
+    Precision = p = \frac{TP}{TP + FP}
+\end{equation}
+Una precisione elevata indica che il modello commette pochissimi falsi allarmi ($FP \to 0$).
+\end{definition}
+
+\begin{definition}[Richiamo o Sensibilità]
+Il \textbf{Richiamo} (\textit{Recall} o \textit{Sensitivity}, $r$) misura la capacità del modello di intercettare gli elementi della classe target, rappresentando la frazione di istanze positive individuate rispetto al totale dei casi positivi presenti nei dati:
+\begin{equation}
+    Recall = r = \frac{TP}{TP + FN}
+\end{equation}
+Un richiamo elevato indica che il modello genera pochissimi falsi negativi ($FN \to 0$).
+\end{definition}
+
+\begin{definition}[Misura F ed $F_\beta$-Score]
+La \textbf{Misura F} (\textit{F-measure} o $F_1$-score) sintetizza il compromesso tra Precisione e Richiamo combinandoli attraverso la loro \textbf{media armonica}:
+\begin{equation}
+    F_1 = \frac{2 \cdot Precision \cdot Recall}{Precision + Recall} = \frac{2 \cdot p \cdot r}{p + r}
+\end{equation}
+Sostituendo le espressioni analitiche di $p$ ed $r$, si ottiene la forma compatta in termini di matrice di confusione:
+\begin{equation}
+    F_1 = \frac{2 \cdot \frac{TP}{TP + FP} \cdot \frac{TP}{TP + FN}}{\frac{TP}{TP + FP} + \frac{TP}{TP + FN}} = \frac{2 \cdot TP}{2 \cdot TP + FP + FN}
+\end{equation}
+\end{definition}
+
+Si evidenzia che la metrica $F_1$ tiene conto di tutte le celle della matrice di confusione ad eccezione dei veri negativi ($TN$), risultando totalmente insensibile all'iper-abbondanza della classe maggioritaria negativa.
+La formulazione generalizzata dell'$F_\beta$-score consente di attribuire un peso arbitrario $\beta > 0$ al Richiamo rispetto alla Precisione:
+\begin{equation}
+    F_\beta = \frac{(1 + \beta^2) \cdot p \cdot r}{\beta^2 \cdot p + r}
+\end{equation}
+con $\beta = 2$ per privilegiare il richiamo e $\beta = 0.5$ per privilegiare la precisione.
+
+% ====================================================================
+\FloatBarrier
+\section{Metodologie di Partizionamento e Stima Affidabile}
+\label{sec:dm-evaluation-methods}
+
+La stima non distorta delle prestazioni richiede la definizione di un protocollo rigoroso di separazione tra i dati impiegati per l'addestramento e quelli impiegati per la verifica.
+
+\FloatBarrier
+\subsection{Isolamento del Test Set e Partizionamento a Tre Vie}
+\label{subsec:dm-three-way-split}
+
+Un principio metodologico inviolabile dell'apprendimento automatico stabilisce che \textbf{i dati del Test Set non devono in alcun modo intervenire nel processo di apprendimento, selezione delle feature o calibrazione degli iper-parametri}~\cite{tan2018}.
+Nei sistemi complessi, l'induzione opera tipicamente in due stadi:
+\begin{itemize}
+    \item \textbf{Stadio 1 (Costruzione):} apprendimento della struttura primaria del modello;
+    \item \textbf{Stadio 2 (Ottimizzazione):} taratura fine degli iper-parametri (\textit{hyperparameter tuning}, quali profondità massima dell'albero o soglie di arresto).
+\end{itemize}
+
+L'impiego del test set per calibrare gli iper-parametri conduce a un fenomeno subdolo di fuga informativa (\textit{data leakage}), fornendo una stima artificialmente ottimistica. La procedura scientificamente corretta impone la suddivisione del patrimonio informativo in \textbf{tre insiemi mutuamente disgiunti}, illustrata nella \autoref{fig:dm-eval-three-way-split}:
+\begin{enumerate}
+    \item \textbf{Training Set:} impiegato dall'algoritmo per stimare i parametri interni del classificatore;
+    \item \textbf{Validation Set:} impiegato per valutare molteplici configurazioni algoritmiche concorrenti e selezionare il set di iper-parametri ottimale;
+    \item \textbf{Test Set:} mantenuto rigorosamente isolato e inviolato fino al termine dello sviluppo, impiegato un'unica volta per la valutazione indipendente finale (\textit{Final Assessment}).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=3pt, line width=1pt, align=center, inner sep=6pt, font=\small},
+    proc/.style={draw=darkgreen, fill=darkgreen!10, rounded corners=3pt, line width=1pt, align=center, inner sep=6pt, font=\small},
+    testbox/.style={draw=crimson, fill=crimson!10, rounded corners=3pt, line width=1pt, align=center, inner sep=6pt, font=\small},
+    arrow/.style={->, >=stealth, line width=1.1pt, color=navy}
+]
+    % Dataset Globale
+    \node[box, line width=1.3pt] (data) at (0, 2) {\textbf{Archivio Dati Globale}\\\{$\mathcal{D}$\}};
+    
+    % Scomposizione
+    \node[box] (train) at (5, 3.2) {\textbf{Training Set}\\\textit{(Costruzione Parametri)}};
+    \node[proc] (val) at (5, 1.8) {\textbf{Validation Set}\\\textit{(Tuning Iper-parametri)}};
+    \node[testbox] (test) at (5, 0) {\textbf{Test Set Isolato}\\\textit{(Valutazione Finale)}};
+    
+    % Processi
+    \node[proc] (tuning) at (9.5, 2.5) {\textbf{Model Builder \& Tuning}\\Confronto configurazioni\\e selezione ottimo};
+    \node[testbox] (eval) at (9.5, 0) {\textbf{Valutazione Indipendente}\\Stima finale non distorta\\dell'errore};
+
+    % Connessioni
+    \draw[arrow] (data.east) -- ++(1,0) |- (train.west);
+    \draw[arrow] (data.east) -- ++(1,0) |- (val.west);
+    \draw[arrow, crimson] (data.east) -- ++(1,0) |- (test.west);
+
+    \draw[arrow] (train.east) -| (tuning.north);
+    \draw[arrow] (val.east) -- (tuning.west);
+    \draw[arrow] (tuning.south) -- node[right, font=\footnotesize, text=darkgreen] {Modello Calibrato} (eval.north);
+    \draw[arrow, crimson] (test.east) -- (eval.west);
+\end{tikzpicture}%
+}
+\caption{Architettura a tre partizioni per l'ottimizzazione degli iper-parametri e la valutazione oggettiva del modello: il Test Set rimane completamente avulso dal ciclo di sviluppo.}
+\label{fig:dm-eval-three-way-split}
+\end{figure}
+
+\FloatBarrier
+\subsection{Curve di Apprendimento, Bias e Varianza della Stima}
+\label{subsec:dm-learning-curves-bias-variance}
+
+Le prestazioni rilevate di un classificatore dipendono intrinsecamente da tre fattori: la distribuzione naturale delle classi, i costi associati alle asimmetrie decisionali e la \textbf{numerosità campionaria} impiegata per l'induzione~\cite{tan2018}.
+
+Una \textbf{Curva di Apprendimento} (\textit{Learning Curve}) illustra l'andamento dell'accuratezza predittiva in funzione della dimensione del campione di addestramento $N$, tipicamente tracciata su scala logaritmica (da $10^0$ a $10^4$ record), come schematizzato nella \autoref{fig:dm-learning-curve-sample-size}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.85\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Griglia e assi
+    \draw[help lines, dashed, gray!30] (0,0) grid[xstep=2, ystep=1] (8,5);
+    \draw[->, line width=1pt] (0,0) -- (8.5,0) node[right, font=\small] {Dimensione Campione Training $N$ (Scala Log)};
+    \draw[->, line width=1pt] (0,0) -- (0,5.5) node[above, font=\small] {Accuratezza (\%)};
+
+    % Ticks X (scala logaritmica: 0 -> 10^0, 2 -> 10^1, 4 -> 10^2, 6 -> 10^3, 8 -> 10^4)
+    \foreach \x/\val in {0/{$10^0$}, 2/{$10^1$}, 4/{$10^2$}, 6/{$10^3$}, 8/{$10^4$}} {
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\footnotesize] {\val};
+    }
+    % Ticks Y (0 -> 50%, 2.5 -> 75%, 5 -> 100%)
+    \foreach \y/\val in {0/50, 1.25/62.5, 2.5/75, 3.75/87.5, 5/100} {
+        \draw (0.1, \y) -- (-0.1, \y) node[left, font=\footnotesize] {\val};
+    }
+
+    % Curva asintotica media (linea continua navy)
+    \draw[line width=1.5pt, navy, domain=0.2:8, samples=50] plot (\x, {4.1 - 3.0 * exp(-0.5*\x)});
+
+    % Barre di errore/varianza a diverse ascisse x
+    % A x=0.5: centro y=1.76, barra ampia [0.8, 2.8]
+    \draw[line width=1.2pt, crimson] (0.5, 0.7) -- (0.5, 2.9);
+    \draw[line width=1pt, crimson] (0.35, 0.7) -- (0.65, 0.7);
+    \draw[line width=1pt, crimson] (0.35, 2.9) -- (0.65, 2.9);
+
+    % A x=2.0: centro y=3.0, barra media [2.2, 3.8]
+    \draw[line width=1.2pt, crimson] (2.0, 2.2) -- (2.0, 3.8);
+    \draw[line width=1pt, crimson] (1.85, 2.2) -- (2.15, 2.2);
+    \draw[line width=1pt, crimson] (1.85, 3.8) -- (2.15, 3.8);
+
+    % A x=4.0: centro y=3.7, barra ridotta [3.3, 4.1]
+    \draw[line width=1.2pt, crimson] (4.0, 3.3) -- (4.0, 4.1);
+    \draw[line width=1pt, crimson] (3.85, 3.3) -- (4.15, 3.3);
+    \draw[line width=1pt, crimson] (3.85, 4.1) -- (4.15, 4.1);
+
+    % A x=6.5: centro y=4.0, barra quasi puntiforme [3.85, 4.15]
+    \draw[line width=1.2pt, crimson] (6.5, 3.85) -- (6.5, 4.15);
+    \draw[line width=1pt, crimson] (6.35, 3.85) -- (6.65, 3.85);
+    \draw[line width=1pt, crimson] (6.35, 4.15) -- (6.65, 4.15);
+
+    % Asintoto orizzontale tratteggiato
+    \draw[dashed, line width=1pt, darkgreen] (0, 4.1) -- (8, 4.1);
+    \node[font=\footnotesize\bfseries, color=darkgreen, anchor=south east] at (7.8, 4.2) {Asintoto di Accuratezza Massima};
+
+    % Legenda
+    \node[draw=navy!30, fill=codebackground, rounded corners=3pt, anchor=south east, font=\footnotesize] at (7.8, 1.0) {
+        \begin{tabular}{ll}
+            \tikz\draw[line width=1.2pt, navy] (0,0) -- (0.5,0); & Accuratezza Media Attesa \\
+            \tikz\draw[line width=1.2pt, crimson] (0,0) -- (0.5,0); & Varianza Campionaria ($\pm \sigma$) \\
+        \end{tabular}
+    };
+\end{tikzpicture}%
+}
+\caption{Curva di apprendimento in funzione della numerosità campionaria $N$: per campioni ridotti la stima presenta elevata distorsione (bias negativo rispetto all'asintoto) e amplissima varianza; all'aumentare di $N$ la varianza collassa e l'accuratezza converge al limite intrinseco del modello.}
+\label{fig:dm-learning-curve-sample-size}
+\end{figure}
+
+Dall'esame analitico della curva emergono due conclusioni fondamentali:
+\begin{enumerate}
+    \item \textbf{Distorsione della Stima (\textit{Bias in the estimate}):} quando il modello viene addestrato su una porzione modesta del dataset disponibile (ad esempio nel metodo holdout con $2/3$ dei dati), la sua accuratezza risulterà sistematicamente inferiore rispetto all'accuratezza che il medesimo algoritmo conseguirebbe se addestrato sull'intero dataset;
+    \item \textbf{Varianza della Stima (\textit{Variance of the estimate}):} su campioni di test ridotti, le fluttuazioni campionarie determinano una marcata dispersione statistica della metrica misurata, imponendo la necessità di metodi di stima basati su partizionamenti multipli.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Metodi di Ricampionamento e Stima dell'Errore}
+\label{subsec:dm-resampling-methods}
+
+Nella pratica computazionale si ricorre a quattro strategie formali di ricampionamento:
+
+\subsubsection{1. Metodo Holdout e Campionamento Stratificato}
+Consiste nel partizionare casualmente una sola volta il dataset originario $\mathcal{D}$: tipicamente una frazione pari al $66.7\%$ ($2/3$) viene allocata al \textit{training} e il restante $33.3\%$ ($1/3$) al \textit{testing}.
+\begin{itemize}
+    \item \textbf{Limite:} se il dataset è ridotto o sbilanciato, l'estrazione casuale semplice può produrre un test set non rappresentativo, in cui alcune classi minoritarie risultano assenti.
+    \item \textbf{Campionamento Stratificato (\textit{Stratified Sampling}):} vincola l'estrazione affinché ciascuna classe sia presente sia nel training set che nel test set con proporzioni percentuali esattamente identiche a quelle della popolazione complessiva.
+\end{itemize}
+
+\subsubsection{2. Repeated Holdout (Subcampionamento Casuale)}
+Per mitigare la varianza dell'holdout singolo, si ripete la procedura di partizionamento casuale per $R$ iterazioni indipendenti. Se $e_r$ denota il tasso di errore misurato all'iterazione $r$, la stima finale aggregata è:
+\begin{equation}
+    e_{\text{sub}} = \frac{1}{R} \sum_{r=1}^R e_r
+\end{equation}
+Sebbene riduca la varianza, questa procedura presenta il difetto strutturale del \textbf{sovrapponimento} (\textit{overlap}): alcuni campioni possono essere selezionati per il test in più iterazioni, mentre altri potrebbero non essere mai valutati.
+
+\subsubsection{3. Validazione Incrociata (\textit{$k$-Fold Cross-Validation})}
+La validazione incrociata~\cite{kohavi1995} risolve elegantemente il problema dell'overlap garantendo che ciascuna istanza del dataset venga impiegata esattamente una volta come record di test:
+\begin{enumerate}
+    \item Il dataset $\mathcal{D}$ viene suddiviso in $k$ blocchi (\textit{folds}) mutualmente disgiunti di uguale dimensione: $\mathcal{D} = S_1 \cup S_2 \cup \dots \cup S_k$;
+    \item Si eseguono $k$ iterazioni distinte: all'iterazione $i$-esima, il blocco $S_i$ funge da \textit{Test Set}, mentre l'unione dei restanti $k - 1$ blocchi costituisce il \textit{Training Set};
+    \item L'errore aggregato è la media aritmetica degli errori registrati nelle $k$ esecuzioni:
+    \begin{equation}
+        e_{\text{CV}} = \frac{1}{k} \sum_{i=1}^k e_i
+    \end{equation}
+\end{enumerate}
+
+Le varianti operative primarie sono:
+\begin{itemize}
+    \item \textbf{Leave-One-Out Cross-Validation (LOOCV):} caso limite in cui $k = N$. A ciascuna iterazione si addestra su $N - 1$ record e si valuta sul singolo campione escluso. Fornisce una stima a bassissima distorsione ma ad alto costo computazionale e vulnerabile a elevata varianza statistica;
+    \item \textbf{Stratified $k$-Fold Cross-Validation:} impone che la suddivisione nei $k$ blocchi mantenga rigorosamente le proporzioni delle classi;
+    \item \textbf{Repeated Stratified Cross-Validation:} ripete l'intero schema $k$-fold per $M$ volte rimescolando i dati (es. 10-fold CV ripetuta 10 volte, con 100 run totali), stabilizzando la stima della deviazione standard.
+\end{itemize}
+
+\subsubsection{4. Metodo Bootstrap e lo Stimatore .632}
+Il \textbf{Bootstrap} si fonda sul campionamento casuale uniforme con reinserimento (\textit{sampling with replacement}) di $N$ istanze a partire da un dataset originario di dimensione $N$.
+La probabilità che un generico record non venga mai estratto in $N$ pescate consecutive è data da:
+\begin{equation}
+    P(\text{Non estratto}) = \left(1 - \frac{1}{N}\right)^N
+\end{equation}
+Per $N$ asintoticamente grande, tale quantità converge matematicamente al limite notevole:
+\begin{equation}
+    \lim_{N \to \infty} \left(1 - \frac{1}{N}\right)^N = \frac{1}{e} \approx 0.368 = 36.8\%
+\end{equation}
+Di conseguenza, il campione bootstrap conterrà mediamente circa il $63.2\%$ delle istanze uniche originali (che fungono da training set), mentre il restante $36.8\%$ di record mai estratti costituisce il cosiddetto insieme \textit{Out-Of-Bag} (OOB), impiegato come test set.
+La stima corretta denominata \textbf{.632 Bootstrap} combina l'errore di risostituzione sull'intero archivio $e_{\text{train}}$ e l'errore registrato sui campioni esclusi $e_{\text{OOB}}$:
+\begin{equation}
+    e_{\text{boot}} = 0.632 \cdot e_{\text{OOB}} + 0.368 \cdot e_{\text{train}}
+\end{equation}
+
+% ====================================================================
+\FloatBarrier
+\section{Confronto tra Modelli e Analisi ROC}
+\label{sec:dm-roc-analysis}
+
+Nei problemi applicativi in cui la soglia decisionale per dichiarare positiva un'istanza è fluida o legata a una matrice di costi variabile, la valutazione di un classificatore a un singolo valore operativo risulta limitante.
+
+\FloatBarrier
+\subsection{Teoria e Topologia dello Spazio ROC}
+\label{subsec:dm-roc-space-theory}
+
+La metodologia delle curve \textbf{ROC} (\textit{Receiver Operating Characteristic}) affonda le proprie radici teoriche negli studi sulla rilevazione dei segnali radar sviluppati durante la Seconda Guerra Mondiale per discernere il segnale autentico dal rumore di fondo~\cite{fawcett2006}.
+
+Lo \textbf{spazio ROC} è un piano cartesiano bidimensionale che pone in relazione:
+\begin{itemize}
+    \item Sull'asse delle ascisse ($x$): il \textbf{Tasso di Falsi Positivi} (\textit{False Positive Rate}, $FPR$), ovvero la proporzione di falsi allarmi sul totale dei record negativi:
+    \begin{equation}
+        FPR = \frac{FP}{FP + TN} = 1 - Specificity
+    \end{equation}
+    \item Sull'asse delle ordinate ($y$): il \textbf{Tasso di Veri Positivi} (\textit{True Positive Rate}, $TPR$), equivalente al Richiamo (\textit{Recall} o \textit{Sensitivity}):
+    \begin{equation}
+        TPR = \frac{TP}{TP + FN}
+    \end{equation}
+\end{itemize}
+
+Un classificatore che produce etichette binarie rigide determina un singolo punto isolato nel piano cartesiano ROC. Se il classificatore genera una stima continua di confidenza o di probabilità a posteriori $P(+ \mid \mathbf{x})$, la modulazione della soglia di taglio decisionale $\tau \in [0, 1]$ permette al punto di scorrere nello spazio, tracciando una curva continua.
+
+I punti salienti della topologia ROC sono:
+\begin{itemize}
+    \item \textbf{$(0, 0)$:} il modello predice costantemente la classe negativa; non genera alcun falso positivo ($FPR = 0$), ma fallisce nel rilevare qualunque positivo ($TPR = 0$);
+    \item \textbf{$(1, 1)$:} il modello predice costantemente la classe positiva; rileva tutti i positivi ($TPR = 1$), ma genera il $100\%$ di falsi allarmi ($FPR = 1$);
+    \item \textbf{$(0, 1)$:} il \textbf{Classificatore Ideale Perfetto}, che consegue contemporaneamente $TPR = 1.0$ e $FPR = 0.0$;
+    \item \textbf{La Diagonale $y = x$ (\textit{Random Guessing}):} un classificatore che assegna le etichette tirando a indovinare in modo puramente casuale si colloca esattamente lungo la retta diagonale che unisce $(0, 0)$ a $(1, 1)$;
+    \item \textbf{Regione Sotto la Diagonale ($y < x$):} identifica modelli con prestazioni inferiori al caso casuale. È opportuno notare che tali modelli possono essere convertiti in classificatori eccellenti semplicemente invertendo l'assegnazione delle predizioni binarie.
+\end{itemize}
+
+\FloatBarrier
+\subsection{L'Area Sotto la Curva ROC (AUC)}
+\label{subsec:dm-roc-auc}
+
+L'indicatore scalare sintetico più impiegato per confrontare modelli concorrenti è l'\textbf{Area Sottesa alla Curva ROC} (\textit{Area Under the ROC Curve}, $AUC$), definita dall'integrale:
+\begin{equation}
+    AUC = \int_0^1 TPR(FPR) \, d(FPR) \in [0, 1]
+\end{equation}
+
+\begin{theorem}[Significato Probabilistico dell'AUC]
+L'indice $AUC$ di un classificatore coincide matematicamente con la probabilità che il modello assegni un punteggio di confidenza o probabilità $P(+ \mid \mathbf{x})$ strettamente più elevato a un'istanza positiva estratta casualmente rispetto a un'istanza negativa estratta casualmente:
+\begin{equation}
+    AUC = P\big( f(\mathbf{x}_+) > f(\mathbf{x}_-) \big)
+\end{equation}
+\end{theorem}
+
+Valori di riferimento:
+\begin{itemize}
+    \item $AUC = 1.0$: classificatore perfetto;
+    \item $AUC = 0.5$: classificatore puramente casuale;
+    \item $AUC > 0.8$: eccellente potere discriminante;
+    \item $AUC < 0.5$: modello incoerente o con etichette scambiate.
+\end{itemize}
+
+Qualora due curve ROC si intersechino, nessun modello domina uniformemente l'altro: il primo classificatore risulterà preferibile in regimi conservativi a basso tasso di falsi allarmi ($FPR \ll 1$), mentre il secondo risulterà ottimale in regimi ad alta cattura di positivi ($TPR \approx 1$).
+
+\FloatBarrier
+\subsection{Algoritmo Costruttivo Empirico di una Curva ROC}
+\label{subsec:dm-roc-construction-algorithm}
+
+Data una collezione di record di test su cui il classificatore assegna una probabilità continua di appartenenza alla classe positiva $P(+ \mid \mathbf{x})$, la costruzione formale della curva empirica a gradini opera in quattro passaggi sequenziali~\cite{tan2018, fawcett2006}:
+\begin{enumerate}
+    \item Si ordinano le $N$ osservazioni del test set in ordine rigorosamente decrescente in base al punteggio $P(+ \mid \mathbf{x})$;
+    \item Si scorre la lista ordinata considerando ciascun valore di probabilità unico come soglia decisionale $\tau$, classificando come positivi tutti i record con score $\ge \tau$;
+    \item Per ogni soglia si quantificano i valori di $TP, FP, TN, FN$;
+    \item Si calcolano le coordinate cartesiane $(FPR, TPR)$ e si connettono i punti risultanti.
+\end{enumerate}
+
+La Tabella~\ref{tab:dm-roc-step-trace} illustra la traccia di calcolo completa su un test set di $10$ record (5 positivi e 5 negativi).
+
+\begin{table}[H]
+\centering
+\caption{Calcolo passo-passo dei tassi TPR ed FPR per la generazione della curva ROC.}
+\label{tab:dm-roc-step-trace}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+\textbf{Istanza} & \textbf{Probabilità $P(+ \mid \mathbf{x})$} & \textbf{Classe Reale} & \textbf{Soglia $\tau$} & \textbf{$TP$} & \textbf{$FP$} & \textbf{$TN$} & \textbf{$FN$} & \textbf{$TPR$} & \textbf{$FPR$} \\
+\midrule
+\textendash & \textendash & \textendash & $\tau > 0.95$ & 0 & 0 & 5 & 5 & \textbf{0.00} & \textbf{0.00} \\
+1   & $0.95$ & $+$ & $\tau = 0.95$ & 1 & 0 & 5 & 4 & \textbf{0.20} & \textbf{0.00} \\
+2   & $0.93$ & $+$ & $\tau = 0.93$ & 2 & 0 & 5 & 3 & \textbf{0.40} & \textbf{0.00} \\
+3   & $0.87$ & $-$ & $\tau = 0.87$ & 2 & 1 & 4 & 3 & \textbf{0.40} & \textbf{0.20} \\
+4   & $0.85$ & $-$ & $\tau = 0.85$ & 3 & 2 & 3 & 2 & \textbf{0.60} & \textbf{0.40} \\
+5   & $0.85$ & $-$ & $\tau = 0.85$ & 3 & 3 & 2 & 2 & \textbf{0.60} & \textbf{0.60} \\
+6   & $0.85$ & $+$ & $\tau = 0.85$ & 3 & 4 & 1 & 2 & \textbf{0.60} & \textbf{0.80} \\
+7   & $0.76$ & $-$ & $\tau = 0.76$ & 3 & 4 & 1 & 2 & \textbf{0.60} & \textbf{0.80} \\
+8   & $0.53$ & $+$ & $\tau = 0.53$ & 4 & 4 & 1 & 1 & \textbf{0.80} & \textbf{0.80} \\
+9   & $0.43$ & $-$ & $\tau = 0.43$ & 4 & 5 & 0 & 1 & \textbf{0.80} & \textbf{1.00} \\
+10  & $0.25$ & $+$ & $\tau = 0.25$ & 5 & 5 & 0 & 0 & \textbf{1.00} & \textbf{1.00} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Tracciando le coordinate $(FPR, TPR)$ sul piano cartesiano, si ottiene la curva empirica mostrata nella \autoref{fig:dm-roc-step-curve}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.8\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Griglia e assi
+    \draw[help lines, dashed, gray!30] (0,0) grid[xstep=1, ystep=1] (5,5);
+    \draw[->, line width=1pt] (0,0) -- (5.5,0) node[right, font=\small] {$FPR$ (Tasso Falsi Positivi)};
+    \draw[->, line width=1pt] (0,0) -- (0,5.5) node[above, font=\small] {$TPR$ (Tasso Veri Positivi)};
+
+    % Ticks X e Y
+    \foreach \x/\val in {0/0, 1/0.2, 2/0.4, 3/0.6, 4/0.8, 5/1.0} {
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\footnotesize] {\val};
+        \draw (0.1, \x) -- (-0.1, \x) node[left, font=\footnotesize] {\val};
+    }
+
+    % Diagonale casuale
+    \draw[dashed, line width=1pt, gray!70] (0,0) -- (5,5);
+    \node[font=\footnotesize, color=gray!80, rotate=45, anchor=south] at (2.5, 2.5) {Random Guessing ($AUC=0.5$)};
+
+    % Curva ROC a gradini:
+    % Punti: (0,0) -> (0, 0.2) -> (0, 0.4) -> (0.2, 0.4) -> (0.4, 0.6) -> (0.6, 0.6) -> (0.8, 0.6) -> (0.8, 0.8) -> (1.0, 0.8) -> (1.0, 1.0)
+    % Moltiplicati per 5 per scalare sul canvas [0,5]
+    \draw[line width=1.5pt, crimson] 
+        (0,0) -- (0,1) -- (0,2) -- (1,2) -- (2,3) -- (3,3) -- (4,3) -- (4,4) -- (5,4) -- (5,5);
+
+    % Punti evidenziati
+    \foreach \px/\py in {0/0, 0/1, 0/2, 1/2, 2/3, 3/3, 4/3, 4/4, 5/4, 5/5} {
+        \fill[navy] (\px, \py) circle (2.2pt);
+    }
+
+    % Punto ideale
+    \fill[darkgreen] (0,5) circle (3pt);
+    \node[font=\footnotesize\bfseries, color=darkgreen, anchor=south west] at (0.1, 4.8) {Classificatore Ideale $(0, 1)$};
+
+    % Legenda
+    \node[draw=navy!30, fill=codebackground, rounded corners=3pt, anchor=south east, font=\footnotesize] at (4.9, 0.5) {
+        \begin{tabular}{ll}
+            \tikz\draw[line width=1.2pt, crimson] (0,0) -- (0.5,0); & Curva ROC Empirica ($10$ campioni) \\
+            \tikz\draw[dashed, line width=1pt, gray] (0,0) -- (0.5,0); & Casuale ($AUC = 0.5$) \\
+        \end{tabular}
+    };
+\end{tikzpicture}%
+}
+\caption{Curva ROC a gradini generata dalla traccia dei 10 campioni ordinati: la superficie sottesa calcolata geometricamente fornisce $AUC = 0.68$, evidenziando un potere discriminante superiore al caso ma perfettibile.}
+\label{fig:dm-roc-step-curve}
+\end{figure}
+
+% ====================================================================
+\FloatBarrier
+\section{Test di Significatività Statistica e Confronto tra Modelli}
+\label{sec:dm-statistical-comparison}
+
+Consideriamo un quesito classico della pratica scientifica:
+\begin{quote}
+\textit{Dati due modelli concorrenti $M_1$ ed $M_2$, dove $M_1$ evidenzia un'accuratezza dell'$85\%$ su un test set di sole $N_1 = 30$ istanze, mentre $M_2$ evidenzia un'accuratezza del $75\%$ su un test set massivo di $N_2 = 5\,000$ istanze, è lecito affermare con certezza che $M_1$ sia superiore ad $M_2$?}
+\end{quote}
+
+Per rispondere in modo rigoroso, è indispensabile quantificare la confidenza statistica delle stime campionarie e applicare la teoria dei test d'ipotesi~\cite{tan2018}.
+
+\FloatBarrier
+\subsection{Modellazione Binomiale e Intervallo di Confidenza per l'Accuratezza}
+\label{subsec:dm-binomial-confidence-interval}
+
+La classificazione di ciascun record di test indipendente può essere formalmente modellata come una \textbf{prova di Bernoulli} che ammette due soli esiti: successo (previsione corretta, evento con probabilità costante $p$ pari alla reale accuratezza del modello) e fallimento (errore, probabilità $1 - p$).
+
+Su una collezione di $N$ record di test indipendenti, il numero casuale di successi $X$ segue rigorosamente una \textbf{distribuzione binomiale}:
+\begin{equation}
+    X \sim \text{Bin}(N, p), \quad \text{con } \mathbb{E}[X] = N \cdot p, \quad \operatorname{Var}(X) = N \cdot p (1 - p)
+\end{equation}
+La metrica campionaria di accuratezza osservata è $acc = \frac{X}{N}$, con valore atteso $\mathbb{E}[acc] = p$ e varianza campionaria:
+\begin{equation}
+    \sigma_{acc}^2 = \frac{p(1 - p)}{N}
+\end{equation}
+
+Per il Teorema del Limite Centrale, qualora $N$ sia sufficientemente grande ($N > 30$ e $N \cdot p > 5$), la distribuzione campionaria dell'accuratezza converge a una densità normale standardizzata:
+\begin{equation}
+    Z = \frac{acc - p}{\sqrt{\frac{p(1 - p)}{N}}} \sim \mathcal{N}(0, 1)
+\end{equation}
+Fissato un livello di confidenza statistica $1 - \alpha$ (tipicamente al $95\%$, con $\alpha = 0.05$ e quantile critico $Z_{\alpha/2} = 1.96$), la probabilità associata soddisfa:
+\begin{equation}
+    P\left( -Z_{\alpha/2} \le \frac{acc - p}{\sqrt{\frac{p(1 - p)}{N}}} \le Z_{\alpha/2} \right) = 1 - \alpha
+\end{equation}
+
+Elevando al quadrato la disuguaglianza e risolvendo l'equazione di secondo grado rispetto al parametro incognito $p$, si ricava l'espressione in forma chiusa dell'\textbf{Intervallo di Confidenza di Wilson}:
+\begin{equation}
+    p = \frac{2 N \cdot acc + Z_{\alpha/2}^2 \pm Z_{\alpha/2} \sqrt{Z_{\alpha/2}^2 + 4 N \cdot acc - 4 N \cdot acc^2}}{2(N + Z_{\alpha/2}^2)}
+    \label{eq:dm-wilson-confidence-interval}
+\end{equation}
+
+\begin{example}[Impatto della Dimensione $N$ sull'Ampiezza della Stima]
+Si consideri un modello la cui accuratezza empirica osservata è costantemente pari ad $acc = 0.80$ ($80\%$) al livello di confidenza del $95\%$ ($Z_{\alpha/2} = 1.96$). La Tabella~\ref{tab:dm-confidence-interval-width} riporta gli estremi inferiore $p_{\text{lower}}$ e superiore $p_{\text{upper}}$ al crescere di $N$.
+\end{example}
+
+\begin{table}[H]
+\centering
+\caption{Intervalli di confidenza al 95\% per un'accuratezza osservata dell'80\% al variare di $N$.}
+\label{tab:dm-confidence-interval-width}
+\vspace{2mm}
+\resizebox{0.9\columnwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Dimensione Test Set ($N$)} & \textbf{50} & \textbf{100} & \textbf{500} & \textbf{1\,000} & \textbf{5\,000} \\
+\midrule
+\textbf{Estremo Inferiore $p_{\text{lower}}$} & $0.670$ & $0.711$ & $0.763$ & $0.774$ & $0.789$ \\
+\textbf{Estremo Superiore $p_{\text{upper}}$} & $0.888$ & $0.866$ & $0.833$ & $0.824$ & $0.811$ \\
+\textbf{Ampiezza Intervallo $\Delta p$}       & \textbf{0.218} & \textbf{0.155} & \textbf{0.070} & \textbf{0.050} & \textbf{0.022} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+I dati evidenziano come la stima su 50 campioni sia estremamente incerta (con un margine d'errore di circa $\pm 11\%$), mentre su 5000 campioni l'intervallo si contrae a un sottilissimo intervallo di $\pm 1.1\%$.
+
+\FloatBarrier
+\subsection{Test di Ipotesi per il Confronto tra Due Classificatori Indipendenti}
+\label{subsec:dm-two-models-hypothesis-test}
+
+Siano dati due modelli predittivi $M_1$ ed $M_2$ valutati rispettivamente su due insiemi di test disgiunti e indipendenti $\mathcal{D}_1$ (di cardinalità $n_1$, con tasso d'errore osservato $e_1$) e $\mathcal{D}_2$ (di cardinalità $n_2$, con tasso d'errore osservato $e_2$).
+
+I tassi di errore empirici seguono approssimativamente distribuzioni gaussiane indipendenti con varianze campionarie stimate pari a:
+\begin{equation}
+    \hat{\sigma}_1^2 = \frac{e_1(1 - e_1)}{n_1}, \qquad \hat{\sigma}_2^2 = \frac{e_2(1 - e_2)}{n_2}
+\end{equation}
+Definiamo la variabile stocastica differenza tra i tassi di errore:
+\begin{equation}
+    d = e_1 - e_2
+\end{equation}
+Poiché le due partizioni sono tra loro indipendenti, la varianza della differenza è esattamente pari alla somma delle varianze individuali:
+\begin{equation}
+    \hat{\sigma}_d^2 = \hat{\sigma}_1^2 + \hat{\sigma}_2^2 = \frac{e_1(1 - e_1)}{n_1} + \frac{e_2(1 - e_2)}{n_2}
+\end{equation}
+L'intervallo di confidenza al livello $1 - \alpha$ per la reale differenza $d_t$ tra i tassi di errore asintotici è formulato come:
+\begin{equation}
+    d_t \in \left[ d - Z_{\alpha/2} \cdot \hat{\sigma}_d, \; d + Z_{\alpha/2} \cdot \hat{\sigma}_d \right]
+\end{equation}
+
+\begin{example}[Risoluzione Rigorosa del Confronto Iniziale tra $M_1$ ed $M_2$]
+Riprendiamo i parametri del problema iniziale~\cite{tan2018}:
+\begin{itemize}
+    \item Modello $M_1$: $n_1 = 30$, accuratezza $acc_1 = 0.85 \implies e_1 = 1 - 0.85 = 0.15$;
+    \item Modello $M_2$: $n_2 = 5\,000$, accuratezza $acc_2 = 0.75 \implies e_2 = 1 - 0.75 = 0.25$.
+\end{itemize}
+Impostiamo il test d'ipotesi bilaterale sulla differenza:
+\begin{equation}
+    H_0: d_t = 0 \quad \text{(Nessuna differenza reale)}, \qquad H_1: d_t \ne 0
+\end{equation}
+\begin{enumerate}
+    \item \textbf{Differenza osservata:}
+    \begin{equation}
+        d = |e_2 - e_1| = |0.25 - 0.15| = 0.100
+    \end{equation}
+    \item \textbf{Varianza stimata della differenza:}
+    \begin{align}
+        \hat{\sigma}_d^2 &= \frac{0.15(1 - 0.15)}{30} + \frac{0.25(1 - 0.25)}{5\,000} \nonumber \\
+        &= \frac{0.1275}{30} + \frac{0.1875}{5\,000} \nonumber \\
+        &= 0.004250 + 0.0000375 \approx 0.0042875
+    \end{align}
+    da cui la deviazione standard congiunta risulta $\hat{\sigma}_d = \sqrt{0.0042875} \approx 0.06548$.
+    \item \textbf{Calcolo dell'Intervallo di Confidenza al 95\% ($Z_{\alpha/2} = 1.96$):}
+    \begin{align}
+        d_t &= 0.100 \pm 1.96 \cdot 0.06548 \nonumber \\
+        &= 0.100 \pm 0.1283
+    \end{align}
+    L'intervallo di confidenza calcolato per la reale differenza è:
+    \begin{equation}
+        d_t \in [-0.0283, \; +0.2283]
+    \end{equation}
+\end{enumerate}
+\textbf{Conclusione Statistica:} Poiché l'intervallo di confidenza \textbf{comprende al proprio interno il valore zero} ($0 \in [-0.0283, +0.2283]$), l'ipotesi nulla $H_0$ \textbf{non può essere rigettata} a livello di significatività del $5\%$.
+La differenza di prestazioni dell'$85\%$ contro il $75\%$ \textbf{non è statisticamente significativa}: essa è perfettamente compatibile con una fluttuazione casuale dovuta alla minuscola dimensione campionaria ($N_1 = 30$) su cui è stato valutato $M_1$. Non vi è alcuna evidenza empirica per sostenere che $M_1$ generalizzi meglio di $M_2$.
+\end{example}
+
+La Tabella~\ref{tab:dm-eval-methods-summary} riassume sinotticamente le metodologie, gli indicatori e i test formalizzati nel capitolo.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico comparativo delle metodologie di valutazione e confronto dei classificatori.}
+\label{tab:dm-eval-methods-summary}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+\textbf{Ambito Metodologico} & \textbf{Strumenti e Metriche} & \textbf{Punto di Forza Primario} & \textbf{Criticità o Limite Applicativo} \\
+\midrule
+\textbf{Metriche Globali} & Accuracy, Error Rate & Immediatezza computazionale & Fuorvianti su classi fortemente sbilanciate \\
+\textbf{Metriche Asimmetriche} & Precision, Recall, Misura $F_1$ & Focalizzazione sulla classe target & Dipendono dalla scelta della soglia di taglio \\
+\textbf{Analisi Cost-Sensitive} & Matrice dei Costi $C(i \mid j)$ & Realismo economico applicativo & Richiede specificazione a priori dei costi reali \\
+\textbf{Analisi ad Ampio Spettro} & Curve ROC, Indice AUC & Indipendenti dalla soglia e dallo sbilanciamento & Richiedono score di probabilità ben calibrati \\
+\textbf{Protocolli di Split} & $k$-Fold CV, Stratificazione, Bootstrap & Stime stabili a bassa distorsione & Sovraccarico di calcolo su modelli complessi \\
+\textbf{Confronto di Ipotesi} & Test $Z$, Intervalli di Wilson & Distinzione tra segnale reale e rumore & Richiedono campioni di test indipendenti ($N > 30$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

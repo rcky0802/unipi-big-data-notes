@@ -1,0 +1,785 @@
+\chapter{Laboratorio di Machine Learning: Codifica, Alberi di Decisione, Dati Sbilanciati e Generazione Sintetica}
+\label{ch:lab-ml-decision-trees-dati-sbilanciati}
+
+\FloatBarrier
+\section{Introduzione e Motivazione}
+\label{sec:dm-ml-intro}
+
+Nell'ambito dell'analisi avanzata dei dati e del Data Mining, il paradigma del \textbf{Machine Learning} (apprendimento automatico) formalizza la progettazione e lo sviluppo di sistemi algoritmici capaci di estrarre conoscenza predittiva a partire dall'evidenza empirica~\cite{tan2018, han2011}. Da un punto di vista fondazionale, il problema dell'apprendimento automatico si articola su quattro pilastri concettuali interconnessi~\cite{mannocci2026imbalanced}:
+\begin{enumerate}
+    \item \textbf{Cosa apprendere (\textit{A Model}):} un modello matematico o una funzione di mappatura $f: \mathcal{X} \to \mathcal{Y}$ che formalizza le relazioni statistiche sottostanti tra i dati di ingresso e l'obiettivo da predire.
+    \item \textbf{Per risolvere cosa (\textit{A Task}):} un compito ben definito, primariamente ripartito tra compiti di \textit{classificazione} (qualora l'etichetta target appartenga a un dominio discreto e finito) e compiti di \textit{regressione} (qualora la variabile risposta sia continua e reale).
+    \item \textbf{Come apprendere (\textit{A Learning Algorithm}):} una procedura computazionale strutturata che aggiorna o configura i parametri del modello alla luce dei dati disponibili.
+    \item \textbf{Apprendere mediante cosa (\textit{Searching}):} un processo di ricerca ottimizzata all'interno dello spazio delle ipotesi $\mathcal{H}$, guidato dalla minimizzazione di una funzione di costo o dalla massimizzazione di un criterio di purezza/verosimiglianza.
+\end{enumerate}
+
+La transizione dai principi teorici all'applicazione pratica solleva tuttavia due sfide critiche frequentemente riscontrabili nei contesti operativi moderni. In primo luogo, i dataset reali presentano quasi costantemente strutture eterogenee, con attributi continui mescolati a variabili categoriche nominali o ordinali e tuple incomplete, rendendo imprescindibile una fase rigorosa di \textit{pre-elaborazione} e \textit{codifica} (\textit{encoding}) affinché i predittori possano essere impiegati da algoritmi come gli alberi di decisione o i classificatori lineari~\cite{tan2018}. In secondo luogo, nella quasi totalità dei domini applicativi ad alto impatto (quali il rilevamento delle frodi bancarie, la diagnostica medica di patologie rare, il monitoraggio di guasti nei sistemi critici e la manutenzione predittiva), la distribuzione delle classi risulta intrinsecamente e asimmetricamente sbilanciata (\textit{class imbalance})~\cite{chawla2002, mannocci2026imbalanced}.
+
+In presenza di una forte asimmetria tra una classe ampiamente prevalente (\textit{classe maggioritaria}) e una classe infrequente ma prioritaria (\textit{classe minoritaria}), i modelli convenzionali addestrati sull'accuratezza globale falliscono catastroficamente: essi tendono a predire sistematicamente la classe maggioritaria, ignorando completamente le istanze rare pur esibendo percentuali di accuratezza apparentemente eccellenti (il cosiddetto \textit{paradosso dell'accuratezza})~\cite{mannocci2026imbalanced}.
+
+Il presente capitolo integra organicamente la dimensione empirica di laboratorio e il rigore metodologico avanzato:
+\begin{itemize}
+    \item La \textbf{Parte I} esplora il flusso di lavoro operativo condotto nel laboratorio Python sul dataset tabellare \texttt{adult.csv}, illustrando i principi teorici e pratici di discretizzazione, codifica (\textit{Label Encoding} vs \textit{One-Hot Encoding}), addestramento, potatura e visualizzazione degli alberi di decisione, con una rassegna comparativa sui principali classificatori supervisionati.
+    \item La \textbf{Parte II} formalizza lo studio sistematico dei \textbf{dati sbilanciati} (\textit{Imbalanced Data}), analizzando il fallimento del classificatore banale, la tassonomia delle strategie correttive a livello di dati e di algoritmo, i metodi di sottocampionamento intelligente (\textit{Condensed Nearest Neighbor}, \textit{Tomek Links}) e di sovracampionamento con interpolazione nello spazio delle feature (\textit{SMOTE} e varianti), unitamente all'apprendimento sensibile ai costi (\textit{Cost-Sensitive Learning}).
+    \item La \textbf{Parte III} affronta la frontiera della modellazione generativa profonda per la \textbf{generazione sintetica di dati tabellari}, analizzando il confronto paradigmatico tra modelli discriminativi e generativi, l'architettura competitiva Minimax delle \textit{Generative Adversarial Networks} (GAN) con soluzione alla saturazione del gradiente, la formulazione specializzata di \textit{Conditional Tabular GAN} (CTGAN), e il framework probabilistico dei \textit{Variational Autoencoders} (VAE) basato sul \textit{Reparameterization Trick} e applicato a dati tabellari (TVAE).
+\end{itemize}
+% --------------------------------------------------
+\FloatBarrier
+\section{Parte I: Laboratorio Empirico su Dataset Tabellare Adult}
+\label{sec:dm-lab-adult}
+
+\FloatBarrier
+\subsection{Ambiente Sperimentale e Profilassi del Dataset Adult}
+\label{subsec:dm-lab-dataset}
+
+La sperimentazione pratica condotta nel laboratorio didattico impiega lo stack scientifico Python standard composto da \texttt{numpy}, \texttt{pandas}, \texttt{scipy.stats}, \texttt{matplotlib.pyplot}, \texttt{seaborn} e \texttt{scikit-learn}~\cite{mannocci2026imbalanced}.
+
+Il caso di studio impiega il dataset socio-demografico \texttt{adult.csv} (noto anche nella letteratura statistica internazionale come \textit{Census Income Dataset}), il cui compito analitico consiste nel determinare se il reddito annuo di un individuo superi o meno la soglia di $50.000$ dollari statunitensi~\cite{tan2018}.
+
+\begin{definition}[Spazio dei Dati del Dataset Adult]
+Il dataset è costituito da una collezione di $N = 36.631$ istanze campionate, strutturate su $D = 14$ attributi complessivi:
+\begin{equation}
+    \mathcal{D} = \{ (\mathbf{x}_i, y_i) \}_{i=1}^N, \qquad \mathbf{x}_i \in \mathcal{X}, \quad y_i \in \{0, 1\}
+\end{equation}
+La tupla descrittiva $\mathbf{x}_i$ è ripartita in:
+\begin{itemize}
+    \item \textbf{Attributi numerici continui o discreti ($6$ predittori):} \texttt{age} (età anagrafica), \texttt{capital\_gain} (plusvalenze finanziarie), \texttt{capital\_loss} (minusvalenze finanziarie), \texttt{education} (livello di istruzione codificato numericamente), \texttt{final\_weight} (peso campionario demografico attribuito dall'istituto di censimento), \texttt{hours\_worked\_per\_week} (ore lavorative settimanali).
+    \item \textbf{Attributi categorici nominali ($6$ predittori):} \texttt{marital\_status}, \texttt{native\_country}, \texttt{occupation}, \texttt{race}, \texttt{relationship}, \texttt{workclass}. Tali variabili contengono categorie non standard e valori mancanti esplicitamente indicati tramite il simbolo convenzionale \texttt{'?'}.
+    \item \textbf{Attributo booleano ($1$ predittore):} \texttt{is\_male} con dominio binario $\{\text{True}, \text{False}\}$.
+    \item \textbf{Attributo target supervisionato ($y$):} \texttt{over\_threshold}, variabile binaria dove $y=1$ denota un reddito superiore a $50.000\$$ annui e $y=0$ denota un reddito inferiore o uguale.
+\end{itemize}
+\end{definition}
+
+\FloatBarrier
+\subsection{Strategie di Codifica delle Variabili Categoriche (Encoding)}
+\label{subsec:dm-lab-encoding}
+
+La maggioranza degli stimatori matematici di Machine Learning richiede matrici di ingresso puramente numeriche $X \in \mathbb{R}^{N \times M}$. Di conseguenza, la gestione delle variabili categoriche non ordinali impone la scelta di una funzione di mappatura appropriata. Nel laboratorio didattico vengono esaminate e poste a confronto due strategie cardine~\cite{mannocci2026imbalanced}:
+
+\begin{enumerate}
+    \item \textbf{Label Encoding (\textit{Codifica a Valori Interi}):}
+    Ciascuna modalità distinta $v \in \mathcal{V}_j$ dell'attributo categorico $A_j$ viene associata univocamente a un indice intero compreso tra $0$ e $|\mathcal{V}_j| - 1$ mediante l'operatore \texttt{LabelEncoder} di Scikit-Learn:
+    \begin{equation}
+        \phi_{\text{label}}: \mathcal{V}_j \to \{0, 1, \dots, |\mathcal{V}_j| - 1\}
+    \end{equation}
+    Nel dataset in esame, per la feature \texttt{marital\_status}, le categorie subiscono la trasformazione:
+    \begin{equation*}
+        \text{`Divorced'} \mapsto 0, \quad \text{`Married-civ-spouse'} \mapsto 2, \quad \text{`Never-married'} \mapsto 4
+    \end{equation*}
+    mentre per la feature booleana \texttt{is\_male} si ottiene $\text{False} \mapsto 0$ e $\text{True} \mapsto 1$. Il principale vantaggio di questo schema risiede nella conservazione rigorosa della dimensionalità: la matrice risultante mantiene esattamente $14$ colonne.
+    
+    \begin{alertblock}{Patologia di Ordinamento Indotta dal Label Encoding}
+    L'assegnazione di numeri interi arbitrari a variabili nominali non ordinate (prive di graduazione naturale) induce una relazione d'ordine artificiale e metriche di distanza prive di significato semantico:
+    \begin{align*}
+        |2 - 0| &< |4 - 0| \implies \\
+        d(\text{`Married'}, \text{`Divorced'}) &< d(\text{`Never-married'}, \text{`Divorced'})
+    \end{align*}
+    Mentre gli \textbf{alberi di decisione} possono tollerare tale codifica (poiché valutano predicati di disuguaglianza univariata su singoli valori discreti preservando le partizioni locali), gli algoritmi basati su funzioni di distanza vettoriale euclidea o di Minkowski (quali $k$-\textit{Nearest Neighbors}, Support Vector Machines a kernel RBF e Reti Neurali) interpretano tali interi come coordinate metriche, distorcendo gravemente la topologia dello spazio delle feature.
+    \end{alertblock}
+
+    \item \textbf{One-Hot Encoding (\textit{Codifica Binaria Espansa}):}
+    Per superare il limite geometrico del Label Encoding, ciascun attributo nominale $A_j$ avente cardinalità $|\mathcal{V}_j| = K_j$ viene proiettato in uno spazio vettoriale a $K_j$ dimensioni binarie mediante \texttt{pd.get\_dummies(..., prefix\_sep='\%')}:
+    \begin{equation}
+        \phi_{\text{OHE}}(x^{(j)}) = \mathbf{e}_k \in \{0, 1\}^{K_j}, \qquad \text{dove } (\mathbf{e}_k)_l = \begin{cases} 1 & \text{se } x^{(j)} = v_l \\ 0 & \text{altrimenti} \end{cases}
+    \end{equation}
+    Ogni modalità diventa un predittore booleano indipendente (ad es. \texttt{relationship\%0}, \dots, \texttt{education\%15}). L'applicazione dell'operatore sul dataset \texttt{adult} espande lo spazio dei predittori da $14$ attributi iniziali a ben \textbf{$108$ colonne}. Questa rappresentazione garantisce equidistanza geometrica ortogonale tra tutte le categorie distinte:
+    \begin{equation}
+        \|\mathbf{e}_k - \mathbf{e}_l\|_2 = \sqrt{2}, \quad \forall k \neq l
+    \end{equation}
+    eliminando qualsiasi bias ordinale spurio al prezzo di una matrice sparsa a dimensionalità superiore.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Induzione e Valutazione degli Alberi di Decisione}
+\label{subsec:dm-lab-dt}
+
+La pipeline sperimentale procede partizionando il dataset mediante suddivisione stratificata~\cite{mannocci2026imbalanced}:
+\begin{equation}
+    \mathcal{D}_{\text{train}} \; (70\%, \, N_{\text{train}} = 25.641), \qquad \mathcal{D}_{\text{test}} \; (30\%, \, N_{\text{test}} = 10.990)
+\end{equation}
+garantendo tramite il vincolo \texttt{stratify=label} che la proporzione della classe positiva ($y=1$, circa il $24\%$) e della classe negativa ($y=0$, circa il $76\%$) rimanga identica nelle due frazioni.
+
+L'albero di decisione viene configurato attraverso i parametri strutturali di regolarizzazione per contrastare il sovradattamento (\textit{overfitting}):
+\begin{itemize}
+    \item \texttt{criterion='gini'}: impiego dell'indice di impurità di Gini;
+    \item \texttt{max\_depth=10}: profondità massima dell'albero limitata a 10 livelli;
+    \item \texttt{min\_samples\_split=3}: soglia minima di 3 campioni in un nodo interno per autorizzarne la ramificazione;
+    \item \texttt{min\_samples\_leaf=4}: vincolo minimale di almeno 4 campioni per ciascun nodo foglia terminale.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.88, every node/.style={transform shape},
+    node distance=1.6cm and 2.0cm,
+    decision/.style={rectangle, draw=navy, fill=codebackground, text=navy, rounded corners=4pt, align=center, font=\small\bfseries, inner sep=6pt, line width=1pt},
+    leaf/.style={rectangle, draw=darkgreen, fill=darkgreen!10, text=darkgreen, rounded corners=4pt, align=center, font=\small\bfseries, inner sep=5pt, line width=1pt},
+    edge_label/.style={font=\scriptsize\bfseries, fill=white, inner sep=2pt, text=darkgray}
+]
+    % Root
+    \node[decision] (root) {Radice: \texttt{relationship\_Husband} $\le 0.5$\\$N = 25.641$, Gini $= 0.364$};
+    
+    % Level 1
+    \node[decision, below left=1.4cm and 1.2cm of root] (n1) {\texttt{education\_num} $\le 12.5$\\$N = 15.112$, Gini $= 0.124$};
+    \node[decision, below right=1.4cm and 1.2cm of root] (n2) {\texttt{capital\_gain} $\le 5059.5$\\$N = 10.529$, Gini $= 0.493$};
+    
+    % Level 2
+    \node[leaf, below left=1.2cm and 0.4cm of n1] (l1) {Predizione: $\le 50\text{K}\$$ ($y=0$)\\Confidenza: $96.8\%$};
+    \node[leaf, below right=1.2cm and 0.4cm of n1] (l2) {Predizione: $\le 50\text{K}\$$ ($y=0$)\\Confidenza: $78.2\%$};
+    \node[decision, below left=1.2cm and 0.4cm of n2] (n3) {\texttt{education\_num} $\le 12.5$};
+    \node[leaf, below right=1.2cm and 0.4cm of n2] (l3) {Predizione: $> 50\text{K}\$$ ($y=1$)\\Confidenza: $98.4\%$};
+
+    % Arcs
+    \draw[->, >=stealth, line width=0.9pt, navy] (root) -- node[edge_label, left=2mm] {Sì (True)} (n1);
+    \draw[->, >=stealth, line width=0.9pt, navy] (root) -- node[edge_label, right=2mm] {No (False)} (n2);
+    \draw[->, >=stealth, line width=0.9pt, navy] (n1) -- node[edge_label, left=1mm] {$\le 12.5$} (l1);
+    \draw[->, >=stealth, line width=0.9pt, navy] (n1) -- node[edge_label, right=1mm] {$> 12.5$} (l2);
+    \draw[->, >=stealth, line width=0.9pt, navy] (n2) -- node[edge_label, left=1mm] {$\le 5059.5$} (n3);
+    \draw[->, >=stealth, line width=0.9pt, navy] (n2) -- node[edge_label, right=1mm] {$> 5059.5$} (l3);
+\end{tikzpicture}%
+}
+\caption{Schema topologico dei primi livelli dell'albero di decisione indotto dal notebook su dati Adult, con indicazione delle condizioni di split, numerosità campionaria e purezza dei nodi.}
+\label{fig:dm-lab-tree-topology}
+\end{figure}
+
+L'albero indotto evidenzia un'elevata interpretabilità: la condizione radice discrimina lo stato coniugale (\texttt{relationship\_Husband}), seguita dalla scolarizzazione (\texttt{education\_num}) e dalle plusvalenze (\texttt{capital\_gain}).
+
+La valutazione quantitativa condotta sul test set produce la matrice di confusione e le metriche di prestazione riassunte nella Tabella~\ref{tab:dm-lab-dt-report}.
+
+\begin{table}[H]
+\centering
+\caption{Report di classificazione sul test set per l'albero di decisione indotto ($N_{\text{test}} = 10.990$).}
+\label{tab:dm-lab-dt-report}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Classe Target} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} & \textbf{Supporto (Conteggio Reale)} \\
+\midrule
+Classe $0$ ($\le 50\text{K}\$, \text{maggioritaria}$) & $0.88$ & $0.93$ & $0.90$ & $8.341$ \\
+Classe $1$ ($> 50\text{K}\$, \text{minoritaria}$) & $0.72$ & $0.59$ & $0.65$ & $2.649$ \\
+\midrule
+\textbf{Accuratezza Globale (Accuracy)} & \multicolumn{3}{c}{\textbf{$0.849$} ($84.9\%$)} & $10.990$ \\
+\textbf{Media Macro (Macro Avg)} & $0.80$ & $0.76$ & $0.78$ & $10.990$ \\
+\textbf{Media Ponderata (Weighted Avg)} & $0.84$ & $0.85$ & $0.84$ & $10.990$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\noindent
+La matrice di confusione empirica rivela un'asimmetria diagnostica evidente:
+\begin{equation}
+    \mathbf{CM}_{\text{DT}} = \begin{bmatrix} \text{TN} = 7762 & \text{FP} = 579 \\ \text{FN} = 1076 & \text{TP} = 1573 \end{bmatrix}
+\end{equation}
+Nonostante un'accuratezza ragguardevole dell'$84.9\%$, la \textit{Recall} sulla classe ricca ($y=1$) crolla al $59\%$: l'albero manca oltre il $40\%$ dei soggetti ad alto reddito (1076 falsi negativi), ponendo in luce le prime manifestazioni dello sbilanciamento di classe.
+
+\FloatBarrier
+\subsection{Panoramica Comparativa dei Modelli del Laboratorio}
+\label{subsec:dm-lab-comparison}
+
+Il notebook estende l'indagine empirica applicando un ventaglio completo di algoritmi di classificazione supervisionata sullo stesso dataset preprocessato~\cite{mannocci2026imbalanced}:
+\begin{itemize}
+    \item \textbf{Gaussian Naïve Bayes (\texttt{GaussianNB}):} assume indipendenza condizionale tra i predittori data la classe; ottiene una predizione rapida ma risente della forte correlazione tra indicatori socio-economici, esibendo un'accuratezza inferiore ($79.6\%$) ma un richiamo bilanciato.
+    \item \textbf{$k$-Nearest Neighbors (\texttt{KNeighborsClassifier}):} valutato su sottoinsiemi puramente numerici standardizzati; la complessità computazionale di predizione scala con $\mathcal{O}(N \cdot d)$, rendendolo sensibile al rumore dimensionale.
+    \item \textbf{XGBoost (\texttt{XGBClassifier}):} implementazione ottimizzata di Gradient Boosted Decision Trees; mediante regolarizzazione $L_1/L_2$ sui pesi delle foglie e discesa di gradiente nel secondo ordine, consegue le prestazioni predittive più elevate con un'accuratezza dell'$87.1\%$ e un $F_1$-score sulla classe minoritaria pari a $0.71$.
+    \item \textbf{Bagging \& Random Forest:} la combinazione di $30$ estimatori ad albero mediante bootstrap abbatte la varianza rispetto al singolo albero. L'introduzione esplicita di pesi asimmetrici (\texttt{class\_weights=\{0: 0.35, 1: 0.65\}}) inverte la sensibilità: la recall per la classe $1$ sale sensibilmente dal $61\%$ al $74\%$, a prezzo di un lieve incremento nei falsi positivi.
+    \item \textbf{Classificatori Basati su Regole (\texttt{RIPPER}):} l'algoritmo RIPPER (\textit{Repeated Incremental Pruning to Produce Error Reduction}) estrae un insieme compatto di regole deterministiche espresse in forma proposizionale \texttt{IF-THEN}, garantendo la massima interpretabilità per auditing etico-legale.
+    \item \textbf{Reti Neurali Artificiali Multistrato \& Dropout:} architettura densa a 3 strati addestrata per 80 epoche con funzione di costo \textit{binary crossentropy}; l'introduzione di strati di regolarizzazione \textbf{Dropout} con probabilità $p = 0.3$ azzera il divario tra curva di loss di training e validazione, prevenendo la co-adattamento patologico dei nodi interni.
+\end{itemize}
+% --------------------------------------------------
+\FloatBarrier
+\section{Parte II: Trattamento dei Dati Sbilanciati (Imbalanced Data)}
+\label{sec:dm-imbalanced-data}
+
+\FloatBarrier
+\subsection{Fondamenti, Esempi Reali e il Paradosso dell'Accuratezza}
+\label{subsec:dm-imbalanced-paradox}
+
+Nella teoria classica del Machine Learning si assume prevalentemente che le etichette di classe siano equamente distribuite tra i campioni disponibili ($50\%$ per la classe positiva e $50\%$ per la negativa)~\cite{tan2018}. Nella realtà applicativa, tale assunzione viene sistematicamente violata.
+
+\begin{definition}[Distribuzione di Classe Sbilanciata]
+Dato un problema di classificazione su uno spazio campionario $\mathcal{S}$, si definisce sbilanciata una distribuzione in cui sussiste una marcata sproporzione quantitativa tra la cardinalità dei campioni della classe prevalente (\textbf{classe maggioritaria}, $C_{\text{maj}}$) e la cardinalità dei campioni della classe rara di primario interesse analitico (\textbf{classe minoritaria}, $C_{\text{min}}$):
+\begin{equation}
+    |C_{\text{maj}}| \gg |C_{\text{min}}|, \qquad \text{Rapporto di Sbilanciamento } IR = \frac{|C_{\text{maj}}|}{|C_{\text{min}}|} \gg 1
+\end{equation}
+\end{definition}
+
+Tale asimmetria governa le più rilevanti sfide tecnologiche contemporanee~\cite{mannocci2026imbalanced}:
+\begin{itemize}
+    \item \textbf{Rilevamento Frodi Bancarie (\textit{Credit Card Fraud}):} in un tipico archivio transazionale, circa il $2\%$ dei conti o delle operazioni è fraudolento ($IR \approx 50:1$). Nei flussi di pagamento digitali in tempo reale, la frequenza scende spesso al di sotto dello $0.05\%$ ($IR \approx 2000:1$).
+    \item \textbf{Screening Medico ed Epidemiologico:} la prevalenza di una patologia grave (ad es. l'infezione da HIV o neoplasie in fase precoce) su una popolazione asintomatica si attesta comunemente tra lo $0.1\%$ e lo $0.4\%$ ($IR \approx 1000:1$).
+    \item \textbf{Guasti nei Sistemi di Memorizzazione (\textit{Disk Drive Failures}):} il tasso annuo di guasto di supporti storage nei data center industriali è dell'ordine dell'$1\%$ ($IR \approx 100:1$).
+    \item \textbf{Controllo di Qualità Industriale:} su linee di produzione ad alta precisione, i tassi di difettosità si collocano attorno allo $0.1\%$ ($IR \approx 1000:1$).
+\end{itemize}
+
+\begin{theorem}[Il Paradosso dell'Accuratezza e Classificatore Banale]
+Sia $\mathcal{D} = \{(\mathbf{x}_i, y_i)\}_{i=1}^N$ un dataset binario con frazione di campioni positivi $p = \frac{|C_{\text{pos}}|}{N}$ e negativi $q = 1 - p = \frac{|C_{\text{neg}}|}{N}$. Si assuma senza perdita di generalità che la classe negativa sia maggioritaria ($q > p$). 
+Un classificatore banale (o degenere) $f_{\text{trivial}}$ che predice costantemente la classe maggioritaria per qualsiasi ingresso:
+\begin{equation}
+    f_{\text{trivial}}(\mathbf{x}) = C_{\text{maj}}, \quad \forall \mathbf{x} \in \mathcal{X}
+\end{equation}
+ottiene un'accuratezza globale pari alla frequenza relativa della classe prevalente:
+\begin{equation}
+    A_{\text{trivial}} = q = 1 - p
+\end{equation}
+pur esibendo un richiamo nullo sulla classe positiva di interesse:
+\begin{equation}
+    \text{Recall}(C_{\text{pos}}) = \frac{\text{TP}}{\text{TP} + \text{FN}} = \frac{0}{0 + |C_{\text{pos}}|} = 0
+\end{equation}
+\end{theorem}
+
+\begin{example}[Valutazione Relativa dell'Accuratezza: Casi 75/25 vs 50/50]
+Si consideri un test set di $N = 100$ record valutato da un classificatore con accuratezza misurata pari al $70\%$ ($A = 0.70$)~\cite{mannocci2026imbalanced}:
+\begin{itemize}
+    \item \textbf{Scenario Sbilanciato ($75$ Positivi, $25$ Negativi):} il classificatore banale $f_{\text{trivial}}(\mathbf{x}) = \text{Positivo}$ consegue un'accuratezza intrinseca del $75\%$. Il modello appreso, conseguendo solo il $70\%$, è \textbf{peggiore della regola di decisione priva di intelligenza}: esso degrada le prestazioni rispetto alla pura previsione a priori della moda statistica.
+    \item \textbf{Scenario Bilanciato ($50$ Positivi, $50$ Negativi):} la baseline banale si attesta su $A_{\text{trivial}} = 50\%$. L'accuratezza del $70\%$ rappresenta un effettivo e sostanziale guadagno informativo indotto dai predittori.
+\end{itemize}
+Nel caso multiclasse con $K$ classi perfettamente bilanciate, la baseline di riferimento è data da:
+\begin{equation}
+    A_{\text{trivial}} \approx \frac{100}{K}\%
+\end{equation}
+Se $K = 5$, una precisione apparentemente modesta del $40\%$ costituisce in realtà un raddoppio della capacità diagnostica rispetto alla pura scelta proporzionale ($20\%$).
+\end{example}
+
+Di fronte a classi sbilanciate, la letteratura identifica quattro strategie d'azione metodologiche:
+\begin{enumerate}
+    \item \textbf{Modifica a livello di Dati (\textit{Data-level}):} bilanciamento sintetico o selettivo del training set mediante sottocampionamento (\textit{undersampling}) o sovracampionamento (\textit{oversampling}).
+    \item \textbf{Modifica a livello di Algoritmo (\textit{Algorithm-level}):} incorporazione di pesi asimmetrici per le classi (\textit{class weights}), variazione dinamica della soglia decisionale (\textit{threshold moving}), o formulazioni di apprendimento sensibile ai costi.
+    \item \textbf{Cambio di Paradigma:} riformulazione del compito di classificazione binaria come problema di \textbf{rilevamento delle anomalie} (\textit{Anomaly Detection} o \textit{One-Class Classification}, ad es. One-Class SVM, Isolation Forest).
+    \item \textbf{Inazione consapevole:} mantenere intatta la distribuzione originale adottando esclusivamente metriche non ingannevoli (Precision-Recall AUC, Cost Curve, F-measure ponderata).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Tecniche di Sottocampionamento (Undersampling)}
+\label{subsec:dm-undersampling}
+
+Il sottocampionamento interviene riducendo la numerosità della classe maggioritaria nel dataset di addestramento fino a renderla paritaria o comparabile con la classe minoritaria~\cite{mannocci2026imbalanced}.
+
+\begin{itemize}
+    \item \textbf{Random Undersampling:} consiste nell'estrarre un campione casuale uniforme (con o senza reinserimento) dalle istanze di $C_{\text{maj}}$ fino alla dimensione target desiderata.
+    Nonostante l'estrema semplicità e il drastico abbattimento dei tempi di calcolo, tale procedura comporta una \textbf{perdita catastrofica di informazione potenziale}: campioni maggioritari contenenti pattern critici vengono eliminati alla cieca.
+    \item \textbf{Sottocampionamento Intelligente Basato sui Vicini (\textit{Smart Undersampling}):} tecniche mirate a rimuovere selettivamente i punti maggioritari ridondanti (lontani dal confine di decisione) preservando quelli prossimi alla frontiera tra le classi.
+\end{itemize}
+
+\begin{definition}[Condensed Nearest Neighbor — CNN, Hart 1968]
+L'algoritmo \textbf{Condensed Nearest Neighbor (CNN)}~\cite{hart1968} seleziona un sottoinsieme minimale consistente $S \subset \mathcal{D}$ tale che l'applicazione della regola del vicino più prossimo $1$-NN addestrato su $S$ classifichi correttamente tutti gli elementi dell'insieme originale $\mathcal{D}$.
+\end{definition}
+
+\textbf{Procedura Algoritmica di CNN:}
+\begin{enumerate}
+    \item Si inizializza l'insieme condensato $S$ inserendovi \textbf{tutte le osservazioni della classe minoritaria} $C_{\text{min}}$ e un singolo campione estratto casualmente dalla classe maggioritaria $C_{\text{maj}}$.
+    \item Per ogni istanza residua $\mathbf{x} \in \mathcal{D} \setminus S$ appartenente alla classe maggioritaria, se ne predice la classe impiegando un classificatore $1$-NN addestrato sull'insieme provvisorio $S$:
+    \begin{equation}
+        \hat{y} = \text{arg}\min_{\mathbf{s} \in S} \|\mathbf{x} - \mathbf{s}\|_2
+    \end{equation}
+    \item Se $\mathbf{x}$ viene classificato \textbf{correttamente}, il punto viene scartato poiché ridondante (la struttura locale è già coperta da $S$).
+    \item Se $\mathbf{x}$ viene classificato \textbf{erroneamente} (ad esempio scambiato per un elemento della classe minoritaria), $\mathbf{x}$ viene rimosso da $\mathcal{D}$ e aggiunto a $S$.
+    \item Si ripete la scansione iterativa finché un'intera epoca su tutti i dati non determina alcuna nuova aggiunta a $S$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.92, every node/.style={transform shape},
+    maj_node/.style={circle, draw=navy, fill=navy!20, minimum size=6mm, font=\scriptsize\bfseries, text=navy},
+    min_node/.style={rectangle, draw=crimson, fill=crimson!20, minimum size=6mm, font=\scriptsize\bfseries, text=crimson},
+    syn_node/.style={star, star points=5, star point ratio=2.2, draw=darkgreen, fill=darkgreen!30, minimum size=7mm, inner sep=0pt}
+]
+    % Left side: Original space with boundary
+    \node[font=\bfseries\small, text=navy] at (2, 4.2) {Condensed Nearest Neighbor (CNN)};
+    \draw[thick, dashed, gray!60] (2, 0) -- (2, 3.8);
+    
+    % Minority instances (always kept)
+    \node[min_node] at (0.6, 1.0) {$m_1$};
+    \node[min_node] at (1.2, 2.2) {$m_2$};
+    \node[min_node] at (0.8, 3.2) {$m_3$};
+
+    % Borderline Majority (Kept: misclassified by 1-NN)
+    \node[maj_node, draw=navy, line width=1.5pt] at (2.4, 2.0) {$b_1$};
+    \node[maj_node, draw=navy, line width=1.5pt] at (2.5, 3.0) {$b_2$};
+
+    % Interior Majority (Removed: redundant interior points)
+    \node[maj_node, opacity=0.35] at (3.8, 1.2) {$r_1$};
+    \node[maj_node, opacity=0.35] at (4.5, 2.5) {$r_2$};
+    \node[maj_node, opacity=0.35] at (4.0, 3.4) {$r_3$};
+
+    \node[font=\scriptsize, align=center, text=darkgray] at (2, -0.6) {CNN rimuove i punti interni $r_i$\\e conserva i punti di confine $b_i$.};
+
+    % Right side: Tomek Links
+    \begin{scope}[xshift=7cm]
+        \node[font=\bfseries\small, text=crimson] at (2, 4.2) {Tomek Links (Pulizia Confine)};
+        
+        \node[min_node] (tm) at (1.1, 2.0) {$x_i$};
+        \node[maj_node] (tM) at (2.3, 2.0) {$x_j$};
+        
+        \draw[<->, >=stealth, crimson, line width=1.2pt] (tm) -- (tM);
+        \draw[dashed, red, rounded corners=6pt] (0.6, 1.4) rectangle (2.8, 2.6);
+        \node[font=\scriptsize\bfseries, text=crimson, above] at (1.7, 2.65) {Tomek Link};
+
+        \node[min_node] at (0.4, 3.0) {};
+        \node[min_node] at (0.6, 1.0) {};
+        \node[maj_node] at (3.4, 2.8) {};
+        \node[maj_node] at (3.6, 1.2) {};
+
+        \node[font=\scriptsize, align=center, text=darkgray] at (1.7, -0.6) {Campione maggioritario $x_j$ rimosso\\per chiarificare il margine di separazione.};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Rappresentazione geometrica dei metodi di sottocampionamento intelligente: preservazione dei punti informativi in CNN ed eliminazione delle coppie ambigue nei Tomek Links.}
+\label{fig:dm-undersampling-geom}
+\end{figure}
+
+\begin{definition}[Tomek Link, Tomek 1976]
+Dati due campioni $\mathbf{x}_i, \mathbf{x}_j \in \mathcal{D}$ con etichette opposte $y_i \neq y_j$, la coppia $(\mathbf{x}_i, \mathbf{x}_j)$ costituisce un \textbf{Tomek Link}~\cite{tomek1976} se e solo se essi risultano essere vicini più prossimi reciproci (\textit{mutual nearest neighbors}):
+\begin{equation}
+    d(\mathbf{x}_i, \mathbf{x}_j) < d(\mathbf{x}_i, \mathbf{x}_k), \quad \forall \mathbf{x}_k \text{ t.c. } y_k \neq y_i, \quad k \neq j
+\end{equation}
+\begin{equation}
+    d(\mathbf{x}_j, \mathbf{x}_i) < d(\mathbf{x}_j, \mathbf{x}_l), \quad \forall \mathbf{x}_l \text{ t.c. } y_l \neq y_j, \quad l \neq i
+\end{equation}
+\end{definition}
+
+L'esistenza di un Tomek Link denota che i due vettori giacciono in una zona di sovrapposizione altamente ambigua o rumorosa lungo il confine di decisione. Nella procedura standard di pulizia, si rimuove sistematicamente il vettore appartenente alla \textbf{classe maggioritaria} (oppure entrambi i vettori se si mira alla purificazione del rumore).
+
+\textbf{Pipeline Ibrida SMOTE + Tomek:}
+Nei problemi ad alta complessità, si ricorre a un approccio sequenziale in due fasi:
+\begin{enumerate}
+    \item \textbf{Fase di Espansione (SMOTE):} si generano campioni sintetici per ampliare la classe minoritaria; alcuni di essi possono accidentalmente invadere le regioni di pertinenza della classe maggioritaria.
+    \item \textbf{Fase di Purificazione (Tomek Links):} si identificano ed eliminano le coppie reciproche ambigue introdotte, ottenendo frontiere di separazione nette e prive di sovrapposizioni spurie.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Metodi di Sovracampionamento (Oversampling)}
+\label{subsec:dm-oversampling}
+
+Il sovracampionamento bilancia le frequenze aumentando artificialmente il numero di istanze della classe minoritaria~\cite{mannocci2026imbalanced}.
+
+\begin{itemize}
+    \item \textbf{Random Oversampling:} duplica campioni esistenti di $C_{\text{min}}$ mediante campionamento casuale con reinserimento.
+    \textit{Limite fondamentale:} non introduce alcuna nuova variabilità nello spazio delle feature, inducendo gli algoritmi (in particolare gli alberi decisionali) a costruire regioni decisionali eccessivamente rigide e ristrette attorno ai punti duplicati, amplificando l'overfitting.
+    \item \textbf{SMOTE (\textit{Synthetic Minority Over-sampling Technique}, Chawla et al., 2002):} genera nuove istanze sintetiche mediante \textbf{interpolazione convessa} nello spazio vettoriale delle feature tra campioni minoritari vicini~\cite{chawla2002}.
+\end{itemize}
+
+\begin{algorithm}[H]
+\caption{Algoritmo SMOTE per la Generazione Sintetica della Classe Minoritaria}
+\label{alg:dm-smote}
+\SetAlgoLined
+\KwIn{Insieme campionario minoritario $C_{\text{min}}$, numero di vicini $k$, percentuale di sovracampionamento $N_{\text{perc}}$ (es. $200\%$)}
+\KwOut{Insieme di campioni sintetici generati $\mathcal{S}_{\text{syn}}$}
+$\mathcal{S}_{\text{syn}} \leftarrow \emptyset$\;
+$n_{\text{syn}} \leftarrow \lfloor N_{\text{perc}} / 100 \rfloor$\;
+\ForEach{$\mathbf{x} \in C_{\text{min}}$}{
+    Determina i $k$ vicini più prossimi in $C_{\text{min}}$ rispetto alla distanza euclidea: $\mathcal{N}_k(\mathbf{x}) \subset C_{\text{min}}$\;
+    \For{$j \leftarrow 1$ \KwTo $n_{\text{syn}}$}{
+        Seleziona casualmente un vicino $\mathbf{x}_{\text{nn}} \in \mathcal{N}_k(\mathbf{x})$\;
+        Estrai una variabile casuale uniforme $\delta \sim \mathcal{U}(0, 1)$\;
+        Genera il nuovo vettore sintetico per combinazione lineare:
+        \begin{equation}
+            \mathbf{x}_{\text{new}} = \mathbf{x} + \delta \cdot (\mathbf{x}_{\text{nn}} - \mathbf{x})
+        \end{equation}
+        $\mathcal{S}_{\text{syn}} \leftarrow \mathcal{S}_{\text{syn}} \cup \{ \mathbf{x}_{\text{new}} \}$\;
+    }
+}
+\Return{$\mathcal{S}_{\text{syn}}$}\;
+\end{algorithm}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.92, every node/.style={transform shape},
+    orig/.style={circle, draw=crimson, fill=crimson!25, minimum size=7mm, font=\scriptsize\bfseries, text=crimson},
+    synth/.style={star, star points=5, star point ratio=2.2, draw=darkgreen, fill=darkgreen!40, minimum size=8mm, inner sep=0pt}
+]
+    \node[orig] (x) at (1.0, 1.5) {$\mathbf{x}$};
+    \node[orig] (nn1) at (4.5, 3.2) {$\mathbf{x}_{\text{nn}, 1}$};
+    \node[orig] (nn2) at (3.8, 0.4) {$\mathbf{x}_{\text{nn}, 2}$};
+    \node[orig] (nn3) at (0.2, 4.0) {$\mathbf{x}_{\text{nn}, 3}$};
+
+    % Neighborhood lines
+    \draw[dashed, crimson!60, line width=0.8pt] (x) -- (nn1);
+    \draw[dashed, crimson!60, line width=0.8pt] (x) -- (nn2);
+    \draw[dashed, crimson!60, line width=0.8pt] (x) -- (nn3);
+
+    % Interpolated synthetic nodes
+    \node[synth] (s1) at ($(x)!0.42!(nn1)$) {};
+    \node[synth] (s2) at ($(x)!0.78!(nn2)$) {};
+
+    % Annotations
+    \node[font=\scriptsize\bfseries, text=darkgreen, above left=1mm of s1] {$\mathbf{x}_{\text{new}, 1} = \mathbf{x} + \delta_1(\mathbf{x}_{\text{nn}, 1} - \mathbf{x})$};
+    \node[font=\scriptsize\bfseries, text=darkgreen, below right=1mm of s2] {$\mathbf{x}_{\text{new}, 2} = \mathbf{x} + \delta_2(\mathbf{x}_{\text{nn}, 2} - \mathbf{x})$};
+
+    \node[font=\scriptsize, align=center, text=darkgray] at (2.8, -0.6) {I campioni sintetici giacciono sui segmenti congiungenti\\i vettori minoritari originali con i rispettivi $k$-NN.};
+\end{tikzpicture}%
+}
+\caption{Geometria di generazione sintetica in SMOTE: interpolazione convessa casuale nello spazio metrico continuo delle feature.}
+\label{fig:dm-smote-geom}
+\end{figure}
+
+Operando direttamente nello spazio delle feature, SMOTE connette i punti minoritari isolati forzando la regione decisionale del classificatore a espandersi in un volume continuo anziché frammentarsi in aggregati disgiunti.
+
+\textbf{Evoluzioni e Varianti Specializzate di SMOTE:}
+\begin{itemize}
+    \item \textbf{SMOTENC (\textit{Continuous and Categorical}):} gestisce simultaneamente feature numeriche e categoriche; per le variabili categoriche assegna la modalità più frequente tra i vicini minoritari, mentre per quelle continue calcola la distanza mediana per compensare il mismatch di scala.
+    \item \textbf{Borderline-SMOTE:} focalizza la generazione sintetica unicamente sulle osservazioni minoritarie che si trovano in condizione di pericolo di confine (\textit{DANGER}), definite come istanze in cui la maggioranza dei vicini appartiene alla classe opposta.
+    \item \textbf{SVM-SMOTE:} sfrutta una Support Vector Machine preventiva per identificare i vettori di supporto (\textit{support vectors}) lungo l'iperpiano separatore, concentrando l'interpolazione esclusivamente attorno a tali coordinate limite.
+    \item \textbf{ADASYN (\textit{Adaptive Synthetic Sampling}, He et al., 2008):} genera campioni sintetici in misura adattiva e inversamente proporzionale alla densità locale~\cite{he2008}: se un campione minoritario è circondato da molti punti maggioritari, riceve un coefficiente di generazione proporzionalmente più elevato, forzando il modello ad apprendere le aree di confine più ostiche.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Apprendimento Sensibile ai Costi e Matrice di Ponderazione}
+\label{subsec:dm-cost-sensitive}
+
+L'intervento a livello algoritmico evita la manipolazione artificiale del training set riparametrando la funzione obiettivo del classificatore mediante l'assegnazione di costi o pesi differenziati per le diverse tipologie di errore~\cite{mannocci2026imbalanced}.
+
+\begin{definition}[Matrice dei Costi e Costo Totale Atteso]
+Sia $\mathcal{C}$ una matrice di dimensione $2 \times 2$ i cui elementi $C(i, j)$ rappresentano il costo o penalità associata all'assegnazione della classe predetta $i$ quando la classe reale è $j$:
+\begin{equation}
+    \mathcal{C} = \begin{bmatrix} C(\text{Pred } Y, \text{Act } Y) & C(\text{Pred } Y, \text{Act } N) \\ C(\text{Pred } N, \text{Act } Y) & C(\text{Pred } N, \text{Act } N) \end{bmatrix} = \begin{bmatrix} C_{\text{TP}} & C_{\text{FP}} \\ C_{\text{FN}} & C_{\text{TN}} \end{bmatrix}
+\end{equation}
+In generale si assume che la classificazione corretta non comporti penalità ($C_{\text{TP}} = C_{\text{TN}} = 0$) e che il mancato riconoscimento della classe rara positiva (Falso Negativo) sia notevolmente più oneroso di un Falso Allarme (Falso Positivo): $C_{\text{FN}} \gg C_{\text{FP}}$.
+Il costo totale associato al classificatore è dato da:
+\begin{equation}
+    \text{Costo Totale} = \sum_{i} \sum_{j} C(i, j) \cdot \mathbf{CM}(i, j)
+\end{equation}
+\end{definition}
+
+\begin{example}[Calcolo Numerico del Costo Pesato su 100 Record]
+Si consideri un test set di $N = 100$ campioni valutato da un modello che produce la seguente matrice di confusione e matrice dei costi~\cite{mannocci2026imbalanced}:
+\begin{table}[H]
+\centering
+\caption{Confronto tra Matrice di Confusione e Matrice dei Costi su $N = 100$ record.}
+\label{tab:dm-cost-matrix-example}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcc|lcc}
+\toprule
+\multicolumn{3}{c|}{\textbf{Matrice di Confusione (Conteggi)}} & \multicolumn{3}{c}{\textbf{Matrice dei Costi (Penalità)}} \\
+\midrule
+ & \textbf{Reale $Y$} & \textbf{Reale $N$} & & \textbf{Reale $Y$} & \textbf{Reale $N$} \\
+\textbf{Predetto $Y$} & $50$ ($\text{TP}$) & $7$ ($\text{FP}$) & \textbf{Predetto $Y$} & $0$ & $95$ \\
+\textbf{Predetto $N$} & $3$ ($\text{FN}$) & $40$ ($\text{TN}$) & \textbf{Predetto $N$} & $5$ & $0$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\noindent
+Il costo complessivo normalizzato sul totale delle predizioni corrisponde a:
+\begin{align*}
+    \text{Costo Medio} &= \frac{1}{N} \left( \text{FN} \times C(\text{Pred } N, \text{Act } Y) + \text{FP} \times C(\text{Pred } Y, \text{Act } N) \right) \\
+    &= \frac{1}{100} \left( 3 \times 5 + 7 \times 95 \right) \\
+    &= 0.03 \times 5 + 0.07 \times 95 = 0.15 + 6.65 = 6.80
+\end{align*}
+\end{example}
+
+L'introduzione di pesi sulle classi (\texttt{class\_weight='balanced'} o matrici di costo personalizzate) ha l'effetto geometrico di \textbf{traslare la frontiera decisionale} lontano dal cluster minoritario, riducendo drasticamente il tasso di falsi negativi a prezzo di una tollerabile crescita dei falsi allarmi.
+% --------------------------------------------------
+\FloatBarrier
+\section{Parte III: Modelli Generativi per Dati Sintetici Tabellari}
+\label{sec:dm-generative-models}
+
+\FloatBarrier
+\subsection{Modelli Discriminativi vs Modelli Generativi}
+\label{subsec:dm-disc-vs-gen}
+
+L'evoluzione più recente nel trattamento dello sbilanciamento e della privacy dei dati consiste nell'abbandonare le euristiche di interpolazione locale (come SMOTE) per apprendere l'intera densità di probabilità della popolazione tramite \textbf{modelli generativi profondi}~\cite{mannocci2026imbalanced}.
+
+\begin{definition}[Dicotomia tra Modelli Discriminativi e Generativi]
+Dati un vettore di feature $\mathbf{x} \in \mathcal{X}$ e una variabile target $y \in \mathcal{Y}$:
+\begin{itemize}
+    \item Un \textbf{modello discriminativo} modella direttamente la distribuzione condizionata $p(y \mid \mathbf{x})$, focalizzandosi sull'ottimizzazione del confine decisionale di separazione tra le classi (ad es. Regressione Logistica, SVM, Alberi di Decisione).
+    \item Un \textbf{modello generativo} apprende la distribuzione di probabilità congiunta $p(\mathbf{x}, y)$ o la distribuzione marginale $p(\mathbf{x})$. Tramite la regola di Bayes, esso è in grado non solo di classificare, ma soprattutto di \textbf{campionare nuove osservazioni artificiali indistinguibili da quelle reali}:
+    \begin{equation}
+        \mathbf{x}_{\text{synthetic}} \sim p_{\text{model}}(\mathbf{x})
+    \end{equation}
+\end{itemize}
+\end{definition}
+
+\begin{table}[H]
+\centering
+\caption{Evoluzione paradigmatica dei metodi di sovracampionamento e generazione sintetica.}
+\label{tab:dm-gen-evolution}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+\textbf{Metodo / Modello} & \textbf{Meccanismo Operativo} & \textbf{Proprietà della Distribuzione Sintetica} \\
+\midrule
+\textbf{Random Oversampling} & Duplicazione con reinserimento & Non crea nuovi pattern; sovradatta i punti originali. \\
+\textbf{SMOTE} & Interpolazione convessa locale su $k$-NN & Espande linearmente le regioni tra punti noti. \\
+\textbf{GAN (Generiche)} & Addestramento avversario Minimax & Apprende distribuzioni complesse continue (immagini). \\
+\textbf{CTGAN} & Condizionamento tabellare e VGM & Modella colonne miste, mode multiple e categorie rare. \\
+\textbf{VAE / TVAE} & Inferenza variazionale su spazio latente & Genera campioni fluidi con regolarizzazione KL. \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\FloatBarrier
+\subsection{Generative Adversarial Networks (GAN)}
+\label{subsec:dm-gan}
+
+Introdotte da Goodfellow et al. (2014)~\cite{goodfellow2014}, le \textbf{Generative Adversarial Networks (GAN)} fondano l'apprendimento su un gioco a due giocatori a somma zero tra due reti neurali concorrenti~\cite{mannocci2026imbalanced}:
+\begin{enumerate}
+    \item Il \textbf{Generatore ($G$):} parametrizzato da pesi $\boldsymbol{\theta}_g$, riceve in ingresso un vettore casuale di rumore latente $\mathbf{z} \sim p_z(\mathbf{z})$ (tipicamente gaussiano standard $\mathcal{N}(\mathbf{0}, \mathbf{I})$ o uniforme) e produce un vettore sintetico nello spazio delle feature $G(\mathbf{z}) \in \mathcal{X}$.
+    \item Il \textbf{Discriminatore ($D$):} parametrizzato da pesi $\boldsymbol{\theta}_d$, riceve un vettore $\mathbf{x}$ (reale $\mathbf{x} \sim p_{\text{data}}$ oppure generato $\mathbf{x} = G(\mathbf{z})$) e calcola una probabilità scalare $D(\mathbf{x}) \in [0, 1]$ che $\mathbf{x}$ provenga dalla distribuzione reale piuttosto che da $G$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.90, every node/.style={transform shape},
+    box/.style={rectangle, draw=navy, fill=codebackground, text=navy, rounded corners=5pt, font=\small\bfseries, inner sep=6pt, align=center, line width=1pt},
+    data/.style={rectangle, draw=darkgreen, fill=darkgreen!15, text=darkgreen, rounded corners=4pt, font=\small\bfseries, inner sep=5pt, align=center},
+    noise/.style={circle, draw=purple, fill=purple!15, text=purple, font=\small\bfseries, inner sep=4pt, align=center},
+    out_node/.style={rectangle, draw=crimson, fill=crimson!15, text=crimson, rounded corners=4pt, font=\small\bfseries, inner sep=5pt, align=center}
+]
+    \node[noise] (z) at (0, 2) {Rumore $\mathbf{z} \sim p_z$};
+    \node[box] (G) at (3.2, 2) {Generatore\\$G(\mathbf{z}; \boldsymbol{\theta}_g)$};
+    \node[data] (fake) at (6.5, 2) {Campione Falso\\$\mathbf{x}_{\text{fake}} = G(\mathbf{z})$};
+    
+    \node[data] (real) at (6.5, 0) {Campione Reale\\$\mathbf{x} \sim p_{\text{data}}$};
+    \node[box] (D) at (10.0, 1) {Discriminatore\\$D(\mathbf{x}; \boldsymbol{\theta}_d)$};
+    \node[out_node] (out) at (13.0, 1) {Probabilità\\$D(\mathbf{x}) \in [0, 1]$\\Reale vs Falso};
+
+    \draw[->, >=stealth, line width=1pt, purple] (z) -- (G);
+    \draw[->, >=stealth, line width=1pt, navy] (G) -- (fake);
+    \draw[->, >=stealth, line width=1pt, darkgreen] (fake) -- (D);
+    \draw[->, >=stealth, line width=1pt, darkgreen] (real) -- (D);
+    \draw[->, >=stealth, line width=1pt, navy] (D) -- (out);
+
+    % Feedback arrows
+    \draw[->, >=stealth, line width=0.9pt, dashed, crimson] (out) to[out=135, in=45] node[above, font=\scriptsize\bfseries] {Gradiente di errore $\nabla_{\boldsymbol{\theta}_d}$} (D);
+    \draw[->, >=stealth, line width=0.9pt, dashed, purple] (D) to[out=160, in=20] node[above, font=\scriptsize\bfseries] {Gradiente $\nabla_{\boldsymbol{\theta}_g}$ (attraverso $D$)} (G);
+\end{tikzpicture}%
+}
+\caption{Architettura computazionale Minimax delle Generative Adversarial Networks (GAN).}
+\label{fig:dm-gan-arch}
+\end{figure}
+
+\begin{definition}[Formulazione del Gioco Minimax]
+L'addestramento congiunto di Generatore e Discriminatore è formalizzato attraverso un gioco minimax a somma zero sulla funzione obiettivo $V(D, G)$:
+\begin{equation}
+    \min_{G} \max_{D} V(D, G) = \mathbb{E}_{\mathbf{x} \sim p_{\text{data}}}[\log D(\mathbf{x})] + \mathbb{E}_{\mathbf{z} \sim p_z(\mathbf{z})}[\log(1 - D(G(\mathbf{z})))]
+\end{equation}
+\end{definition}
+
+\textbf{Obiettivi di Ottimizzazione Alternata:}
+\begin{enumerate}
+    \item \textbf{Funzione di Perdita del Discriminatore ($L_D$):} convertendo la massimizzazione in minimizzazione, $D$ cerca di minimizzare:
+    \begin{equation}
+        L_D = -\mathbb{E}_{\mathbf{x} \sim p_{\text{data}}}[\log D(\mathbf{x})] - \mathbb{E}_{\mathbf{z} \sim p_z}[\log(1 - D(G(\mathbf{z})))]
+    \end{equation}
+    Se $D(\mathbf{x}) \to 1$ per istanze reali e $D(G(\mathbf{z})) \to 0$ per istanze false, $L_D \to 0$.
+    \item \textbf{Funzione di Perdita Originale del Generatore ($L_G$):} mantenendo congelati i pesi del Discriminatore, $G$ cerca di indurre $D(G(\mathbf{z})) \to 1$ minimizzando:
+    \begin{equation}
+        L_G = \mathbb{E}_{\mathbf{z} \sim p_z}[\log(1 - D(G(\mathbf{z})))]
+    \end{equation}
+\end{enumerate}
+
+\begin{alertblock}{Il Problema della Saturazione del Gradiente (Gradient Saturation)}
+Nelle prime epoche di addestramento, il Generatore è immaturo e sintetizza dati implausibili. Il Discriminatore discrimina con facilità assoluta ($D(G(\mathbf{z})) \approx 0$). In questa regione, la derivata della funzione $\log(1 - D)$ rispetto all'output del discriminatore è quasi nulla:
+\begin{equation}
+    \lim_{D \to 0} \frac{d}{d D} \log(1 - D) = \lim_{D \to 0} \left( -\frac{1}{1 - D} \right) = -1
+\end{equation}
+mentre l'errore del generatore varia solo di un fattore trascurabile, fornendo un gradiente quasi impercettibile che blocca l'apprendimento.
+\end{alertblock}
+
+\begin{table}[H]
+\centering
+\caption{Intensità del segnale di apprendimento al variare dell'abilità di inganno di $G$.}
+\label{tab:dm-gradient-saturation}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccc}
+\toprule
+$D(G(\mathbf{z}))$ & Interpretazione Diagnostica & Perdita Originale $\log(1 - D(G(\mathbf{z})))$ & Segnale di Gradiente per $G$ \\
+\midrule
+$\mathbf{0.001}$ & Discriminatore quasi certo che il dato sia falso & $\approx -0.001$ & \textbf{Quasi nullo (Saturazione grave)} \\
+$\mathbf{0.010}$ & Campione palesemente falso & $\approx -0.010$ & \textbf{Molto debole} \\
+$\mathbf{0.100}$ & Prime istanze parzialmente plausibili & $\approx -0.105$ & In crescita \\
+$\mathbf{0.500}$ & Massima incertezza (equilibrio di Nash) & $\approx -0.693$ & Ottimale \\
+$\mathbf{0.900}$ & Generatore inganna sistematicamente $D$ & $\approx -2.303$ & Molto forte \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\textbf{Risoluzione tramite Non-Saturating Generator Loss:}
+Per garantire un segnale di discesa robusto fin dalla prima iterazione, si massimizza $\log D(G(\mathbf{z}))$ anziché minimizzare $\log(1 - D(G(\mathbf{z})))$, adottando la funzione di perdita euristica non saturante~\cite{goodfellow2014}:
+\begin{equation}
+    L_G^{\text{NS}} = -\mathbb{E}_{\mathbf{z} \sim p_z}[\log(D(G(\mathbf{z})))]
+\end{equation}
+Quando $D(G(\mathbf{z})) \to 0$, la funzione $-\log D$ presenta asintoto verso $+\infty$ con pendenza ripidissima, erogando gradienti elevati che guidano rapidamente il Generatore verso la sintesi di campioni verosimili.
+
+\FloatBarrier
+\subsection{Conditional Tabular GAN (CTGAN)}
+\label{subsec:dm-ctgan}
+
+Sebbene le GAN classiche eccellano su segnali percettivi continui e strutturati spazialmente (come le immagini digitali), la loro applicazione diretta ai database relazionali tabellari fallisce drasticamente a causa di tre peculiarità strutturali~\cite{xu2019}:
+\begin{enumerate}
+    \item \textbf{Tipi di Dati Misti (\textit{Mixed Data Types}):} ogni riga combina simultaneamente attributi continui, discreti, ordinali e categorici nominali. Le reti neurali producono nativamente output continui; generare modalità categoriche (es. \texttt{native\_country = Italy}) richiede funzioni softmax discrete.
+    \item \textbf{Distribuzioni Continue Multimodali:} le variabili numeriche finanziarie o demografiche (es. reddito annuo o ore di lavoro) presentano spesso molteplici mode pronunciate. Normalizzare globalmente l'attributo in $[-1, 1]$ appiattisce le modalità e confonde il generatore.
+    \item \textbf{Variabili Categoriche Altamente Sbilanciate:} campionando le righe in modo puramente uniforme, le categorie rare (aventi frequenze inferiori all'$1\%$) vengono esposte al discriminatore con frequenza quasi nulla, portando il generatore al collasso modale (\textit{mode collapse}) sulle sole classi frequenti.
+\end{enumerate}
+
+Per superare tali limitazioni, Xu et al. (2019) hanno teorizzato e implementato il framework \textbf{CTGAN} (\textit{Conditional Tabular GAN})~\cite{xu2019}, imperniato su tre innovazioni:
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.90, every node/.style={transform shape},
+    block/.style={rectangle, draw=navy, fill=codebackground, text=navy, rounded corners=4pt, font=\small\bfseries, inner sep=6pt, align=center, line width=1pt},
+    vgm/.style={rectangle, draw=darkgreen, fill=darkgreen!15, text=darkgreen, rounded corners=4pt, font=\small\bfseries, inner sep=5pt, align=center}
+]
+    \node[block] (col) {Colonna Continua\\Multimodale $C_i$};
+    \node[vgm, right=1.2cm of col] (vgm_node) {Variational Gaussian\\Mixture (VGM)};
+    \node[block, right=1.2cm of vgm_node] (rep) {Rappresentazione Vettoriale:\\$\mathbf{c}_i = [\boldsymbol{\beta}_i, \mathbf{v}_i]$\\$\boldsymbol{\beta}_i$: moda (One-Hot)\\$\mathbf{v}_i$: scalare normalizzato};
+
+    \draw[->, >=stealth, line width=1pt, navy] (col) -- (vgm_node);
+    \draw[->, >=stealth, line width=1pt, navy] (vgm_node) -- (rep);
+\end{tikzpicture}%
+}
+\caption{Meccanismo di Mode-Specific Normalization in CTGAN: scomposizione di una variabile continua in moda discreta e deviazione scalare gaussiana normalizzata.}
+\label{fig:dm-ctgan-vgm}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Mode-Specific Normalization (Normalizzazione Modale Variazionale):}
+    Ciascuna variabile continua $C_j$ viene modellata mediante un modello di mistura di gaussiane variazionale (\textit{Variational Gaussian Mixture}, VGM) con $K$ componenti. Dato un valore scalare $c$, il VGM ne calcola l'appartenenza alle diverse mode gaussiane:
+    \begin{equation}
+        p(c) = \sum_{k=1}^K \pi_k \, \mathcal{N}(c; \mu_k, \sigma_k^2)
+    \end{equation}
+    Il valore continuo $c$ viene quindi ricodificato come una tupla composta da un vettore one-hot $\boldsymbol{\beta}$ (che codifica la componente gaussiana più probabile) e da uno scalare normalizzato $v$:
+    \begin{equation}
+        v = \frac{c - \mu_k}{4 \sigma_k} \in [-1, 1]
+    \end{equation}
+    In questo modo, il Generatore apprende separatamente a selezionare la moda discreta e a stimare la deviazione normalizzata all'interno di quella specifica gaussiana.
+
+    \item \textbf{Conditional Generator (Generatore Condizionale):}
+    Per consentire la generazione di campioni che soddisfino specifici vincoli categorici, il Generatore riceve in ingresso una tupla formata dal rumore latente $\mathbf{z}$ e da un \textbf{vettore di condizione} $\mathbf{c}_{\text{cond}}$:
+    \begin{equation}
+        \mathbf{x}_{\text{syn}} = G(\mathbf{z}, \mathbf{c}_{\text{cond}})
+    \end{equation}
+    Fissando ad esempio la condizione $\mathbf{c}_{\text{cond}}$ sull'attributo (\texttt{Occupation} $=$ \texttt{Exec}), il generatore campiona direttamente dalla distribuzione condizionata $p(\mathbf{x} \mid \mathbf{c}_{\text{cond}})$.
+
+    \item \textbf{Training-by-Sampling (Campionamento a Log-Frequenze):}
+    Durante la costruzione dei batch di addestramento, le categorie non vengono selezionate in base alla loro frequenza empirica uniforme; la probabilità di selezionare una categoria $k$ viene modulata in funzione del logaritmo della sua frequenza:
+    \begin{equation}
+        P(\text{seleziona } k) \propto \log(1 + \text{freq}_k)
+    \end{equation}
+    Questa equalizzazione parziale fa sì che le classi rare ricevano sufficiente gradiente per essere apprese stabilmente senza incorrere nell'appiattimento totale della distribuzione naturale.
+\end{enumerate}
+
+Nell'ingegneria per dati sbilanciati, CTGAN viene addestrato sull'intero dataset oppure confinato \textbf{esclusivamente alle righe della classe minoritaria}: in tale regime operativo, il generatore sintetizza righe tabellari sintetiche che replicano fedelmente correlazioni multivariate e mode complesse senza violare la coerenza statistica tra colonne.
+
+\FloatBarrier
+\subsection{Variational Autoencoders (VAE) e Tabular VAE (TVAE)}
+\label{subsec:dm-vae-tvae}
+
+I \textbf{Variational Autoencoders (VAE)}, introdotti da Kingma e Welling (2013)~\cite{kingma2013}, affrontano la modellazione generativa attraverso un approccio rigorosamente probabilistico fondato sull'inferenza variazionale~\cite{mannocci2026imbalanced}.
+
+\textbf{Limite degli Autoencoder Deterministici Tradizionali:}
+Un classico autoencoder comprime l'ingresso $\mathbf{x} \in \mathbb{R}^D$ in una rappresentazione latente deterministica $\mathbf{h} = E(\mathbf{x}) \in \mathbb{R}^d$ ($d \ll D$), per poi ricostruire l'input mediante il decoder $\mathbf{x}' = D(\mathbf{h}) \approx \mathbf{x}$ minimizzando l'errore quadratico $\|\mathbf{x} - \mathbf{x}'\|^2$. Poiché lo spazio latente $\mathbb{R}^d$ non è soggetto ad alcun vincolo di continuità o regolarità, esso risulta frammentato da lacune prive di significato geometrico: campionare un punto $\mathbf{h}$ a caso genera ricostruzioni prive di coerenza empirica.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    scale=0.90, every node/.style={transform shape},
+    box/.style={rectangle, draw=navy, fill=codebackground, text=navy, rounded corners=5pt, font=\small\bfseries, inner sep=6pt, align=center, line width=1pt},
+    param/.style={rectangle, draw=darkgreen, fill=darkgreen!15, text=darkgreen, rounded corners=4pt, font=\small\bfseries, inner sep=4pt, align=center},
+    latent/.style={circle, draw=purple, fill=purple!20, text=purple, font=\small\bfseries, inner sep=5pt},
+    noise/.style={circle, draw=crimson, fill=crimson!15, text=crimson, font=\small\bfseries, inner sep=3pt}
+]
+    % Input
+    \node[box] (x) at (0, 1.5) {Input Reale\\$\mathbf{x}$};
+    \node[box] (enc) at (2.5, 1.5) {Encoder\\$q_{\boldsymbol{\phi}}(\mathbf{z} \mid \mathbf{x})$};
+    
+    % Mu and Sigma
+    \node[param] (mu) at (5.2, 2.5) {Media $\boldsymbol{\mu}(\mathbf{x})$};
+    \node[param] (sigma) at (5.2, 0.5) {Dev. Std. $\boldsymbol{\sigma}(\mathbf{x})$};
+    
+    % Reparameterization
+    \node[noise] (eps) at (7.0, 0.5) {$\boldsymbol{\epsilon} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$};
+    \node[latent] (z) at (8.5, 1.5) {$\mathbf{z} = \boldsymbol{\mu} + \boldsymbol{\sigma} \odot \boldsymbol{\epsilon}$};
+    
+    % Decoder and Output
+    \node[box] (dec) at (11.0, 1.5) {Decoder\\$p_{\boldsymbol{\theta}}(\mathbf{x} \mid \mathbf{z})$};
+    \node[box] (out) at (13.5, 1.5) {Ricostruzione\\$\mathbf{x}' \approx \mathbf{x}$};
+
+    \draw[->, >=stealth, line width=1pt, navy] (x) -- (enc);
+    \draw[->, >=stealth, line width=1pt, navy] (enc) to[out=30, in=180] (mu);
+    \draw[->, >=stealth, line width=1pt, navy] (enc) to[out=-30, in=180] (sigma);
+    
+    \draw[->, >=stealth, line width=1pt, darkgreen] (mu) to[out=0, in=150] (z);
+    \draw[->, >=stealth, line width=1pt, darkgreen] (sigma) -- (eps);
+    \draw[->, >=stealth, line width=1pt, crimson] (eps) to[out=0, in=-150] (z);
+    
+    \draw[->, >=stealth, line width=1pt, purple] (z) -- (dec);
+    \draw[->, >=stealth, line width=1pt, navy] (dec) -- (out);
+\end{tikzpicture}%
+}
+\caption{Architettura del Variational Autoencoder (VAE) con implementazione del Reparameterization Trick.}
+\label{fig:dm-vae-reparam}
+\end{figure}
+
+\begin{definition}[Architettura Probabilistica del VAE e Reparameterization Trick]
+Nel VAE, l'Encoder $q_{\boldsymbol{\phi}}(\mathbf{z} \mid \mathbf{x})$ modella una distribuzione di densità di probabilità gaussiana su uno spazio latente continuo $\mathcal{Z}$, emettendo per ciascun input un vettore di medie $\boldsymbol{\mu} \in \mathbb{R}^d$ e un vettore di varianze (o log-varianze) $\boldsymbol{\sigma}^2 \in \mathbb{R}^d$.
+Poiché il campionamento stocastico diretto $\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\sigma}^2 \mathbf{I})$ bloccherebbe la retropropagazione del gradiente ($\nabla_{\boldsymbol{\phi}}$ non potrebbe fluire attraverso un'operazione aleatoria discreta), si applica il \textbf{Reparameterization Trick}~\cite{kingma2013}:
+\begin{equation}
+    \mathbf{z} = \boldsymbol{\mu}(\mathbf{x}) + \boldsymbol{\sigma}(\mathbf{x}) \odot \boldsymbol{\epsilon}, \qquad \boldsymbol{\epsilon} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})
+\end{equation}
+dove $\odot$ indica il prodotto vettoriale elemento per elemento (prodotto di Hadamard). In questa forma, la stocasticità è interamente esternalizzata nella variabile ausiliaria $\boldsymbol{\epsilon}$, rendendo la trasformazione derivabile rispetto ai parametri dell'Encoder $\boldsymbol{\phi}$.
+\end{definition}
+
+\begin{definition}[Funzione di Perdita VAE e Limite Variazionale ELBO]
+La funzione di perdita da minimizzare nel VAE è l'opposto del limite inferiore variazionale sull'evidenza (\textit{Evidence Lower Bound}, ELBO):
+\begin{equation}
+    \mathcal{L}_{\text{VAE}}(\boldsymbol{\theta}, \boldsymbol{\phi}; \mathbf{x}) = \mathcal{L}_{\text{reconstruction}}(\mathbf{x}, \mathbf{x}') + \mathcal{L}_{\text{KL}}(q_{\boldsymbol{\phi}}(\mathbf{z} \mid \mathbf{x}) \,\|\, p(\mathbf{z}))
+\end{equation}
+\begin{enumerate}
+    \item \textbf{Reconstruction Loss ($\mathcal{L}_{\text{reconstruction}}$):} misura la verosimiglianza di fedeltà nella ricostruzione (ad es. errore quadratico medio per attributi continui o cross-entropia binaria per attributi categorici). Essa forza il Decoder a conservare le informazioni discriminanti dell'input.
+    \item \textbf{KL Divergence ($\mathcal{L}_{\text{KL}}$):} misura la divergenza di Kullback-Leibler tra la densità stimata dall'Encoder $q_{\boldsymbol{\phi}}(\mathbf{z} \mid \mathbf{x})$ e una distribuzione a priori normale standard multivariata $p(\mathbf{z}) = \mathcal{N}(\mathbf{0}, \mathbf{I})$:
+    \begin{equation}
+        D_{\text{KL}}\left(\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma}) \,\|\, \mathcal{N}(\mathbf{0}, \mathbf{I})\right) = -\frac{1}{2} \sum_{j=1}^d \left( 1 + \log(\sigma_j^2) - \mu_j^2 - \sigma_j^2 \right)
+    \end{equation}
+    Il termine agisce come regolarizzatore topologico: impedisce all'encoder di collassare su punti deterministici dispersi, costringendo lo spazio latente a essere liscio, continuo e centrato nell'origine.
+\end{enumerate}
+\end{definition}
+
+\begin{theorem}[Trade-off nel Bilanciamento della Loss del VAE]
+I due termini di perdita operano in equilibrio competitivo:
+\begin{itemize}
+    \item Se $\mathcal{L}_{\text{KL}}$ venisse azzerato, lo spazio latente collasserebbe nella geometria disarticolata di un autoencoder standard, impedendo il campionamento casuale.
+    \item Se $\mathcal{L}_{\text{reconstruction}}$ venisse azzerato, l'Encoder mapperebbe qualsiasi input su $\mathcal{N}(\mathbf{0}, \mathbf{I})$, perdendo ogni capacità descrittiva e generando rumore puro privo di informazione.
+\end{itemize}
+\end{theorem}
+
+\textbf{Generazione Sintetica a Regime:}
+Al termine dell'addestramento, l'Encoder viene rimosso dal ciclo di calcolo. Per sintetizzare $M$ nuove osservazioni della classe minoritaria, si campionano $M$ vettori casuali dalla distribuzione normale multivariata:
+\begin{equation}
+    \mathbf{z}_m \sim \mathcal{N}(\mathbf{0}, \mathbf{I}), \qquad m = 1, \dots, M
+\end{equation}
+e si propagano attraverso il Decoder addestrato:
+\begin{equation}
+    \mathbf{x}_{\text{syn}, m} = \text{Decoder}(\mathbf{z}_m)
+\end{equation}
+
+\textbf{Il Tabular VAE (TVAE):}
+Proposto anch'esso da Xu et al. (2019)~\cite{xu2019}, \textbf{TVAE} adatta l'architettura VAE alle specificità dei dati tabellari applicando la medesima normalizzazione modale variazionale (VGM) per gli attributi continui e strati di output modulari (con attivazioni softmax separate) per ciascun predittore categorico. Esperimenti empirici estesi dimostrano che, mentre CTGAN risulta spesso superiore nel preservare complesse correlazioni ad alta dimensionalità e categorie rare, TVAE evidenzia una \textbf{superiore stabilità di addestramento} (non soffrendo dei problemi di convergenza ciclica o collasso modale tipici del gioco minimax delle GAN) e tempi di calcolo significativamente più contenuti.
+% --------------------------------------------------
+\FloatBarrier
+\section{Riepilogo e Conclusioni}
+\label{sec:dm-ch24-conclusioni}
+
+In questo capitolo sono stati esaminati congiuntamente i fondamenti empirici dell'apprendimento supervisionato su dati tabellari eterogenei e le metodologie formali per fronteggiare la sfida dei dati fortemente sbilanciati:
+\begin{itemize}
+    \item \textbf{Pre-elaborazione e Codifica:} l'analisi del dataset \texttt{adult} ha dimostrato come la scelta tra Label Encoding e One-Hot Encoding dipenda dalla natura geometrica del classificatore prescelto, con gli alberi di decisione in grado di operare efficacemente su codifiche intere senza soffrire delle distorsioni metriche che invalidano modelli basati su distanze euclidee ($k$-NN).
+    \item \textbf{Alberi di Decisione e Limiti Empirici:} la restrizione della profondità e dei campioni minimi per foglia garantisce regolarizzazione e interpretabilità, ma l'accuratezza apparentemente elevata ($84.9\%$) maschera una debolezza intrinseca nel catturare la classe minoritaria (recall del $59\%$).
+    \item \textbf{Sbilanciamento di Classe e Baseline Banali:} la valutazione formale del paradosso dell'accuratezza e della baseline $A_{\text{trivial}}$ ha chiarito l'obbligo metodologico di impiegare metriche sensibili (Recall, $F_1$, matrici di confusione e curve PR) per prevenire l'adozione di modelli peggiori della scelta banale della moda.
+    \item \textbf{Strategie di Bilanciamento Tradizionali:} l'indagine ha confrontato il sottocampionamento intelligente (CNN per preservare i confini, Tomek Links per chiarificare le frontiere ambigue) e il sovracampionamento nello spazio delle feature (SMOTE, Borderline-SMOTE, ADASYN) con l'apprendimento sensibile ai costi basato su matrici di penalità.
+    \item \textbf{Modelli Generativi Profondi:} la transizione verso la modellazione generativa tramite GAN e VAE consente di superare l'euristica di interpolazione locale. In particolare, le formulazioni specializzate per matrici relazionali (CTGAN con normalizzazione modale VGM e campionamento logaritmico, e TVAE con inferenza variazionale stabilizzata) rappresentano lo stato dell'arte per la sintesi realistica di campioni minoritari nel rispetto delle correlazioni multivariate e della privacy statistica.
+\end{itemize}

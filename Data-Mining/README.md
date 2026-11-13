@@ -53,6 +53,11 @@ latexmk -c
 - **Capitolo 17:** Laboratorio Python: Pattern Mining, Regole di Associazione e Social Network Analysis (`17`)
 - **Capitolo 18:** Laboratorio Python: Clustering per Dati Eterogenei e Multi-View (`18`)
 - **Capitolo 19:** Laboratorio Python: Topic Modeling con BERTopic (`19`)
+- **Capitolo 20:** Classificazione: Concetti di Base e Alberi di Decisione (`20`)
+- **Capitolo 21:** Alberi di Decisione Avanzati: Complessità, Valori Mancanti, Overfitting e Potatura (`21`)
+- **Capitolo 22:** Valutazione dei Modelli di Classificazione (Model Evaluation) (`22`)
+- **Capitolo 23:** Metodi Ensemble, Reti Neurali Artificiali e Backpropagation (`23`)
+- **Capitolo 24:** Laboratorio di Machine Learning: Codifica, Alberi di Decisione, Dati Sbilanciati e Generazione Sintetica (`24`)
 
 ```text
 Data-Mining/

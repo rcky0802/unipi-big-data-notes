@@ -1,0 +1,516 @@
+\chapter[Alberi di Decisione Avanzati: Complessit\`a e Potatura]{Alberi di Decisione Avanzati: Complessit\`a, Valori Mancanti, Overfitting e Potatura}
+\label{ch:dm-decision-trees-advanced}
+
+\section{Introduzione e Motivazione}
+\label{sec:dm-trees-adv-intro}
+
+Sebbene l'induzione greedy di alberi di decisione mediante algoritmi ricorsivi (esaminata nel capitolo precedente) offra un'elevata efficienza computazionale e una naturale interpretabilità, la transizione dai modelli giocattolo ai dataset reali impone di affrontare complesse sfide metodologiche~\cite{tan2018}. Tra queste spiccano la gestione di registrazioni incomplete affette da \textbf{valori mancanti} (\textit{missing values}), i limiti intrinseci imposti da condizioni di test ortogonali agli assi, e soprattutto la tendenza fisiologica del modello a cadere nella trappola del \textbf{sovra-adattamento} (\textit{overfitting}).
+
+In questo capitolo vengono formalizzati i fondamenti teorici e computazionali per analizzare la complessità degli alberi, il trattamento rigoroso dei dati mancanti, le cause strutturali del degrado predittivo e le tecniche matematiche di \textbf{selezione del modello} e \textbf{potatura} (\textit{pruning}) atte a garantire un'efficace capacità di generalizzazione statistica.
+
+% ====================================================================
+\FloatBarrier
+\section{Criteri di Arresto, Vantaggi e Complessit\`a Computazionale}
+\label{sec:dm-tree-complexity-algorithms}
+
+L'espansione top-down di un albero di decisione non può proseguire indefinitamente fino alla completa enumerazione dello spazio dei record, pena la generazione di modelli degeneri e sovra-dimensionati.
+
+\FloatBarrier
+\subsection{Criteri di Arresto dell'Induzione}
+\label{subsec:dm-stopping-criteria}
+
+Nel paradigma standard dell'algoritmo di Hunt, la ricorsione su un generico nodo $t$ cessa al verificarsi di una delle seguenti condizioni canoniche~\cite{tan2018, quinlan1993}:
+\begin{enumerate}
+    \item \textbf{Omogeneità di Classe (Purezza Assoluta):} tutti i record di addestramento $\mathcal{D}_t$ appartengono alla medesima classe $y \in \mathcal{Y}$ (ovvero l'entropia e l'indice di Gini sono identicamente nulli). Il nodo diviene una foglia etichettata con tale classe.
+    \item \textbf{Omogeneità di Attributi (Identità Descrittiva):} tutti i record in $\mathcal{D}_t$ presentano vettori di caratteristiche identici ($\mathbf{x}_i = \mathbf{x}_j$ per ogni $i, j$), ma appartengono a classi tra loro discordanti (dati contraddittori o rumore di etichettatura). Essendo impossibile applicare alcun ulteriore test per discriminare i campioni, il nodo viene forzatamente convertito in una foglia etichettata con la \textbf{classe maggioritaria} presente in $\mathcal{D}_t$.
+    \item \textbf{Criteri di Arresto Anticipato (\textit{Early Termination}):} l'espansione viene interrotta prima del raggiungimento della purezza sulla base di soglie statistiche o dimensionali (ad esempio se la numerosità del nodo $|\mathcal{D}_t|$ scende sotto una soglia minima $N_{\min}$, o se il guadagno $\Delta$ risulta statisticamente non significativo).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Vantaggi Operativi e Gestione di Feature Ridondanti}
+\label{subsec:dm-tree-advantages-features}
+
+Gli alberi di decisione godono di un ampio utilizzo nelle applicazioni industriali e scientifiche grazie a sette proprietà strutturali distintive:
+\begin{itemize}
+    \item \textbf{Interpretabilit\`a Simbolica:} la struttura ad albero può essere tradotta in un insieme compatto di regole logiche proposizionali (\textit{IF-THEN}) pienamente verificabili nel dominio applicativo;
+    \item \textbf{Accuratezza Competitiva:} esibiscono prestazioni predittive comparabili a modelli complessi su dataset strutturati e tabellari di moderata dimensionalità;
+    \item \textbf{Robustezza al Rumore:} l'integrazione di strategie di regolarizzazione impedisce al modello di farsi guidare da fluttuazioni spurie;
+    \item \textbf{Immunit\`a Naturale da Attributi Ridondanti:} un attributo si dice ridondante se è fortemente correlato con un'altra caratteristica già presente. Poiché due attributi fortemente correlati forniscono guadagni di impurità pressoché identici, l'euristica greedy ne seleziona uno per lo split primario, ignorando l'altro nei nodi successivi dello stesso percorso;
+    \item \textbf{Tolleranza verso Attributi Irrilevanti:} attributi privi di associazione statistica con la classe target generano guadagni vicini a zero e vengono scartati durante la selezione dello split (salvo rari casi di artefatti stocastici ad elevata dimensionalità, mitigabili con preventiva \textit{feature selection});
+    \item \textbf{Rapidit\`a nell'Inferenza:} la classificazione di nuovi dati richiede un numero di confronti proporzionale esclusivamente alla profondità dell'albero;
+    \item \textbf{Trattamento Flessibile dei Dati Mancanti:} consentono di gestire valori mancanti sia in addestramento che in fase di scoring senza richiedere imputazioni preventive arbitrarie.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Analisi Asintotica della Complessit\`a Computazionale}
+\label{subsec:dm-complexity-analysis}
+
+Consideriamo un dataset composto da $N$ istanze di addestramento descritte da $M$ attributi:
+\begin{itemize}
+    \item \textbf{Complessit\`a di Addestramento (\textit{Tree Induction}):}
+    A ciascun livello dell'albero, tutti gli $M$ attributi devono essere valutati per identificare la condizione di split ottimale. Come dimostrato per gli attributi continui, la ricerca richiede preventivamente l'ordinamento delle istanze con costo $\mathcal{O}(N \log N)$ e una scansione lineare $\mathcal{O}(N)$. Se l'albero risultante è bilanciato, la sua profondità è $\mathcal{O}(\log N)$, comportando una complessità complessiva di costruzione pari a:
+    \begin{equation}
+        \mathcal{T}_{\text{build}} = \mathcal{O}(M \cdot N \log N)
+    \end{equation}
+    Nel caso pessimistico degenerato in cui l'albero sia completamente sbilanciato (profondità lineare $\mathcal{O}(N)$), la complessità peggiora asintoticamente a $\mathcal{O}(M \cdot N^2)$.
+    \item \textbf{Complessit\`a di Classificazione (\textit{Testing}):}
+    Per classificare una nuova osservazione, l'algoritmo discende lungo un singolo cammino dalla radice a una foglia. Il costo computazionale è strettamente limitato dall'altezza massima dell'albero $w$:
+    \begin{equation}
+        \mathcal{T}_{\text{test}} = \mathcal{O}(w), \quad \text{con } \log_2 N \le w \le N
+    \end{equation}
+    Ciò garantisce un tempo di risposta nell'ordine dei microsecondi, rendendo gli alberi particolarmente adatti a sistemi predittivi in tempo reale.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Tassonomia degli Algoritmi di Induzione}
+\label{subsec:dm-algorithms-comparison}
+
+I principali algoritmi sviluppati nella letteratura del machine learning si distinguono per il criterio di split, la topologia dell'albero e le strategie di potatura:
+\begin{itemize}
+    \item \textbf{ID3 (Iterative Dichotomiser 3)~\cite{quinlan1986}:} pioniere sviluppato da Ross Quinlan, implementa l'algoritmo di Hunt impiegando l'Information Gain. È limitato a soli attributi categorici discreti, genera split multi-via e non supporta la gestione nativa di dati mancanti né la potatura.
+    \item \textbf{C4.5~\cite{quinlan1993}:} evoluzione storica di ID3 ad opera dello stesso autore. Introduce il Gain Ratio per mitigare il sovra-partizionamento, supporta attributi continui mediante soglie dinamiche, gestisce valori mancanti tramite pesi probabilistici e integra la potatura a posteriori (\textit{post-pruning}). Tuttavia, richiede la completa allocazione del dataset in memoria RAM, limitandone la scalabilità su archivi massivi.
+    \item \textbf{C5.0:} evoluzione commerciale proprietaria di C4.5, caratterizzata da consumi di memoria ridotti, multithreading nativo e supporto a modelli ensemble di tipo boosting.
+    \item \textbf{CART (Classification and Regression Trees)~\cite{breiman1984}:} introdotto da Breiman et al., costruisce esclusivamente \textbf{alberi strettamente binari} ($k=2$). Utilizza l'indice di Gini per compiti di classificazione e la varianza (o deviazione minima) per la regressione; adotta la potatura basata sul costo-complessità (\textit{minimal cost-complexity pruning}) e gestisce dati mancanti tramite split surrogati.
+\end{itemize}
+
+% ====================================================================
+\FloatBarrier
+\section{Trattamento Rigoroso dei Valori Mancanti (\textit{Missing Values})}
+\label{sec:dm-missing-values}
+
+Nei contesti applicativi reali, i record presentano frequentemente attributi non valorizzati a causa di guasti di sensori, omissioni volontarie o mancata raccolta del dato. Negli alberi di decisione, la presenza di valori mancanti influenza l'algoritmo in \textbf{tre fasi distinte}:
+\begin{enumerate}
+    \item Nel calcolo delle misure di impurità durante la determinazione della condizione di split;
+    \item Nella ripartizione dei record di addestramento verso i nodi figli;
+    \item Nella classificazione di un record di test non etichettato che presenta attributi sconosciuti.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Strategie per la Ripartizione delle Istanze Incomplete}
+\label{subsec:dm-missing-strategies}
+
+Consideriamo un record con attributo ignoto:
+\begin{equation*}
+    \mathbf{x} = (\text{Home Owner}=?, \; \text{Marital Status}=\text{Single}, \; \text{Income}=79\text{K})
+\end{equation*}
+che raggiunge un nodo interno con test sull'attributo $\text{Home Owner}$. Si delineano tre strategie:
+\begin{enumerate}
+    \item \textbf{Split Probabilistico (\textit{Probabilistic Split Method}):} adottato da C4.5~\cite{quinlan1993}. L'istanza viene inviata simultaneamente a \textbf{tutti i rami figli}, ma ad essa viene associato un \textbf{peso frazionario} pari alla probabilità a priori stimata sui dati noti del nodo.
+    \item \textbf{Split Surrogato (\textit{Surrogate Split Method}):} adottato da CART~\cite{breiman1984}. L'algoritmo calcola una gerarchia di attributi \textit{surrogati}, ovvero variabili descrittive alternative che massimizzano la correlazione empirica con l'attributo primario. Se il valore primario è mancante, la decisione di instradamento viene delegata al miglior attributo surrogato disponibile.
+    \item \textbf{Metodo della Categoria Separata (\textit{Separate Class Method}):} il valore nullo `$?$' viene trattato analiticamente come un valore discreto valido a sé stante, istanziando un ramo dedicato `Missing' nell'albero.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Simulazione Completa dell'Approccio Probabilistico di C4.5}
+\label{subsec:dm-c45-missing-trace}
+
+Illustriamo in dettaglio il formalismo matematico dell'approccio probabilistico di C4.5 attraverso una traccia numerica passo-passo.
+
+\subsubsection{1. Calcolo dell'Impurità con Dati Incompleti nel Training Set}
+Si consideri un dataset di $N = 10$ record in cui 7 hanno $\text{Class}=\text{No}$ e 3 hanno $\text{Class}=\text{Yes}$. Il decimo record presenta il valore mancante $\text{Refund}=?$ con $\text{Class}=\text{Yes}$.
+L'entropia del nodo genitore calcolata su tutti i 10 record è:
+\begin{equation}
+    Entropy(p) = -0.3 \log_2(0.3) - 0.7 \log_2(0.7) \approx 0.8813 \text{ bit}
+\end{equation}
+
+Per valutare lo split su $\text{Refund}$, si esaminano i 9 record con valore noto (3 `Yes' e 6 `No'):
+\begin{itemize}
+    \item $\text{Refund} = \text{Yes}$ (3 record: tutti $\text{Class}=\text{No}$): $Entropy(\text{Yes}) = 0$;
+    \item $\text{Refund} = \text{No}$ (6 record: 2 $\text{Class}=\text{Yes}$, 4 $\text{Class}=\text{No}$):
+    \begin{equation}
+        Entropy(\text{No}) = -\frac{2}{6}\log_2\left(\frac{2}{6}\right) - \frac{4}{6}\log_2\left(\frac{4}{6}\right) \approx 0.9183 \text{ bit}
+    \end{equation}
+\end{itemize}
+L'entropia pesata dei figli viene calcolata ponderando esclusivamente sulle proporzioni dei record con attributo noto rispetto all'insieme totale dei 10 record ($3/10 = 0.3$ e $6/10 = 0.6$):
+\begin{equation}
+    Entropy(\text{Children}) = 0.3 \cdot (0) + 0.6 \cdot (0.9183) = 0.5510
+\end{equation}
+Il guadagno informativo effettivo risulta quindi:
+\begin{equation}
+    GAIN = 0.8813 - 0.5510 = 0.3303 \text{ bit}
+\end{equation}
+
+\subsubsection{2. Assegnazione Frazionaria dei Pesi nel Training}
+Tra i record con valore noto di $\text{Refund}$, la proporzione empirica è $\frac{3}{9}$ per `Yes' e $\frac{6}{9}$ per `No'.
+Il decimo record ($\text{Refund}=?$, $\text{Class}=\text{Yes}$) viene sdoppiato e propagato a entrambi i rami:
+\begin{itemize}
+    \item Nel ramo sinistro ($\text{Refund}=\text{Yes}$), riceve un peso frazionario $w_L = 3/9 \approx 0.333$. I conteggi del figlio sinistro divengono: $\text{Class}=\text{Yes}: 0 + 0.333 = 0.333$, $\text{Class}=\text{No}: 3.0$.
+    \item Nel ramo destro ($\text{Refund}=\text{No}$), riceve un peso frazionario $w_R = 6/9 \approx 0.667$. I conteggi del figlio destro divengono: $\text{Class}=\text{Yes}: 2 + 0.667 = 2.667$, $\text{Class}=\text{No}: 4.0$.
+\end{itemize}
+
+\subsubsection{3. Deduzione su un Record di Test Incompleto}
+Si consideri il record di test:
+\begin{equation*}
+    \mathbf{x}_{\text{test}} = (\text{Refund}=\text{No}, \; \text{Marital Status}=?, \; \text{Taxable Income}=85\text{K})
+\end{equation*}
+Avendo $\text{Refund}=\text{No}$, il record discende verso il nodo interno $\text{Marital Status}$. In tale nodo, la distribuzione pesata dei record di training per ciascuna categoria è riassunta nella Tabella~\ref{tab:dm-missing-test-distribution}.
+
+\begin{table}[H]
+\centering
+\caption{Distribuzione pesata delle classi nel nodo Marital Status.}
+\label{tab:dm-missing-test-distribution}
+\vspace{2mm}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Classe Target} & \textbf{Married} & \textbf{Single} & \textbf{Divorced} & \textbf{Totale} \\
+\midrule
+$\text{Defaulted}=\text{No}$ & 3.00 & 1.00 & 0.00 & \textbf{4.00} \\
+$\text{Defaulted}=\text{Yes}$ & $6/9 \approx 0.67$ & 1.00 & 1.00 & \textbf{2.67} \\
+\midrule
+\textbf{Totale Pesi} & \textbf{3.67} & \textbf{2.00} & \textbf{1.00} & \textbf{6.67} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Poiché nel record di test $\text{Marital Status} = ?$, la previsione viene ripartita probabilisticamente:
+\begin{itemize}
+    \item Il ramo $\text{Married}$ (che conduce direttamente alla foglia terminale `NO') detiene una probabilità a priori pari a:
+    \begin{equation}
+        P(\text{Married} \mid \text{Node}) = \frac{3.67}{6.67} \approx 0.550
+    \end{equation}
+    \item Il ramo $\{\text{Single}, \text{Divorced}\}$ (che prosegue verso il test $\text{Taxable Income} > 80\text{K}$ approdando alla foglia `YES') detiene una probabilità cumulata di:
+    \begin{equation}
+        P(\{\text{Single}, \text{Divorced}\} \mid \text{Node}) = \frac{2.00 + 1.00}{6.67} = \frac{3.00}{6.67} \approx 0.450
+    \end{equation}
+\end{itemize}
+La classe predetta finale sarà $\text{Defaulted} = \text{No}$, in quanto associata alla probabilità complessiva maggioritaria ($0.550 > 0.450$).
+
+% ====================================================================
+\FloatBarrier
+\section{Limiti Strutturali degli Alberi di Decisione}
+\label{sec:dm-structural-limitations}
+
+Nonostante l'efficacia algoritmica, l'architettura standard degli alberi di decisione manifesta severe limitazioni espressive generate dall'impiego congiunto di euristiche greedy e condizioni di test uni-variate.
+
+\FloatBarrier
+\subsection{Interazioni tra Attributi e il Problema XOR}
+\label{subsec:dm-xor-interaction}
+
+Due o più attributi si dicono \textbf{interagenti} (\textit{interacting attributes}) qualora manifestino un'elevata capacità discriminante solo se considerati congiuntamente, mentre risultano individualmente scorrelati o non informativi rispetto alla classe target.
+
+\begin{example}[Il Caso XOR Bidimensionale]
+Si consideri un dataset sintetico nel piano $[0, 20]^2$ contenente 1000 punti della classe `$+$' e 1000 punti della classe `$o$'. I punti positivi sono concentrati nei quadranti superiore sinistro ($X \le 10, Y > 10$) e inferiore destro ($X > 10, Y \le 10$), mentre i punti negativi risiedono nei quadranti opposti:
+\begin{equation}
+    \text{Classe} = \begin{cases} 
+        +, & \text{se } (X \le 10 \wedge Y > 10) \vee (X > 10 \wedge Y \le 10) \\
+        o, & \text{altrimenti}
+    \end{cases}
+\end{equation}
+Se si valuta ciascun attributo singolarmente alla radice:
+\begin{itemize}
+    \item Proiettando i dati lungo il solo asse $X$, sia per $X \le 10$ sia per $X > 10$ si osserva un bilanciamento esatto: $500$ punti per la classe `$+$' e $500$ punti per la classe `$o$'. L'entropia post-split risulta $Entropy(X) = 0.999 \approx 1.0$, con un guadagno informativo nullo.
+    \item Analogamente, lungo l'asse $Y$, la distribuzione è perfettamente simmetrica: $Entropy(Y) \approx 1.0$, guadagno nullo.
+\end{itemize}
+\textbf{Vulnerabilit\`a al Rumore:} se si introduce nel dataset una terza variabile casuale fittizia $Z \sim \mathcal{U}(0, 20)$ puramente rumorosa, a causa di oscillazioni stocastiche campionarie potrà risultare $Entropy(Z) = 0.98 < 0.999$. L'algoritmo greedy sceglierà paradossalmente la variabile di puro rumore $Z$ per effettuare il primo split, allontanandosi dalla corretta interpretazione fisica del fenomeno.
+\end{example}
+
+\FloatBarrier
+\subsection{Geometria delle Frontiere di Decisione ed Alberi Obliqui}
+\label{subsec:dm-decision-boundaries-oblique}
+
+Nei modelli standard (CART, C4.5), ogni nodo interno valuta un singolo attributo scalare rispetto a una costante ($x_j < v$). Di conseguenza:
+\begin{equation}
+    \text{Frontiera di Decisione} \perp \text{Asse } x_j
+\end{equation}
+Tutte le superfici di separazione nello spazio delle feature sono rigorosamente \textbf{parallele agli assi coordinati}, partizionando $\mathcal{X}$ in una composizione di iper-rettangoli ortogonali.
+
+Qualora le classi reali siano separate da una frontiera lineare inclinata o continua (ad esempio $x_1 + x_2 = \theta$), l'albero standard è costretto ad approssimare la diagonale mediante una complessa struttura a gradini (\textit{staircase approximation}). Tale fenomeno genera un'esplosione incontrollata del numero di nodi e una grave frammentazione dei campioni.
+
+Gli \textbf{Alberi di Decisione Obliqui} (\textit{Oblique Decision Trees}) superano questa debolezza consentendo condizioni di test lineari multivariate della forma:
+\begin{equation}
+    \sum_{j=1}^d a_j x_j + b < 0
+\end{equation}
+Sebbene permettano di isolare superfici inclinate arbitrarie con singoli tagli, la ricerca congiunta dei coefficienti ottimali $\mathbf{a} \in \mathbb{R}^d$ comporta un incremento esponenziale della complessità computazionale.
+
+\FloatBarrier
+\subsection{Frammentazione dei Dati e Replicazione dell'Albero}
+\label{subsec:dm-fragmentation-replication}
+
+Due ulteriori patologie strutturali dell'induzione top-down sono:
+\begin{enumerate}
+    \item \textbf{Frammentazione dei Dati (\textit{Data Fragmentation}):} scendendo lungo i rami dell'albero, ogni partizionamento riduce drasticamente il numero di campioni disponibili nei nodi discendenti. Nei nodi profondi, le decisioni di split e l'assegnazione delle classi vengono determinate su campioni piccolissimi ($n \le 5$), privi di significatività statistica e vulnerabili all'errore campionario.
+    \item \textbf{Replicazione dell'Albero (\textit{Tree Replication}):} quando una funzione logica o un pattern sottostante dipende da una combinazione di attributi che si ripete in rami disgiunti, l'algoritmo è costretto a duplicare integralmente lo stesso sotto-albero in molteplici regioni dell'architettura globale, aggravando l'interpretabilità e disperdendo i dati di supporto.
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier
+\section{Teoria dell'Errore, Underfitting e Overfitting}
+\label{sec:dm-error-underfitting-overfitting}
+
+La bontà predittiva di un classificatore deve essere analizzata distinguendo con precisione i contesti di valutazione dell'errore.
+
+\FloatBarrier
+\subsection{Definizioni Formali dell'Errore di Classificazione}
+\label{subsec:dm-error-formal-definitions}
+
+Sia data la funzione di predizione appresa $\hat{y} = f(\mathbf{x})$:
+\begin{enumerate}
+    \item \textbf{Errore di Addestramento (\textit{Training / Apparent Error}):}
+    Frazione di errori commessi dal modello sui record appartenenti allo stesso insieme impiegato per la costruzione:
+    \begin{equation}
+        e_{\text{train}}(f) = \frac{1}{|\mathcal{D}_{\text{train}}|} \sum_{(\mathbf{x}_i, y_i) \in \mathcal{D}_{\text{train}}} \mathbb{I}(f(\mathbf{x}_i) \ne y_i)
+    \end{equation}
+    dove $\mathbb{I}(\cdot)$ è la funzione indicatrice.
+    
+    \item \textbf{Errore di Test (\textit{Test Error}):}
+    Frazione di errori commessi sull'insieme indipendente di test:
+    \begin{equation}
+        e_{\text{test}}(f) = \frac{1}{|\mathcal{D}_{\text{test}}|} \sum_{(\mathbf{x}_j, y_j) \in \mathcal{D}_{\text{test}}} \mathbb{I}(f(\mathbf{x}_j) \ne y_j)
+    \end{equation}
+    
+    \item \textbf{Errore di Generalizzazione (\textit{Generalization Error}):}
+    Il valore atteso teorico dell'errore rispetto alla distribuzione congiunta di probabilità sottostante $\mathcal{P}(\mathcal{X}, \mathcal{Y})$:
+    \begin{equation}
+        e_{\text{gen}}(f) = \mathbb{E}_{(\mathbf{x}, y) \sim \mathcal{P}}\big[ \mathbb{I}(f(\mathbf{x}) \ne y) \big]
+    \end{equation}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Curve di Apprendimento: Underfitting e Overfitting}
+\label{subsec:dm-learning-curves}
+
+Al variare della complessità strutturale del modello (misurata negli alberi di decisione dal numero totale di nodi o foglie), l'errore di addestramento e l'errore di generalizzazione esibiscono andamenti divergenti, sintetizzati nella \autoref{fig:dm-overfitting-learning-curve}.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.88\columnwidth}{!}{%
+\begin{tikzpicture}[scale=1.1]
+    % Griglia e assi
+    \draw[help lines, dashed, gray!30] (0,0) grid[xstep=2, ystep=1] (10,5);
+    \draw[->, line width=1pt] (0,0) -- (10.5,0) node[right, font=\small] {Numero Nodi (Complessit\`a)};
+    \draw[->, line width=1pt] (0,0) -- (0,5.5) node[above, font=\small] {Errore (\%)};
+
+    % Ticks X
+    \foreach \x/\val in {0/0, 2/40, 4/80, 6/120, 8/160, 10/200} {
+        \draw (\x, 0.1) -- (\x, -0.1) node[below, font=\footnotesize] {\val};
+    }
+    % Ticks Y
+    \foreach \y/\val in {0/0, 1.25/10, 2.5/20, 3.75/30, 5/40} {
+        \draw (0.1, \y) -- (-0.1, \y) node[left, font=\footnotesize] {\val};
+    }
+
+    % Training error: decresce monotonamente
+    \draw[line width=1.5pt, navy, domain=0.3:9.8, samples=50] plot (\x, {4.8 * exp(-0.45*\x) + 0.1});
+
+    % Test error: curva a U con minimo intorno a x=3.5 (circa 70 nodi)
+    \draw[line width=1.5pt, crimson, domain=0.3:9.8, samples=50] plot (\x, {4.9 * exp(-0.6*\x) + 0.05*(\x - 3.5)*(\x - 3.5) + 0.9});
+
+    % Linea verticale ottimo
+    \draw[dashed, line width=1pt, darkgreen] (3.5, 0) -- (3.5, 5);
+    \node[font=\footnotesize\bfseries, color=darkgreen, anchor=south west] at (3.5, 3.2) {Modello Ottimale};
+
+    % Regioni testuali
+    \node[font=\footnotesize\bfseries, color=navy] at (1.6, 4.5) {Underfitting};
+    \node[font=\footnotesize\bfseries, color=crimson] at (7.5, 4.5) {Overfitting};
+
+    % Legenda
+    \node[draw=navy!30, fill=codebackground, rounded corners=3pt, anchor=north east, font=\footnotesize] at (9.8, 3.0) {
+        \begin{tabular}{ll}
+            \tikz\draw[line width=1.2pt, navy] (0,0) -- (0.5,0); & Errore Training ($e_{\text{train}}$) \\
+            \tikz\draw[line width=1.2pt, crimson] (0,0) -- (0.5,0); & Errore Test ($e_{\text{test}}$) \\
+        \end{tabular}
+    };
+\end{tikzpicture}%
+}
+\caption{Dinamica dell'errore al crescere della complessità del modello: nella regione di underfitting il modello è eccessivamente rigido; superato il punto ottimale, subentra l'overfitting, in cui l'errore di test risale a fronte della decrescita monotona dell'errore di training.}
+\label{fig:dm-overfitting-learning-curve}
+\end{figure}
+
+Formalizziamo i due regimi patologici:
+\begin{definition}[Underfitting]
+Un modello incorre in \textbf{underfitting} (sotto-adattamento) quando la sua complessità strutturale è insufficiente per catturare le relazioni autentiche tra attributi e classe. In questo regime, \textbf{sia l'errore di addestramento sia l'errore di generalizzazione risultano elevati}.
+\end{definition}
+
+\begin{definition}[Overfitting]
+Un modello $f$ incorre in \textbf{overfitting} (sovra-adattamento) se esiste un modello alternativo $f'$ avente un errore di addestramento maggiore ($e_{\text{train}}(f') > e_{\text{train}}(f)$), ma un errore di generalizzazione strettamente inferiore ($e_{\text{gen}}(f') < e_{\text{gen}}(f)$). Il modello memorizza il rumore specifico e le fluttuazioni stocastiche dei dati di addestramento, perdendo la capacità di generalizzare su record non osservati.
+\end{definition}
+
+\FloatBarrier
+\subsection{Studio Empirico sull'Impatto di Nodi, Rumore e Dimensioni Campionarie}
+\label{subsec:dm-empirical-overfitting}
+
+Nelle note didattiche di Tan et al.~\cite{tan2018} viene condotto un celebre esperimento su 10.400 istanze bidimensionali nel dominio $[0, 20]^2$:
+\begin{itemize}
+    \item \textbf{Classe $+$ (5.200 punti):} 5.000 campioni generati da una densità gaussiana $\mathcal{N}(\boldsymbol{\mu}=[10, 10]^\top, \boldsymbol{\Sigma}=2\mathbf{I})$ e 200 punti di rumore casuale dispersi uniformemente;
+    \item \textbf{Classe $o$ (5.200 punti):} distribuzione uniforme su tutto il dominio $[0, 20]^2$.
+\end{itemize}
+
+I risultati sperimentali mettono in risalto considerazioni di straordinaria rilevanza:
+\begin{enumerate}
+    \item \textbf{Albero Semplice (4 nodi) vs Albero Complesso (50 nodi):}
+    \begin{itemize}
+        \item L'albero minimale a 4 nodi traccia 4 tagli ortogonali che delimitano un box compatto attorno al baricentro $(10, 10)$: ottiene $e_{\text{train}} \approx 0.10$ e $e_{\text{test}} \approx 0.10$.
+        \item L'albero espanso a 50 nodi genera decine di minuscole partizioni isolate per catturare individualmente i 200 outlier rumorosi: riduce $e_{\text{train}}$ a $0.065$, ma il suo errore di test degrada a $e_{\text{test}} \approx 0.17$. L'albero a 4 nodi possiede una capacità predittiva enormemente superiore.
+    \end{itemize}
+    \item \textbf{Effetto della Dimensione del Training Set:}
+    All'aumentare della numerosità campionaria $N_{\text{train}}$, la densità locale dello spazio cresce, riducendo lo scostamento statistico tra la distribuzione empirica e la distribuzione teorica. Le curve di training e test si mantengono aderenti e piatte lungo un arco di nodi molto più ampio, ritardando l'insorgenza dell'overfitting.
+    \item \textbf{Cause Primarie dell'Overfitting:}
+    \begin{itemize}
+        \item \textbf{Presenza di Rumore:} campioni etichettati erroneamente costringono l'algoritmo a creare insenature e geometrie anomale nelle frontiere;
+        \item \textbf{Mancanza di Dati Rappresentativi:} nelle regioni periferiche dello spazio dove scarseggiano campioni, l'albero è costretto a estrapolare decisioni su basi statisticamente fragili.
+    \end{itemize}
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier
+\section{Selezione del Modello e Stima dell'Errore di Generalizzazione}
+\label{sec:dm-model-selection}
+
+Poiché l'errore commesso sul training set costituisce una stima ottimistica fallace e fuorviante delle prestazioni su dati futuri, la \textbf{Model Selection} introduce criteri analitici per selezionare l'albero dotato della migliore capacità di generalizzazione.
+
+\FloatBarrier
+\subsection{Il Principio del Rasoio di Occam}
+\label{subsec:dm-occams-razor}
+
+Il fondamento epistemologico della selezione del modello è formulato dal \textbf{Rasoio di Occam} (\textit{Occam's Razor}):
+\begin{quote}
+\textit{Dati due modelli che esibiscono un errore di addestramento comparabile, si deve costantemente preferire il modello più semplice rispetto a quello più complesso.}
+\end{quote}
+Un modello compatto dispone di un numero inferiore di gradi di libertà, rendendo improbabile che esso si sia conformato casualmente a pattern rumorosi privi di valore predittivo.
+La formulazione matematica generale penalizza esplicitamente la complessità architetturale:
+\begin{equation}
+    e_{\text{gen}}(T) = e_{\text{train}}(T, \mathcal{D}_{\text{train}}) + \alpha \cdot \text{Complexity}(T)
+\end{equation}
+dove $\alpha > 0$ è un coefficiente di regolarizzazione che controlla il compromesso tra accuratezza empirica e parsimonia strutturale.
+
+\FloatBarrier
+\subsection{Metodi Quantitativi di Stima dell'Errore}
+\label{subsec:dm-generalization-estimators}
+
+Esistono quattro metodologie formali per stimare l'errore di generalizzazione durante la costruzione dell'albero:
+
+\subsubsection{1. Utilizzo di un Validation Set}
+Il dataset di addestramento viene partizionato a priori in due blocchi disgiunti:
+\begin{itemize}
+    \item \textbf{Training Set propriamente detto:} impiegato per generare la struttura dell'albero;
+    \item \textbf{Validation Set:} impiegato per valutare l'accuratezza dei sotto-alberi e guidare la potatura.
+\end{itemize}
+Sebbene solido, questo metodo presenta lo svantaggio di sottrarre dati preziosi all'induzione primaria, risultando penalizzante in contesti a bassa disponibilità di campioni.
+
+\subsubsection{2. Stima Pessimistica dell'Errore (\textit{Pessimistic Error Estimate})}
+Proposta originariamente per C4.5~\cite{quinlan1993}, la stima pessimistica assegna un costo fisso additivo $\Omega$ a ciascun nodo foglia.
+Dato un albero $T$ avente $k$ nodi terminali costruito su $N_{\text{train}}$ record, l'errore pessimistico è formulato come:
+\begin{equation}
+    e_{\text{pess}}(T) = \frac{\sum_{i=1}^k \big( e(t_i) + \Omega \big)}{N_{\text{train}}} = e_{\text{train}}(T) + \Omega \cdot \frac{k}{N_{\text{train}}}
+\end{equation}
+dove $e(t_i)$ è il numero assoluto di errori commessi dalla foglia $t_i$. Tipicamente si imposta $\Omega = 0.5$ (correzione di continuità) o $\Omega = 1.0$.
+
+\begin{example}[Confronto tra Stima Ottimistica e Pessimistica]
+Su un dataset di $N_{\text{train}} = 24$ istanze e con parametro di penalità $\Omega = 1.0$, si pongono a confronto due alberi concorrenti:
+\begin{itemize}
+    \item \textbf{Albero Complesso $T_L$ ($k = 7$ foglie):} commette complessivamente 4 errori sui dati di addestramento ($e_{\text{train}} = 4/24$):
+    \begin{align}
+        \text{Errore di Training:} & \quad e(T_L) = \frac{4}{24} \approx 0.1667 \\
+        \text{Errore Pessimistico:} & \quad e_{\text{pess}}(T_L) = \frac{4 + 1.0 \times 7}{24} = \frac{11}{24} \approx 0.4583
+    \end{align}
+    \item \textbf{Albero Semplice $T_R$ ($k = 4$ foglie):} commette complessivamente 6 errori sui dati di addestramento ($e_{\text{train}} = 6/24$):
+    \begin{align}
+        \text{Errore di Training:} & \quad e(T_R) = \frac{6}{24} = 0.2500 \\
+        \text{Errore Pessimistico:} & \quad e_{\text{pess}}(T_R) = \frac{6 + 1.0 \times 4}{24} = \frac{10}{24} \approx 0.4167
+    \end{align}
+\end{itemize}
+\textbf{Risultato:} mentre la stima ottimistica sceglierebbe erroneamente l'albero complesso $T_L$ ($4/24 < 6/24$), la stima pessimistica inverte la graduatoria e premia correttamente l'albero semplice $T_R$ ($10/24 < 11/24$).
+\end{example}
+
+\subsubsection{3. Principio della Minima Lunghezza di Descrizione (MDL)}
+Fondato sulla teoria dell'informazione e sulla complessità di Kolmogorov~\cite{rissanen1978}, il principio MDL formalizza l'apprendimento come compressione dei dati. Il costo complessivo di trasmissione tra un mittente e un destinatario si scompone in:
+\begin{equation}
+    \text{Cost}(M, \mathcal{D}) = \text{Cost}(M) + \text{Cost}(\mathcal{D} \mid M)
+\end{equation}
+\begin{itemize}
+    \item $\text{Cost}(M)$ misura il numero di bit necessari per codificare la topologia dell'albero (numero di nodi, attributi e soglie);
+    \item $\text{Cost}(\mathcal{D} \mid M)$ misura i bit necessari per codificare le etichette reali conoscendo le previsioni del modello (pari a zero per i punti corretti, logaritmico per le eccezioni ed errori).
+\end{itemize}
+L'albero ottimale è quello che minimizza la somma totale dei bit di trasmissione.
+
+\subsubsection{4. Stima dei Limiti Statistici Superiori (\textit{Upper Bound})}
+Questo approccio assume che il numero di errori commessi da un nodo foglia $t$ segua una distribuzione binomiale $B(n_t, p)$. Fissato un livello di confidenza statistica $1 - \alpha$ (tipicamente con $\alpha = 0.25$ in C4.5), si calcola l'estremo superiore dell'intervallo di confidenza per la proporzione di errore $e'(n_t, f, \alpha)$, dove $f = e_t / n_t$.
+Se il numero totale di errori attesi stimati dopo uno split supera l'errore atteso del nodo padre non partizionato:
+\begin{equation}
+    \sum_{i=1}^k n_i \cdot e'(n_i, f_i, \alpha) > n_p \cdot e'(n_p, f_p, \alpha)
+\end{equation}
+l'algoritmo rigetta lo split impedendo la ramificazione.
+
+% ====================================================================
+\FloatBarrier
+\section{Tecniche di Potatura (\textit{Pruning})}
+\label{sec:dm-tree-pruning}
+
+La prevenzione e la risoluzione dell'overfitting negli alberi di decisione si attuano concretamente mediante due paradigmi di \textbf{potatura} (\textit{pruning}): \textbf{Pre-Pruning} e \textbf{Post-Pruning}.
+
+\FloatBarrier
+\subsection{Pre-Pruning (Arresto Anticipato o Early Stopping)}
+\label{subsec:dm-pre-pruning}
+
+Il \textbf{Pre-Pruning} interviene durante la discesa ricorsiva dell'algoritmo di induzione, arrestando la creazione di ulteriori rami prima che l'albero raggiunga la sua massima espansione.
+I criteri operativi più comuni includono:
+\begin{itemize}
+    \item \textbf{Soglia Minima di Istanze per Nodo:} se $|\mathcal{D}_t| < \text{min\_samples\_split}$, il nodo non viene partizionato;
+    \item \textbf{Soglia di Significativit\`a Statistica del Guadagno:} lo split viene autorizzato solo se il guadagno $\Delta = Gain$ supera un valore prefissato $\epsilon > 0$ o se un test del chi-quadrato ($\chi^2$) ne attesta la non-casualità a livello di significatività $p < 0.05$;
+    \item \textbf{Controllo di Profondit\`a Massima:} imposizione rigida di un'altezza massima dell'albero (\textit{max\_depth}).
+\end{itemize}
+\textbf{Limite del Pre-Pruning (Effetto Orizzonte):} l'arresto anticipato soffre del rischio di terminazione prematura (\textit{horizon effect}). Un attributo che offre un guadagno nullo o trascurabile a livello locale potrebbe essere il preludio necessario per effettuare uno split successivo eccezionalmente discriminante (come mostrato nel problema XOR).
+
+\FloatBarrier
+\subsection{Post-Pruning (Potatura a Posteriori)}
+\label{subsec:dm-post-pruning}
+
+Nel paradigma del \textbf{Post-Pruning}, si lascia crescere l'albero fino alla sua massima espansione naturale (fino a quando tutti i nodi sono puri o omogenei negli attributi). Successivamente, si esegue una scansione retrograda in senso \textbf{bottom-up} (dalle foglie verso la radice):
+\begin{enumerate}
+    \item Per ciascun nodo interno $t$, si calcola l'errore di generalizzazione stimato del sotto-albero discendente $T_t$;
+    \item Si calcola l'errore stimato qualora il sotto-albero venisse potato e sostituito da una singola foglia con classe pari alla \textbf{maggioranza} dei campioni in $t$;
+    \item Se l'errore stimato della foglia singola risulta inferiore o uguale a quello del sotto-albero ramificato, il sotto-albero viene eliminato e sostituito dalla foglia.
+\end{enumerate}
+
+\FloatBarrier
+\subsection[Simulazione Numerica di Post-Pruning]{Simulazione Numerica\\di Post-Pruning Pessimistico}
+\label{subsec:dm-post-pruning-numeric-trace}
+
+Illustriamo la decisione di potatura su un nodo interno $A$ che copre $N = 30$ record di addestramento (20 di classe `Yes' e 10 di classe `No', classe maggioritaria `Yes') ramificandosi in $k = 4$ nodi foglia, applicando la stima pessimistica con penalità fogliare $\Omega = 0.5$.
+
+\begin{enumerate}
+    \item \textbf{Valutazione dell'Ipotesi di Potatura (Sostituzione con Foglia Singola, $k = 1$):}
+    Se il nodo $A$ viene convertito in foglia, ad esso viene associata l'etichetta `Yes'. Il numero di errori di addestramento è pari al conteggio della classe minoritaria: $e = 10$.
+    L'errore pessimistico prima dello split (foglia singola) è:
+    \begin{equation}
+        e_{\text{pess}}(\text{Foglia Singola}) = \frac{10 + 1 \times 0.5}{30} = \frac{10.5}{30} \approx 0.3500
+    \end{equation}
+
+    \item \textbf{Valutazione del Sotto-Albero Espanso ($k = 4$ foglie):}
+    I quattro nodi figli presentano i seguenti conteggi e classi maggioritarie:
+    \begin{itemize}
+        \item Figlio 1 ($n_1 = 12$, `Yes': 8, `No': 4): classe maggioritaria `Yes', errori empirici $e_1 = 4$;
+        \item Figlio 2 ($n_2 = 7$, `Yes': 3, `No': 4): classe maggioritaria `No', errori empirici $e_2 = 3$;
+        \item Figlio 3 ($n_3 = 5$, `Yes': 4, `No': 1): classe maggioritaria `Yes', errori empirici $e_3 = 1$;
+        \item Figlio 4 ($n_4 = 6$, `Yes': 5, `No': 1): classe maggioritaria `Yes', errori empirici $e_4 = 1$.
+    \end{itemize}
+    Il numero totale di errori empirici del sotto-albero è $4 + 3 + 1 + 1 = 9$ (apparentemente migliore dei 10 errori della foglia singola). Tuttavia, incorporando la penalità di complessità per le $k = 4$ foglie:
+    \begin{equation}
+        e_{\text{pess}}(\text{Sotto-Albero}) = \frac{9 + 4 \times 0.5}{30} = \frac{9 + 2.0}{30} = \frac{11.0}{30} \approx 0.3667
+    \end{equation}
+\end{enumerate}
+
+\textbf{Decisione Algoritmica:} Poiché la stima dell'errore pessimistico del sotto-albero ramificato ($\frac{11.0}{30} = 0.3667$) è strettamente superiore rispetto a quella della foglia collassata ($\frac{10.5}{30} = 0.3500$), l'algoritmo procede alla potatura: elimina i quattro rami e converte il nodo $A$ in una foglia terminale con etichetta $\text{Class} = \text{Yes}$.
+
+La Tabella~\ref{tab:dm-pruning-comparison} riassume sinotticamente il confronto tra le due metodologie di potatura.
+
+\begin{table}[H]
+\centering
+\caption{Confronto sinottico tra le strategie di potatura per alberi di decisione.}
+\label{tab:dm-pruning-comparison}
+\vspace{2mm}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcc}
+\toprule
+\textbf{Dimensione di Confronto} & \textbf{Pre-Pruning (Arresto Anticipato)} & \textbf{Post-Pruning (Potatura Retrograda)} \\
+\midrule
+\textbf{Fase di Intervento} & Durante la crescita top-down dell'albero & Dopo la completa espansione bottom-up \\
+\textbf{Costo Computazionale} & Estremamente ridotto (alberi più piccoli) & Moderato/Alto (richiede crescita completa) \\
+\textbf{Rischio Principale} & Arresto prematuro (Effetto Orizzonte, es. XOR) & Sovraccarico di memoria durante la crescita \\
+\textbf{Criteri Guida} & Soglie su campioni minimi, $\Delta$ Gain, test $\chi^2$ & Stima pessimistica, Validation Set, MDL \\
+\textbf{Accuratezza Finale} & Moderata su problemi complessi & Tipicamente superiore e ottimizzata \\
+\textbf{Algoritmi Simbolo} & ID3 (rudimentale), CART (con vincoli) & C4.5, CART (Cost-Complexity Pruning) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
