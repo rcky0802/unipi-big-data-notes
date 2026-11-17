@@ -2,13 +2,13 @@
 FROM texlive/texlive:latest
 
 LABEL maintainer="University Notes Project"
-LABEL description="All-in-one environment with TeX Live, Python 3 and data science dependencies for compiling university notes."
+LABEL description="All-in-one environment with TeX Live, Python 3, Antigravity CLI and data science dependencies for compiling university notes."
 
 # Imposta variabili ambiente non interattive
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Installa Python 3, pip, latexmk, git, ffmpeg e utility di sistema
+# Installa Python 3, pip, latexmk, git, ffmpeg, curl e utility di sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -18,7 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     procps \
     ffmpeg \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Installa Google Antigravity CLI (agy)
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# Aggiunge il binario di agy al PATH di sistema
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /workspace
 

@@ -47,8 +47,12 @@ Linee guida di stile per il corpo del testo:
 3. **`README.md`**: aggiungi il nuovo capitolo con titolo ed estremi nella panoramica dei contenuti del corso.
 
 ### Fase 4: Verifica della Compilazione
-Esegui la compilazione tramite PowerShell:
-```powershell
+Esegui la compilazione tramite terminale:
+```bash
+# Cross-platform (Linux, Dev Container, macOS, Windows)
+python3 scripts/build.py -s "<Subject>" -f
+
+# oppure tramite PowerShell su Windows
 .\scripts\build.ps1 -Subject "<Subject>" -Force
 ```
 - Controlla il log e assicurati che non vi siano errori bloccanti né warning critici su referenze mancanti o package non definiti.

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Sistema di compilazione intelligente per appunti universitari in italiano.
 .DESCRIPTION
@@ -58,24 +58,29 @@ if ($availableSubjects.Count -eq 0) {
     exit 0
 }
 
-# Verifica presenza di Docker (unico prerequisito)
+# Verifica presenza del compilatore (latexmk locale oppure Docker)
+$localLatexmk = Get-Command latexmk -ErrorAction SilentlyContinue
 $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
-if (-not $dockerCmd) {
-    Write-Host "`n[ERRORE] 'docker' non e' stato trovato nel PATH." -ForegroundColor Red
-    Write-Host "Questo progetto utilizza Docker per garantire la completa riproducibilità di LaTeX e Python." -ForegroundColor Yellow
-    Write-Host "  -> Scarica e installa Docker Desktop: https://www.docker.com/products/docker-desktop`n" -ForegroundColor Gray
+$useDocker = $false
+
+if ($localLatexmk) {
+    Write-Host "[INFO] Motore di compilazione: LaTeX locale (latexmk)" -ForegroundColor Green
+    $useDocker = $false
+} elseif ($dockerCmd) {
+    $null = & docker info 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[INFO] Motore di compilazione: Container Docker (ambiente unificato LaTeX + Python)" -ForegroundColor Green
+        $useDocker = $true
+    } else {
+        Write-Host "`n[ERRORE] Il daemon di Docker non e' in esecuzione e non e' presente latexmk locale." -ForegroundColor Red
+        Write-Host "Avvia Docker Desktop oppure installa una distribuzione TeX locale per procedere.`n" -ForegroundColor Yellow
+        exit 1
+    }
+} else {
+    Write-Host "`n[ERRORE] Ne' 'latexmk' ne' 'docker' sono stati trovati nel PATH." -ForegroundColor Red
+    Write-Host "Installa TeX Live / MiKTeX oppure Docker Desktop.`n" -ForegroundColor Yellow
     exit 1
 }
-
-# Verifica che il daemon di Docker sia effettivamente in esecuzione
-$null = & docker info 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n[ERRORE] Il daemon di Docker non e' in esecuzione." -ForegroundColor Red
-    Write-Host "Avvia Docker Desktop per procedere con la compilazione delle dispense.`n" -ForegroundColor Yellow
-    exit 1
-}
-
-Write-Host "[INFO] Motore di compilazione: Container Docker (ambiente unificato LaTeX + Python)" -ForegroundColor Green
 
 # Funzione per testare se una specifica combinazione (Materia, Lingua) ha modifiche
 function Test-TargetModified {
@@ -243,8 +248,12 @@ foreach ($item in $buildPlan) {
 
     Push-Location $dir.FullName
     try {
-        # Esegui latexmk montando il workspace corrente nel container con cartella ausiliaria build/
-        & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode -emulate-aux-dir -auxdir=build $texFile
+        if ($useDocker) {
+            # Esegui latexmk montando il workspace corrente nel container con cartella ausiliaria build/
+            & docker compose -f "$rootDir\docker-compose.yml" run --rm -w "/workspace/$subjectName" app latexmk -pdf -interaction=nonstopmode -emulate-aux-dir -auxdir=build $texFile
+        } else {
+            & latexmk -pdf -interaction=nonstopmode -emulate-aux-dir -auxdir=build $texFile
+        }
 
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Compilato con successo: $subjectName [$lang]" -ForegroundColor Green

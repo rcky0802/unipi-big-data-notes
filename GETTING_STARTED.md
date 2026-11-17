@@ -81,8 +81,24 @@ Clic destro sulla cartella o dal menu Compila:
 - **Forza Compilazione Totale (Force All)**
 - **Pulisci File Temporanei LaTeX (Clean All)**
 
-### Metodo C: Da Terminale (PowerShell)
+### Metodo C: Da Terminale (Cross-platform Python o PowerShell)
 Dalla radice del progetto:
+
+```bash
+# Smart Build differenziale con Python (Linux, macOS, container o Windows)
+python3 scripts/build.py
+
+# Compila solo una specifica materia
+python3 scripts/build.py -s Data-Mining
+
+# Forza la ricompilazione totale di tutte le materie
+python3 scripts/build.py -a -f
+
+# Pulizia dei file temporanei
+python3 scripts/clean.py
+```
+
+Oppure tramite PowerShell (Windows):
 
 ```powershell
 # Smart Build differenziale (compila solo le dispense modificate)
