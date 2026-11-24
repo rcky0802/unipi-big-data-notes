@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Sistema di compilazione intelligente per appunti universitari in italiano.
 .DESCRIPTION
@@ -89,18 +89,15 @@ function Test-TargetModified {
         [string]$Language # "IT" o "EN"
     )
 
-    $langLower = $Language.ToLower()
-    $texFile = "main_$langLower.tex"
-    $fullTexPath = Join-Path $Dir.FullName $texFile
-    
-    # Se non esiste main_it o main_en, usa main.tex come fallback
-    if (-not (Test-Path $fullTexPath)) {
+    # In Opzione A, il file principale unificato e' main.tex (con fallback a main_<lang>.tex se presente)
+    if (Test-Path (Join-Path $Dir.FullName "main.tex")) {
         $texFile = "main.tex"
         $fullTexPath = Join-Path $Dir.FullName $texFile
-    }
-
-    if (-not (Test-Path $fullTexPath)) {
-        return @{ Exists = $false; IsModified = $false; Reason = "File sorgente $texFile non presente" }
+    } elseif (Test-Path (Join-Path $Dir.FullName "main_$langLower.tex")) {
+        $texFile = "main_$langLower.tex"
+        $fullTexPath = Join-Path $Dir.FullName $texFile
+    } else {
+        return @{ Exists = $false; IsModified = $false; Reason = "File sorgente main.tex non presente" }
     }
 
     $pdfFile = [System.IO.Path]::ChangeExtension($texFile, ".pdf")

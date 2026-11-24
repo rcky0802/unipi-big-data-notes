@@ -1,0 +1,590 @@
+\chapter{Esercizi Svolti su Compressori Lempel-Ziv e Codifica di Interi}
+\label{ch:appendice-esercizi-lz-integer-coding}
+
+\section{Introduzione e Struttura della Sessione di Esercizi}
+\label{sec:intro-esercizi-lz-interi}
+
+Nei Capitoli~\ref{ch:compressori-lempel-ziv} e~\ref{ch:integer-coding} sono stati formalizzati i principi teorici e gli schemi algoritmici alla base della compressione a dizionario (famiglia Lempel-Ziv: LZ77, LZ78, LZW) e della codifica compatta di interi (Elias Delta, PForDelta, codici di Rice).
+
+Questo capitolo presenta una rassegna sistematica di esercizi applicativi risolti passo dopo passo, mirata a consolidare l'esecuzione manuale dei protocolli di compressione e decompressione, la costruzione dinamica di alberi di parsing (\textit{trie}), la gestione dei puntatori scorrevoli con sovrapposizione (\textit{overlap}) e l'aritmetica su bit per la manipolazione di flussi binari.
+
+\FloatBarrier
+\section{Esercizi sugli Algoritmi Lempel-Ziv: LZ77 e LZ78}
+\label{sec:esercizi-lz77-lz78}
+
+\subsection{Esercizio 1: Compressione con LZ77 (\textit{LZ77 Compress})}
+\label{subsec:es1-lz77-compress}
+
+\begin{example}[Compressione LZ77 con Emissione di Triple]
+Si consideri la stringa sorgente $S$ definita sull'alfabeto $\Sigma = \{\texttt{a}, \texttt{b}, \texttt{c}, \texttt{d}, \texttt{r}\}$:
+\begin{equation}
+  S = \texttt{acabacacabarda}
+\end{equation}
+Si richiede di eseguire la compressione mediante l'algoritmo LZ77, emettendo la sequenza ordinata di triple nel formato standard:
+\begin{equation}
+  \langle d, \, l, \, c \rangle = \langle \text{distanza}, \, \text{lunghezza}, \, \text{prossimo carattere} \rangle
+\end{equation}
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Indichiamo con $T$ la porzione di testo gi\`a scansionata e con $\texttt{CURSOR}$ l'indice (base 1) del prossimo carattere da processare.
+
+\begin{enumerate}
+  \item \textbf{Frase 1 (\texttt{CURSOR} = 1):} Il carattere corrente \`e \texttt{a}. Poich\'e il dizionario storico \`e vuoto, non esiste alcuna corrispondenza pregressa ($d=0, l=0$). Si emette il carattere letterale:
+  \begin{equation*}
+    \langle 0, \, 0, \, \texttt{a} \rangle
+  \end{equation*}
+  Il cursore avanza di $l + 1 = 1$ posizione. Testo emesso: \texttt{a}.
+
+  \item \textbf{Frase 2 (\texttt{CURSOR} = 2):} Il carattere corrente \`e \texttt{c}. Nel testo storico (\texttt{a}) il simbolo non compare ($d=0, l=0$):
+  \begin{equation*}
+    \langle 0, \, 0, \, \texttt{c} \rangle
+  \end{equation*}
+  Il cursore avanza di 1 posizione. Testo emesso: \texttt{ac}.
+
+  \item \textbf{Frase 3 (\texttt{CURSOR} = 3):} La sequenza residua inizia per \texttt{ab...}. Cerchiamo a ritroso la corrispondenza pi\`u lunga: il carattere \texttt{a} compare in posizione 1, a distanza $d = 3 - 1 = 2$. La lunghezza della corrispondenza \`e $l = 1$, seguita dal nuovo carattere \texttt{b}:
+  \begin{equation*}
+    \langle 2, \, 1, \, \texttt{b} \rangle
+  \end{equation*}
+  Avanzamento di $l + 1 = 2$ caratteri. Testo emesso: \texttt{acab}.
+
+  \item \textbf{Frase 4 (\texttt{CURSOR} = 5):} La sequenza residua inizia per \texttt{ar...}. Il carattere \texttt{a} \`e presente a distanza $d = 5 - 3 = 2$ (in posizione 3), con lunghezza $l = 1$. Il carattere successivo non corrispondente \`e \texttt{r}:
+  \begin{equation*}
+    \langle 2, \, 1, \, \texttt{r} \rangle
+  \end{equation*}
+  Avanzamento di $l + 1 = 2$ caratteri. Testo emesso: \texttt{acabar}.
+
+  \item \textbf{Frase 5 (\texttt{CURSOR} = 7):} La sequenza residua inizia con \texttt{acac...}. Ricerchiamo la corrispondenza massima nel testo pregresso \texttt{acabar}: a partire dalla posizione 1 (distanza $d = 7 - 1 = 6$) troviamo la sottostringa \texttt{aca} di lunghezza $l = 3$ (notiamo che sfrutta la sovrapposizione tra posizioni 1--2 e la \texttt{a} in posizione 3). Il carattere letterale successivo \`e \texttt{c}:
+  \begin{equation*}
+    \langle 6, \, 3, \, \texttt{c} \rangle
+  \end{equation*}
+  Avanzamento di $l + 1 = 4$ caratteri. Testo emesso: \texttt{acabaracac}.
+
+  \item \textbf{Frase 6 (\texttt{CURSOR} = 11):} La sequenza residua inizia con \texttt{abard...}. Nel testo pregresso cerchiamo il prefisso \texttt{abar}: esso compare a partire dalla posizione 3 (distanza $d = 11 - 3 = 8$) con lunghezza $l = 4$. Il carattere letterale successivo \`e \texttt{d}:
+  \begin{equation*}
+    \langle 8, \, 4, \, \texttt{d} \rangle
+  \end{equation*}
+  Avanzamento di $l + 1 = 5$ caratteri. Testo emesso: \texttt{acabaracacabard}.
+
+  \item \textbf{Frase 7 (\texttt{CURSOR} = 16):} Rimane l'ultimo carattere \texttt{a}. Esso compare alla posizione 13 (nella frase \texttt{abard}), a distanza $d = 16 - 13 = 3$, con lunghezza $l = 1$. Essendo terminata la stringa, il simbolo successivo \`e il marcatore convenzionale $\texttt{EOF}$:
+  \begin{equation*}
+    \langle 3, \, 1, \, \texttt{EOF} \rangle
+  \end{equation*}
+\end{enumerate}
+
+La segmentazione complessiva di $S$ risulta:
+\begin{equation}
+  S = \texttt{a} \;|\; \texttt{c} \;|\; \texttt{ab} \;|\; \texttt{ar} \;|\; \texttt{acac} \;|\; \texttt{abard} \;|\; \texttt{a}
+\end{equation}
+L'output generato dal compressore LZ77 \`e la sequenza di triple:
+\begin{equation}
+  \langle 0, 0, \texttt{a} \rangle, \; \langle 0, 0, \texttt{c} \rangle, \; \langle 2, 1, \texttt{b} \rangle, \; \langle 2, 1, \texttt{r} \rangle, \; \langle 6, 3, \texttt{c} \rangle, \; \langle 8, 4, \texttt{d} \rangle, \; \langle 3, 1, \texttt{EOF} \rangle
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio 2: Compressione con LZ78 e Costruzione del Trie}
+\label{subsec:es2-lz78-compress}
+
+\begin{example}[Compressione LZ78 con Dizionario ad Albero]
+Si consideri la stringa sorgente:
+\begin{equation}
+  S = \texttt{abracadabra}
+\end{equation}
+Si richiede di determinare il parsing LZ78, specificando per ciascun passo la coppia $\langle \text{indice padre}, \, \text{nuovo carattere} \rangle$ e l'albero di prefissi (\textit{trie}) progressivo generato a partire dalla radice $\mathbf{0}$.
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+L'algoritmo LZ78 esamina il testo da sinistra verso destra cercando il pi\`u lungo prefisso gi\`a presente nel dizionario come frase $f_p$; individuato il carattere successivo $c$, crea una nuova frase $f_{\text{new}} = f_p \cdot c$, la assegna a un nuovo identificatore progressivo ed emette la coppia $\langle p, c \rangle$.
+
+\begin{enumerate}
+  \item \textbf{Frase 1:} Primo carattere \texttt{a}. Prefisso nel dizionario: stringa vuota (nodo 0). Si emette $\langle 0, \texttt{a} \rangle$ e si assegna il nodo \textbf{1} a \texttt{a}. Residuo: \texttt{bracadabra}.
+  \item \textbf{Frase 2:} Carattere \texttt{b}. Non presente nel dizionario (padre 0). Si emette $\langle 0, \texttt{b} \rangle$ e si assegna il nodo \textbf{2} a \texttt{b}. Residuo: \texttt{racadabra}.
+  \item \textbf{Frase 3:} Carattere \texttt{r}. Non presente nel dizionario (padre 0). Si emette $\langle 0, \texttt{r} \rangle$ e si assegna il nodo \textbf{3} a \texttt{r}. Residuo: \texttt{acadabra}.
+  \item \textbf{Frase 4:} Sottostringa \texttt{ac}. Il carattere \texttt{a} \`e gi\`a memorizzato nel nodo 1; esteso con \texttt{c}, produce una frase non ancora vista. Si emette $\langle 1, \texttt{c} \rangle$ e si assegna il nodo \textbf{4} a \texttt{ac}. Residuo: \texttt{adabra}.
+  \item \textbf{Frase 5:} Sottostringa \texttt{ad}. Il prefisso \texttt{a} corrisponde al nodo 1; esteso con \texttt{d}, produce una nuova frase. Si emette $\langle 1, \texttt{d} \rangle$ e si assegna il nodo \textbf{5} a \texttt{ad}. Residuo: \texttt{abra}.
+  \item \textbf{Frase 6:} Sottostringa \texttt{ab}. Il carattere \texttt{a} corrisponde al nodo 1; esteso con \texttt{b}, forma una nuova frase. Si emette $\langle 1, \texttt{b} \rangle$ e si assegna il nodo \textbf{6} a \texttt{ab}. Residuo: \texttt{ra}.
+  \item \textbf{Frase 7:} Sottostringa \texttt{ra}. Il carattere \texttt{r} corrisponde al nodo 3; esteso con \texttt{a}, genera una nuova frase. Si emette $\langle 3, \texttt{a} \rangle$ e si crea il nodo \textbf{7} associato a \texttt{ra}. Stringa esaurita.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento dettagliato del parsing LZ78 per $S = \texttt{abracadabra}$.}
+\label{tab:tracciamento-lz78}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Passo} & \textbf{Frase Letta} & \textbf{Nodo Padre ($p$)} & \textbf{Carattere ($c$)} & \textbf{Nuovo Nodo} \\
+\midrule
+1 & \texttt{a}  & 0 & \texttt{a} & 1 (\texttt{a}) \\
+2 & \texttt{b}  & 0 & \texttt{b} & 2 (\texttt{b}) \\
+3 & \texttt{r}  & 0 & \texttt{r} & 3 (\texttt{r}) \\
+4 & \texttt{ac} & 1 & \texttt{c} & 4 (\texttt{ac}) \\
+5 & \texttt{ad} & 1 & \texttt{d} & 5 (\texttt{ad}) \\
+6 & \texttt{ab} & 1 & \texttt{b} & 6 (\texttt{ab}) \\
+7 & \texttt{ra} & 3 & \texttt{a} & 7 (\texttt{ra}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  trie/.style={circle, draw=navy, fill=codebackground, thick, minimum size=0.85cm, font=\small\bfseries},
+  edge from parent/.style={draw=navy, thick, -{Stealth[length=2mm]}},
+  level 1/.style={sibling distance=4.2cm, level distance=1.6cm},
+  level 2/.style={sibling distance=1.8cm, level distance=1.6cm}
+]
+  \node[trie, fill=navy!10] (root) {0}
+    child { node[trie, fill=risultato] (n1) {1}
+      child { node[trie] (n4) {4} edge from parent node[left=2pt, font=\small\bfseries\color{crimson}] {\texttt{c}} }
+      child { node[trie] (n5) {5} edge from parent node[right=2pt, font=\small\bfseries\color{crimson}] {\texttt{d}} }
+      child { node[trie] (n6) {6} edge from parent node[right=2pt, font=\small\bfseries\color{crimson}] {\texttt{b}} }
+      edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{a}}
+    }
+    child { node[trie, fill=risultato] (n2) {2}
+      edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{b}}
+    }
+    child { node[trie, fill=risultato] (n3) {3}
+      child { node[trie] (n7) {7} edge from parent node[right=2pt, font=\small\bfseries\color{crimson}] {\texttt{a}} }
+      edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{r}}
+    };
+\end{tikzpicture}
+\caption{Albero del dizionario (Trie) LZ78 costruito per $S = \texttt{abracadabra}$. I nodi riportano gli indici assegnati alle frasi, mentre le etichette sugli archi indicano i simboli emessi.}
+\label{fig:lz78-trie-es2}
+\end{figure}
+
+L'output complessivo delle coppie LZ78 risulta:
+\begin{equation}
+  \langle 0, \texttt{a} \rangle, \; \langle 0, \texttt{b} \rangle, \; \langle 0, \texttt{r} \rangle, \; \langle 1, \texttt{c} \rangle, \; \langle 1, \texttt{d} \rangle, \; \langle 1, \texttt{b} \rangle, \; \langle 3, \texttt{a} \rangle
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio 3: Decompressione con LZ77 ed Effetto Overlap}
+\label{subsec:es3-lz77-uncompress}
+
+\begin{example}[Decompressione LZ77 con Copia Circolare Sovrapposta]
+Si ricostruisca la stringa originale a partire dal seguente flusso di triple LZ77:
+\begin{equation}
+  \langle 0, 0, \texttt{c} \rangle, \; \langle 0, 0, \texttt{a} \rangle, \; \langle 0, 0, \texttt{r} \rangle, \; \langle 0, 0, \texttt{b} \rangle, \; \langle 3, 5, \texttt{d} \rangle, \; \langle 4, 1, \texttt{c} \rangle, \; \langle 0, 0, \texttt{EOF} \rangle
+\end{equation}
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Inizializziamo il buffer di output \texttt{out} vuoto e il cursore alla posizione 0:
+\begin{enumerate}
+  \item $\langle 0, 0, \texttt{c} \rangle \implies$ Si scrive \texttt{c}. Buffer: \texttt{c}.
+  \item $\langle 0, 0, \texttt{a} \rangle \implies$ Si scrive \texttt{a}. Buffer: \texttt{ca}.
+  \item $\langle 0, 0, \texttt{r} \rangle \implies$ Si scrive \texttt{r}. Buffer: \texttt{car}.
+  \item $\langle 0, 0, \texttt{b} \rangle \implies$ Si scrive \texttt{b}. Buffer: \texttt{carb}. Lunghezza corrente: 4 caratteri (indici $0, 1, 2, 3$).
+
+  \item $\langle 3, 5, \texttt{d} \rangle \implies$ Analizziamo con cura questa tripla che presenta $l = 5 > d = 3$:
+  \begin{itemize}
+    \item La distanza $d = 3$ indica che il punto di lettura iniziale si trova a $\texttt{pos} - 3 = 4 - 3 = 1$, corrispondente al carattere \texttt{'a'} di \texttt{carb}.
+    \item Poich\'e $l = 5$ supera lo scostamento $d = 3$, il ciclo di copia genera un'auto-estensione ciclica:
+    \begin{align*}
+      i=0: &\quad \texttt{out}[4] = \texttt{out}[1] = \texttt{'a'} \\
+      i=1: &\quad \texttt{out}[5] = \texttt{out}[2] = \texttt{'r'} \\
+      i=2: &\quad \texttt{out}[6] = \texttt{out}[3] = \texttt{'b'} \\
+      i=3: &\quad \texttt{out}[7] = \texttt{out}[4] = \texttt{'a'} \quad (\text{scritto per } i=0) \\
+      i=4: &\quad \texttt{out}[8] = \texttt{out}[5] = \texttt{'r'} \quad (\text{scritto per } i=1)
+    \end{align*}
+    La sequenza copiata \`e quindi \texttt{arbar}. Aggiungendo il carattere finale \texttt{'d'}, la tripla emette la sottostringa intera \texttt{arbard}.
+  \end{itemize}
+  Buffer risultante: \texttt{carbarbard} (lunghezza 10, indici $0 \dots 9$).
+
+  \item $\langle 4, 1, \texttt{c} \rangle \implies$ Si risale a ritroso di $d = 4$ posizioni rispetto all'indice 10: $10 - 4 = 6$, corrispondente al carattere \texttt{'b'}. Si copia $l = 1$ carattere (\texttt{'b'}) e si aggiunge \texttt{'c'}, ottenendo la sottostringa \texttt{bc}.
+  Buffer risultante: \texttt{carbarbardbc}.
+
+  \item $\langle 0, 0, \texttt{EOF} \rangle \implies$ Segnale di terminazione del flusso.
+\end{enumerate}
+
+La stringa integralmente ricostruita \`e:
+\begin{equation}
+  S = \texttt{carbarbardbc}
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio 4: Decompressione con LZ78}
+\label{subsec:es4-lz78-uncompress}
+
+\begin{example}[Decompressione LZ78 da Flusso di Coppie]
+Dato il flusso di coppie LZ78:
+\begin{equation}
+  \langle 0, \texttt{c} \rangle, \; \langle 0, \texttt{a} \rangle, \; \langle 0, \texttt{r} \rangle, \; \langle 0, \texttt{b} \rangle, \; \langle 2, \texttt{r} \rangle, \; \langle 4, \texttt{a} \rangle, \; \langle 3, \texttt{a} \rangle, \; \langle 4, \texttt{c} \rangle, \; \langle 0, \texttt{EOF} \rangle
+\end{equation}
+si ricostruisca il vocabolario delle frasi e la stringa originale emessa.
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Il decodificatore mantiene un array indicizzato di frasi $\mathcal{D}$, inizializzato con $\mathcal{D}[0] = \varepsilon$ (stringa vuota). Ad ogni coppia ricevuta $\langle p, c \rangle$, calcola la nuova frase $\mathcal{D}[\text{id}] = \mathcal{D}[p] \cdot c$, la invia al flusso decompresso e la registra nel dizionario:
+
+\begin{enumerate}
+  \item $\langle 0, \texttt{c} \rangle \implies \mathcal{D}[1] = \mathcal{D}[0] \cdot \texttt{c} = \texttt{"c"}$. Output: \texttt{c}.
+  \item $\langle 0, \texttt{a} \rangle \implies \mathcal{D}[2] = \mathcal{D}[0] \cdot \texttt{a} = \texttt{"a"}$. Output: \texttt{a}.
+  \item $\langle 0, \texttt{r} \rangle \implies \mathcal{D}[3] = \mathcal{D}[0] \cdot \texttt{r} = \texttt{"r"}$. Output: \texttt{r}.
+  \item $\langle 0, \texttt{b} \rangle \implies \mathcal{D}[4] = \mathcal{D}[0] \cdot \texttt{b} = \texttt{"b"}$. Output: \texttt{b}.
+  \item $\langle 2, \texttt{r} \rangle \implies \mathcal{D}[5] = \mathcal{D}[2] \cdot \texttt{r} = \texttt{"ar"}$. Output: \texttt{ar}.
+  \item $\langle 4, \texttt{a} \rangle \implies \mathcal{D}[6] = \mathcal{D}[4] \cdot \texttt{a} = \texttt{"ba"}$. Output: \texttt{ba}.
+  \item $\langle 3, \texttt{a} \rangle \implies \mathcal{D}[7] = \mathcal{D}[3] \cdot \texttt{a} = \texttt{"ra"}$. Output: \texttt{ra}.
+  \item $\langle 4, \texttt{c} \rangle \implies \mathcal{D}[8] = \mathcal{D}[4] \cdot \texttt{c} = \texttt{"bc"}$. Output: \texttt{bc}.
+  \item $\langle 0, \texttt{EOF} \rangle \implies$ Fine trasmissione.
+\end{enumerate}
+
+Concatenando le uscite parziali otteniamo la stringa originale:
+\begin{equation}
+  S = \texttt{c} \;|\; \texttt{a} \;|\; \texttt{r} \;|\; \texttt{b} \;|\; \texttt{ar} \;|\; \texttt{ba} \;|\; \texttt{ra} \;|\; \texttt{bc} = \texttt{carbarbarabc}
+\end{equation}
+
+\FloatBarrier
+\section{Esercizi sull'Algoritmo LZW (Lempel-Ziv-Welch)}
+\label{sec:esercizi-lzw}
+
+L'algoritmo LZW \cite{welch1984} ottimizza LZ78 emettendo esclusivamente codici interi che referenziano voci di un dizionario inizializzato preventivamente con tutti i simboli dell'alfabeto (nel nostro caso i 256 codici ASCII standard $0 \dots 255$). Le nuove combinazioni di stringhe vengono inserite a partire dall'indice progressivo \textbf{256}.
+
+\FloatBarrier
+\subsection{Esercizio 5: Compressione con LZW (\textit{LZW Compress})}
+\label{subsec:es5-lzw-compress}
+
+\begin{example}[Compressione LZW]
+Si esegua la compressione LZW della stringa:
+\begin{equation}
+  S = \texttt{baacbaabca}
+\end{equation}
+adottando la convenzione ASCII per cui $\texttt{'a'} = 97$, $\texttt{'b'} = 98$, $\texttt{'c'} = 99$, e allocando le nuove voci di dizionario a partire dall'indice 256.
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Il codificatore mantiene una variabile di stato $\texttt{CURR}$ (la sottostringa corrente corrispondente a una voce di dizionario) e legge il simbolo successivo $\texttt{NEXT}$:
+\begin{itemize}
+  \item Se $\texttt{CURR} \cdot \texttt{NEXT}$ appartiene a $\mathcal{D}$, estende $\texttt{CURR} \leftarrow \texttt{CURR} \cdot \texttt{NEXT}$;
+  \item Altrimenti, emette il codice di dizionario $\mathcal{D}[\texttt{CURR}]$, aggiunge $\texttt{CURR} \cdot \texttt{NEXT}$ come nuova voce di dizionario, e reimposta $\texttt{CURR} \leftarrow \texttt{NEXT}$.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento dettagliato dei passi dell'algoritmo di compressione LZW.}
+\label{tab:tracciamento-lzw-compress}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Passo} & \textbf{\texttt{CURR}} & \textbf{\texttt{NEXT}} & \textbf{Codice Emesso (\texttt{OUT})} & \textbf{Nuova Voce in Dizionario} \\
+\midrule
+1 & \texttt{b}  & \texttt{a}   & \textbf{98}  & $256 \leftarrow \texttt{ba}$ \\
+2 & \texttt{a}  & \texttt{a}   & \textbf{97}  & $257 \leftarrow \texttt{aa}$ \\
+3 & \texttt{a}  & \texttt{c}   & \textbf{97}  & $258 \leftarrow \texttt{ac}$ \\
+4 & \texttt{c}  & \texttt{b}   & \textbf{99}  & $259 \leftarrow \texttt{cb}$ \\
+5 & \texttt{ba} & \texttt{a}   & \textbf{256} & $260 \leftarrow \texttt{baa}$ \\
+6 & \texttt{aa} & \texttt{b}   & \textbf{257} & $261 \leftarrow \texttt{aab}$ \\
+7 & \texttt{b}  & \texttt{c}   & \textbf{98}  & $262 \leftarrow \texttt{bc}$ \\
+8 & \texttt{cb} & \texttt{a}   & \textbf{259} & $263 \leftarrow \texttt{cba}$ \\
+9 & \texttt{a}  & \texttt{EOF} & \textbf{97}  & — \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+La sequenza dei codici interi emessi dal compressore LZW \`e:
+\begin{equation}
+  \langle 98, \, 97, \, 97, \, 99, \, 256, \, 257, \, 98, \, 259, \, 97 \rangle
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio 6: Decompressione con LZW (\textit{LZW Uncompress})}
+\label{subsec:es6-lzw-uncompress}
+
+\begin{example}[Decompressione LZW da Flusso di Indici]
+Si ricostruisca la stringa originale a partire dalla sequenza di codici ricevuti in ingresso:
+\begin{equation}
+  \texttt{INPUT} = \langle 98, \, 97, \, 97, \, 99, \, 256, \, 257, \, 98, \, 259, \, 97 \rangle
+\end{equation}
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Il decodificatore legge il primo codice $C_{\text{old}} = 98$, emette la corrispondente stringa letterale $\mathcal{D}[98] = \texttt{"b"}$ e procede a esaminare i codici successivi $C_{\text{curr}}$. Per ciascun codice, emette la stringa $S_{\text{curr}} = \mathcal{D}[C_{\text{curr}}]$, aggiunge al dizionario la voce $\mathcal{D}[\text{next\_id}] = S_{\text{old}} \cdot \text{first\_char}(S_{\text{curr}})$, e aggiorna $S_{\text{old}} \leftarrow S_{\text{curr}}$.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento dettagliato della decodifica LZW e ricostruzione del dizionario.}
+\label{tab:tracciamento-lzw-uncompress}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccc}
+\toprule
+\textbf{Passo} & \textbf{Codice Letto (\texttt{IN})} & \textbf{Stringa Emessa (\texttt{OUT})} & \textbf{Regola di Aggiornamento Dizionario} \\
+\midrule
+1 & 98  & \textbf{\texttt{b}}  & — \\
+2 & 97  & \textbf{\texttt{a}}  & $256 \leftarrow \texttt{"b"} + \text{first\_char}(\texttt{"a"}) = \texttt{ba}$ \\
+3 & 97  & \textbf{\texttt{a}}  & $257 \leftarrow \texttt{"a"} + \text{first\_char}(\texttt{"a"}) = \texttt{aa}$ \\
+4 & 99  & \textbf{\texttt{c}}  & $258 \leftarrow \texttt{"a"} + \text{first\_char}(\texttt{"c"}) = \texttt{ac}$ \\
+5 & 256 & \textbf{\texttt{ba}} & $259 \leftarrow \texttt{"c"} + \text{first\_char}(\texttt{"ba"}) = \texttt{cb}$ \\
+6 & 257 & \textbf{\texttt{aa}} & $260 \leftarrow \texttt{"ba"} + \text{first\_char}(\texttt{"aa"}) = \texttt{baa}$ \\
+7 & 98  & \textbf{\texttt{b}}  & $261 \leftarrow \texttt{"aa"} + \text{first\_char}(\texttt{"b"}) = \texttt{aab}$ \\
+8 & 259 & \textbf{\texttt{cb}} & $262 \leftarrow \texttt{"b"} + \text{first\_char}(\texttt{"cb"}) = \texttt{bc}$ \\
+9 & 97  & \textbf{\texttt{a}}  & $263 \leftarrow \texttt{"cb"} + \text{first\_char}(\texttt{"a"}) = \texttt{cba}$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Concatenando le stringhe emesse nella colonna \texttt{OUT}:
+\begin{equation}
+  S = \texttt{b} \cdot \texttt{a} \cdot \texttt{a} \cdot \texttt{c} \cdot \texttt{ba} \cdot \texttt{aa} \cdot \texttt{b} \cdot \texttt{cb} \cdot \texttt{a} = \texttt{baacbaabca}
+\end{equation}
+La sequenza decompressa coincide perfettamente con il testo originario.
+
+\FloatBarrier
+\section{Esercizi sui Codici per Interi: Elias Delta, PForDelta e Rice}
+\label{sec:esercizi-interi}
+
+\subsection{Esercizio 7: Codifica Delta di Elias (\textit{Delta Encode})}
+\label{subsec:es7-elias-delta-encode}
+
+\begin{example}[Calcolo del Codice Delta di Elias]
+Si codifichi in formato Delta di Elias $\delta(x)$ la sequenza di interi:
+\begin{equation}
+  X = \langle 1, \, 3, \, 9, \, 15 \rangle
+\end{equation}
+\end{example}
+
+\paragraph{Richiamo delle Formule Strutturali}
+\begin{align}
+  \delta(x) &= \gamma(l) \;\|\; \text{bin}^{-1}(x), \qquad \text{con } l = \lfloor \log_2 x \rfloor + 1 = |\text{bin}(x)| \\
+  \gamma(y) &= \underbrace{00\dots0}_{|\text{bin}(y)| - 1} \;\|\; \text{bin}(y)
+\end{align}
+dove $\text{bin}^{-1}(x)$ indica la stringa binaria di $x$ privata del bit pi\`u significativo (MSB).
+
+\paragraph{Svolgimento per Ciascun Intero}
+\begin{enumerate}
+  \item \textbf{Codifica di $x = 1$:}
+  \begin{itemize}
+    \item Rappresentazione binaria: $\text{bin}(1) = \texttt{1}_2$, lunghezza $l = 1$.
+    \item Suffisso privo di MSB: $\text{bin}^{-1}(1) = \varepsilon$ (stringa vuota, 0 bit).
+    \item Prefisso Gamma della lunghezza: $\gamma(l) = \gamma(1) = \texttt{1}$.
+    \item Concatenazione:
+    \begin{equation*}
+      \delta(1) = \gamma(1) \;\|\; \varepsilon = \texttt{1}
+    \end{equation*}
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 3$:}
+  \begin{itemize}
+    \item Rappresentazione binaria: $\text{bin}(3) = \texttt{11}_2$, lunghezza $l = 2$.
+    \item Suffisso privo di MSB: $\text{bin}^{-1}(3) = \texttt{1}$.
+    \item Prefisso Gamma della lunghezza: per $l = 2$, $\text{bin}(2) = \texttt{10}_2$ (lunghezza 2). Dunque un solo zero unario: $\gamma(2) = \texttt{010}$.
+    \item Concatenazione:
+    \begin{equation*}
+      \delta(3) = \gamma(2) \;\|\; \text{bin}^{-1}(3) = \texttt{010} \,\|\, \texttt{1} = \texttt{0101}
+    \end{equation*}
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 9$:}
+  \begin{itemize}
+    \item Rappresentazione binaria: $\text{bin}(9) = \texttt{1001}_2$, lunghezza $l = 4$.
+    \item Suffisso privo di MSB: $\text{bin}^{-1}(9) = \texttt{001}$.
+    \item Prefisso Gamma della lunghezza: per $l = 4$, $\text{bin}(4) = \texttt{100}_2$ (lunghezza 3 bit). Si antepongono $3 - 1 = 2$ zeri: $\gamma(4) = \texttt{00100}$.
+    \item Concatenazione:
+    \begin{equation*}
+      \delta(9) = \gamma(4) \;\|\; \text{bin}^{-1}(9) = \texttt{00100} \,\|\, \texttt{001} = \texttt{00100001}
+    \end{equation*}
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 15$:}
+  \begin{itemize}
+    \item Rappresentazione binaria: $\text{bin}(15) = \texttt{1111}_2$, lunghezza $l = 4$.
+    \item Suffisso privo di MSB: $\text{bin}^{-1}(15) = \texttt{111}$.
+    \item Prefisso Gamma: $\gamma(4) = \texttt{00100}$.
+    \item Concatenazione:
+    \begin{equation*}
+      \delta(15) = \gamma(4) \;\|\; \text{bin}^{-1}(15) = \texttt{00100} \,\|\, \texttt{111} = \texttt{00100111}
+    \end{equation*}
+  \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esercizio 8: Decodifica Delta di Elias (\textit{Delta Decode})}
+\label{subsec:es8-elias-delta-decode}
+
+\begin{example}[Decodifica di Flussi Binari Delta]
+Si decodifichino le due seguenti parole di codice in formato Delta di Elias:
+\begin{enumerate}
+  \item $W_1 = \texttt{01111}$
+  \item $W_2 = \texttt{00100110}$
+\end{enumerate}
+\end{example}
+
+\paragraph{Risoluzione di $W_1 = \texttt{01111}$}
+\begin{enumerate}
+  \item \textbf{Estrazione del prefisso unario della lunghezza:} Si contano gli zeri iniziali fino al primo bit unitario. Troviamo $k = 1$ zero (\texttt{0}), seguito da \texttt{1}.
+  \item \textbf{Lettura della lunghezza $l$ da $\gamma(l)$:} Poich\'e gli zeri erano $k = 1$, il valore $l$ \`e espresso su $k + 1 = 2$ bit. I due bit a partire dal primo \texttt{1} sono $\texttt{11}_2 = 3$. Pertanto la lunghezza binaria del numero cercato \`e $l = 3$.
+  \item \textbf{Ricostruzione dell'intero $x$:} Sapendo che $l = 3$, i bit residui rappresentano $\text{bin}^{-1}(x)$ e hanno lunghezza $l - 1 = 2$ bit. Nel flusso rimangono esattamente i 2 bit $\texttt{11}$. Anteponendo il bit implicito \texttt{1}:
+  \begin{equation*}
+    \text{bin}(x) = \texttt{1} \,\|\, \texttt{11} = \texttt{111}_2 = 7
+  \end{equation*}
+  Il valore decodificato \`e $x = 7$.
+\end{enumerate}
+
+\paragraph{Risoluzione di $W_2 = \texttt{00100110}$}
+\begin{enumerate}
+  \item \textbf{Estrazione del prefisso unario:} Contiamo gli zeri iniziali: $k = 2$ zeri (\texttt{00}), seguiti da \texttt{1}.
+  \item \textbf{Lettura di $l$:} La lunghezza del blocco binario di $l$ \`e $k + 1 = 3$ bit. Leggiamo i 3 bit $\texttt{100}_2 = 4$. Dunque $l = 4$.
+  \item \textbf{Ricostruzione di $x$:} Il numero cercato ha $l = 4$ bit complessivi, per cui il suffisso $\text{bin}^{-1}(x)$ conta $l - 1 = 3$ bit. I successivi 3 bit del flusso sono $\texttt{110}$. Anteponendo l'MSB implicito \texttt{1}:
+  \begin{equation*}
+    \text{bin}(x) = \texttt{1} \,\|\, \texttt{110} = \texttt{1110}_2 = 14
+  \end{equation*}
+  Il valore decodificato \`e $x = 14$.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esercizio 9: Codifica PForDelta}
+\label{subsec:es9-pfordelta}
+
+\begin{example}[Compressione a Blocchi PForDelta con $b = 2$]
+Data la sequenza crescente di interi:
+\begin{equation}
+  S = \langle 2, \, 3, \, 4, \, 5, \, 9, \, 10, \, 16 \rangle
+\end{equation}
+si applichi la codifica PForDelta assumendo come base il valore iniziale $\text{base} = 2$ e parametro di quantizzazione $b = 2$ bit.
+\end{example}
+
+\paragraph{Risoluzione Passo-Passo}
+Con $b = 2$ bit, lo spazio degli stati consente 4 valori ($2^2 = 4$):
+\begin{itemize}
+  \item Valori ordinari direttamente rappresentabili: $\texttt{00} \mapsto 0$, $\texttt{01} \mapsto 1$, $\texttt{10} \mapsto 2$.
+  \item Codice di riserva: $\texttt{11} = 2^2 - 1 = 3 \implies \mathbf{ESCAPE}$ (per tutti i valori $\ge 3$).
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Traslazione rispetto alla base ($\text{base} = 2$):}
+  Sottraendo 2 a ciascun termine otteniamo la sequenza normalizzata:
+  \begin{equation*}
+    S_{\text{shift}} = \langle 0, \, 1, \, 2, \, 3, \, 7, \, 8, \, 14 \rangle
+  \end{equation*}
+
+  \item \textbf{Calcolo dei Gap Consecutivi ($G$):}
+  Calcoliamo le differenze rispetto al valore precedente (ponendo $g_1 = S_{\text{shift}}[1] - 0$):
+  \begin{align*}
+    g_1 &= 0 - 0 = 0 \\
+    g_2 &= 1 - 0 = 1 \\
+    g_3 &= 2 - 1 = 1 \\
+    g_4 &= 3 - 2 = 1 \\
+    g_5 &= 7 - 3 = \mathbf{4} \quad (\text{out of bound, } \ge 3) \\
+    g_6 &= 8 - 7 = 1 \\
+    g_7 &= 14 - 8 = \mathbf{6} \quad (\text{out of bound, } \ge 3)
+  \end{align*}
+  La sequenza dei gap da codificare \`e quindi:
+  \begin{equation*}
+    G = \langle 0, \, 1, \, 1, \, 1, \, \mathbf{4}, \, 1, \, \mathbf{6} \rangle
+  \end{equation*}
+
+  \item \textbf{Generazione del Flusso Compresso a 2 bit e dell'Extra List:}
+  \begin{itemize}
+    \item $g_1 = 0 \implies \texttt{00}$
+    \item $g_2 = 1 \implies \texttt{01}$
+    \item $g_3 = 1 \implies \texttt{01}$
+    \item $g_4 = 1 \implies \texttt{01}$
+    \item $g_5 = 4 \implies \texttt{11}$ (Escape) $\longrightarrow$ il valore reale $4$ entra nell'$\texttt{ExtraList}$;
+    \item $g_6 = 1 \implies \texttt{01}$
+    \item $g_7 = 6 \implies \texttt{11}$ (Escape) $\longrightarrow$ il valore reale $6$ entra nell'$\texttt{ExtraList}$.
+  \end{itemize}
+\end{enumerate}
+
+La struttura dati compressa risultante \`e composta da due parti:
+\begin{equation}
+  \begin{cases}
+    \textbf{Array a 2 bit:} & [\texttt{00}, \, \texttt{01}, \, \texttt{01}, \, \texttt{01}, \, \texttt{11}, \, \texttt{01}, \, \texttt{11}] \\
+    \textbf{Extra List (32 bit):} & [4, \, 6]
+  \end{cases}
+\end{equation}
+
+\FloatBarrier
+\subsection{Esercizio 10: Codifica di Rice (\textit{Rice Coding})}
+\label{subsec:es10-rice-coding}
+
+\begin{example}[Codifica di Rice con Parametro $k = 2$]
+Si determini la codifica di Rice $R_k(x)$ con parametro $k = 2$ ($M = 2^2 = 4$) per i seguenti interi positivi:
+\begin{equation}
+  X = \langle 3, \, 5, \, 10, \, 2, \, 15 \rangle
+\end{equation}
+\end{example}
+
+\paragraph{Formule Operative}
+Fissato $k = 2$, per ogni intero $x \ge 1$:
+\begin{align}
+  q &= \left\lfloor \frac{x - 1}{4} \right\rfloor = (x - 1) \gg 2 \\
+  r &= (x - 1) \bmod 4 = (x - 1) \ \& \ 3 \\
+  R_2(x) &= \underbrace{U(q + 1)}_{q \text{ zeri seguiti da } 1} \;\|\; \underbrace{\text{bin}_2(r)}_{\text{resto su 2 bit fissi}}
+\end{align}
+
+\paragraph{Svolgimento per Ciascun Valore}
+\begin{enumerate}
+  \item \textbf{Codifica di $x = 3$:}
+  \begin{itemize}
+    \item Indice traslato: $x - 1 = 2$.
+    \item Quoziente: $q = \lfloor 2 / 4 \rfloor = 0$.
+    \item Resto: $r = 2 \bmod 4 = 2$.
+    \item Quoziente in unario: $U(0 + 1) = U(1) = \texttt{1}$.
+    \item Resto su 2 bit: $\text{bin}_2(2) = \texttt{10}$.
+    \item Risultato: $R_2(3) = \texttt{1} \,\|\, \texttt{10} = \texttt{110}$ (3 bit).
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 5$:}
+  \begin{itemize}
+    \item Indice traslato: $x - 1 = 4$.
+    \item Quoziente: $q = \lfloor 4 / 4 \rfloor = 1$.
+    \item Resto: $r = 4 \bmod 4 = 0$.
+    \item Quoziente in unario: $U(1 + 1) = U(2) = \texttt{01}$.
+    \item Resto su 2 bit: $\text{bin}_2(0) = \texttt{00}$.
+    \item Risultato: $R_2(5) = \texttt{01} \,\|\, \texttt{00} = \texttt{0100}$ (4 bit).
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 10$:}
+  \begin{itemize}
+    \item Indice traslato: $x - 1 = 9$.
+    \item Quoziente: $q = \lfloor 9 / 4 \rfloor = 2$.
+    \item Resto: $r = 9 \bmod 4 = 1$.
+    \item Quoziente in unario: $U(2 + 1) = U(3) = \texttt{001}$.
+    \item Resto su 2 bit: $\text{bin}_2(1) = \texttt{01}$.
+    \item Risultato: $R_2(10) = \texttt{001} \,\|\, \texttt{01} = \texttt{00101}$ (5 bit).
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 2$:}
+  \begin{itemize}
+    \item Indice traslato: $x - 1 = 1$.
+    \item Quoziente: $q = \lfloor 1 / 4 \rfloor = 0$.
+    \item Resto: $r = 1 \bmod 4 = 1$.
+    \item Quoziente in unario: $U(0 + 1) = U(1) = \texttt{1}$.
+    \item Resto su 2 bit: $\text{bin}_2(1) = \texttt{01}$.
+    \item Risultato: $R_2(2) = \texttt{1} \,\|\, \texttt{01} = \texttt{101}$ (3 bit).
+  \end{itemize}
+
+  \item \textbf{Codifica di $x = 15$:}
+  \begin{itemize}
+    \item Indice traslato: $x - 1 = 14$.
+    \item Quoziente: $q = \lfloor 14 / 4 \rfloor = 3$.
+    \item Resto: $r = 14 \bmod 4 = 2$.
+    \item Quoziente in unario: $U(3 + 1) = U(4) = \texttt{0001}$.
+    \item Resto su 2 bit: $\text{bin}_2(2) = \texttt{10}$.
+    \item Risultato: $R_2(15) = \texttt{0001} \,\|\, \texttt{10} = \texttt{000110}$ (6 bit).
+  \end{itemize}
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Riepilogo delle codifiche di Rice per $k = 2$.}
+\label{tab:riepilogo-rice-k2}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Valore ($x$)} & \textbf{$x - 1$} & \textbf{Quoziente ($q$)} & \textbf{Resto ($r$)} & \textbf{Parola di Codice $R_2(x)$} & \textbf{Bit Totali} \\
+\midrule
+2  & 1  & 0 & 1 & \texttt{101}    & 3 \\
+3  & 2  & 0 & 2 & \texttt{110}    & 3 \\
+5  & 4  & 1 & 0 & \texttt{0100}   & 4 \\
+10 & 9  & 2 & 1 & \texttt{00101}  & 5 \\
+15 & 14 & 3 & 2 & \texttt{000110} & 6 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

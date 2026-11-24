@@ -1,0 +1,590 @@
+\chapter{Codifica di Interi (\textit{Integer Coding}) e Codici Compatti}
+\label{ch:integer-coding}
+
+\section{Introduzione all'Integer Coding, Contesti Applicativi e Fondamenti Teorici}
+\label{sec:intro-integer-coding}
+
+Nelle applicazioni di memorizzazione ed elaborazione su larga scala, la necessit\`a di rappresentare sequenze di numeri interi in forma compressa assume un ruolo di primo piano. A differenza della compressione statistica di testi basata su alfabeti finiti noti a priori (come la codifica di Huffman o la codifica aritmetica), l'\textbf{Integer Coding} si confronta con un alfabeto potenzialmente infinito: l'insieme dei numeri interi non negativi $\mathbb{N}_0 = \{0, 1, 2, \dots\}$ o dei positivi $\mathbb{N}^+ = \{1, 2, 3, \dots\}$.
+
+L'obiettivo fondamentale consiste nel progettare codici a lunghezza variabile privi di prefisso (\textit{prefix-free codes}) in grado di mappare interi arbitrari in sequenze di bit compatte, minimizzando la ridondanza rispetto alle distribuzioni di probabilit\`a tipiche dei dati reali e garantendo, al contempo, un'estrema efficienza algoritmica nelle fasi di codifica e decodifica.
+
+\FloatBarrier
+\subsection{Il Problema dell'Integer Coding e Casi d'Uso Pratici}
+\label{subsec:casi-uso-integer-coding}
+
+Consideriamo una tipica sequenza crescente di interi generata da un processo di scansione o indicizzazione:
+\begin{equation}
+  S = \langle 4, \, 5, \, 7, \, 11, \, 13, \, 17, \, \dots \rangle
+\end{equation}
+Rappresentare ciascun intero mediante una parola di macchina a larghezza fissa (ad esempio 32 o 64 bit) comporterebbe un consumo di memoria ingente e ingiustificato, poich\'e la grande maggioranza degli interi manipolati ha un'ampiezza numerica ridotta.
+
+Tre importanti contesti applicativi motivano lo studio e lo sviluppo di schemi specializzati di codifica per interi:
+\begin{enumerate}
+  \item \textbf{Liste invertite nei motori di ricerca (\textit{Inverted Lists of Search Engines}):} Nei sistemi di Information Retrieval su larga scala, l'indice invertito associa a ciascun termine del vocabolario la sequenza ordinata degli identificatori dei documenti (\textit{docID}) in cui esso compare. Poich\'e i motori di ricerca indicizzano miliardi di documenti, le liste di \textit{docID} occupano decine di terabyte di RAM; comprimere tali sequenze preservando un accesso e un'intersezione ad altissima velocit\`a costituisce un requisito architetturale critico.
+  \item \textbf{Liste di adiacenza nei grafi (\textit{Adjacency Lists in Graphs}):} Nella modellazione di reti sociali, web graph e grafi di conoscenza con milioni o miliardi di nodi, i vicini uscenti o entranti di ciascun nodo vengono comunemente memorizzati come liste ordinate di indici di vertici.
+  \item \textbf{Serie temporali (\textit{Time-Series}):} Nelle rilevazioni continue da sensori (IoT), metriche di telemetria e quotazioni finanziarie, si registrano campionamenti numerici discretizzati distribuiti nel tempo, caratterizzati da correlazioni locali tra valori successivi.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Gap-Coding e Mappatura degli Interi Relativi sui Naturali}
+\label{subsec:gap-coding-zigzag}
+
+Per sfruttare la struttura delle sequenze numeriche, i sistemi moderni introducono due strategie cardine di pre-elaborazione:
+
+\begin{definition}[Gap-Coding]
+Data una sequenza strettamente crescente di interi $S = \langle x_1, x_2, \dots, x_n \rangle$ con $x_1 < x_2 < \dots < x_n$, la tecnica del \textbf{Gap-Coding} (o codifica differenziale $\Delta$-encoding) memorizza in forma esplicita il primo valore $x_1$ e sostituisce ogni elemento successivo $x_i$ ($i \ge 2$) con la differenza positiva rispetto al predecessore:
+\begin{equation}
+  g_1 = x_1, \qquad g_i = x_i - x_{i-1} > 0 \quad (\forall i \ge 2)
+\end{equation}
+\end{definition}
+
+In virt\`u della monotonia stretta della sequenza, i salti (\textit{gap}) $g_i$ risultano strettamente positivi ($g_i \ge 1$) e, nelle collezioni di dati reali, tendono a concentrarsi su valori molto piccoli. Ridurre l'ordine di grandezza dei numeri da memorizzare consente di sfruttare appieno i codici che assegnano parole binarie brevi a interi di modesta entit\`a.
+
+Qualora i valori $x_i$ appartengano invece all'insieme degli interi relativi $\mathbb{Z}$ (potendo assumere valori positivi, nulli o negativi, come avviene spesso nelle predizioni differenziali su serie temporali), non \`e possibile applicare direttamente codici progettati per $\mathbb{N}^+$. Si ricorre pertanto a una trasformazione biunivoca nota in letteratura informatica come \textbf{Zig-Zag Encoding}.
+
+\begin{definition}[Zig-Zag Encoding: Mappatura da $\mathbb{Z}$ a $\mathbb{N}_0$]
+Sia $x \in \mathbb{Z}$. La funzione biunivoca di zig-zag $\psi \colon \mathbb{Z} \to \mathbb{N}_0$ \`e definita da:
+\begin{equation}
+  \psi(x) = \begin{cases}
+    2|x| = 2x & \text{se } x \ge 0 \\
+    2|x| - 1 = -2x - 1 & \text{se } x < 0
+  \end{cases}
+\end{equation}
+\end{definition}
+
+A livello implementativo di bitwise arithmetic a 32 bit, tale funzione si calcola in tempo costante privo di salti condizionali (\textit{branchless}) mediante l'espressione:
+\begin{equation}
+  \psi(x) = (x \ll 1) \oplus (x \gg 31)
+\end{equation}
+La corrispondenza alterna ordinatamente interi positivi e negativi attorno allo zero:
+\begin{equation*}
+  0 \mapsto 0, \quad -1 \mapsto 1, \quad +1 \mapsto 2, \quad -2 \mapsto 3, \quad +2 \mapsto 4, \quad \dots
+\end{equation*}
+Consentendo di trattare qualunque sorgente a valori relativi attraverso codificatori per numeri naturali.
+
+\FloatBarrier
+\subsection{Il Limite Inferiore di Shannon e l'Entropia della Sorgente}
+\label{subsec:limite-shannon-interi}
+
+Come stabilito dalla teoria matematica della comunicazione di Shannon \cite{shannon1948}, data una sorgente discreta che emette interi positivi $x \in \mathbb{N}^+$ secondo una distribuzione di probabilit\`a $P(x)$, la quantit\`a media di informazione minima necessaria per rappresentare ciascun intero \`e delimitata dall'entropia:
+\begin{equation}
+  H(X) = \sum_{x \in \mathbb{N}^+} P(x) \log_2 \frac{1}{P(x)}
+\end{equation}
+In un codice ideale libero da prefisso (\textit{prefix-free}), la lunghezza ottimale della parola di codice associata all'intero $x$ soddisfa la relazione fondamentale:
+\begin{equation}
+  L_{\text{ott}}(x) = \log_2 \frac{1}{P(x)} = -\log_2 P(x) \text{ bit}
+\end{equation}
+Ogni schema concreto di codifica di interi presuppone implicitamente una determinata forma per la distribuzione $P(x)$. La sua efficacia dipende dal grado di concordanza tra la distribuzione reale dei dati e la distribuzione teorica indotta dalla funzione di lunghezza del codice.
+
+\FloatBarrier
+\section{Codice Unario (\textit{Unary Code})}
+\label{sec:codice-unario}
+
+Il \textbf{codice unario} rappresenta lo schema pi\`u elementare di codifica a lunghezza variabile per numeri interi strettamente positivi $x \in \mathbb{N}^+$.
+
+\FloatBarrier
+\subsection{Definizione e Regola di Costruzione}
+\label{subsec:def-unario}
+
+\begin{definition}[Codice Unario $U(x)$]
+Dato un intero positivo $x \ge 1$, la sua rappresentazione in codice unario $U(x)$ \`e costituita da una sequenza di $x - 1$ bit nulli (\texttt{0}) terminata da un singolo bit unitario (\texttt{1}):
+\begin{equation}
+  U(x) = \underbrace{0 \, 0 \, \dots \, 0}_{x-1 \text{ zeri}} \, 1
+\end{equation}
+\end{definition}
+
+La lunghezza in bit della parola di codice \`e esattamente lineare nell'argomento $x$:
+\begin{equation}
+  |U(x)| = x \text{ bit}
+\end{equation}
+
+\begin{example}[Esempi di Codifica Unaria]
+Calcoliamo il codice unario per i primi interi positivi:
+\begin{itemize}
+  \item $x = 1 \implies U(1) = \texttt{1}$ (lunghezza 1 bit)
+  \item $x = 2 \implies U(2) = \texttt{01}$ (lunghezza 2 bit)
+  \item $x = 3 \implies U(3) = \texttt{001}$ (lunghezza 3 bit)
+  \item $x = 5 \implies U(5) = \texttt{00001}$ (lunghezza 5 bit)
+\end{itemize}
+\end{example}
+
+Poich\'e ogni parola di codice termina in corrispondenza del primo bit \texttt{1} incontrato durante la scansione sequenziale del flusso, il codice unario \`e intrinsecamente istantaneo e libero da prefissi (\textit{prefix-free}): nessun codice pu\`o costituire il prefisso proprio di un altro codice.
+
+\FloatBarrier
+\subsection{Distribuzione di Probabilit\`a Implicita del Codice Unario}
+\label{subsec:distribuzione-implicita-unario}
+
+Uguagliando la lunghezza effettiva della parola di codice unaria al limite teorico di Shannon $L(x) = \log_2 \frac{1}{P(x)}$, possiamo determinare la distribuzione per cui il codice unario \`e asintoticamente perfetto:
+\begin{equation}
+  |U(x)| = \log_2 \frac{1}{P(x)} \iff x = \log_2 \frac{1}{P(x)}
+\end{equation}
+Elevando $2$ ad ambo i membri:
+\begin{equation}
+  2^x = \frac{1}{P(x)} \iff P(x) = 2^{-x} = \frac{1}{2^x}
+\end{equation}
+Si noti che la serie delle probabilit\`a forma una progressione geometrica convergente:
+\begin{equation}
+  \sum_{x=1}^{\infty} P(x) = \sum_{x=1}^{\infty} \frac{1}{2^x} = \frac{1/2}{1 - 1/2} = 1
+\end{equation}
+soddisfacendo pienamente l'uguaglianza di Kraft-McMillan.
+
+\begin{noteblock}{Limiti del Codice Unario}
+Il codice unario \`e ottimale esclusivamente per sorgenti caratterizzate da un \textbf{decadimento esponenziale rapidissimo} delle probabilit\`a ($P(x) = 2^{-x}$). All'aumentare di $x$, la crescita lineare della lunghezza $|U(x)| = \mathcal{O}(x)$ genera un'inefficienza insostenibile (ad esempio, per memorizzare $x = 1024$ occorrerebbero oltre un kilobit di zeri, contro i soli 10 bit della notazione binaria). Ciononostante, il codice unario gioca un ruolo architetturale cruciale come mattone fondamentale per la codifica dei prefissi negli schemi di Elias e Rice.
+\end{noteblock}
+
+\FloatBarrier
+\section{Codici Universali di Elias: Gamma e Delta}
+\label{sec:codici-elias}
+
+Nel 1975, Peter Elias introdusse una classe di rappresentazioni binarie universali per gli interi \cite{elias1975}. Un codice per interi si definisce \textbf{universale} se la lunghezza media della parola di codice supera l'entropia della sorgente di un fattore costante limitato, indipendentemente dalla distribuzione a priori (sotto ipotesi generali di monotonia).
+
+\FloatBarrier
+\subsection{Codice Gamma di Elias ($\gamma$)}
+\label{subsec:elias-gamma}
+
+Il codice Gamma $\gamma(x)$ \`e progettato per numeri interi positivi $x \ge 1$ e scompone la rappresentazione in due blocchi strutturati: la magnitudine dell'intero e il suo valore binario residuo.
+
+\begin{definition}[Codice Gamma di Elias $\gamma(x)$]
+Sia $x \ge 1$ un intero positivo e sia $l$ il numero di bit necessari per esprimere $x$ nella consueta notazione binaria:
+\begin{equation}
+  l = \lfloor \log_2 x \rfloor + 1
+\end{equation}
+La codifica $\gamma(x)$ si ottiene concatenando:
+\begin{enumerate}
+  \item Un prefisso in codice unario che specifica il valore $l$, codificato mediante $l - 1$ bit \texttt{0};
+  \item La sequenza binaria standard di $x$, indicata con $\text{bin}(x)$, di lunghezza esattamente pari a $l$ bit (il cui primo bit \`e garantito essere \texttt{1}).
+\end{enumerate}
+Formalmente:
+\begin{equation}
+  \gamma(x) = \underbrace{0 \, 0 \, \dots \, 0}_{l-1 \text{ zeri}} \;\|\; \underbrace{1 \, b_{l-2} \, \dots \, b_0}_{\text{bin}(x) \text{ ($l$ bit)}}
+\end{equation}
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (prefix) at (2.6, 0.6) {\textbf{Prefisso Zeri:}\\$l - 1$ bit \texttt{0}};
+  
+  \node[draw=darkgreen, fill=darkgreen!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (data) at (8.3, 0.6) {\textbf{Dati Informazione:}\\$\text{bin}(x)$ ($l$ bit, MSB $= \texttt{1}$)};
+  
+  \draw[thick, decoration={brace, mirror, raise=5pt}, decorate] (prefix.south west) -- (data.south east);
+  \node[below=12pt of $(prefix.south)!0.5!(data.south)$, font=\small] {Lunghezza totale $|\gamma(x)| = 2l - 1 = 2\lfloor \log_2 x \rfloor + 1$ bit};
+\end{tikzpicture}
+\caption{Struttura del codice Gamma di Elias $\gamma(x)$.}
+\label{fig:struttura-elias-gamma}
+\end{figure}
+
+\begin{example}[Calcolo del Codice Gamma per $x = 9$]
+\begin{itemize}
+  \item Scriviamo $9$ in binario: $\text{bin}(9) = 1001_2$.
+  \item La lunghezza in bit \`e $l = 4$.
+  \item Il prefisso di zeri conta $l - 1 = 3$ bit: \texttt{000}.
+  \item Concatendando il prefisso con la stringa binaria otteniamo:
+  \begin{equation}
+    \gamma(9) = \texttt{000} \,\|\, \texttt{1001} = \texttt{0001001}
+  \end{equation}
+\end{itemize}
+\end{example}
+
+\paragraph{Analisi della Lunghezza e Distribuzione Implicita}
+La lunghezza complessiva della parola di codice $\gamma(x)$ \`e pari a:
+\begin{equation}
+  |\gamma(x)| = (l - 1) + l = 2l - 1 = 2\lfloor \log_2 x \rfloor + 1 \approx 2\log_2 x - 1 \text{ bit}
+\end{equation}
+Uguagliando al limite inferiore teorico di Shannon:
+\begin{equation}
+  2\log_2 x - 1 = \log_2 \frac{1}{P(x)} \implies \log_2\left( \frac{x^2}{2} \right) = \log_2 \frac{1}{P(x)}
+\end{equation}
+da cui si ricava la distribuzione di probabilit\`a implicita:
+\begin{equation}
+  P(x) \approx \frac{2}{x^2} \propto \frac{1}{x^2}
+\end{equation}
+Il codice Gamma di Elias risulta quindi ideale per sorgenti con \textbf{decadimento quadratico della probabilit\`a} (legge di potenza con esponente $s \approx 2$, tipica della distribuzione di Zipf riscontrata nei testi naturali e nelle liste invertite).
+
+\FloatBarrier
+\subsection{Algoritmo di Decodifica di Elias Gamma}
+\label{subsec:decodifica-gamma}
+
+La decodifica di un flusso codificato con Elias Gamma avviene in modo istantaneo:
+\begin{enumerate}
+  \item Si contano i bit \texttt{0} consecutivi fino al primo bit \texttt{1}. Sia $k$ il numero di zeri contati.
+  \item La lunghezza complessiva del blocco binario \`e data da $l = k + 1$.
+  \item Si leggono il bit \texttt{1} appena incontrato e i successivi $l - 1 = k$ bit dal flusso.
+  \item La sequenza di $l$ bit cos\`i isolata corrisponde al valore intero cercato $x$ interpretato in base 2.
+\end{enumerate}
+
+\begin{example}[Traccia di Decodifica su Flusso Binario Reale]
+Consideriamo il flusso di bit annotato negli appunti:
+\begin{equation*}
+  \texttt{0000100100011100\dots}
+\end{equation*}
+\begin{enumerate}
+  \item \textbf{Primo intero:} Si leggono quattro zeri consecutivi (\texttt{0000}), seguiti da \texttt{1}. Quindi $k = 4$, da cui $l = 4 + 1 = 5$ bit. I 5 bit complessivi sono $\texttt{10010}_2 = 18$.
+  \item \textbf{Secondo intero:} Si incontra la sequenza successiva \texttt{001...}: due zeri consecutivi ($k = 2$), da cui $l = 3$ bit. I 3 bit letti a partire dall'uno sono $\texttt{111}_2 = 7$.
+  \item \textbf{Terzo intero:} Si prosegue con il blocco residuo \texttt{00...}, consentendo l'estrazione univoca di ciascun intero senza alcuna ambiguit\`a prefissa.
+\end{enumerate}
+\end{example}
+
+\FloatBarrier
+\subsection{Codice Delta di Elias ($\delta$)}
+\label{subsec:elias-delta}
+
+Per interi grandi, il fattore $2\log_2 x$ del codice Gamma risulta ancora ridondante. Il \textbf{codice Delta di Elias} $\delta(x)$ realizza una compressione superiore applicando ricorsivamente la codifica Gamma alla lunghezza binaria $l$.
+
+\begin{definition}[Codice Delta di Elias $\delta(x)$]
+Sia $x \ge 1$ un intero e sia $l = \lfloor \log_2 x \rfloor + 1$ la lunghezza di $\text{bin}(x)$. Indichiamo con $\text{bin}^{-1}(x)$ la sequenza degli $l - 1$ bit meno significativi di $x$, ottenuta eliminando il bit pi\`u significativo (che \`e sempre pari a \texttt{1}).
+Il codice Delta di Elias \`e definito dalla concatenazione:
+\begin{equation}
+  \delta(x) = \gamma(l) \;\|\; \text{bin}^{-1}(x)
+\end{equation}
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (pref) at (2.6, 0.6) {\textbf{Prefisso Lunghezza:}\\$\gamma(l)$};
+  
+  \node[draw=crimson, fill=crimson!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (suff) at (8.3, 0.6) {\textbf{Suffisso Valore:}\\$\text{bin}^{-1}(x)$ ($l-1$ bit)};
+  
+  \draw[thick, decoration={brace, mirror, raise=5pt}, decorate] (pref.south west) -- (suff.south east);
+  \node[below=12pt of $(pref.south)!0.5!(suff.south)$, font=\small] {Lunghezza $|\delta(x)| = |\gamma(l)| + (l - 1)$ bit};
+\end{tikzpicture}
+\caption{Composizione strutturale del codice Delta di Elias $\delta(x)$.}
+\label{fig:struttura-elias-delta}
+\end{figure}
+
+\begin{example}[Calcolo del Codice Delta per $x = 9$]
+\begin{itemize}
+  \item Rappresentazione binaria: $\text{bin}(9) = 1001_2$, per cui $l = 4$.
+  \item Calcolo di $\gamma(l) = \gamma(4)$: poich\'e $\text{bin}(4) = 100_2$ ha lunghezza $3$, si pongono $3 - 1 = 2$ zeri seguiti da $100$:
+  \begin{equation*}
+    \gamma(4) = \texttt{00100}
+  \end{equation*}
+  \item Estrazione di $\text{bin}^{-1}(9)$: omettendo il primo bit di $1001_2$, rimangono i 3 bit $\texttt{001}$.
+  \item Concatenazione finale:
+  \begin{equation}
+    \delta(9) = \gamma(4) \;\|\; \text{bin}^{-1}(9) = \texttt{00100} \,\|\, \texttt{001} = \texttt{00100001}
+  \end{equation}
+\end{itemize}
+\end{example}
+
+\paragraph{Analisi della Lunghezza Asintotica}
+La lunghezza complessiva del codice Delta per un intero $x$ risulta:
+\begin{align}
+  |\delta(x)| &= |\gamma(l)| + (l - 1) \nonumber \\
+  &= (2\lfloor \log_2 l \rfloor + 1) + (l - 1) \nonumber \\
+  &= \lfloor \log_2 x \rfloor + 2\lfloor \log_2(\lfloor \log_2 x \rfloor + 1) \rfloor + 1 \nonumber \\
+  &\approx \log_2 x + 2\log_2(\log_2 x) + \mathcal{O}(1) \text{ bit}
+\end{align}
+Il confronto asintotico mostra chiaramente che per $x \to \infty$ il codice Delta richiede $\log_2 x + o(\log_2 x)$ bit, dimezzando il coefficiente moltiplicativo rispetto a Gamma ($2\log_2 x$), al prezzo di una modesta penalizzazione per valori molto piccoli di $x$ dovuta al termine log-logaritmico.
+
+\FloatBarrier
+\section{Codici Parametrici: Codici di Rice e Golomb}
+\label{sec:codici-rice-golomb}
+
+Quando la distribuzione degli interi \`e geometrica o esponenziale ma caratterizzata da una varianza controllabile, i codici universali a distribuzione fissa possono risultare sub-ottimali. Si introducono pertanto i \textbf{codici parametrici}, capaci di adattarsi alla pendenza della distribuzione regolando uno o pi\`u parametri interi.
+
+\FloatBarrier
+\subsection{Definizione e Derivazione del Codice di Rice $R_k(x)$}
+\label{subsec:def-rice}
+
+I codici di Rice \cite{rice1979} costituiscono un'importante specializzazione della pi\`u ampia famiglia dei codici di Golomb \cite{golomb1966}. Mentre i codici di Golomb impiegano un divisore intero positivo arbitrario $M \in \mathbb{N}^+$, i codici di Rice vincolano tale divisore a una potenza di due:
+\begin{equation}
+  M = 2^k, \qquad k \ge 0, \; k \in \mathbb{N}
+\end{equation}
+Tale restrizione consente di sostituire costose operazioni di divisione e modulo con velocissime istruzioni binarie di scorrimento (\textit{bit shift}) e mascheramento (\textit{bitwise AND}).
+
+Dato un intero positivo $x \ge 1$ e fissato il parametro $k$, si esegue la divisione intera dell'indice traslato $x - 1$ per $2^k$:
+\begin{equation}
+  q = \left\lfloor \frac{x - 1}{2^k} \right\rfloor = (x - 1) \gg k
+\end{equation}
+\begin{equation}
+  r = (x - 1) - q \cdot 2^k = (x - 1) \ \& \ (2^k - 1)
+\end{equation}
+dove $q \ge 0$ rappresenta il quoziente ed $r \in [0, \, 2^k - 1]$ il resto.
+
+\begin{definition}[Codice di Rice $R_k(x)$]
+La parola di codice $R_k(x)$ \`e composta da due parti distinte concatenate:
+\begin{equation}
+  R_k(x) = \underbrace{U(q + 1)}_{\text{quoziente in unario}} \;\|\; \underbrace{\text{bin}_k(r)}_{\text{resto su $k$ bit fissi}}
+\end{equation}
+dove $U(q+1) = \underbrace{00\dots0}_{q}1$ ha lunghezza variabile pari a $q + 1$ bit, mentre $\text{bin}_k(r)$ ha lunghezza fissa rigorosamente pari a $k$ bit.
+\end{definition}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (quo) at (2.6, 0.6) {\textbf{Quoziente (Unario):}\\$U(q + 1)$ ($q$ zeri $+ 1$)};
+  
+  \node[draw=darkgreen, fill=darkgreen!15, thick, rounded corners, minimum width=5.2cm, minimum height=1.3cm, align=center, font=\small] (rem) at (8.3, 0.6) {\textbf{Resto (Binario):}\\$\text{bin}_k(r)$ ($k$ bit fissi)};
+  
+  \draw[thick, decoration={brace, mirror, raise=5pt}, decorate] (quo.south west) -- (rem.south east);
+  \node[below=12pt of $(quo.south)!0.5!(rem.south)$, font=\small] {Lunghezza totale $|R_k(x)| = q + 1 + k$ bit};
+\end{tikzpicture}
+\caption{Scomposizione modulare del codice di Rice $R_k(x)$.}
+\label{fig:struttura-rice}
+\end{figure}
+
+La lunghezza totale in bit \`e data da:
+\begin{equation}
+  |R_k(x)| = \left\lfloor \frac{x - 1}{2^k} \right\rfloor + 1 + k
+\end{equation}
+
+\FloatBarrier
+\subsection{Esempi Dettagliati di Codifica con $x = 20$}
+\label{subsec:esempi-rice-20}
+
+Per apprezzare l'influenza della scelta del parametro $k$ sulla lunghezza della parola di codice, analizziamo la codifica di $x = 20$ al variare di $k \in \{4, 3\}$.
+
+\paragraph{Caso 1: Parametro $k = 4$ ($2^k = 16$)}
+\begin{itemize}
+  \item Traslazione: $x - 1 = 19$.
+  \item Calcolo del quoziente: $q = \lfloor 19 / 16 \rfloor = 1$.
+  \item Calcolo del resto: $r = 19 - 1 \cdot 16 = 3$.
+  \item Codifica del quoziente in unario: $U(q + 1) = U(2) = \texttt{01}$ (2 bit).
+  \item Codifica del resto su $k = 4$ bit: $\text{bin}_4(3) = \texttt{0011}$ (4 bit).
+  \item Concatenazione:
+  \begin{equation}
+    R_4(20) = \texttt{01} \,\|\, \texttt{0011} = \texttt{010011} \quad (6 \text{ bit})
+  \end{equation}
+\end{itemize}
+
+\paragraph{Caso 2: Parametro $k = 3$ ($2^k = 8$)}
+\begin{itemize}
+  \item Traslazione: $x - 1 = 19$.
+  \item Calcolo del quoziente: $q = \lfloor 19 / 8 \rfloor = 2$.
+  \item Calcolo del resto: $r = 19 - 2 \cdot 8 = 3$.
+  \item Codifica del quoziente in unario: $U(q + 1) = U(3) = \texttt{001}$ (3 bit).
+  \item Codifica del resto su $k = 3$ bit: $\text{bin}_3(3) = \texttt{011}$ (3 bit).
+  \item Concatenazione:
+  \begin{equation}
+    R_3(20) = \texttt{001} \,\|\, \texttt{011} = \texttt{001011} \quad (6 \text{ bit})
+  \end{equation}
+\end{itemize}
+
+Beninteso, pur ottenendo identica lunghezza in questo caso puntuale, la scelta di $k$ impatta l'intera collezione: un valore $k$ elevato comprime meglio numeri grandi ma penalizza i piccoli, mentre un $k$ contenuto privilegia i numeri vicini a 1 espandendo rapidamente la parte unaria per valori elevati.
+
+\FloatBarrier
+\section{PForDelta (\textit{Patched Frame of Reference Delta})}
+\label{sec:pfordelta}
+
+Sebbene i codici a bit variabile (Elias e Rice) offrano un eccellente tasso di compressione teorico, nei moderni motori di ricerca la velocit\`a di decompressione su architetture superscalari con pipeline profonde \`e spesso ostacolata dalla decodifica bit-a-bit e dai salti condizionali imprevedibili (\textit{branch mispredictions}).
+
+Per superare questo collo di bottiglia computazionale, Zukowski et al. hanno introdotto \textbf{PForDelta} (\textit{Patched Frame of Reference Delta}) \cite{zheng2006pfordelta}, una tecnica ad alte prestazioni basata su blocchi vettorizzabili.
+
+\FloatBarrier
+\subsection{Principio di Funzionamento: Codice Parametrico a Blocchi}
+\label{subsec:pfordelta-principio}
+
+PForDelta organizza i dati in blocchi di dimensione fissa (tipicamente 128 o 256 interi). L'idea cardine risiede nel fissare una larghezza uniforme di $b$ bit per cella in grado di contenere la stragrande maggioranza dei valori del blocco, gestendo le poche violazioni statistiche mediante una lista ausiliaria di eccezioni (\textit{patching}).
+
+Dato un intervallo prefissato governato da un parametro di riferimento $\text{base}$ e dalla larghezza $b$:
+\begin{equation}
+  \text{gaps} \in [\text{base}, \; \text{base} + 2^b - 2]
+\end{equation}
+applicando la traslazione (\textit{shift}) rispetto alla base, ogni valore ordinario viene ricondotto all'intervallo:
+\begin{equation}
+  [0, \; 2^b - 2]
+\end{equation}
+Il valore numerico massimo configurabile con $b$ bit, corrispondente alla sequenza di tutti uni:
+\begin{equation}
+  \text{ESCAPE} = \underbrace{11\dots1}_{b \text{ bit}} = 2^b - 1
+\end{equation}
+\`e riservato espressamente come \textbf{codice di fuga (\textit{escape})}.
+
+\begin{alertblock}{Regola Fondamentale di PForDelta}
+Ogni gap del blocco viene codificato esattamente in $b$ bit se appartiene all'intervallo consentito $[0, 2^b - 2]$. Se invece il valore eccede tale soglia (\textit{out of bound}), nello slot principale a $b$ bit viene inserito il simbolo di escape $2^b - 1$ e il valore effettivo non troncato viene accodato in una lista separata di eccezioni memorizzata a larghezza fissa (a 32 o 64 bit).
+\end{alertblock}
+
+Come icasticamente sintetizzato dal docente negli appunti didattici:
+\begin{center}
+  \textit{``I'll use a small bag of bit for digits in range and pull necessary for digits out of range.''}
+\end{center}
+L'allocazione di uno spazio compatto e omogeneo ($b$ bit) per tutti i dati ordinari consente l'esecuzione di cicli di unpacking completamente srotolabili (\textit{loop unrolling}) o istruzioni SIMD parallele, eliminando ogni controllo condizionale nel ciclo interno di scansione.
+
+\FloatBarrier
+\subsection{Esempio Numerico Completo con $b = 2$}
+\label{subsec:esempio-pfordelta}
+
+Per illustrare formalmente il meccanismo di codifica e patching, analizziamo l'esempio svolto a lezione con parametro $b = 2$ e $\text{base} = 3$.
+
+Con una larghezza di cella $b = 2$ bit, le combinazioni binarie disponibili sono $2^2 = 4$:
+\begin{itemize}
+  \item \texttt{00} $\rightarrow$ valore traslato $0$;
+  \item \texttt{01} $\rightarrow$ valore traslato $1$;
+  \item \texttt{10} $\rightarrow$ valore traslato $2$;
+  \item \texttt{11} $\rightarrow 2^2 - 1 = 3 \implies$ \textbf{ESCAPE} (valori $\ge 3$).
+\end{itemize}
+
+\paragraph{Passo 1: Sequenza Originale Cumulativa}
+La sequenza di dati in ingresso \`e costituita dagli interi:
+\begin{equation}
+  S = \langle 3, \, 5, \, 6, \, 9, \, 10, \, 11, \, 17, \, 18, \, 20, \, \dots \rangle
+\end{equation}
+
+\paragraph{Passo 2: Sottrazione della Base ($\text{base} = 3$)}
+Sottraendo la costante $\text{base} = 3$ a ciascun elemento otteniamo la sequenza normalizzata:
+\begin{equation}
+  S_{\text{shift}} = \langle 0, \, 2, \, 3, \, 6, \, 7, \, 8, \, 14, \, 15, \, 17, \, \dots \rangle
+\end{equation}
+
+\paragraph{Passo 3: Calcolo dei Gap Consecutivi}
+Calcoliamo le differenze (\textit{gap}) relative tra valori adiacenti:
+\begin{align*}
+  g_1 &= 0 - 0 = 0 \\
+  g_2 &= 2 - 0 = 2 \\
+  g_3 &= 3 - 2 = 1 \\
+  g_4 &= 6 - 3 = \mathbf{3} \quad (\text{out of bound}) \\
+  g_5 &= 7 - 6 = 1 \\
+  g_6 &= 8 - 7 = 1 \\
+  g_7 &= 14 - 8 = \mathbf{6} \quad (\text{out of bound}) \\
+  g_8 &= 15 - 14 = 1 \\
+  g_9 &= 17 - 15 = 2
+\end{align*}
+La sequenza dei gap risulta pertanto:
+\begin{equation}
+  G = \langle 0, \, 2, \, 1, \, \mathbf{3}, \, 1, \, 1, \, \mathbf{6}, \, 1, \, 2, \, \dots \rangle
+\end{equation}
+
+\paragraph{Passo 4: Individuazione delle Eccezioni e Struttura Finale}
+I valori ammessi direttamente nella griglia a 2 bit sono $\{0, 1, 2\}$. I gap $g_4 = 3$ e $g_7 = 6$ superano il massimo rappresentabile ($2^b - 2 = 2$) e generano un'eccezione:
+\begin{itemize}
+  \item Nelle posizioni 4 e 7 del vettore compresso principale a 2 bit viene immesso il codice di escape $\texttt{11}_2$;
+  \item I valori reali non troncati ($3$ e $6$) vengono inseriti nell'array ausiliario delle eccezioni a 32 bit:
+  \begin{equation}
+    \texttt{ExtraList} = [3, \, 6]
+  \end{equation}
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9, every node/.style={transform shape}]
+  % Array principale a 2 bit
+  \node[font=\bfseries] at (-1.5, 1.8) {Vettore 2-bit:};
+  \draw[thick] (0,1.2) rectangle (1,2.4); \node at (0.5,1.8) {\texttt{00}}; \node[above, font=\scriptsize] at (0.5,2.4) {$g_1=0$};
+  \draw[thick] (1,1.2) rectangle (2,2.4); \node at (1.5,1.8) {\texttt{10}}; \node[above, font=\scriptsize] at (1.5,2.4) {$g_2=2$};
+  \draw[thick] (2,1.2) rectangle (3,2.4); \node at (2.5,1.8) {\texttt{01}}; \node[above, font=\scriptsize] at (2.5,2.4) {$g_3=1$};
+  \draw[thick, fill=crimson!20] (3,1.2) rectangle (4,2.4); \node[crimson, font=\bfseries] at (3.5,1.8) {\texttt{11}}; \node[above, font=\scriptsize] at (3.5,2.4) {$g_4=\text{ESC}$};
+  \draw[thick] (4,1.2) rectangle (5,2.4); \node at (4.5,1.8) {\texttt{01}}; \node[above, font=\scriptsize] at (4.5,2.4) {$g_5=1$};
+  \draw[thick] (5,1.2) rectangle (6,2.4); \node at (5.5,1.8) {\texttt{01}}; \node[above, font=\scriptsize] at (5.5,2.4) {$g_6=1$};
+  \draw[thick, fill=crimson!20] (6,1.2) rectangle (7,2.4); \node[crimson, font=\bfseries] at (6.5,1.8) {\texttt{11}}; \node[above, font=\scriptsize] at (6.5,2.4) {$g_7=\text{ESC}$};
+  \draw[thick] (7,1.2) rectangle (8,2.4); \node at (7.5,1.8) {\texttt{01}}; \node[above, font=\scriptsize] at (7.5,2.4) {$g_8=1$};
+  \draw[thick] (8,1.2) rectangle (9,2.4); \node at (8.5,1.8) {\texttt{10}}; \node[above, font=\scriptsize] at (8.5,2.4) {$g_9=2$};
+
+  % Lista Eccezioni
+  \node[font=\bfseries] at (-1.5, -0.5) {Extra List (32 bit):};
+  \draw[thick, fill=navy!15] (3,-1) rectangle (4.5,0); \node at (3.75,-0.5) {$3$};
+  \draw[thick, fill=navy!15] (5.5,-1) rectangle (7,0); \node at (6.25,-0.5) {$6$};
+
+  \draw[-{Stealth}, crimson, thick] (3.5,1.2) -- (3.75,0);
+  \draw[-{Stealth}, crimson, thick] (6.5,1.2) -- (6.25,0);
+\end{tikzpicture}
+\caption{Disposizione in memoria del flusso compresso PForDelta con $b = 2$ e patching esterno.}
+\label{fig:pfordelta-schema}
+\end{figure}
+
+In fase di decodifica, il calcolatore scompatta l'intero array da 2 bit ad altissima velocit\`a; successivamente, una seconda passata rapida scansiona gli indici marcati con l'escape \texttt{11} e vi sostituisce i rispettivi valori prelevati sequenzialmente da $\texttt{ExtraList}$.
+
+\FloatBarrier
+\section{Variable Byte Code (\textit{VByte})}
+\label{sec:vbyte}
+
+Il \textbf{Variable Byte Code} (spesso abbreviato in \textbf{VByte}) \cite{williams1999vbyte} rappresenta lo standard industriale de facto per la compressione orientata ai byte. A differenza degli schemi orientati ai bit (Elias e Rice), VByte opera ad allineamento naturale di memoria con parole multiple esatte di 8 bit.
+
+\FloatBarrier
+\subsection{Algoritmo di Codifica e Ruolo del Tag Bit}
+\label{subsec:algoritmo-vbyte}
+
+L'algoritmo di codifica VByte per un intero $x \in \mathbb{N}_0$ procede attraverso due fasi rigorose:
+\begin{enumerate}
+  \item \textbf{Decomposizione a 7 bit:} La rappresentazione binaria dell'intero $x$ viene frammentata, a partire dai bit meno significativi verso quelli pi\`u significativi, in blocchi da 7 bit. Qualora il blocco pi\`u significativo contenga meno di 7 bit, esso viene esteso a sinistra con zeri di riempimento (\textit{zero-padding}).
+  \item \textbf{Aggiunta del Bit di Controllo (\textit{Tag Bit / Continuation Bit}):} Ciascun blocco da 7 bit viene promosso a byte completo (8 bit) anteponendo un bit di stato in posizione pi\`u significativa (MSB):
+  \begin{itemize}
+    \item \textbf{Bit \texttt{0} (Byte Intermedio):} indica che il numero corrente non \`e terminato e che la sua rappresentazione prosegue nel byte successivo. Il valore numerico unsigned del byte risulta pertanto nell'intervallo $[0, \, 127]$ (ossia $\le 127$).
+    \item \textbf{Bit \texttt{1} (Byte Terminale):} indica che il byte corrente costituisce l'ultimo frammento della codifica dell'intero $x$. Il valore numerico unsigned del byte risulta pertanto nell'intervallo $[128, \, 255]$ (ossia $\ge 128$).
+  \end{itemize}
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  \node[draw=crimson, fill=crimson!20, thick, rounded corners, minimum width=3.4cm, minimum height=1.3cm, align=center, font=\small] (tag) at (1.7, 0.6) {\textbf{Tag Bit (1 bit)}\\\texttt{0} = segue, \texttt{1} = fine};
+  
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=6.6cm, minimum height=1.3cm, align=center, font=\small] (pay) at (7.0, 0.6) {\textbf{Carico Utile (Payload)}\\7 bit informativi del numero intero $x$};
+  
+  \draw[thick, decoration={brace, mirror, raise=5pt}, decorate] (tag.south west) -- (pay.south east);
+  \node[below=12pt of $(tag.south)!0.5!(pay.south)$, font=\small] {1 Byte completo (8 bit)};
+\end{tikzpicture}
+\caption{Struttura interna del singolo byte in una codifica VByte.}
+\label{fig:vbyte-struttura-byte}
+\end{figure}
+
+\FloatBarrier
+\subsection{Propriet\`a di Efficienza e Analisi dei Costi di Spazio}
+\label{subsec:proprieta-spazio-vbyte}
+
+Dall'architettura di VByte discendono propriet\`a determinanti per le prestazioni di calcolo:
+\begin{itemize}
+  \item \textbf{Allineamento a byte:} La dimensione complessiva della codifica \`e sempre un multiplo esatto di 8 bit. Questo evita onerose manipolazioni di singoli bit tramite maschere shift/or nel lettore di memoria, consentendo l'avanzamento del puntatore tramite semplici incrementi di indirizzi byte (\texttt{ptr++}).
+  \item \textbf{Spreco per blocco:} Ogni byte emesso alloca 1 bit di controllo ogni 7 bit di informazione effettiva, introducendo un overhead fisso sistematico pari a $\frac{1}{8} = 12.5\%$.
+  \item \textbf{Spreco medio per intero:} A causa del padding nel blocco pi\`u significativo a 7 bit, si ha in media uno spreco di circa \textbf{4 bit complessivi per intero} rispetto alla minima stringa binaria teorica $\lceil \log_2 x \rceil$.
+  \item \textbf{Decodifica branchless e auto-sincronizzante:} Il test sull'ultimo byte consiste unicamente nel verificare se il valore scalare del byte \`e maggiore o uguale a 128 (\texttt{byte >= 128} o \texttt{byte \& 0x80}). Inoltre, qualora si acceda a una posizione casuale di un flusso compresso, \`e possibile sincronizzarsi istantaneamente con l'inizio del prossimo intero semplicemente avanzando fino a individuare un byte con MSB posto a 1.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Esempio Completo di Codifica su 19 Bit}
+\label{subsec:esempio-vbyte-completo}
+
+Analizziamo dettagliatamente l'esempio annotato negli appunti didattici, in cui si codifica un intero la cui rappresentazione binaria utile consta di 19 bit:
+\begin{equation}
+  \text{bin}(x) = \texttt{10001} \; \texttt{1001010} \; \texttt{1110011}
+\end{equation}
+
+\paragraph{Passo 1: Decomposizione in blocchi da 7 bit}
+Procedendo da destra (bit meno significativi) verso sinistra:
+\begin{itemize}
+  \item \textbf{Blocco 1 (LSB, 7 bit):} $\texttt{1110011}_2$
+  \item \textbf{Blocco 2 (Centrale, 7 bit):} $\texttt{1001010}_2$
+  \item \textbf{Blocco 3 (MSB, 5 bit residui):} $\texttt{10001}_2 \xrightarrow{\text{padding con due zeri}} \texttt{0010001}_2$ (7 bit)
+\end{itemize}
+
+\paragraph{Passo 2: Assegnazione dei Tag Bit e Ordinamento}
+L'ordine di emissione convenzionale nel flusso compresso (dal byte pi\`u significativo a quello meno significativo) prevede che i byte precedenti siano marcati come intermedi (\texttt{tag = 0}) e l'ultimo sia marcato come terminale (\texttt{tag = 1}):
+\begin{enumerate}
+  \item \textbf{Primo byte (intermedio):} $\texttt{0} \,\|\, \texttt{0010001} \implies \texttt{00010001}_2$ (valore decimale $17 \le 127$)
+  \item \textbf{Secondo byte (intermedio):} $\texttt{0} \,\|\, \texttt{1001010} \implies \texttt{01001010}_2$ (valore decimale $74 \le 127$)
+  \item \textbf{Terzo byte (terminale):} $\texttt{1} \,\|\, \texttt{1110011} \implies \texttt{11110011}_2$ (valore decimale $243 \ge 128$)
+\end{enumerate}
+
+La sequenza binaria finale prodotta \`e pertanto:
+\begin{equation}
+  \texttt{00010001} \quad \texttt{01001010} \quad \texttt{11110011}
+\end{equation}
+che occupa esattamente 3 byte (24 bit totali) a fronte dei 19 bit minimi di informazione originaria.
+
+\FloatBarrier
+\section{Quadro Comparativo e Sintesi dei Codici per Interi}
+\label{sec:comparativa-integer-coding}
+
+Concludiamo il capitolo sintetizzando in una tabella comparativa le peculiarit\`a teoriche e pratiche delle tecniche esaminate.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Confronto sintetico tra schemi di Integer Coding.}
+\label{tab:confronto-integer-coding}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Codice} & \textbf{Allineamento} & \textbf{Lunghezza in Bit} & \textbf{Distribuzione Ottimale} & \textbf{Caso d'Uso Primario} \\
+\midrule
+\textbf{Unario} & Bit & $x$ & $P(x) = 2^{-x}$ (esponenziale) & Interi piccolissimi ($x \le 3$), prefissi Elias/Rice \\
+\textbf{Elias $\gamma$} & Bit & $2\lfloor \log_2 x \rfloor + 1$ & $P(x) \propto 1/x^2$ (decadimento quadratico) & Distribuzioni a legge di potenza, gap medi \\
+\textbf{Elias $\delta$} & Bit & $\log_2 x + 2\log_2(\log_2 x) + \mathcal{O}(1)$ & $P(x) \propto \frac{1}{x (\log x)^2}$ & Interi grandi, distribuzioni a coda pesante \\
+\textbf{Rice ($R_k$)} & Bit & $\lfloor (x-1)/2^k \rfloor + 1 + k$ & Geometrica $P(x) = p(1-p)^{x-1}$ & Segnali audio (FLAC), residui di predizione \\
+\textbf{PForDelta} & Blocco ($b$ bit) & $b$ per cella $+$ extra 32/64 bit & Dati quasi uniformi con rare eccezioni & Liste invertite ad altissimo throughput, SIMD \\
+\textbf{VByte} & Byte & $8 \lceil \frac{\lfloor \log_2 x \rfloor + 1}{7} \rceil$ & Distribuzione a gradini di byte & Standard industriale Lucene/Elasticsearch, I/O rapido \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

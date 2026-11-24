@@ -34,7 +34,7 @@ def find_subjects(root_dir: Path) -> list[Path]:
     subjects = []
     for item in sorted(root_dir.iterdir()):
         if item.is_dir() and not item.name.startswith(".") and item.name not in ("pdf", "scripts"):
-            if (item / "main_it.tex").is_file() or (item / "main.tex").is_file():
+            if (item / "main.tex").is_file() or (item / "main_it.tex").is_file():
                 subjects.append(item)
     return subjects
 
@@ -45,21 +45,21 @@ def check_target_modified(dir_path: Path, lang: str = "it") -> dict:
     con tutti i file sorgente (.tex, .bib, assets).
     """
     lang_lower = lang.lower()
-    tex_file = f"main_{lang_lower}.tex"
-    full_tex_path = dir_path / tex_file
-
-    if not full_tex_path.is_file():
+    # In Opzione A, il file principale unificato è main.tex (con fallback a main_<lang>.tex se presente)
+    if (dir_path / "main.tex").is_file():
         tex_file = "main.tex"
-        full_tex_path = dir_path / tex_file
-
-    if not full_tex_path.is_file():
+    elif (dir_path / f"main_{lang_lower}.tex").is_file():
+        tex_file = f"main_{lang_lower}.tex"
+    else:
         return {
             "exists": False,
             "is_modified": False,
-            "reason": f"File sorgente {tex_file} non presente",
-            "tex_file": tex_file,
+            "reason": "File sorgente main.tex non presente",
+            "tex_file": "main.tex",
             "pdf_file": None,
         }
+
+    full_tex_path = dir_path / tex_file
 
     pdf_file = Path(tex_file).stem + ".pdf"
     pdf_path = dir_path / pdf_file

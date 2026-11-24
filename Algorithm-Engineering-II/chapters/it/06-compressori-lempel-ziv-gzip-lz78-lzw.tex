@@ -1,0 +1,583 @@
+\chapter{Compressori Dizionari e Sintattici: Famiglia Lempel-Ziv, GZIP, LZ78 ed LZW}
+\label{ch:compressori-lempel-ziv}
+
+\section{Introduzione e Motivazione: Dalla Statistica alla Sintassi}
+\label{sec:intro-lz-sintassi}
+
+Nei capitoli precedenti sono stati approfonditi i metodi di compressione statistica, come la codifica di Huffman (\autoref{ch:compressori-statistici-huffman-canonica}) e la codifica aritmetica (\autoref{ch:codifica-aritmetica}). Tali schemi operano stimando le probabilit\`a empiriche di emissione di singoli simboli indipendenti o condizionate a contesti finiti fissati a priori. Tuttavia, i modelli statistici presentano limiti intrinseci: richiedono passate preliminari per raccogliere frequenze o matrici di transizione per modelli markoviani, la cui complessit\`a ed esplosione dello spazio degli stati cresce esponenzialmente al crescere della lunghezza del contesto.
+
+Nel biennio 1977--1978, Jacob Ziv e Abraham Lempel hanno rivoluzionato la teoria e la pratica della compressione dati introducendo una nuova classe di algoritmi universali basati su dizionario \cite{ziv1977, ziv1978}. Una caratteristica fondamentale di questi compressori risiede nella loro \textbf{natura sintattica (non statistica)}: anzich\'e postulare un modello probabilistico o calcolare frequenze di occorrenza dei simboli, essi operano direttamente sulla struttura sintattica e sulle ripetizioni interne di sottostringhe all'interno della sequenza da comprimere.
+
+\FloatBarrier
+\subsection{Il Principio dell'LZ-Parsing}
+\label{subsec:lz-parsing-fondamenti}
+
+Il meccanismo unificante alla base della famiglia Lempel-Ziv \`e il processo di \textbf{LZ-parsing}. Dato un testo sorgente $T \in \Sigma^*$ di lunghezza $\vert T \vert = n$ su un alfabeto finito $\Sigma$, l'LZ-parsing decompone deterministicamente $T$ in una sequenza ordinata di $m$ frasi:
+\begin{equation}
+  T = f_1 \, f_2 \, \dots \, f_m
+\end{equation}
+in cui ciascuna frase $f_j$ ($j = 1, \dots, m$) costituisce una sottostringa di $T$. 
+
+\begin{definition}[Frase e Parsing Sintattico]
+Una fattorizzazione $T = f_1 f_2 \dots f_m$ si dice \textbf{parsing a dizionario} se ogni frase $f_j$ viene identificata come una sottostringa formata referenziando una porzione di testo gi\`a incontrata in precedenza (nel caso di LZ77) oppure estendendo una voce preesistente in un vocabolario dinamico di frasi (nel caso di LZ78 ed LZW).
+\end{definition}
+
+In questo modo, la ridondanza strutturale del testo non viene catturata da pesi o frequenze, bens\`i da puntatori compatti a stringhe gi\`a memorizzate o emesse.
+
+\FloatBarrier
+\section{L'Algoritmo LZ77: Sliding Window e Triple}
+\label{sec:algoritmo-lz77}
+
+L'algoritmo LZ77, descritto nell'articolo storico del 1977 \cite{ziv1977}, adotta un approccio dinamico basato su una finestra scorrevole (\textit{sliding window}). La scomposizione del testo produce una sequenza di triple ordinate.
+
+\FloatBarrier
+\subsection{Formato Formale della Tripla LZ77}
+\label{subsec:formato-tripla-lz77}
+
+Durante la scansione da sinistra verso destra, il codificatore mantiene un cursore (\texttt{CURSOR}) che punta alla posizione del prossimo simbolo da comprimere. L'output generato \`e una sequenza di elementi del tipo:
+\begin{equation}
+  \langle d, \, l, \, c \rangle
+\end{equation}
+dove le tre componenti hanno il seguente significato operativo:
+\begin{itemize}
+  \item \textbf{$d$ (Distanza o Offset):} intero non negativo che quantifica lo spostamento a ritroso rispetto alla posizione corrente del cursore ($d \ge 0$). Indica dove ha inizio, nel testo pregresso, la corrispondenza trovata.
+  \item \textbf{$l$ (Lunghezza o Length):} intero non negativo ($l \ge 0$) che specifica la lunghezza in caratteri della sottostringa corrispondente copiata dal passato.
+  \item \textbf{$c$ (Carattere o Char):} il simbolo letterale successivo di $\Sigma$ che segue immediatamente la sottostringa copiata, oppure il carattere letterale stesso qualora non esista alcuna corrispondenza pregressa ($l = 0, d = 0$).
+\end{itemize}
+
+L'emissione contestuale del carattere $c$ garantisce due propriet\`a formali essenziali:
+\begin{enumerate}
+  \item \textbf{Avanzamento garantito:} ad ogni tripla emessa, il cursore si sposta in avanti di esattamente $l + 1$ posizioni, evitando cicli infiniti nel caso di nuovi simboli mai visti prima;
+  \item \textbf{Autonomia di bootstrap:} all'inizio della compressione, quando il dizionario storico \`e vuoto, il primo simbolo viene emesso naturalmente con $d = 0$, $l = 0$ e $c$ pari al primo carattere del testo.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Il Fenomeno della Sovrapposizione (\textit{Overlap})}
+\label{subsec:lz77-overlap}
+
+Un aspetto sottile e cruciale dell'algoritmo LZ77 riguarda la possibilit\`a di avere $l > d$. A prima vista, potrebbe sembrare paradossale copiare una sottostringa di lunghezza $l$ da una posizione distante soltanto $d < l$ caratteri all'indietro: si potrebbe temere che i dati da copiare non siano ancora stati definiti. In realt\`a, come enunciato esplicitamente negli appunti didattici:
+\begin{center}
+  \textit{``We can overlap what we are compressing and the comparator.''}
+\end{center}
+
+Quando $l > d$, la finestra di lettura della corrispondenza si estende oltre la posizione iniziale del cursore, sovrapponendosi alla regione di scrittura. Ci\`o implementa in modo elegante un meccanismo di auto-propagazione o codifica Run-Length.
+
+\begin{example}[Auto-propagazione con Overlap]
+Supponiamo che il testo gi\`a compresso termini con il carattere \texttt{A} e che il cursore si trovi all'inizio di una lunga sequenza di lettere \texttt{A}:
+\begin{equation*}
+  \dots \text{\texttt{A}} \underbrace{\text{\texttt{AAAAA\dots}}}_{\text{da comprimere}}
+\end{equation*}
+Impostando la distanza $d = 1$, la corrispondenza inizia esattamente sull'ultimo carattere emesso (\texttt{A}). Copiando con lunghezza $l = 4$, il primo carattere copiato \`e \texttt{A}, che viene scritto alla posizione del cursore. Al passo successivo della copia, il carattere da leggere \`e proprio quello appena scritto, consentendo di generare ripetizioni arbitrarie con un'unica tripla compatta:
+\begin{equation}
+  \langle 1, \, 4, \, \text{\texttt{C}} \rangle
+\end{equation}
+\end{example}
+
+\FloatBarrier
+\subsection{Algoritmo di Decodifica e Ciclo di Copia}
+\label{subsec:algoritmo-decodifica-overlap}
+
+Il processo di decompressione di LZ77 \`e asimmetrico e notevolmente pi\`u rapido rispetto alla compressione: mentre il codificatore deve effettuare una ricerca della corrispondenza pi\`u lunga all'indietro, il decodificatore deve unicamente eseguire una sequenza di accessi diretti in memoria.
+
+Il ciclo di copia per ciascuna tripla $\langle d, l, c \rangle$ viene implementato nel modo seguente:
+
+\begin{algorithm}[H]
+\caption{Decodifica della Tripla LZ77 con Gestione dell'Overlap}
+\label{alg:lz77-decode}
+\KwInput{Array di output \texttt{out}, posizione corrente \texttt{CURSOR}, parametri $\langle d, l, c \rangle$}
+\KwOutput{Aggiornamento di \texttt{out} e avanzamento del \texttt{CURSOR}}
+\BlankLine
+\For{$i \leftarrow 0$ \KwTo $l - 1$}{
+  $\texttt{out}[\texttt{CURSOR} + i] \leftarrow \texttt{out}[\texttt{CURSOR} - d + i]$\;
+}
+$\texttt{out}[\texttt{CURSOR} + l] \leftarrow c$\;
+$\texttt{CURSOR} \leftarrow \texttt{CURSOR} + l + 1$\;
+\end{algorithm}
+
+\begin{noteblock}{Analisi del Ciclo di Copia}
+Analizziamo punto per punto l'invariante del ciclo \texttt{for}:
+\begin{enumerate}
+  \item L'indice $i$ scorre sequenzialmente da $0$ fino a $l - 1$ con incremento unitario.
+  \item Ad ogni iterazione $i$, il valore in $\texttt{out}[\texttt{CURSOR} - d + i]$ viene letto e scritto istantaneamente in $\texttt{out}[\texttt{CURSOR} + i]$.
+  \item Se $d < l$, all'iterazione $i = 0$ viene letto $\texttt{out}[\texttt{CURSOR} - d]$ e scritto in $\texttt{out}[\texttt{CURSOR}]$. Quando l'indice raggiunge $i = d$, la cella letta \`e $\texttt{out}[\texttt{CURSOR} - d + d] = \texttt{out}[\texttt{CURSOR}]$, che contiene il simbolo generato $d$ iterazioni prima. Il pattern si ripete quindi con periodo $d$.
+\end{enumerate}
+\end{noteblock}
+
+\FloatBarrier
+\subsection{Esempio Completo di Parsing su Testo Ripetitivo}
+\label{subsec:esempio-completo-lz77}
+
+Consideriamo il testo didattico esaminato negli appunti:
+\begin{equation}
+  T = \text{\texttt{AACAACABCAAAAAAAC}}
+\end{equation}
+mostrato nella suddivisione per frasi derivata dall'applicazione rigorosa di LZ77:
+\begin{equation}
+  T = \underbrace{\text{\texttt{A}}}_{f_1} \, \underbrace{\text{\texttt{AC}}}_{f_2} \, \underbrace{\text{\texttt{AAB}}}_{f_3} \, \underbrace{\text{\texttt{CA}}}_{f_4} \, \underbrace{\text{\texttt{AAAAAC}}}_{f_5}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento dettagliato del parsing LZ77 su $T = \text{\texttt{AACAACABCAAAAAAAC}}$}
+\label{tab:lz77-trace-completo}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Frase} & \textbf{Pos. Iniziale} & \textbf{Sottostringa} & \textbf{Match Pregresso} & \textbf{Tripla $\langle d, l, c \rangle$} & \textbf{Avanzamento} \\
+\midrule
+$f_1$ & 0  & \texttt{A}      & Nessuno (storico vuoto) & $\langle 0, 0, \text{\texttt{A}} \rangle$ & $+1$ (pos. 1) \\
+$f_2$ & 1  & \texttt{AC}     & \texttt{A} a offset $-1$ & $\langle 1, 1, \text{\texttt{C}} \rangle$ & $+2$ (pos. 3) \\
+$f_3$ & 3  & \texttt{AB}     & \texttt{A} a offset $-3$ & $\langle 3, 1, \text{\texttt{B}} \rangle$ & $+2$ (pos. 5) \\
+$f_4$ & 5  & \texttt{CA}     & \texttt{C} a offset $-4$ (o \texttt{CAA}) & $\langle 6, 3, \text{\texttt{A}} \rangle$ & $+4$ (pos. 9) \\
+$f_5$ & 9  & \texttt{AAAAAC} & \texttt{AAAA} (overlap $d=1$) & $\langle 1, 4, \text{\texttt{C}} \rangle$ & $+5$ (pos. 14) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=2pt, minimum width=0.65cm, minimum height=0.65cm, font=\ttfamily\bfseries},
+    matchbox/.style={draw=darkgreen, fill=risultato, rounded corners=2pt, minimum width=0.65cm, minimum height=0.65cm, font=\ttfamily\bfseries},
+    currbox/.style={draw=crimson, fill=congelato, rounded corners=2pt, minimum width=0.65cm, minimum height=0.65cm, font=\ttfamily\bfseries},
+    arrow/.style={-{Stealth[length=2.5mm]}, thick, crimson}
+]
+  % Characters
+  \node[box] (c0) at (0,0) {A};
+  \node[box] (c1) at (0.8,0) {A};
+  \node[box] (c2) at (1.6,0) {C};
+  \node[box] (c3) at (2.4,0) {A};
+  \node[box] (c4) at (3.2,0) {A};
+  \node[box] (c5) at (4.0,0) {C};
+  \node[box] (c6) at (4.8,0) {A};
+  \node[box] (c7) at (5.6,0) {B};
+  \node[box] (c8) at (6.4,0) {C};
+  \node[matchbox] (c9) at (7.2,0) {A};
+  \node[currbox] (c10) at (8.0,0) {A};
+  \node[currbox] (c11) at (8.8,0) {A};
+  \node[currbox] (c12) at (9.6,0) {A};
+  \node[currbox] (c13) at (10.4,0) {A};
+  \node[box] (c14) at (11.2,0) {C};
+
+  % Indices / labels above nodes (disposte su due livelli o sfalsate per evitare collisioni)
+  \node[above=0.15cm of c0, font=\scriptsize\color{codecomment}] {0};
+  \node[above=0.15cm of c1, font=\scriptsize\color{codecomment}] {1};
+  \node[above=0.15cm of c2, font=\scriptsize\color{codecomment}] {2};
+  \node[above=0.15cm of c8, font=\scriptsize\color{codecomment}] {8};
+  \node[above=0.15cm of c9, font=\scriptsize\bfseries\color{darkgreen}] {9};
+  \node[above=0.55cm of c9, font=\scriptsize\color{darkgreen}, align=center] {\texttt{CURSOR}$-1$};
+  \draw[thin, darkgreen] (c9.north) -- ++(0,0.4);
+  \node[above=0.15cm of c10, font=\scriptsize\bfseries\color{crimson}] {10};
+  \node[above=0.95cm of c10, font=\scriptsize\bfseries\color{crimson}, align=center] {\texttt{CURSOR}};
+  \draw[thin, crimson] (c10.north) -- ++(0,0.8);
+  \node[above=0.15cm of c14, font=\scriptsize\color{navy}] {14};
+
+  % Braces below
+  \draw[decorate, decoration={brace, mirror, amplitude=4pt}, thick, darkgreen] (7.65,-0.55) -- (10.75,-0.55) node[midway, below=5pt, font=\footnotesize\color{darkgreen}] {Porzione generata da overlap ($l=4$)};
+
+  % Overlap explanation arc below brace
+  \draw[arrow] (c9.south) to [out=270, in=270, looseness=1.2] node[below=3pt, font=\footnotesize\color{crimson}] {offset $d=1$, copia progressiva $l=4$} (c13.south);
+\end{tikzpicture}
+\caption{Visualizzazione dell'effetto di sovrapposizione (\textit{overlap}) su $T[10\dots 14]$ con tripla $\langle 1, 4, \text{\texttt{C}} \rangle$.}
+\label{fig:lz77-overlap-schema}
+\end{figure}
+
+\FloatBarrier
+\subsection{La Finestra Limitata (\textit{Bounded Window})}
+\label{subsec:lz77-bounded-window}
+
+Nel modello teorico puro di LZ77, la ricerca all'indietro pu\`o estendersi illimitatamente fino all'inizio della sequenza trasmessa. Tuttavia, in contesti ingegneristici reali ci\`o presenta due gravi controindicazioni:
+\begin{enumerate}
+  \item \textbf{Crescita indefinita della memoria:} il codificatore e il decodificatore dovrebbero allocare un buffer capace di contenere l'intero stream compresso;
+  \item \textbf{Costo computazionale di ricerca:} individuare il pi\`u lungo prefisso comune (\textit{longest common prefix}) su uno storico di dimensione $n$ richiede tempo $O(n)$ per ogni passo (o $O(n^2)$ complessivo), rendendo insostenibile la compressione di flussi di grandi dimensioni.
+\end{enumerate}
+
+Per questa ragione, nei sistemi reali il contesto di ricerca all'indietro viene delimitato da una \textbf{finestra limitata} (\textit{bounded window}) di ampiezza $W$:
+\begin{equation}
+  0 \le d \le W
+\end{equation}
+
+\begin{example}[Finestra di Dimensione $W = 5$]
+Consideriamo il testo didattico segmentato con $W = 5$:
+\begin{equation}
+  T = \text{\texttt{CAA BAB C ABB \dots}}
+\end{equation}
+In questo scenario, il codificatore pu\`o cercare corrispondenze all'indietro per una distanza massima pari a 5 posizioni rispetto al cursore corrente. Se una sottostringa identica \`e comparsa prima di $W$ caratteri ma non ricorre negli ultimi $W$ caratteri, essa non pu\`o essere referenziata e decade dal dizionario attivo.
+\end{example}
+
+\FloatBarrier
+\section{Ingegnerizzazione di LZ77: Il Formato GZIP e l'Algoritmo Deflate}
+\label{sec:gzip-deflate}
+
+L'algoritmo LZ77 puro necessita di significative ottimizzazioni per essere impiegato efficacemente nella pratica. Lo standard de facto \textbf{DEFLATE}, implementato nel celebre tool \textbf{GZIP} e nella libreria \texttt{zlib}, combina:
+\begin{enumerate}
+  \item Una finestra scorrevole LZ77 di dimensione prefissata (tipicamente $W = 32\text{ KB}$);
+  \item Una tabella hash su trigrammi (\textit{hash on 3 chars}) con concatenazione per indicizzare rapidamente le posizioni della finestra;
+  \item Una codifica entropica di Huffman applicata a valle sui simboli generati.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Accelerazione della Ricerca: Hashing su 3 Caratteri}
+\label{subsec:gzip-hashing}
+
+Per evitare la scansione lineare dei $W$ caratteri all'indietro, GZIP mantiene una tabella hash indicizzata da chiavi composte da 3 caratteri consecutivi (\textit{trigrammi}):
+\begin{itemize}
+  \item \textbf{Chiave (Key):} la sequenza dei prossimi 3 caratteri che iniziano alla posizione corrente (es. \texttt{ABA}, \texttt{BAB}, \texttt{CAB});
+  \item \textbf{Valore Satellite (Satellite Value):} l'indice posizionale assoluto dell'ultima occorrenza incontrata nel testo per quel dato trigramma;
+  \item \textbf{Tabella delle Catene (Chaining Table $T$):} un array che memorizza, per ciascuna posizione, il puntatore all'occorrenza precedente avente lo stesso valore di hash.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    entry/.style={draw=navy, fill=codebackground, rounded corners=2pt, minimum width=2.5cm, minimum height=0.65cm, font=\small},
+    head/.style={draw=navy, fill=attivo, font=\bfseries\small},
+    ptr/.style={-{Stealth[length=2mm]}, thick, navy}
+]
+  % Hash table
+  \node[font=\bfseries\color{navy}, align=center] at (1.2, 2.7) {Hash Table\\(Chiavi Trigramma)};
+  \node[entry] (h1) at (1.2, 1.8) {\texttt{ABA} $\to$ \textbf{pos 3}};
+  \node[entry] (h2) at (1.2, 1.1) {\texttt{BAB} $\to$ \textbf{pos 4}};
+  \node[entry] (h3) at (1.2, 0.4) {\texttt{ABC} $\to$ \textbf{pos 5}};
+  \node[entry] (h4) at (1.2, -0.3) {\texttt{BCA} $\to$ \textbf{pos 6}};
+  \node[entry] (h5) at (1.2, -1.0) {\texttt{CAB} $\to$ \textbf{pos 7}};
+
+  % Chain list
+  \node[font=\bfseries\color{darkgreen}, align=center] at (7.2, 2.7) {Catene dei Puntatori\\nella Finestra ($W=5$)};
+  \node[entry, fill=risultato] (c1) at (7.2, 1.8) {Pos 3: \texttt{ABA}};
+  \node[entry, fill=risultato] (c2) at (7.2, 1.1) {Pos 4: \texttt{BAB}};
+  \node[entry, fill=risultato] (c3) at (7.2, 0.4) {Pos 5: \texttt{ABC}};
+  \node[entry, fill=risultato] (c4) at (7.2, -0.3) {Pos 6: \texttt{BCA}};
+  \node[entry, fill=risultato] (c5) at (7.2, -1.0) {Pos 7: \texttt{CAB}};
+  \node[entry, fill=congelato] (c6) at (7.2, -1.7) {Pos 8: \texttt{ABB}};
+
+  % Pointers
+  \draw[ptr] (h1.east) -- (c1.west);
+  \draw[ptr] (h2.east) -- (c2.west);
+  \draw[ptr] (h3.east) -- (c3.west);
+  \draw[ptr] (h4.east) -- (c4.west);
+  \draw[ptr] (h5.east) -- (c5.west);
+
+  % Internal chain connection
+  \draw[ptr, crimson] (c2.east) to [out=0, in=0, looseness=1.5] node[right, font=\scriptsize\color{crimson}] {stesso hash} (c6.east);
+\end{tikzpicture}
+\caption{Architettura di indicizzazione a tabella hash su trigrammi e catene di puntatori all'indietro entro la finestra limitata in GZIP.}
+\label{fig:gzip-hash-chains}
+\end{figure}
+
+Quando il cursore esamina una terna di caratteri, interroga la tabella hash: se la chiave \`e presente e la distanza $d$ rispetta $d \le W$, il codificatore segue la catena di collisione verificando quanti caratteri coincidono, selezionando la corrispondenza di lunghezza massima.
+
+\FloatBarrier
+\subsection{Separazione dei Flussi e Codifica Entropica di Huffman}
+\label{subsec:gzip-huffman-flussi}
+
+Un elemento architetturale decisivo in GZIP \`e la trasformazione della tripla $\langle d, l, c \rangle$. Rappresentare direttamente le triple come blocchi di bit a larghezza fissa comporterebbe un notevole spreco di memoria. GZIP attua pertanto una \textbf{separazione dei flussi} in sequenze omogenee:
+\begin{equation}
+  \langle d_i, \, l_i, \, c_i \rangle \implies
+  \begin{cases}
+    T_1 = d_1, \, d_2, \, \dots, \, d_m & \text{(Flusso delle Distanze)} \\
+    T_2 = l_1, \, l_2, \, \dots, \, l_m & \text{(Flusso delle Lunghezze)} \\
+    T_3 = c_1, \, c_2, \, \dots, \, c_m & \text{(Flusso dei Caratteri Letterali)}
+  \end{cases}
+\end{equation}
+
+Ciascun flusso presenta una statistica empirica altamente polarizzata:
+\begin{itemize}
+  \item Le distanze $d$ tendono a privilegiare valori piccoli (principio di localit\`a dei riferimenti);
+  \item Le lunghezze $l$ sono concentrate su valori compresi tra 3 e 10 caratteri;
+  \item I caratteri letterali $c$ seguono la distribuzione tipica dell'alfabeto del linguaggio sorgente.
+\end{itemize}
+In Deflate, $T_2$ e $T_3$ vengono unificati in un unico alfabeto esteso (contenente i codici letterali 0--255, il marcatore di End-of-Block 256, e i codici di lunghezza 257--285), e codificati con un albero di Huffman, mentre le distanze $T_1$ vengono compresse mediante un secondo albero di Huffman separato \cite{huffman1952}.
+
+\FloatBarrier
+\section{L'Algoritmo LZ78: Parsing ad Albero e Coppie}
+\label{sec:algoritmo-lz78}
+
+Sebbene LZ77 sia molto efficiente in decodifica, la versione originaria presentava due criticit\`a concettuali discusse in letteratura \cite{ziv1978}:
+\begin{enumerate}
+  \item \textbf{Costo della ricerca delle copie:} la scansione di una finestra aperta all'indietro richiede algoritmi sofisticati (tabelle hash, alberi dei suffissi);
+  \item \textbf{Spazio occupato dalla tripla:} emettere tre elementi $\langle d, l, c \rangle$ comporta un overhead di metadati considerevole per ciascun passo di avanzamento.
+\end{enumerate}
+
+Nel 1978 Ziv e Lempel proposero \textbf{LZ78}, che risolve tali problematiche introducendo un dizionario esplicito strutturato ad albero (\textit{Trie}) e sostituendo le triple con \textbf{coppie}:
+\begin{equation}
+  \langle \text{indice}, \, \text{carattere} \rangle
+\end{equation}
+
+\FloatBarrier
+\subsection{Regola di Parsing e Aggiornamento del Dizionario}
+\label{subsec:lz78-parsing-regola}
+
+In LZ78, il dizionario viene inizializzato con la sola stringa vuota associata all'indice $0$:
+\begin{equation}
+  \mathcal{D}_0 = \{ 0: \varepsilon \}
+\end{equation}
+
+Il parsing di un testo $T$ procede identificando, alla posizione corrente del cursore, la pi\`u lunga frase $f$ gi\`a presente in $\mathcal{D}$. Denotando con $k$ l'indice associato a tale frase e con $c$ il carattere immediatamente successivo nel testo sorgente che causa la discrepanza (\textit{mismatch}):
+\begin{enumerate}
+  \item Viene emessa in output la coppia:
+  \begin{equation}
+    \langle k, \, c \rangle
+  \end{equation}
+  \item Viene aggiunta al dizionario la nuova frase estesa $f \cdot c$ assegnandole il prossimo indice progressivo disponibile:
+  \begin{equation}
+    \mathcal{D} \leftarrow \mathcal{D} \cup \{ \vert \mathcal{D} \vert : f \cdot c \}
+  \end{equation}
+  \item Il cursore avanza di $\vert f \vert + 1$ caratteri nel testo.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio Guidato e Costruzione del Trie in LZ78}
+\label{subsec:lz78-esempio-trie}
+
+Applichiamo l'algoritmo LZ78 al testo didattico presentato negli appunti:
+\begin{equation}
+  T = \text{\texttt{AABAACBAABCB}}
+\end{equation}
+segmentato nelle sei frasi progressive:
+\begin{equation}
+  T = \underbrace{\text{\texttt{A}}}_{f_1} \, \underbrace{\text{\texttt{AB}}}_{f_2} \, \underbrace{\text{\texttt{AA}}}_{f_3} \, \underbrace{\text{\texttt{C}}}_{f_4} \, \underbrace{\text{\texttt{ABC}}}_{f_5} \, \underbrace{\text{\texttt{ABCB}}}_{f_6}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tracciamento dettagliato del parsing LZ78 su $T = \text{\texttt{AABAACBAABCB}}$}
+\label{tab:lz78-trace}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Frase} & \textbf{Prefisso Notato ($f$)} & \textbf{Mismatch ($c$)} & \textbf{Coppia Emessa $\langle k, c \rangle$} & \textbf{Nuova Voce Dizionario} \\
+\midrule
+$f_1 = \text{\texttt{A}}$    & $\varepsilon$ (indice 0) & \texttt{A} & $\langle 0, \text{\texttt{A}} \rangle$ & Indice 1: \texttt{A} \\
+$f_2 = \text{\texttt{AB}}$   & \texttt{A} (indice 1)    & \texttt{B} & $\langle 1, \text{\texttt{B}} \rangle$ & Indice 2: \texttt{AB} \\
+$f_3 = \text{\texttt{AA}}$   & \texttt{A} (indice 1)    & \texttt{A} & $\langle 1, \text{\texttt{A}} \rangle$ & Indice 3: \texttt{AA} \\
+$f_4 = \text{\texttt{C}}$    & $\varepsilon$ (indice 0) & \texttt{C} & $\langle 0, \text{\texttt{C}} \rangle$ & Indice 4: \texttt{C} \\
+$f_5 = \text{\texttt{ABC}}$  & \texttt{AB} (indice 2)   & \texttt{C} & $\langle 2, \text{\texttt{C}} \rangle$ & Indice 5: \texttt{ABC} \\
+$f_6 = \text{\texttt{ABCB}}$ & \texttt{ABC} (indice 5)  & \texttt{B} & $\langle 5, \text{\texttt{B}} \rangle$ & Indice 6: \texttt{ABCB} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+La rappresentazione interna del dizionario generato corrisponde a un albero digitale (\textit{Trie}) illustrato in \autoref{fig:lz78-trie}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    trie/.style={circle, draw=navy, fill=codebackground, inner sep=1pt, font=\small\bfseries, minimum size=0.85cm},
+    edge from parent/.style={draw=navy, thick, -{Stealth[length=2mm]}},
+    level 1/.style={sibling distance=6.0cm, level distance=1.5cm},
+    level 2/.style={sibling distance=3.6cm, level distance=1.5cm},
+    level 3/.style={sibling distance=2.5cm, level distance=1.5cm},
+    level 4/.style={sibling distance=2.2cm, level distance=1.5cm}
+]
+  \node[trie] {0}
+    child {
+      node[trie] {1}
+      child {
+        node[trie] {2}
+        child {
+          node[trie] {5}
+          child {
+            node[trie] {6}
+            edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{B}}
+          }
+          edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{C}}
+        }
+        edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{B}}
+      }
+      child {
+        node[trie] {3}
+        edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{A}}
+      }
+      edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{A}}
+    }
+    child {
+      node[trie] {4}
+      edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{C}}
+    };
+\end{tikzpicture}
+\caption{Struttura a Trie del dizionario LZ78 costruito progressivamente su $T = \text{\texttt{AABAACBAABCB}}$. Ciascun nodo riporta l'indice della frase nel dizionario, mentre le etichette sugli archi indicano i simboli di transizione.}
+\label{fig:lz78-trie}
+\end{figure}
+
+\FloatBarrier
+\section{L'Algoritmo LZW (Lempel-Ziv-Welch, 1984)}
+\label{sec:algoritmo-lzw}
+
+Nel 1984 Terry Welch propose una celebre variante di LZ78, nota come \textbf{LZW} (\textit{Lempel-Ziv-Welch}) \cite{welch1984}, concepita specificamente per essere implementata ad altissima velocit\`a nell'hardware dei controller di memoria e disco (e successivamente divenuta il motore dei formati GIF e del comando Unix \texttt{compress}).
+
+\FloatBarrier
+\subsection{Inizializzazione del Dizionario con Codici Singoli}
+\label{subsec:lzw-inizializzazione}
+
+L'innovazione chiave di LZW rispetto ad LZ78 risiede nell'eliminazione completa dell'emissione esplicita del carattere di mismatch: \textbf{LZW emette esclusivamente sequenze di puntatori ad indici del dizionario}.
+
+Per rendere ci\`o possibile senza perdere la capacit\`a di codificare nuovi caratteri, il dizionario di LZW viene pre-popolato inizialmente con tutti i simboli dell'alfabeto di base:
+\begin{center}
+  \textit{``Initialize a trie with all ASCII codes.''}
+\end{center}
+Poich\'e i caratteri standard della tabella ASCII occupano le posizioni da $0$ a $255$ (256 simboli elementari con $\texttt{'A'} = 65, \texttt{'B'} = 66, \dots$), qualsiasi combinazione o nuova stringa inserita dinamicamente durante la compressione riceve codici a partire da \textbf{256} in poi:
+\begin{equation}
+  \text{Indici disponibili per nuove frasi:} \quad 256, \, 257, \, 258, \, 259, \, 260, \, \dots
+\end{equation}
+
+\FloatBarrier
+\subsection{Funzionamento del Codificatore LZW}
+\label{subsec:lzw-encoding-process}
+
+L'algoritmo di compressione mantiene una stringa corrente $W$:
+\begin{enumerate}
+  \item All'avvio, $W$ viene impostata al primo carattere del flusso di ingresso.
+  \item Per ogni nuovo carattere letto $K$:
+  \begin{itemize}
+    \item Se la stringa concatenata $W \cdot K$ \`e gi\`a presente nel dizionario, allora $W \leftarrow W \cdot K$;
+    \item Se $W \cdot K$ non \`e presente:
+    \begin{enumerate}
+      \item Viene emesso in output il codice associato alla stringa $W$;
+      \item Viene inserita nel dizionario la nuova sequenza $W \cdot K$ con il primo indice libero disponibile;
+      \item Si riparte impostando la stringa corrente al carattere corrente: $W \leftarrow K$.
+    \end{enumerate}
+  \end{itemize}
+  \item Al termine del testo, viene emesso il codice corrispondente all'ultimo valore di $W$.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio Dettagliato di Compressione su $T = \text{\texttt{AABBABABA}}$}
+\label{subsec:lzw-esempio-dettagliato}
+
+Analizziamo il testo didattico proposto negli appunti:
+\begin{equation}
+  T = \text{\texttt{AABBABABA}}
+\end{equation}
+Tracciamo passo dopo passo l'evoluzione della stringa $W$, l'emissione dei codici e la contestuale espansione del dizionario a partire dall'indice 256:
+
+\begin{table}[H]
+\centering
+\small
+\caption{Simulazione dettagliata dell'algoritmo LZW su $T = \text{\texttt{AABBABABA}}$}
+\label{tab:lzw-trace-simulazione}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Passo} & \textbf{Carattere Letto ($K$)} & \textbf{Stato $W$} & \textbf{Candidato $W \cdot K$} & \textbf{Output Emesso} & \textbf{Nuova Voce Dizionario} \\
+\midrule
+1 & \texttt{A} (inizio) & \texttt{A} & -- & -- & -- \\
+2 & \texttt{A} & \texttt{A} & \texttt{AA} $\notin \mathcal{D}$ & $65$ (\texttt{'A'}) & $256 \leftarrow \text{\texttt{AA}}$ \\
+3 & \texttt{B} & \texttt{A} & \texttt{AB} $\notin \mathcal{D}$ & $65$ (\texttt{'A'}) & $257 \leftarrow \text{\texttt{AB}}$ \\
+4 & \texttt{B} & \texttt{B} & \texttt{BB} $\notin \mathcal{D}$ & $66$ (\texttt{'B'}) & $258 \leftarrow \text{\texttt{BB}}$ \\
+5 & \texttt{A} & \texttt{B} & \texttt{BA} $\notin \mathcal{D}$ & $66$ (\texttt{'B'}) & $259 \leftarrow \text{\texttt{BA}}$ \\
+6 & \texttt{B} & \texttt{A} & \texttt{AB} $\in \mathcal{D}$ (cod. 257) & -- (continua) & -- \\
+7 & \texttt{A} & \texttt{AB} & \texttt{ABA} $\notin \mathcal{D}$ & $257$ (\texttt{AB}) & $260 \leftarrow \text{\texttt{ABA}}$ \\
+8 & \texttt{B} & \texttt{A} & \texttt{AB} $\in \mathcal{D}$ (cod. 257) & -- (continua) & -- \\
+9 & \texttt{A} & \texttt{AB} & \texttt{ABA} $\in \mathcal{D}$ (cod. 260) & -- (continua) & -- \\
+Fine & EOF & \texttt{ABA} & -- & $260$ (\texttt{ABA}) & -- \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+La sequenza numerica prodotta in uscita \`e esattamente quella annotata negli appunti della lezione:
+\begin{equation}
+  \text{Output LZW} = 65, \, 65, \, 66, \, 66, \, 257, \, 260
+\end{equation}
+
+\FloatBarrier
+\subsection{Derivazione e Logica di Decodifica del Codice 260}
+\label{subsec:lzw-derivazione-260}
+
+Uno dei passaggi didatticamente pi\`u rilevanti illustrati nella lezione riguarda la deduzione passo-passo del significato associato al codice \textbf{260}:
+\begin{enumerate}
+  \item \textbf{Generazione a partire dal codice precedente:}
+  \begin{center}
+    \textit{``260 is generated by the previous one plus 1 character.''}
+  \end{center}
+  In LZW, ogni nuova voce inserita nel dizionario estende la frase del codice appena emesso mediante il primo simbolo della frase successiva.
+  \item \textbf{Composizione di 3 caratteri:}
+  \begin{center}
+    \textit{``So 260 is composed by 3 characters because 257 is 'AB' + 1.''}
+  \end{center}
+  Poich\'e la voce $257$ codifica la sottostringa bicarattere \texttt{'AB'}, la voce successiva generata dall'estensione con un singolo carattere ha necessariamente cardinalit\`a pari a $2 + 1 = 3$ caratteri.
+  \item \textbf{Determinazione del carattere incognito:}
+  \begin{center}
+    \textit{``So 260 is 'AB?' where '?' is the first character, so 260 is 'ABA'.''}
+  \end{center}
+  La stringa associata assume la struttura $\text{\texttt{AB?}}$. Poich\'e il match che segue immediatamente inizia con il simbolo letterale \texttt{'A'}, il punto interrogativo si risolve univocamente in \texttt{'A'}, definendo $260 = \text{\texttt{ABA}}$.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    trie/.style={circle, draw=navy, fill=codebackground, inner sep=1pt, font=\small\bfseries, minimum size=0.9cm},
+    edge from parent/.style={draw=navy, thick, -{Stealth[length=2mm]}},
+    level 1/.style={sibling distance=6.5cm, level distance=1.6cm},
+    level 2/.style={sibling distance=3.4cm, level distance=1.6cm},
+    level 3/.style={sibling distance=2.5cm, level distance=1.6cm}
+]
+  \node[trie, font=\footnotesize\bfseries] {$\mathcal{D}_{\text{init}}$}
+    child {
+      node[trie] {65}
+      child {
+        node[trie, fill=risultato] {256}
+        edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{A}}
+      }
+      child {
+        node[trie, fill=risultato] (n257) {257}
+        child {
+          node[trie, fill=congelato] {260}
+          edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{A}}
+        }
+        edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{B}}
+      }
+      edge from parent node[left=3pt, font=\small\bfseries\color{navy}] {\texttt{A}}
+    }
+    child {
+      node[trie] {66}
+      child {
+        node[trie, fill=risultato] {258}
+        edge from parent node[left=3pt, font=\small\bfseries\color{crimson}] {\texttt{B}}
+      }
+      child {
+        node[trie, fill=risultato] {259}
+        edge from parent node[right=3pt, font=\small\bfseries\color{crimson}] {\texttt{A}}
+      }
+      edge from parent node[right=3pt, font=\small\bfseries\color{navy}] {\texttt{B}}
+    };
+\end{tikzpicture}
+\caption{Rappresentazione ad albero delle nuove voci inserite dinamicamente nel dizionario LZW per il testo $T = \text{\texttt{AABBABABA}}$. I nodi interni riportano l'indice o codice numerico del dizionario, mentre le etichette sui rami rappresentano i singoli caratteri estesi.}
+\label{fig:lzw-trie-tree}
+\end{figure}
+
+\FloatBarrier
+\section{Quadro Comparativo e Considerazioni Ingegneristiche}
+\label{sec:quadro-comparativo-lz}
+
+A conclusione dell'indagine sui compressori sintattici, possiamo sintetizzare le propriet\`a architetturali, i trade-off computazionali e i formati di output dei quattro schemi analizzati.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Confronto sintetico tra le architetture di compressione Lempel-Ziv}
+\label{tab:confronto-lz-architetture}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Parametro} & \textbf{LZ77 (1977)} & \textbf{GZIP / Deflate} & \textbf{LZ78 (1978)} & \textbf{LZW (1984)} \\
+\midrule
+\textbf{Modello Dizionario} & Sliding window implicita & Window $32\text{ KB}$ + hash 3 char & Esplicito ad albero (Trie) & Esplicito, pre-popolato (ASCII) \\
+\textbf{Formato Output} & Triple $\langle d, l, c \rangle$ & Flussi separati $d, l, c$ + Huffman & Coppie $\langle \text{indice}, c \rangle$ & Indici singoli $\langle \text{code} \rangle$ \\
+\textbf{Gestione Overlap ($l > d$)} & Nativa (Run-Length) & Supportata nativamente & Non applicabile & Non applicabile \\
+\textbf{Complessit\`a Ricerca} & Elevata (scansione/buffer) & Rapida ($O(1)$ con hash chains) & Rapida (discesa Trie) & Rapida (discesa Trie / Hash) \\
+\textbf{Overhead Metadati} & Alto per tripla & Minimo (compresso con Huffman) & Medio (indice + char) & Basso (solo indici a bit crescenti) \\
+\textbf{Applicazioni Tipiche} & Teoria e primi compressori & \texttt{gzip}, \texttt{png}, \texttt{zip}, \texttt{zlib} & Basi dati testuali e Unix & GIF, TIFF, Unix \texttt{compress} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\begin{noteblock}{Riflessione Teorica: Compressione Universale e Asintotica}
+Sia LZ77 che LZ78 godono della notevole propriet\`a di \textbf{universalit\`a asintotica}: al tendere della lunghezza del testo all'infinito ($n \to \infty$), il tasso di compressione ottenuto converge all'entropia per simbolo $H$ di qualunque sorgente stazionaria ed ergodica, senza necessitare di alcuna conoscenza preventiva della distribuzione probabilistica del testo sorgente.
+\end{noteblock}

@@ -1,0 +1,480 @@
+\chapter{Variante LZSS e Codifica Interpolativa (\textit{Interpolative Coding})}
+\label{ch:lzss-interpolative-coding}
+
+\section{Introduzione e Motivazione Architetturale}
+\label{sec:intro-lzss-interpolative}
+
+Nei capitoli precedenti sono state presentate le architetture fondamentali della compressione a dizionario (LZ77, LZ78, LZW) e i codici per interi orientati ai bit o ai byte (Elias, Rice, PForDelta, VByte). Sebbene tali schemi garantiscano buone prestazioni medie, presentano margini di ottimizzazione in contesti specifici:
+\begin{enumerate}
+  \item \textbf{Ridondanza dell'emissione congiunta in LZ77:} L'algoritmo LZ77 classico \cite{ziv1977} impone l'emissione rigida di una tripla $\langle d, l, c \rangle$ per ciascuna frase. Quando viene individuata una corrispondenza lunga, dover trasmettere un carattere esplicito $c$ estraneo al match costituisce una penalizzazione non trascurabile;
+  \item \textbf{Assenza di sfruttamento dei vincoli d'ordine globale:} Gli schemi tradizionali di \textit{Integer Coding} operano elemento per elemento o su piccoli blocchi locali, ignorando che le collezioni di identificatori (come i \textit{docID} nelle liste invertite o le righe temporali) formano sequenze strettamente crescenti con estremi noti o fortemente clusterizzate.
+\end{enumerate}
+
+In questo capitolo esaminiamo l'algoritmo \textbf{LZSS} (\textit{Lempel-Ziv-Storer-Szymanski}) \cite{storer1982lzss}, che risolve il primo problema scindendo le emissioni in coppie differenziate tramite un flag a singolo bit, e l'\textbf{Interpolative Coding} (\textit{Binary Interpolative Coding}) \cite{moffat2000interpolative}, un paradigma gerarchico fondato su partizionamento ricorsivo che raggiunge l'ottimo di compattezza per insiemi ordinati di interi con addensamenti locali.
+
+\FloatBarrier
+\section{L'Algoritmo LZSS (\textit{Lempel-Ziv-Storer-Szymanski})}
+\label{sec:algoritmo-lzss}
+
+Introdotto da James Storer e Thomas Szymanski nel 1982 \cite{storer1982lzss}, l'algoritmo LZSS nasce come una variante ad alta efficienza di LZ77. Negli appunti didattici viene classificato espressamente come una \textit{``special version of LZ77''}.
+
+\FloatBarrier
+\subsection{Definizione e Confronto Strutturale con LZ77}
+\label{subsec:confronto-lz77-lzss}
+
+Ricordiamo che il formato standard dell'output in LZ77 \`e costituito da una sequenza di triple uniformi:
+\begin{equation}
+  \langle d, \, l, \, c \rangle
+\end{equation}
+in cui $d$ rappresenta la distanza (offset a ritroso), $l$ la lunghezza della corrispondenza trovata nel buffer storico, e $c$ il carattere letterale immediatamente successivo al match.
+
+In LZSS, l'emissione di triple omogenee viene superata introducendo una distinzione fondamentale tra \textbf{emissione letterale} ed \textbf{emissione di puntatore}:
+\begin{equation}
+  \langle d, \, l, \, c \rangle \implies \begin{cases}
+    \langle 0, \, c \rangle & \text{se } d = 0 \text{ (letterale)} \\
+    \langle d, \, l \rangle & \text{se } d > 0 \text{ (match a distanza $d$, lungh. $l$)}
+  \end{cases}
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  % Formato LZ77
+  \node[font=\bfseries, anchor=west] at (0, 3.2) {LZ77 (Tripla uniforme):};
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=3.4cm, minimum height=1.1cm, align=center, font=\small] at (1.7, 2.2) {$d$\\ (Distanza / Offset)};
+  \node[draw=navy, fill=navy!15, thick, rounded corners, minimum width=3.4cm, minimum height=1.1cm, align=center, font=\small] at (5.4, 2.2) {$l$\\ (Lunghezza match)};
+  \node[draw=darkgreen, fill=darkgreen!15, thick, rounded corners, minimum width=3.4cm, minimum height=1.1cm, align=center, font=\small] at (9.1, 2.2) {$c$\\ (Nuovo carattere)};
+
+  % Formato LZSS
+  \node[font=\bfseries, anchor=west] at (0, 0.9) {LZSS (Formato duale a flag):};
+  \node[draw=crimson, fill=crimson!20, thick, rounded corners, minimum width=5.25cm, minimum height=1.1cm, align=center, font=\small] at (2.625, 0.0) {\textbf{Letterale:} $\langle 0, \, c \rangle$\\oppure flag \texttt{0} $+ c$ (8 bit)};
+  \node[draw=darkgreen, fill=darkgreen!20, thick, rounded corners, minimum width=5.25cm, minimum height=1.1cm, align=center, font=\small] at (8.175, 0.0) {\textbf{Puntatore:} $\langle d, \, l \rangle$\\oppure flag \texttt{1} $+ \langle d, l \rangle$};
+\end{tikzpicture}%
+}
+\caption{Confronto concettuale tra il formato a tripla rigida di LZ77 e il formato duale di LZSS.}
+\label{fig:confronto-lz77-lzss}
+\end{figure}
+
+\begin{property}[Vantaggi Architetturali di LZSS]
+\begin{itemize}
+  \item \textbf{Eliminazione del carattere ridondante:} Quando viene individuata una ripetizione di sottostringa ($d > 0$), non vi \`e alcuna necessit\`a di consumare spazio trasmettendo forzatamente un carattere letterale $c$. La copia pu\`o estendersi fino al massimo match possibile.
+  \item \textbf{Convenienza della soglia di sostituzione (\textit{Break-Even Threshold}):} Un puntatore $\langle d, l \rangle$ occupa in memoria un certo numero di bit $B_{\text{ptr}} = \lceil \log_2 W \rceil + \lceil \log_2 L_{\max} \rceil$, dove $W$ \`e l'ampiezza della finestra e $L_{\max}$ la lunghezza massima. Un carattere letterale occupa tipicamente 8 bit (1 byte). Conviene emettere un puntatore solo se la lunghezza $l$ soddisfa:
+  \begin{equation}
+    l \cdot 8 \text{ bit} > B_{\text{ptr}} + 1 \text{ bit}
+  \end{equation}
+  Per valori inferiori alla soglia (tipicamente $l < 2$ o $l < 3$), LZSS preferisce emettere singoli simboli letterali, evitando l'espansione del file tipica di LZ77 in presenza di corrispondenze cortissime.
+\end{itemize}
+\end{property}
+
+\FloatBarrier
+\section{Interpolative Coding: Fondamenti e Passo Induttivo}
+\label{sec:interpolative-coding-fondamenti}
+
+Il codice interpolativo (\textit{Interpolative Coding}) \cite{moffat2000interpolative} \`e una tecnica avanzata progettata specificamente per la memorizzazione di sequenze ordinate di interi in memoria secondaria o principale.
+
+\FloatBarrier
+\subsection{Prerequisito di Monotonia Stretta e Trasformazione dai Gap}
+\label{subsec:monotonia-trasformazione-gap}
+
+L'ipotesi teorica imprescindibile su cui poggia l'intera costruzione algoritmica \`e che la sequenza in ingresso sia \textbf{strettamente crescente}:
+\begin{equation}
+  S = \langle S[1], \, S[2], \, \dots, \, S[n] \rangle, \qquad S[1] < S[2] < \dots < S[n]
+\end{equation}
+Come illustrato negli appunti didattici, consideriamo una sequenza campione indicizzata:
+\begin{equation}
+  S = \underset{1}{1}, \; \underset{2}{2}, \; \underset{3}{3}, \; \underset{4}{9}, \; \underset{5}{11}, \; \underset{6}{12}, \; \underset{7}{15}
+\end{equation}
+in cui i pedici denotano le posizioni progressive all'interno dell'array ($n = 7$).
+
+\begin{alertblock}{Trasformazione di Sequenze di Gap Tramite Somme Prefisse}
+Qualora i dati sorgente si presentino sotto forma di differenze (\textit{gap}) $g_i > 0$ non strettamente crescenti:
+\begin{equation*}
+  S' = \langle 1, \, 2, \, 1, \, 3, \, 1, \, 1, \, \dots \rangle
+\end{equation*}
+l'algoritmo interpolativo \textbf{non pu\`o essere applicato direttamente}.
+In tale eventualit\`a, si applica una trasformazione mediante \textbf{somme prefisse cumulative} (\textit{prefix sums}):
+\begin{equation}
+  S''[1] = g_1, \qquad S''[i] = S''[i-1] + g_i \quad (\forall i \ge 2)
+\end{equation}
+Poich\'e ogni $g_i \ge 1$, la sequenza $S''$ generata risulta rigorosamente strettamente crescente:
+\begin{equation*}
+  S'' = \langle 1, \, 3, \, 4, \, 7, \, 8, \, 9, \, 13, \, \dots \rangle
+\end{equation*}
+consentendo l'applicazione piena del protocollo di codifica interpolativo.
+\end{alertblock}
+
+\FloatBarrier
+\subsection{Struttura dell'Algoritmo Ricorsivo (Passo Induttivo)}
+\label{subsec:passo-induttivo-interpolative}
+
+L'algoritmo adotta un paradigma di tipo \textit{divide et impera}. A ciascun livello della ricorsione, il codificatore e il decodificatore operano su un sottoarray $S[l, r]$ univocamente caratterizzato da una quadrupla di parametri:
+\begin{equation}
+  \langle l, \, r, \, \text{low}, \, \text{high} \rangle
+\end{equation}
+dove:
+\begin{itemize}
+  \item $l \in \mathbb{N}^+$ \`e l'indice sinistro (\textit{left index}) del sottoarray in esame;
+  \item $r \in \mathbb{N}^+$ \`e l'indice destro (\textit{right index}) del sottoarray ($l \le r$);
+  \item $\text{low} \in \mathbb{Z}$ \`e il limite inferiore noto a priori (\textit{lower bound}), tale che $S[l] \ge \text{low}$;
+  \item $\text{high} \in \mathbb{Z}$ \`e il limite superiore noto a priori (\textit{upper bound}), tale che $S[r] \le \text{high}$.
+\end{itemize}
+
+All'invocazione iniziale sull'intera sequenza di $n$ elementi, si imposta:
+\begin{equation}
+  l = 1, \quad r = n, \quad \text{low} = S[1], \quad \text{high} = S[n]
+\end{equation}
+I due estremi globali $S[1]$ e $S[n]$ vengono memorizzati o trasmessi preliminarmente in forma esplicita, dopodich\'e la ricorsione opera sugli elementi interni $S[2, n-1]$.
+
+\paragraph{Procedura del Passo Induttivo (\textit{Inductive Step})}
+Dato il sottointervallo $S[l, r]$ con limiti $[\text{low}, \text{high}]$:
+\begin{enumerate}
+  \item \textbf{Selezione dell'elemento mediano:} Si individua l'indice centrale:
+  \begin{equation}
+    m = \left\lfloor \frac{l + r}{2} \right\rfloor
+  \end{equation}
+  \item \textbf{Compressione di $S[m]$:} Si calcola il campo di variabilit\`a ristretto ammissibile per $S[m]$ e si codifica lo scostamento del suo valore rispetto al minimo consentito;
+  \item \textbf{Chiamate ricorsive sui due sottointervalli:} Poich\'e il valore $S[m]$ \`e ora noto in modo identico sia al compressore che al decompressore, esso funge da nuovo estremo vincolante per le due met\`a:
+  \begin{itemize}
+    \item \textbf{Sottoarray sinistro $S[l, m - 1]$:} viene invocato con la quadrupla:
+    \begin{equation}
+      \langle l, \; m - 1, \; \text{low}, \; S[m] - 1 \rangle
+    \end{equation}
+    \item \textbf{Sottoarray destro $S[m + 1, r]$:} viene invocato con la quadrupla:
+    \begin{equation}
+      \langle m + 1, \; r, \; S[m] + 1, \; \text{high} \rangle
+    \end{equation}
+  \end{itemize}
+\end{enumerate}
+
+\begin{noteblock}{Perch\'e gli Estremi Diventano $S[m] - 1$ e $S[m] + 1$?}
+Come chiarito con enfasi negli appunti didattici:
+\begin{center}
+  \textit{``$-1$ and $+1$ because they are strictly increasing, so is for sure different from $S[m]$.''}
+\end{center}
+Essendo la sequenza priva di duplicati ed ordinata in senso strettamente crescente, qualsiasi elemento collocato alla sinistra di $m$ deve risultare strettamente minore di $S[m]$, imponendo come limite superiore invalicabile $S[m] - 1$; simmetricamente, ogni elemento alla destra di $m$ deve essere strettamente maggiore di $S[m]$, fissando come minimo possibile $S[m] + 1$.
+\end{noteblock}
+
+\FloatBarrier
+\subsection{Stima Ingenua del Numero di Bit}
+\label{subsec:stima-ingenua-bit}
+
+In una prima formulazione semplificata, consideriamo unicamente i vincoli grezzi $\text{low} \le S[m] \le \text{high}$. Il valore traslato soddisfa:
+\begin{equation}
+  0 \le S[m] - \text{low} \le \text{high} - \text{low}
+\end{equation}
+Il numero totale di configurazioni intere distinte nell'intervallo $[\text{low}, \text{high}]$ \`e:
+\begin{equation}
+  \#\text{configurazioni grezze} = \text{high} - \text{low} + 1
+\end{equation}
+Per rappresentare lo scostamento $S[m] - \text{low}$ in binario puro privo di ridondanza occorrerebbero:
+\begin{equation}
+  B_{\text{ingenuo}} = \left\lceil \log_2(\text{high} - \text{low} + 1) \right\rceil \text{ bit}
+\end{equation}
+
+Tuttavia, tale stima trascura l'esistenza degli altri elementi ancora da collocare nel sottoarray, sprecando una frazione considerevole di bit.
+
+\FloatBarrier
+\section{Raffinamento dei Limiti (\textit{Tight Bounds}) ed Emissione Minima}
+\label{sec:raffinamento-limiti-stretti}
+
+La genialit\`a dell'Interpolative Coding risiede nella possibilit\`a di \textbf{restringere deterministicamente} l'intervallo di ammissibilit\`a per $S[m]$, sfruttando il numero di elementi che devono obbligatoriamente interporsi tra $\text{low}$ ed $S[m]$ e tra $S[m]$ ed $\text{high}$.
+
+\FloatBarrier
+\subsection{Derivazione Analitica dell'Intervallo Stretto $[a, b]$}
+\label{subsec:derivazione-intervallo-stretto}
+
+Consideriamo il sottoarray $S[l, r]$ con estremi vincolanti $[\text{low}, \text{high}]$ e punto mediano $m = \lfloor (l + r)/2 \rfloor$:
+\begin{itemize}
+  \item \textbf{Vincolo inferiore (Sinistra di $m$):}
+  Tra l'indice $l$ e l'indice mediano $m$ devono trovare posto esattamente $m - l$ interi distinti e crescenti:
+  \begin{equation*}
+    S[l], \, S[l+1], \, \dots, \, S[m-1]
+  \end{equation*}
+  Sapendo che $S[l] \ge \text{low}$, per preservare la monotonia stretta deve valere:
+  \begin{align*}
+    S[l] &\ge \text{low} \\
+    S[l+1] &\ge \text{low} + 1 \\
+    &\;\;\vdots \\
+    S[m-1] &\ge \text{low} + (m - l - 1) \\
+    S[m] &\ge \text{low} + (m - l)
+  \end{align*}
+  Pertanto, il valore minimo assoluto ammissibile per $S[m]$ \`e:
+  \begin{equation}
+    a = \text{low} + m - l
+  \end{equation}
+
+  \item \textbf{Vincolo superiore (Destra di $m$):}
+  Simmetricamente, tra il punto mediano $m$ e l'indice destro $r$ devono alloggiare $r - m$ interi strettamente crescenti:
+  \begin{equation*}
+    S[m+1], \, S[m+2], \, \dots, \, S[r]
+  \end{equation*}
+  Sapendo che $S[r] \le \text{high}$, procedendo a ritroso da destra verso sinistra:
+  \begin{align*}
+    S[r] &\le \text{high} \\
+    S[r-1] &\le \text{high} - 1 \\
+    &\;\;\vdots \\
+    S[m+1] &\le \text{high} - (r - m - 1) \\
+    S[m] &\le \text{high} - (r - m)
+  \end{align*}
+  Di conseguenza, il valore massimo assoluto consentito per $S[m]$ \`e:
+  \begin{equation}
+    b = \text{high} - r + m
+  \end{equation}
+\end{itemize}
+
+\begin{theorem}[Intervallo Stretto per l'Elemento Centrale]
+Dato un sottoarray $S[l, r]$ strettamente crescente vincolato da $S[l] \ge \text{low}$ e $S[r] \le \text{high}$, il valore $S[m]$ con $m = \lfloor (l+r)/2 \rfloor$ appartiene necessariamente all'intervallo compatto:
+\begin{equation}
+  S[m] \in [a, \, b] = [\text{low} + m - l, \; \text{high} - r + m]
+\end{equation}
+\end{theorem}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95, every node/.style={transform shape}]
+  % Intervallo globale
+  \draw[thick] (0,0) -- (11,0);
+  \filldraw[navy] (0,0) circle (2.5pt) node[below=3pt] {$\text{low}$};
+  \filldraw[navy] (11,0) circle (2.5pt) node[below=3pt] {$\text{high}$};
+
+  % Segmento ammissibile stretto [a, b]
+  \draw[line width=3.5pt, darkgreen] (3,0) -- (8,0);
+  \filldraw[darkgreen] (3,0) circle (3pt) node[below=4pt, font=\bfseries] {$a = \text{low} + m - l$};
+  \filldraw[darkgreen] (8,0) circle (3pt) node[below=4pt, font=\bfseries] {$b = \text{high} - r + m$};
+
+  % Spazi riservati a sinistra e destra
+  \draw[thick, decoration={brace, raise=7pt}, decorate] (0,0) -- (3,0);
+  \node at (1.5,0.7) {\footnotesize $m - l$ posizioni};
+
+  \draw[thick, decoration={brace, raise=7pt}, decorate] (8,0) -- (11,0);
+  \node at (9.5,0.7) {\footnotesize $r - m$ posizioni};
+
+  % Posizione effettiva S[m]
+  \filldraw[crimson] (5.5,0) circle (4pt) node[above=4pt, font=\bfseries\color{crimson}] {$S[m]$};
+\end{tikzpicture}
+\caption{Visualizzazione geometrica del restringimento dell'intervallo d'ammissibilit\`a per $S[m]$ da $[\text{low}, \text{high}]$ ad $[a, b]$.}
+\label{fig:interpolative-tight-bounds}
+\end{figure}
+
+\FloatBarrier
+\subsection{Formula per la Quantificazione dei Bit Emessi}
+\label{subsec:formula-bit-emessi}
+
+Dall'intervallo stretto $[a, b]$ discende che il numero totale di configurazioni possibili per $S[m]$ \`e unicamente:
+\begin{equation}
+  N_{\text{conf}} = b - a + 1
+\end{equation}
+Il codificatore trasmette il valore traslato non negativo:
+\begin{equation}
+  v = S[m] - a \in [0, \, b - a]
+\end{equation}
+Il numero di bit necessari per rappresentare $v$ mediante codifica binaria esatta a lunghezza minima \`e:
+\begin{equation}
+  \boxed{B(S[m]) = \left\lceil \log_2(b - a + 1) \right\rceil \text{ bit}}
+\end{equation}
+
+\begin{noteblock}{Il Caso Limite Miracoloso: $b = a \implies 0$ Bit!}
+Quando la densit\`a locale della sequenza satura l'intervallo numerico disponibile (ovvero quando $b = a$), abbiamo:
+\begin{equation}
+  b - a + 1 = 1 \implies \lceil \log_2(1) \rceil = 0 \text{ bit!}
+\end{equation}
+In questa situazione straordinaria, \textbf{non viene emesso alcun bit nel flusso compresso}: sia il codificatore che il decodificatore sanno con certezza assoluta che l'unico valore numerico compatibile con i vincoli di ordinamento \`e $S[m] = a = b$.
+\end{noteblock}
+
+\FloatBarrier
+\section{Esempi Dettagliati Svolti di Interpolative Coding}
+\label{sec:esempi-svolti-interpolative}
+
+\subsection{Esempio 1: Sequenza $S = [1, 2, 3, 9, 11, 12, 15]$}
+\label{subsec:es1-interpolative}
+
+\begin{example}[Passo Iniziale su Sequenza con Salto Centrale]
+Si consideri la sequenza $S$ con $n = 7$ elementi:
+\begin{equation*}
+  S = [1, \, 2, \, 3, \, 9, \, 11, \, 12, \, 15]
+\end{equation*}
+con parametri globali $l = 1, r = 7, \text{low} = 1, \text{high} = 15$.
+\end{example}
+
+\paragraph{Svolgimento del Passo}
+\begin{enumerate}
+  \item \textbf{Calcolo dell'indice mediano:}
+  \begin{equation*}
+    m = \left\lfloor \frac{1 + 7}{2} \right\rfloor = 4 \implies S[4] = 9
+  \end{equation*}
+  \item \textbf{Calcolo dei limiti stretti $[a, b]$:}
+  \begin{align*}
+    a &= \text{low} + m - l = 1 + 4 - 1 = 4 \\
+    b &= \text{high} - r + m = 15 - 7 + 4 = 12
+  \end{align*}
+  L'elemento $S[4]$ \`e garantito cadere nell'intervallo $[4, 12]$. Infatti $S[4] = 9 \in [4, 12]$.
+  \item \textbf{Numero di bit richiesti:}
+  \begin{equation*}
+    B = \lceil \log_2(b - a + 1) \rceil = \lceil \log_2(12 - 4 + 1) \rceil = \lceil \log_2(9) \rceil = 4 \text{ bit}
+  \end{equation*}
+  \item \textbf{Valore emesso:}
+  Si codifica la differenza $S[4] - a = 9 - 4 = 5$ in binario puro su 4 bit:
+  \begin{equation*}
+    \texttt{0101}_2
+  \end{equation*}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio 2: Sequenza $S = [1, 2, 3, 4, 11, 12, 15]$ ed Effetto Cluster}
+\label{subsec:es2-interpolative-cluster}
+
+\begin{example}[Sfruttamento dei Cluster ed Emissione a 0 Bit]
+Si consideri la sequenza:
+\begin{equation*}
+  S = [1, \, 2, \, 3, \, 4, \, 11, \, 12, \, 15]
+\end{equation*}
+caratterizzata da un marcato addensamento nei primi 4 elementi ($[1, 2, 3, 4]$). Si sviluppi l'intero albero di ricorsione.
+\end{example}
+
+\paragraph{Passo 1: Elemento Centrale Globale ($m = 4$)}
+\begin{itemize}
+  \item Parametri: $l = 1, r = 7, \text{low} = 1, \text{high} = 15$.
+  \item Indice: $m = 4 \implies S[4] = 4$.
+  \item Limiti stretti:
+  \begin{equation*}
+    a = 1 + 4 - 1 = 4, \qquad b = 15 - 7 + 4 = 12
+  \end{equation*}
+  \item Numero di bit: $\lceil \log_2(12 - 4 + 1) \rceil = \lceil \log_2(9) \rceil = 4$ bit.
+  \item Valore codificato: $S[4] - a = 4 - 4 = 0 \implies \texttt{0000}_2$ (4 bit).
+\end{itemize}
+
+\paragraph{Passo 2: Ricorsione sul Sottointervallo Sinistro (\textit{Left Part})}
+\begin{itemize}
+  \item Parametri aggiornati:
+  \begin{equation*}
+    l = 1, \quad r = m - 1 = 3, \quad \text{low} = 1, \quad \text{high} = S[4] - 1 = 4 - 1 = 3
+  \end{equation*}
+  Il sottoarray in esame \`e $S[1, 3] = [1, 2, 3]$.
+  \item Indice mediano: $m = \lfloor (1 + 3)/2 \rfloor = 2 \implies S[2] = 2$.
+  \item Limiti stretti per $S[2]$:
+  \begin{align*}
+    a &= \text{low} + m - l = 1 + 2 - 1 = 2 \\
+    b &= \text{high} - r + m = 3 - 3 + 2 = 2
+  \end{align*}
+  \item Numero di bit emessi:
+  \begin{equation*}
+    B = \lceil \log_2(b - a + 1) \rceil = \lceil \log_2(2 - 2 + 1) \rceil = \lceil \log_2(1) \rceil = \mathbf{0 \text{ bit!}}
+  \end{equation*}
+\end{itemize}
+
+\begin{noteblock}{Regola Aurea della Clusterizzazione}
+Come esclamato dal docente durante la lezione:
+\begin{center}
+  \textit{``Don't generate any bits! More clustered is the sequence, less bits I emit.''}
+\end{center}
+Poich\'e i tre interi $\{1, 2, 3\}$ saturano completamente l'intervallo $[1, 3]$, non esiste alcun grado di libert\`a: l'intero blocco viene decodificato all'istante senza consumare nemmeno un bit di banda.
+\end{noteblock}
+
+\paragraph{Passo 3: Ricorsione sul Sottointervallo Destro (\textit{Right Part})}
+\begin{itemize}
+  \item Parametri aggiornati:
+  \begin{equation*}
+    l = m + 1 = 5, \quad r = 7, \quad \text{low} = S[4] + 1 = 4 + 1 = 5, \quad \text{high} = 15
+  \end{equation*}
+  Il sottoarray in esame \`e $S[5, 7] = [11, 12, 15]$.
+  \item Indice mediano: $m = \lfloor (5 + 7)/2 \rfloor = 6 \implies S[6] = 12$.
+  \item Limiti stretti per $S[6]$:
+  \begin{align*}
+    a &= \text{low} + m - l = 5 + 6 - 5 = 6 \\
+    b &= \text{high} - r + m = 15 - 7 + 6 = 14
+  \end{align*}
+  \item Numero di bit emessi:
+  \begin{equation*}
+    B = \lceil \log_2(b - a + 1) \rceil = \lceil \log_2(14 - 6 + 1) \rceil = \lceil \log_2(9) \rceil = 4 \text{ bit}
+  \end{equation*}
+  \item Valore codificato: $S[6] - a = 12 - 6 = 6 \implies \texttt{0110}_2$ (4 bit).
+\end{itemize}
+
+\FloatBarrier
+\subsection{Esempio 3: Sequenza $S = [11, 14, 16, 19, 20, 21, 22]$}
+\label{subsec:es3-interpolative-completo}
+
+\begin{example}[Tracciamento Integrale con Cluster Finale]
+Si applichi l'Interpolative Coding alla sequenza:
+\begin{equation*}
+  S = \underset{1}{11}, \; \underset{2}{14}, \; \underset{3}{16}, \; \underset{4}{19}, \; \underset{5}{20}, \; \underset{6}{21}, \; \underset{7}{22}
+\end{equation*}
+con limiti globali $\text{low} = 11$, $\text{high} = 22$, $l = 1$, $r = 7$.
+\end{example}
+
+\paragraph{1. Passo Iniziale Globale ($m = 4$)}
+\begin{itemize}
+  \item Elemento centrale: $S[4] = 19$.
+  \item Calcolo limiti stretti:
+  \begin{align*}
+    a &= \text{low} + m - l = 11 + 4 - 1 = 14 \\
+    b &= \text{high} - r + m = 22 - 7 + 4 = 19
+  \end{align*}
+  \item Numero di configurazioni possibili: $b - a + 1 = 19 - 14 + 1 = 6$.
+  \item Bit richiesti:
+  \begin{equation*}
+    \#\text{bit} = \lceil \log_2(6) \rceil = 3 \text{ bit}
+  \end{equation*}
+  \item Codifica: $S[4] - a = 19 - 14 = 5$, rappresentato su 3 bit come $\texttt{101}_2$.
+\end{itemize}
+
+\paragraph{2. Induzione Sinistra (\textit{Left Induction})}
+\begin{itemize}
+  \item Sottoarray $S[1, 3] = [11, 14, 16]$ con $l = 1, r = 3, \text{low} = 11, \text{high} = S[4] - 1 = 18$.
+  \item Mediano $m = 2 \implies S[2] = 14$.
+  \item Limiti stretti:
+  \begin{align*}
+    a &= 11 + 2 - 1 = 12 \\
+    b &= 18 - 3 + 2 = 17
+  \end{align*}
+  \item Configurazioni: $17 - 12 + 1 = 6 \implies \lceil \log_2(6) \rceil = 3$ bit.
+  \item Valore codificato: $S[2] - a = 14 - 12 = 2 \implies \texttt{010}_2$ (3 bit).
+\end{itemize}
+
+\paragraph{3. Induzione Destra (\textit{Right Induction})}
+\begin{itemize}
+  \item Sottoarray $S[5, 7] = [20, 21, 22]$ con $l = 5, r = 7, \text{low} = S[4] + 1 = 20, \text{high} = 22$.
+  \item Mediano $m = 6 \implies S[6] = 21$.
+  \item Limiti stretti:
+  \begin{align*}
+    a &= \text{low} + m - l = 20 + 6 - 5 = 21 \\
+    b &= \text{high} - r + m = 22 - 7 + 6 = 21
+  \end{align*}
+  \item Poich\'e $a = b = 21$:
+  \begin{equation*}
+    \#\text{bit} = \lceil \log_2(21 - 21 + 1) \rceil = \lceil \log_2(1) \rceil = \mathbf{0 \text{ bit!}}
+  \end{equation*}
+\end{itemize}
+
+Come commentato negli appunti:
+\begin{center}
+  \textit{``We have $20, 21, 22$ so they are for free with $0$ bits.''}
+\end{center}
+L'intera terna finale viene ricostruita a costo zero, evidenziando come l'Interpolative Coding adatti dinamicamente la propria spesa di bit alla densit\`a locale dell'informazione.
+
+\FloatBarrier
+\section{Sintesi Comparativa tra Metodi di Codifica per Liste Ordinate}
+\label{sec:comparativa-metodi-liste}
+
+La Tabella~\ref{tab:confronto-schemi-liste} riassume il comportamento dei principali codici esaminati a fronte di liste di interi strettamente crescenti.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Confronto qualitativo ed architetturale dei codici per liste ordinate.}
+\label{tab:confronto-schemi-liste}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metodo} & \textbf{Approccio} & \textbf{Prerequisito} & \textbf{Comportamento su Cluster} & \textbf{Throughput di Decodifica} \\
+\midrule
+\textbf{LZ77} & Finestra / Triple & Nessuno & Dipendente da corrispondenze esatte & Medio (scansione memoria) \\
+\textbf{LZSS} & Finestra / Coppie & Nessuno & Superiore a LZ77 (evita mismatch rigidi) & Elevato (accesso diretto) \\
+\textbf{Elias $\delta$ / Rice} & Element-by-element & Monotonia (su Gap) & Spreco di bit su serie compatte (minimo 1 bit/num) & Medio (elaborazione bitwise) \\
+\textbf{PForDelta} & Blocco SIMD & Monotonia (su Gap) & Ottimizzato per eccezioni rare su $b$ bit & Altissimo (vettorizzabile) \\
+\textbf{Interpolative} & Divide et Impera & Monotonia Stretta & \textbf{Ottimo (raggiunge 0 bit per elemento)} & Medio-Basso (albero ricorsivo) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

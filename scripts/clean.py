@@ -26,7 +26,7 @@ def main() -> int:
     subjects = [
         item for item in sorted(root_dir.iterdir())
         if item.is_dir() and not item.name.startswith(".") and item.name not in ("pdf", "scripts")
-        and ((item / "main_it.tex").is_file() or (item / "main.tex").is_file())
+        and ((item / "main.tex").is_file() or (item / "main_it.tex").is_file())
     ]
 
     print(f"{COLOR_CYAN}Pulizia artefatti ausiliari LaTeX in corso...{COLOR_RESET}")

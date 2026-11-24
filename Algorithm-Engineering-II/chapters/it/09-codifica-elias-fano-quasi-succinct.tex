@@ -1,0 +1,432 @@
+\chapter{Codifica di Elias-Fano (\textit{Elias-Fano Quasi-Succinct Code})}
+\label{ch:elias-fano-code}
+
+\section{Introduzione e Motivazione Architetturale}
+\label{sec:intro-elias-fano}
+
+Nelle moderne strutture dati succinte e nei motori di ricerca su scala web, la memorizzazione compressa di liste monotone di interi (quali le liste di \textit{docID} o puntatori posizionali) pone una sfida duplice: raggiungere un tasso di compressione prossimo al limite inferiore teorico dell'informazione e, contemporaneamente, garantire primitive di navigazione casuale e ricerca a bassissima latenza.
+
+I metodi tradizionali basati su differenze (\textit{gap-coding} con Elias $\gamma, \delta$, Rice o VByte) richiedono una scansione sequenziale dal principio del blocco per ricostruire il valore assoluto di un elemento o localizzare un successore (\textit{prefix sums dependency}), degradando le prestazioni in fase di intersezione (\textit{posting lists intersection}).
+
+Introdotta indipendentemente da Peter Elias \cite{elias1975} e Robert Fano \cite{fano1971eliasfano}, e riscoperta in chiave moderna da Sebastiano Vigna \cite{vigna2013eliasfano}, la \textbf{codifica di Elias-Fano} costituisce una struttura dati quasi-succinta (\textit{quasi-succinct data structure}) fondamentale: essa rappresenta qualsiasi sequenza non decrescente di $m$ interi compresi in un universo $[0, u - 1]$ occupando uno spazio strettamente delimitato dal limite inferiore combinatorio, garantendo l'accesso posizionale in tempo costante $\mathcal{O}(1)$ e la ricerca del successore in tempo sub-logaritmico.
+
+\FloatBarrier
+\section{Definizione, Parametri e Costruzione del Codice di Elias-Fano}
+\label{sec:costruzione-elias-fano}
+
+\subsection{Parametri Fondamentali della Rappresentazione}
+\label{subsec:parametri-fondamentali-ef}
+
+Sia data una sequenza ordinata non decrescente di $m$ interi:
+\begin{equation}
+  S = \langle S[1], \, S[2], \, \dots, \, S[m] \rangle, \qquad 0 \le S[1] \le S[2] \le \dots \le S[m] < u
+\end{equation}
+I parametri architetturali del sistema vengono formalizzati come segue:
+\begin{itemize}
+  \item \textbf{Universo dei valori ($u$):} ampiezza dell'intervallo numerico in cui risiedono i dati:
+  \begin{equation}
+    u = (\max S) + 1
+  \end{equation}
+  \item \textbf{Cardinalit\`a ($m$):} numero di elementi della sequenza, con $m = |S|$;
+  \item \textbf{Lunghezza in bit della parola piena ($b$):} numero di bit necessari per esprimere qualunque elemento dell'universo in binario standard:
+  \begin{equation}
+    b = \lceil \log_2 u \rceil
+  \end{equation}
+  \item \textbf{Lunghezza della parte bassa ($l$ — \textit{Low bits}):} numero di bit meno significativi riservati per ciascun intero:
+  \begin{equation}
+    l = \left\lceil \log_2 \frac{u}{m} \right\rceil
+  \end{equation}
+  \item \textbf{Lunghezza della parte alta ($h$ — \textit{High bits}):} numero di bit pi\`u significativi di ciascun intero:
+  \begin{equation}
+    h = b - l = \lceil \log_2 u \rceil - \left\lceil \log_2 \frac{u}{m} \right\rceil
+  \end{equation}
+\end{itemize}
+
+L'idea cardine risiede nel dividere ciascun intero $x \in S$ nella concatenazione binaria dei suoi $h$ bit alti e degli $l$ bit bassi:
+\begin{equation}
+  x = \underbrace{x_{\text{high}}}_{h \text{ bit}} \;\|\; \underbrace{x_{\text{low}}}_{l \text{ bit}} = x_{\text{high}} \cdot 2^l + x_{\text{low}}
+\end{equation}
+dove $x_{\text{high}} = \lfloor x / 2^l \rfloor = x \gg l$ e $x_{\text{low}} = x \bmod 2^l = x \ \& \ (2^l - 1)$.
+
+\FloatBarrier
+\subsection{Costruzione degli Array $L$ ed $H$ sull'Esempio Principale}
+\label{subsec:costruzione-array-lh}
+
+Consideriamo la sequenza analizzata negli appunti didattici:
+\begin{equation}
+  S = \langle 0, \, 4, \, 7, \, 18, \, 24, \, 26, \, 30, \, 31 \rangle
+\end{equation}
+In questo caso:
+\begin{itemize}
+  \item $\max S = 31 \implies u = 32$;
+  \item $m = |S| = 8$;
+  \item $b = \lceil \log_2 32 \rceil = 5$ bit;
+  \item $l = \lceil \log_2(32 / 8) \rceil = \lceil \log_2 4 \rceil = 2$ bit;
+  \item $h = b - l = 5 - 2 = 3$ bit.
+\end{itemize}
+
+Ogni intero viene espresso su 5 bit binari e scomposto in $h = 3$ bit di testa e $l = 2$ bit di coda, come sintetizzato nella Tabella~\ref{tab:scomposizione-ef-principale}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Scomposizione binaria degli elementi di $S$ per la codifica di Elias-Fano.}
+\label{tab:scomposizione-ef-principale}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Indice ($i$)} & \textbf{Valore ($x$)} & \textbf{Parte Alta ($h = 3$ bit)} & \textbf{Valore Decimale $x_{\text{high}}$} & \textbf{Parte Bassa ($l = 2$ bit)} \\
+\midrule
+1 & 0  & \texttt{000} & 0 & \texttt{00} \\
+2 & 4  & \texttt{001} & 1 & \texttt{00} \\
+3 & 7  & \texttt{001} & 1 & \texttt{11} \\
+4 & 18 & \texttt{100} & 4 & \texttt{10} \\
+5 & 24 & \texttt{110} & 6 & \texttt{00} \\
+6 & 26 & \texttt{110} & 6 & \texttt{10} \\
+7 & 30 & \texttt{111} & 7 & \texttt{10} \\
+8 & 31 & \texttt{111} & 7 & \texttt{11} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\paragraph{1. Costruzione del Vettore $L$ (\textit{Low Array})}
+Il vettore $L$ \`e un array compatto di bit ottenuto concatenando in sequenza ordinata i blocchi da $l = 2$ bit meno significativi di ciascun elemento:
+\begin{equation}
+  L = \texttt{00} \;\|\; \texttt{00} \;\|\; \texttt{11} \;\|\; \texttt{10} \;\|\; \texttt{00} \;\|\; \texttt{10} \;\|\; \texttt{10} \;\|\; \texttt{11}
+\end{equation}
+La dimensione di $L$ \`e fissa e ammonta esattamente a:
+\begin{equation}
+  |L| = m \cdot l = 8 \cdot 2 = 16 \text{ bit}
+\end{equation}
+
+\paragraph{2. Costruzione del Vettore $H$ (\textit{High Array})}
+Poich\'e la parte alta consta di $h = 3$ bit, esistono $2^h = 2^3 = 8$ configurazioni possibili (dette \textit{secchielli} o \textit{bucket}), indicizzate da $0$ a $7$.
+Per ciascun bucket $c \in \{0, 1, \dots, 2^h - 1\}$:
+\begin{itemize}
+  \item Si emette un bit unitario \texttt{1} per ogni elemento di $S$ avente parte alta $x_{\text{high}} = c$;
+  \item Si emette un bit nullo \texttt{0} come terminatore e separatore del bucket $c$.
+\end{itemize}
+
+Nel nostro caso:
+\begin{itemize}
+  \item Bucket 0 (contiene 0): emette \texttt{10} (un bit \texttt{1} per l'elemento 0, pi\`u \texttt{0} separatore);
+  \item Bucket 1 (contiene 4 e 7): emette \texttt{110} (due bit \texttt{1}, pi\`u \texttt{0});
+  \item Bucket 2 (vuoto): emette \texttt{0} (nessun \texttt{1}, solo il separatore);
+  \item Bucket 3 (vuoto): emette \texttt{0};
+  \item Bucket 4 (contiene 18): emette \texttt{10};
+  \item Bucket 5 (vuoto): emette \texttt{0};
+  \item Bucket 6 (contiene 24 e 26): emette \texttt{110};
+  \item Bucket 7 (contiene 30 e 31): emette \texttt{110}.
+\end{itemize}
+
+Concatenando tutti gli 8 bucket si ricava il bitvector $H$:
+\begin{equation}
+  H = \underbrace{\texttt{10}}_{\text{Bucket 0}} \; \underbrace{\texttt{110}}_{\text{Bucket 1}} \; \underbrace{\texttt{0}}_{\text{Bucket 2}} \; \underbrace{\texttt{0}}_{\text{Bucket 3}} \; \underbrace{\texttt{10}}_{\text{Bucket 4}} \; \underbrace{\texttt{0}}_{\text{Bucket 5}} \; \underbrace{\texttt{110}}_{\text{Bucket 6}} \; \underbrace{\texttt{110}}_{\text{Bucket 7}}
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\columnwidth}{!}{%
+\begin{tikzpicture}[scale=0.9, every node/.style={transform shape}]
+  % Bucket 0
+  \draw[thick, fill=navy!15] (0,0) rectangle (1.4,1); \node at (0.7,0.5) {\texttt{10}}; \node[above, font=\scriptsize] at (0.7,1) {$c=0$};
+  % Bucket 1
+  \draw[thick, fill=darkgreen!15] (1.4,0) rectangle (3.5,1); \node at (2.45,0.5) {\texttt{110}}; \node[above, font=\scriptsize] at (2.45,1) {$c=1$};
+  % Bucket 2
+  \draw[thick, fill=codebackground] (3.5,0) rectangle (4.2,1); \node at (3.85,0.5) {\texttt{0}}; \node[above, font=\scriptsize] at (3.85,1) {$c=2$};
+  % Bucket 3
+  \draw[thick, fill=codebackground] (4.2,0) rectangle (4.9,1); \node at (4.55,0.5) {\texttt{0}}; \node[above, font=\scriptsize] at (4.55,1) {$c=3$};
+  % Bucket 4
+  \draw[thick, fill=navy!15] (4.9,0) rectangle (6.3,1); \node at (5.6,0.5) {\texttt{10}}; \node[above, font=\scriptsize] at (5.6,1) {$c=4$};
+  % Bucket 5
+  \draw[thick, fill=codebackground] (6.3,0) rectangle (7.0,1); \node at (6.65,0.5) {\texttt{0}}; \node[above, font=\scriptsize] at (6.65,1) {$c=5$};
+  % Bucket 6
+  \draw[thick, fill=darkgreen!15] (7.0,0) rectangle (9.1,1); \node at (8.05,0.5) {\texttt{110}}; \node[above, font=\scriptsize] at (8.05,1) {$c=6$};
+  % Bucket 7
+  \draw[thick, fill=darkgreen!15] (9.1,0) rectangle (11.2,1); \node at (10.15,0.5) {\texttt{110}}; \node[above, font=\scriptsize] at (10.15,1) {$c=7$};
+
+  \draw[thick, decoration={brace, mirror, raise=5pt}, decorate] (0,0) -- (11.2,0);
+  \node at (5.6,-0.8) {Bitvector $H$: $m = 8$ bit \texttt{1} e $2^h = 8$ bit \texttt{0} (Totale 16 bit)};
+\end{tikzpicture}%
+}
+\caption{Disposizione strutturata a secchielli (\textit{buckets}) del bitvector $H$.}
+\label{fig:struttura-high-array-ef}
+\end{figure}
+
+\FloatBarrier
+\subsection{Analisi dello Spazio Totale Occupato}
+\label{subsec:analisi-spazio-ef}
+
+Contiamo con precisione il numero di bit che compongono il vettore $H$:
+\begin{itemize}
+  \item Il numero di bit unitari (\texttt{1}) in $H$ \`e esattamente pari al numero di elementi memorizzati:
+  \begin{equation}
+    \#\texttt{1} \text{ in } H = m
+  \end{equation}
+  \item Il numero di bit nulli (\texttt{0}) in $H$ corrisponde al numero totale di bucket delimitati:
+  \begin{equation}
+    \#\texttt{0} \text{ in } H = 2^h
+  \end{equation}
+\end{itemize}
+Dalla definizione di $h$:
+\begin{equation}
+  h = \lceil \log_2 u \rceil - \left\lceil \log_2 \frac{u}{m} \right\rceil \le \log_2 u + 1 - \log_2 \frac{u}{m} = \log_2 m + 1 \implies 2^h \le 2m
+\end{equation}
+Pertanto, la lunghezza totale di $H$ soddisfa la maggiorazione:
+\begin{equation}
+  |H| = m + 2^h \le m + 2m = 3m \text{ bit}
+\end{equation}
+(nella scelta asintotica convenzionale in cui $l = \lfloor \log_2 (u/m) \rfloor$, si ha $2^h \le m$, per cui $|H| \le 2m$).
+
+Sommando i contributi di $L$ ed $H$, lo spazio totale consumato dalla rappresentazione di Elias-Fano risulta:
+\begin{equation}
+  \text{Spazio Totale} = |L| + |H| = m \left\lceil \log_2 \frac{u}{m} \right\rceil + 2m \text{ bit}
+\end{equation}
+
+\begin{noteblock}{Confronto con il Limite Inferiore dell'Entropia}
+Il limite inferiore teorico combinatorio per rappresentare un qualsiasi sottoinsieme ordinato di $m$ elementi distinti scelti tra $u$ possibili \`e dato da:
+\begin{equation}
+  \log_2 \binom{u}{m} \approx m \log_2 \frac{u}{m} + m \log_2 e - \mathcal{O}(\log m) \approx m \log_2 \frac{u}{m} + 1.442 m \text{ bit}
+\end{equation}
+Il codice di Elias-Fano impiega $m \lceil \log_2(u/m) \rceil + 2m$ bit: il termine moltiplicativo associato a $\log_2(u/m)$ \`e \textbf{asintoticamente ottimo} (pari a $1$), e l'unico overhead \`e rappresentato dal termine additivo $2m$ (meno di mezzo bit per elemento rispetto all'ottimo assoluto!).
+\end{noteblock}
+
+\FloatBarrier
+\section{Operazioni Supportate: Accesso e Ricerca del Successore}
+\label{sec:operazioni-elias-fano}
+
+La vera potenza della codifica di Elias-Fano risiede nel fatto che non si limita a comprimere la sequenza, ma si comporta come una struttura dati pienamente indicizzata che supporta interrogazioni dinamiche dirette senza decompressione preliminare.
+
+\FloatBarrier
+\subsection{L'Operazione $\text{Access}(i)$ in Tempo Costante $\mathcal{O}(1)$}
+\label{subsec:operazione-access}
+
+L'operazione $\text{Access}(i)$ (con $1 \le i \le m$) consente di recuperare istantaneamente il valore dell'$i$-esimo intero $S[i]$ combinando parte alta e parte bassa.
+
+\paragraph{Procedura di Estrazione}
+\begin{enumerate}
+  \item \textbf{Recupero della parte bassa da $L$:}
+  Poich\'e ciascuna parte bassa ha lunghezza costante $l$, il blocco dell'$i$-esimo intero \`e allocato esattamente nell'intervallo di indici $[(i-1)l, \, il - 1]$. L'estrazione avviene tramite bit shift in tempo $\mathcal{O}(1)$:
+  \begin{equation}
+    x_{\text{low}} = (L \gg ((i - 1) \cdot l)) \ \& \ (2^l - 1)
+  \end{equation}
+  \item \textbf{Ricostruzione della parte alta da $H$:}
+  L'operazione $\text{Select}_1(i)$ individua la posizione dell'$i$-esimo bit \texttt{1} all'interno del bitvector $H$.
+  Poich\'e all'interno di $H$ ciascun bit \texttt{0} corrisponde all'incremento unitario del valore della parte alta, il numero di zeri che precedono l'$i$-esimo \texttt{1} fornisce esattamente il valore scalare di $x_{\text{high}}$.
+  Dato che la posizione dell'$i$-esimo bit \texttt{1} \`e $\text{Select}_1(i)$ e che prima di esso compaiono esattamente $i - 1$ altri bit \texttt{1}, il numero di zeri antecedenti risulta:
+  \begin{equation}
+    x_{\text{high}} = \text{Select}_1(i) - i
+  \end{equation}
+  \item \textbf{Composizione del Risultato:}
+  \begin{equation}
+    S[i] = (x_{\text{high}} \ll l) \,|\, x_{\text{low}}
+  \end{equation}
+\end{enumerate}
+
+\begin{property}[Complessit\`a di $\text{Access}(i)$]
+Impiegando una struttura succinta per l'operazione di $\text{Select}_1$ (come la struttura di Clark-Jacobson \cite{jacobson1989}), che richiede uno spazio addizionale sublineare pari a soli $o(m)$ bit, l'operazione $\text{Select}_1(i)$ e, conseguentemente, l'accesso posizionale $\text{Access}(i)$ vengono eseguiti in \textbf{tempo costante $\mathcal{O}(1)$}.
+\end{property}
+
+\FloatBarrier
+\subsection{L'Operazione $\text{Next\_GEQ}(x)$ (Successore / \textit{Next Greater or Equal})}
+\label{subsec:operazione-next-geq}
+
+Nei motori di ricerca, l'intersezione efficiente di liste invertite tramite algoritmi \textit{Galloping Search} o \textit{WAND} richiede frequentemente di identificare il pi\`u piccolo elemento della lista maggiore o uguale a una certa soglia $x$:
+\begin{equation}
+  \text{Next\_GEQ}(x) = \min \{ y \in S \mid y \ge x \}
+\end{equation}
+
+Siano $x_{\text{high}} = \lfloor x / 2^l \rfloor$ e $x_{\text{low}} = x \bmod 2^l$.
+
+\paragraph{Algoritmo di Ricerca}
+\begin{enumerate}
+  \item \textbf{Localizzazione del Bucket:} Il bucket corrispondente al valore $x_{\text{high}}$ si trova immediatamente dopo la fine dei primi $x_{\text{high}}$ bucket, ovvero subito dopo l'$x_{\text{high}}$-esimo bit \texttt{0} di $H$. La sua posizione iniziale \`e quindi:
+  \begin{equation}
+    p = \text{Select}_0(x_{\text{high}}) + 1 \qquad (\text{ponendo convenzionalmente } \text{Select}_0(0) = 0)
+  \end{equation}
+  \item \textbf{Identificazione del Rango del Primo Candidato:} Fino alla posizione $p - 1$ sono comparsi esattamente $x_{\text{high}}$ zeri. Di conseguenza, il numero totale di bit \texttt{1} presenti a sinistra di $p$ \`e $(p - 1) - x_{\text{high}}$. L'indice ordinale del primo elemento candidato in $S$ \`e pertanto:
+  \begin{equation}
+    i = p - x_{\text{high}}
+  \end{equation}
+  \item \textbf{Scansione Sequenziale o Ricerca Binaria:} Si esamina $y = \text{Access}(i)$:
+  \begin{itemize}
+    \item Se $y \ge x$, l'elemento cercato \`e stato trovato e viene restituito immediatamente;
+    \item Altrimenti, si incrementa $i \leftarrow i + 1$ finch\'e $y \ge x$.
+  \end{itemize}
+\end{enumerate}
+
+Lo schema procedurale per $\text{Next\_GEQ}(x)$ \`e formalizzato nell'Algoritmo~\ref{alg:elias-fano-next-geq}.
+
+\begin{algorithm}[H]
+\caption{Calcolo del Successore $\text{Next\_GEQ}(x)$ in Elias-Fano}
+\label{alg:elias-fano-next-geq}
+\KwInput{Valore soglia $x \in [0, u - 1]$, parametro $l$, vettori $H$ ed $L$}
+\KwOutput{Il minimo elemento $y \in S$ tale che $y \ge x$}
+\BlankLine
+$x_{\text{high}} \leftarrow x \gg l$\tcp*{Valore intero degli $h$ bit più significativi di $x$}
+$p \leftarrow \text{Select}_0(H, \, x_{\text{high}}) + 1$\tcp*{Inizio del bucket in $H$ per la configurazione $x_{\text{high}}$}
+$i \leftarrow p - x_{\text{high}}$\tcp*{Rango del primo elemento con parte alta $\ge x_{\text{high}}$}
+\Repeat{$y \ge x$}{
+  $y \leftarrow \text{Access}(i)$\;
+  $i \leftarrow i + 1$\;
+}
+\Return{$y$}\;
+\end{algorithm}
+
+\begin{example}[Traccia di Esecuzione di $\text{Next\_GEQ}(21)$]
+Applichiamo $\text{Next\_GEQ}(21)$ alla sequenza $S = \langle 0, 4, 7, 18, 24, 26, 30, 31 \rangle$ ($h = 3, l = 2$):
+\begin{itemize}
+  \item Rappresentazione binaria di $x = 21$ su 5 bit: $21_{10} = \texttt{10101}_2$.
+  \item Parte alta: $x_{\text{high}} = \texttt{101}_2 = 5$; parte bassa: $x_{\text{low}} = \texttt{01}_2 = 1$.
+  \item Calcolo di $p$: Cerchiamo il 5-esimo \texttt{0} nel vettore:
+  \begin{equation*}
+    H = \texttt{1} \mathbf{0} \, \texttt{11} \mathbf{0} \, \mathbf{0} \, \mathbf{0} \, \texttt{1} \mathbf{0} \, \texttt{0} \, \texttt{110} \, \texttt{110}
+  \end{equation*}
+  Il quinto \texttt{0} (fine del bucket 4) si trova in posizione $9$ (1-based).
+  Dunque l'inizio del bucket 5 \`e a posizione $p = 9 + 1 = 10$.
+  \item Calcolo del primo indice candidato:
+  \begin{equation*}
+    i = p - x_{\text{high}} = 10 - 5 = 5
+  \end{equation*}
+  \item Chiamata di verifica: invochiamo $\text{Access}(5)$, che restituisce il valore $S[5] = 24$.
+  \item Poich\'e $24 \ge 21$, la condizione di arresto \`e soddisfatta al primo tentativo:
+  \begin{equation*}
+    \text{Next\_GEQ}(21) = 24
+  \end{equation*}
+\end{itemize}
+\end{example}
+
+\FloatBarrier
+\subsection{Teorema Fondamentale sulle Prestazioni di Elias-Fano}
+\label{subsec:teorema-elias-fano}
+
+\begin{theorem}[Prestazioni di Spazio e Tempo della Codifica di Elias-Fano]
+Sia $S$ una sequenza non decrescente di $m$ interi positivi appartenenti all'intervallo $[0, u - 1]$. La struttura dati di Elias-Fano con dizionari succinti ausiliari garantisce:
+\begin{enumerate}
+  \item \textbf{Occupazione di Spazio:}
+  \begin{equation}
+    2m + m \left\lceil \log_2 \frac{u}{m} \right\rceil + o(m) \text{ bit}
+  \end{equation}
+  \item \textbf{Tempo di Accesso Posizionale:} $\text{Access}(i)$ in tempo costante $\mathcal{O}(1)$;
+  \item \textbf{Tempo di Ricerca del Successore:} $\text{Next\_GEQ}(x)$ in tempo:
+  \begin{equation}
+    \mathcal{O}\left( \log \frac{u}{m} \right)
+  \end{equation}
+  implementabile mediante ricerca binaria sui bit bassi all'interno del medesimo bucket.
+\end{enumerate}
+\end{theorem}
+
+\FloatBarrier
+\section{Esercizio Svolto Completo su Costruzione, Accesso e Successore}
+\label{sec:esercizio-svolto-elias-fano}
+
+Concludiamo il capitolo analizzando dettagliatamente l'esercizio d'esame svolto negli appunti didattici.
+
+\begin{example}[Esercizio d'Esame su Elias-Fano]
+Data la sequenza ordinata di interi:
+\begin{equation}
+  S = \langle 0, \, 4, \, 6, \, 7, \, 8 \rangle
+\end{equation}
+si richiede di:
+\begin{enumerate}
+  \item Determinare tutti i parametri architetturali del codice di Elias-Fano ($u, m, b, l, h$);
+  \item Costruire i bitvector $L$ ed $H$;
+  \item Mostrare passo-passo l'esecuzione di $\text{Access}(3)$;
+  \item Mostrare passo-passo l'esecuzione di $\text{Next\_GEQ}(2)$.
+\end{enumerate}
+\end{example}
+
+\paragraph{Passo 1: Determinazione dei Parametri}
+\begin{itemize}
+  \item $\max S = 8 \implies u = 8 + 1 = 9$;
+  \item Cardinalit\`a: $m = |S| = 5$;
+  \item Lunghezza parola piena: $b = \lceil \log_2 u \rceil = \lceil \log_2 9 \rceil = 4$ bit;
+  \item Lunghezza parte bassa:
+  \begin{equation*}
+    l = \left\lceil \log_2 \frac{u}{m} \right\rceil = \left\lceil \log_2 \frac{9}{5} \right\rceil = \lceil \log_2(1.8) \rceil = 1 \text{ bit}
+  \end{equation*}
+  \item Lunghezza parte alta: $h = b - l = 4 - 1 = 3$ bit.
+\end{itemize}
+
+\paragraph{Passo 2: Scomposizione e Costruzione dei Vettori $L$ ed $H$}
+Ciascun elemento viene espresso su 4 bit ($h = 3$ bit alti, $l = 1$ bit basso):
+\begin{itemize}
+  \item $S[1] = 0 = \texttt{0000}_2 \implies \text{High: } \texttt{000}_2 = 0, \quad \text{Low: } \texttt{0}_2$;
+  \item $S[2] = 4 = \texttt{0100}_2 \implies \text{High: } \texttt{010}_2 = 2, \quad \text{Low: } \texttt{0}_2$;
+  \item $S[3] = 6 = \texttt{0110}_2 \implies \text{High: } \texttt{011}_2 = 3, \quad \text{Low: } \texttt{0}_2$;
+  \item $S[4] = 7 = \texttt{0111}_2 \implies \text{High: } \texttt{011}_2 = 3, \quad \text{Low: } \texttt{1}_2$;
+  \item $S[5] = 8 = \texttt{1000}_2 \implies \text{High: } \texttt{100}_2 = 4, \quad \text{Low: } \texttt{0}_2$.
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Vettore $L$ ($m \cdot l = 5$ bit):}
+  \begin{equation}
+    L = \texttt{0} \;\|\; \texttt{0} \;\|\; \texttt{0} \;\|\; \texttt{1} \;\|\; \texttt{0} = \texttt{00010}
+  \end{equation}
+  \item \textbf{Vettore $H$ ($2^h = 8$ bucket da 0 a 7):}
+  \begin{itemize}
+    \item Bucket 0 (contiene 0): \texttt{10}
+    \item Bucket 1 (vuoto): \texttt{0}
+    \item Bucket 2 (contiene 4): \texttt{10}
+    \item Bucket 3 (contiene 6 e 7): \texttt{110}
+    \item Bucket 4 (contiene 8): \texttt{10}
+    \item Bucket 5 (vuoto): \texttt{0}
+    \item Bucket 6 (vuoto): \texttt{0}
+    \item Bucket 7 (vuoto): \texttt{0}
+  \end{itemize}
+  Concatenando:
+  \begin{equation}
+    H = \underbrace{\texttt{10}}_{0} \; \underbrace{\texttt{0}}_{1} \; \underbrace{\texttt{10}}_{2} \; \underbrace{\texttt{110}}_{3} \; \underbrace{\texttt{10}}_{4} \; \underbrace{\texttt{0}}_{5} \; \underbrace{\texttt{0}}_{6} \; \underbrace{\texttt{0}}_{7}
+  \end{equation}
+  Si noti che $H$ contiene esattamente 5 bit \texttt{1} e 8 bit \texttt{0} (lunghezza 13 bit).
+\end{enumerate}
+
+\paragraph{Passo 3: Esecuzione di $\text{Access}(3)$}
+Vogliamo recuperare il valore dell'elemento all'indice $i = 3$:
+\begin{enumerate}
+  \item Cerchiamo in $H = \texttt{10010110...}$ la posizione del terzo bit \texttt{1}:
+  \begin{itemize}
+    \item 1° \texttt{1} a posizione 1;
+    \item 2° \texttt{1} a posizione 4;
+    \item 3° \texttt{1} a posizione 6 $\implies \text{Select}_1(3) = 6$.
+  \end{itemize}
+  \item Calcoliamo il valore della parte alta:
+  \begin{equation*}
+    x_{\text{high}} = \text{Select}_1(3) - 3 = 6 - 3 = 3
+  \end{equation*}
+  Rappresentato su $h = 3$ bit \`e $\texttt{011}_2$.
+  \item Estraiamo il terzo blocco da $l = 1$ bit dal vettore $L = \texttt{00010}$:
+  \begin{equation*}
+    x_{\text{low}} = L[3] = \texttt{0}_2
+  \end{equation*}
+  \item Unendo parte alta e parte bassa:
+  \begin{equation*}
+    S[3] = \texttt{011} \,\|\, \texttt{0} = \texttt{0110}_2 = 6
+  \end{equation*}
+  Il valore estratto coincide perfettamente con $S[3] = 6$.
+\end{enumerate}
+
+\paragraph{Passo 4: Esecuzione di $\text{Next\_GEQ}(2)$}
+Vogliamo identificare il pi\`u piccolo elemento $y \in S$ tale che $y \ge 2$:
+\begin{enumerate}
+  \item Scomposizione di $x = 2$ su 4 bit: $2 = \texttt{0010}_2$, da cui:
+  \begin{equation*}
+    x_{\text{high}} = \texttt{001}_2 = 1, \qquad x_{\text{low}} = \texttt{0}_2 = 0
+  \end{equation*}
+  \item Calcolo della posizione iniziale del bucket $x_{\text{high}} = 1$:
+  Cerchiamo il primo zero in $H$: il 1° \texttt{0} \`e a posizione 2 ($\text{Select}_0(1) = 2$).
+  Dunque:
+  \begin{equation*}
+    p = \text{Select}_0(1) + 1 = 2 + 1 = 3
+  \end{equation*}
+  \item Determinazione dell'indice del primo candidato:
+  \begin{equation*}
+    i = p - x_{\text{high}} = 3 - 1 = 2
+  \end{equation*}
+  \item Chiamata di verifica:
+  \begin{equation*}
+    y = \text{Access}(2) = 4
+  \end{equation*}
+  Poich\'e $4 \ge 2$, l'algoritmo termina immediatamente restituendo $y = 4$.
+\end{enumerate}
