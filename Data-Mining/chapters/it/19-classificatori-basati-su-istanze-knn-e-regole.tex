@@ -1,0 +1,686 @@
+\chapter{Classificatori Basati su Istanze (\texorpdfstring{$K$-NN}{K-NN}) e Classificatori Basati su Regole}
+\label{ch:dm-knn-rule-based}
+
+\section{Classificatori Basati su Istanze e \texorpdfstring{$K$-NN}{K-NN}}
+\label{sec:dm-knn-intro}
+
+A differenza dei paradigmi di apprendimento tradizionali che estraggono dai dati di addestramento una rappresentazione astratta (come un albero di decisione o un insieme di regole), un \textbf{classificatore basato su istanze} (\textit{instance-based classifier}) non effettua alcuna generalizzazione esplicita durante la fase di training~\cite{tan2018}. Al contrario, esso memorizza direttamente gli esempi di addestramento e, nel momento in cui deve classificare una nuova istanza (record di test), la confronta direttamente con le istanze precedentemente osservate e conservate in memoria. Proprio per questa caratteristica architetturale, tale paradigma prende anche il nome di \textbf{memory-based learning} (\textit{apprendimento basato sulla memoria}).
+
+Questa impostazione comporta vantaggi e svantaggi strutturali ben precisi:
+\begin{itemize}
+    \item \textbf{Vantaggi (Flessibilit\`a e adattabilit\`a incrementale):} il modello \`e in grado di adattarsi con estrema facilit\`a a nuovi dati mai osservati in precedenza; per aggiornare la conoscenza del sistema \`e sufficiente inserire una nuova istanza in memoria oppure eliminare un'istanza obsoleta, senza dover riaddestrare da zero un modello globale.
+    \item \textbf{Svantaggi (Natura \textit{lazy} e costo computazionale in fase di test):}
+    \begin{itemize}
+        \item Si tratta di un \textbf{lazy learner} (\textit{apprenditore pigro}), poich\'e non costruisce esplicitamente alcun modello durante la fase di addestramento.
+        \item La classificazione di record sconosciuti risulta computazionalmente onerosa: nel caso peggiore, dato un insieme di addestramento composto da $n$ elementi memorizzati, la complessit\`a temporale necessaria per classificare una singola istanza di test \`e pari a $\BigO{n}$, poich\'e occorre calcolare la distanza tra il record di test e ciascuno degli $n$ record di training.
+    \end{itemize}
+\end{itemize}
+
+\FloatBarrier
+\subsection{Principio del Nearest-Neighbor e Requisiti Fondamentali}
+\label{subsec:dm-knn-principle}
+
+Il classificatore \textbf{$K$-Nearest Neighbor ($K$-NN)} rappresenta l'incarnazione pi\`u nota dell'apprendimento basato su istanze~\cite{tan2018}. L'idea intuitiva alla base dell'algoritmo \`e riassunta dal cosiddetto principio del test dell'anatra (\textit{duck test}): \textit{``If it walks like a duck, quacks like a duck, then it's probably a duck''}. Trasposto nel dominio della classificazione, ci\`o significa che un record di test sconosciuto tender\`a ad appartenere alla stessa classe dei record di addestramento che risultano ad esso pi\`u simili (ovvero pi\`u vicini nello spazio degli attributi).
+
+Affinch\'e un classificatore $K$-NN possa operare, sono indispensabili \textbf{tre elementi fondamentali}:
+\begin{enumerate}
+    \item Un \textbf{training set} $\mathcal{D}$ di record etichettati memorizzati in memoria.
+    \item Una \textbf{metrica di distanza} (\textit{distance metric}) $d(\cdot, \cdot)$ che consenta di quantificare la distanza (o la prossimit\`a) tra qualsiasi coppia di record.
+    \item Il \textbf{valore di $k \in \N^+$}, ossia il numero intero di vicini pi\`u prossimi (\textit{nearest neighbors}) da recuperare per effettuare la classificazione.
+\end{enumerate}
+
+\begin{definition}[$k$-Nearest Neighbors]
+Dato un insieme di addestramento $\mathcal{D} = \{(\mathbf{x}_i, y_i)\}_{i=1}^N \subset \R^d \times \mathcal{Y}$ e un record di test $\mathbf{x}'$, i \textbf{$k$-nearest neighbors} ($k$ vicini pi\`u prossimi) di $\mathbf{x}'$ sono i $k$ punti dati appartenenti a $\mathcal{D}$ che presentano le $k$ distanze $d(\mathbf{x}', \mathbf{x}_i)$ pi\`u piccole rispetto a $\mathbf{x}'$.
+\end{definition}
+
+Dal punto di vista procedurale, dato $\mathcal{D}$ e un record di test $z = (\mathbf{x}', y')$ da classificare, il classificatore $K$-NN esegue tre passi sequenziali: calcola le distanze tra tutti i record di $\mathcal{D}$ e $\mathbf{x}'$, identifica il sottoinsieme $\mathcal{D}_z \subseteq \mathcal{D}$ dei $k$ record pi\`u vicini ($\abs{\mathcal{D}_z} = k$) e utilizza le etichette di classe dei $k$ vicini per determinare la classe predetta $y'$ (ad esempio tramite votazione a maggioranza). L'Algoritmo~\ref{alg:dm-knn} formalizza tale procedimento.
+
+\begin{algorithm}[H]
+\caption{Classificatore $k$-Nearest Neighbor ($K$-NN)}
+\label{alg:dm-knn}
+\KwInput{Numero di vicini $k$; insieme di addestramento $\mathcal{D} = \{(\mathbf{x}_i, y_i)\}_{i=1}^N$; insieme di test $\mathcal{D}_{\text{test}}$.}
+\KwOutput{Etichetta di classe predetta $y'$ per ogni istanza di test $z = (\mathbf{x}', y') \in \mathcal{D}_{\text{test}}$.}
+\ForEach{esempio di test $z = (\mathbf{x}', y') \in \mathcal{D}_{\text{test}}$}{
+    Calcolare la distanza $d(\mathbf{x}', \mathbf{x})$ tra $\mathbf{x}'$ e ogni esempio $(\mathbf{x}, y) \in \mathcal{D}$\;
+    Selezionare $\mathcal{D}_z \subseteq \mathcal{D}$, l'insieme dei $k$ esempi di addestramento pi\`u vicini a $z$\;
+    $y' \leftarrow \arg\max_{v} \sum_{(\mathbf{x}_i, y_i) \in \mathcal{D}_z} I(v = y_i)$\;
+}
+\end{algorithm}
+
+Nella regola di decisione al passo 4 dell'Algoritmo~\ref{alg:dm-knn}, la funzione indicatrice $I(v = y_i)$ assume valore $1$ se l'etichetta $y_i$ dell'$i$-esimo vicino coincide con la classe candidata $v \in \mathcal{Y}$, e valore $0$ altrimenti. La sommatoria $\sum_{(\mathbf{x}_i, y_i) \in \mathcal{D}_z} I(v = y_i)$ conteggia dunque il numero totale di vicini in $\mathcal{D}_z$ appartenenti alla classe $v$, mentre l'operatore $\arg\max_v$ restituisce la classe che massimizza tale conteggio (voto di maggioranza semplice).
+
+\FloatBarrier
+\subsection{Sensibilit\`a al Parametro \texorpdfstring{$k$}{k}, Rumore e Overfitting}
+\label{subsec:dm-knn-k-choice}
+
+La classe predetta per una medesima istanza di test dipende direttamente dalla scelta dell'iperparametro $k$. La \autoref{fig:dm-knn-sensitivity} illustra tale sensibilit\`a su un piano bidimensionale con la stessa disposizione di punti di training (`$+$' e `$-$') e lo stesso punto di test `$\times$':
+\begin{itemize}
+    \item \textbf{Caso (a) --- $k = 1$:} la circonferenza pi\`u piccola racchiude esclusivamente il singolo punto pi\`u vicino, di classe `$-$'. Il punto `$\times$' viene classificato come `$-$'.
+    \item \textbf{Caso (b) --- $k = 2$:} ampliando l'intorno per includere i 2 vicini pi\`u prossimi, vengono catturati un punto `$-$' e un punto `$+$'. Si verifica una situazione di \textbf{parit\`a} ($1$ voto per `$-$' contro $1$ voto per `$+$'), evidenziando come valori pari di $k$ nella classificazione binaria possano generare ambiguit\`a decisionali.
+    \item \textbf{Caso (c) --- $k = 3$:} allargando ulteriormente il raggio, l'intorno ingloba due punti `$+$' e un solo punto `$-$'. Applicando il voto di maggioranza ($2$ contro $1$), la classificazione di `$\times$' si ribalta e diventa `$+$'.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    plus/.style={font=\bfseries\small, color=navy},
+    minus/.style={font=\bfseries\small, color=crimson},
+    testpt/.style={font=\bfseries\small, color=darkgreen}
+]
+    % Pannello (a) k=1
+    \begin{scope}[shift={(0,0)}]
+        \draw[gray!40, thin] (-0.2,-0.2) rectangle (3.6,3.4);
+        \node[minus] at (1.5,1.9) {$-$};
+        \node[minus] at (0.6,2.7) {$-$};
+        \node[minus] at (0.9,0.7) {$-$};
+        \node[plus]  at (2.3,1.5) {$+$};
+        \node[plus]  at (2.5,2.2) {$+$};
+        \node[plus]  at (2.8,0.8) {$+$};
+        \node[testpt] (x1) at (1.8,1.7) {$\times$};
+        \draw[dashed, darkgreen, line width=0.9pt] (1.8,1.7) circle (0.45);
+        \node[font=\footnotesize\bfseries, align=center] at (1.7,-0.6) {(a) $1$-NN $\Rightarrow$ Classe $-$};
+    \end{scope}
+
+    % Pannello (b) k=2
+    \begin{scope}[shift={(4.4,0)}]
+        \draw[gray!40, thin] (-0.2,-0.2) rectangle (3.6,3.4);
+        \node[minus] at (1.5,1.9) {$-$};
+        \node[minus] at (0.6,2.7) {$-$};
+        \node[minus] at (0.9,0.7) {$-$};
+        \node[plus]  at (2.3,1.5) {$+$};
+        \node[plus]  at (2.5,2.2) {$+$};
+        \node[plus]  at (2.8,0.8) {$+$};
+        \node[testpt] (x2) at (1.8,1.7) {$\times$};
+        \draw[dashed, darkgreen, line width=0.9pt] (1.8,1.7) circle (0.65);
+        \node[font=\footnotesize\bfseries, align=center] at (1.7,-0.6) {(b) $2$-NN $\Rightarrow$ Parit\`a ($1+$, $1-$)};
+    \end{scope}
+
+    % Pannello (c) k=3
+    \begin{scope}[shift={(8.8,0)}]
+        \draw[gray!40, thin] (-0.2,-0.2) rectangle (3.6,3.4);
+        \node[minus] at (1.5,1.9) {$-$};
+        \node[minus] at (0.6,2.7) {$-$};
+        \node[minus] at (0.9,0.7) {$-$};
+        \node[plus]  at (2.3,1.5) {$+$};
+        \node[plus]  at (2.5,2.2) {$+$};
+        \node[plus]  at (2.8,0.8) {$+$};
+        \node[testpt] (x3) at (1.8,1.7) {$\times$};
+        \draw[dashed, darkgreen, line width=0.9pt] (1.8,1.7) circle (0.95);
+        \node[font=\footnotesize\bfseries, align=center] at (1.7,-0.6) {(c) $3$-NN $\Rightarrow$ Classe $+$};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Sensibilit\`a della classificazione $K$-NN al variare di $k$: la medesima istanza di test $\times$ riceve assegnazioni differenti per $k=1, 2, 3$.}
+\label{fig:dm-knn-sensitivity}
+\end{figure}
+
+La selezione del valore appropriato di $k$ governa il compromesso tra sensibilit\`a al rumore locale e capacit\`a di generalizzazione:
+\begin{itemize}
+    \item \textbf{Se $k$ \`e troppo piccolo:} il classificatore risulta eccessivamente sensibile ai punti rumorosi (\textit{noise points} o outlier) presenti nel training set, con il concreto rischio di incorrere in \textbf{overfitting}.
+    \item \textbf{Se $k$ \`e troppo grande:} l'intorno considerato si espande eccessivamente nello spazio delle caratteristiche, finendo per includere punti appartenenti ad altre classi e degradando l'accuratezza locale. Come mostrato nella \autoref{fig:dm-knn-large-k}, un punto di test situato al centro di un piccolo cluster compatto di istanze `$+$' circondato da molte istanze `$-$' verrebbe erroneamente classificato come `$-$' se $k$ fosse abbastanza grande da inglobare l'anello esterno.
+    \item \textbf{Regola pratica:} nella pratica comune si adotta spesso l'euristica $k = \sqrt{N}$, dove $N$ indica il numero totale di campioni presenti nel dataset di addestramento.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    plus/.style={font=\bfseries\small, color=navy},
+    minus/.style={font=\bfseries\small, color=crimson},
+    testpt/.style={font=\bfseries\normalsize, color=darkgreen}
+]
+    \draw[gray!40, thin] (-2.8,-2.4) rectangle (2.8,2.4);
+    % Cluster centrale di 5 punti +
+    \node[plus] at (-0.35, 0.30) {$+$};
+    \node[plus] at ( 0.35, 0.30) {$+$};
+    \node[plus] at (-0.30,-0.35) {$+$};
+    \node[plus] at ( 0.35,-0.30) {$+$};
+    \node[plus] at ( 0.00, 0.45) {$+$};
+    % Punto di test centrale
+    \node[testpt] at (0,0) {$\times$};
+
+    % Anello di punti - circostanti
+    \foreach \angle in {0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330} {
+        \node[minus] at ({\angle}:1.35) {$-$};
+    }
+    \node[minus] at (15:1.75) {$-$};
+    \node[minus] at (135:1.75) {$-$};
+    \node[minus] at (255:1.75) {$-$};
+
+    % Punti + esterni
+    \node[plus] at (-2.3, 1.9) {$+$};
+    \node[plus] at ( 2.3, 1.9) {$+$};
+    \node[plus] at (-2.3,-1.9) {$+$};
+    \node[plus] at ( 2.3,-1.9) {$+$};
+
+    % Cerchio tratteggiato rosso (k troppo grande)
+    \draw[dashed, crimson, line width=1.1pt] (0,0) circle (1.95);
+    \node[anchor=south, font=\footnotesize\color{crimson}] at (0,2.0) {Intorno con $k$ troppo grande ($15\text{ vs }5$)};
+\end{tikzpicture}
+\caption{Effetto negativo di un valore di $k$ eccessivo: l'intorno del punto di test $\times$ ingloba le istanze `$-$' circostanti, ribaltando il voto del micro-cluster centrale `$+$'.}
+\label{fig:dm-knn-large-k}
+\end{figure}
+
+\FloatBarrier
+\subsection{Metriche di Distanza e Voto Pesato sulla Distanza}
+\label{subsec:dm-knn-distance-weighting}
+
+Per attributi continui, la misura standard utilizzata per quantificare la prossimit\`a tra due punti $\mathbf{p} = (p_1, p_2, \dots, p_m)$ e $\mathbf{q} = (q_1, q_2, \dots, q_m)$ \`e la \textbf{distanza Euclidea}:
+\begin{equation}
+    d(\mathbf{p}, \mathbf{q}) = \sqrt{\sum_{i=1}^{m} (p_i - q_i)^2}
+\end{equation}
+dove $p_i$ e $q_i$ denotano i valori dell'$i$-esimo attributo per i record $\mathbf{p}$ e $\mathbf{q}$.
+
+Una volta estratti i $k$ vicini pi\`u prossimi $\mathcal{D}_z$, esistono due principali strategie per aggregarne le etichette:
+\begin{enumerate}
+    \item \textbf{Voto di maggioranza semplice (\textit{Majority vote}):} assegna al record di test l'etichetta di classe pi\`u frequente in $\mathcal{D}_z$, attribuendo a ciascun vicino lo stesso identico peso unitario indipendentemente dalla sua effettiva distanza da $\mathbf{x}'$.
+    \item \textbf{Voto pesato sulla distanza (\textit{Distance-Weighted Voting}):} per evitare che vicini relativamente lontani (ai margini dell'intorno) abbiano la stessa influenza di vicini estremamente prossimi al punto di test, si pesa il voto di ciascun vicino in modo inversamente proporzionale al quadrato della sua distanza dal punto di test:
+    \begin{equation}
+        w_i = \frac{1}{d(\mathbf{x}', \mathbf{x}_i)^2}
+    \end{equation}
+    La regola decisionale formalizzata diventa quindi:
+    \begin{equation}
+        y' = \arg\max_{v} \sum_{(\mathbf{x}_i, y_i) \in \mathcal{D}_z} w_i \cdot I(v = y_i)
+    \end{equation}
+    Pi\`u $d(\mathbf{x}', \mathbf{x}_i)$ \`e piccola, pi\`u il peso $w_i$ cresce rapidamente; per ciascuna classe candidata $v$, si sommano i pesi dei soli vicini di classe $v$ e si seleziona la classe con somma ponderata massima.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Maledizione della Dimensionalit\`a, Normalizzazione e Scalatura degli Attributi}
+\label{subsec:dm-knn-scaling}
+
+L'impiego diretto della distanza Euclidea su dati reali presenta due criticit\`a metodologiche rilevanti:
+\begin{enumerate}
+    \item \textbf{Maledizione della dimensionalit\`a (\textit{Curse of Dimensionality}) e normalizzazione unitaria:} in spazi ad elevata dimensionalit\`a, i dati diventano fortemente sparsi e la distanza Euclidea perde potere discriminante. Una soluzione comune consiste nel normalizzare i vettori delle istanze affinch\'e abbiano \textbf{lunghezza unitaria} (\textit{unit length}), dividendo ciascuna componente per la norma Euclidea $\norm{\mathbf{v}}$. Ad esempio, dato il vettore bidimensionale $\mathbf{v} = (3, 4)$:
+    \begin{equation}
+        \norm{\mathbf{v}} = \sqrt{3^2 + 4^2} = \sqrt{25} = 5 \implies \hat{\mathbf{v}} = \frac{\mathbf{v}}{\norm{\mathbf{v}}} = \left(\frac{3}{5}, \frac{4}{5}\right) = (0.6, 0.8)
+    \end{equation}
+    verificando che $\norm{\hat{\mathbf{v}}} = \sqrt{0.6^2 + 0.8^2} = \sqrt{0.36 + 0.64} = 1$.
+    \item \textbf{Scalatura degli attributi (\textit{Attribute Scaling}):} se gli attributi di un dataset sono espressi in unit\`a di misura con scale numeriche molto diverse, la formula della distanza Euclidea verr\`a completamente dominata dagli attributi con l'intervallo di variazione pi\`u ampio. Si considerino tre attributi descrittivi di una persona:
+    \begin{itemize}
+        \item \textit{Altezza}: varia tra $1.5\text{ m}$ e $1.8\text{ m}$ (escursione $0.3$);
+        \item \textit{Peso}: varia tra $10\text{ kg}$ e $200\text{ kg}$ (escursione $190$);
+        \item \textit{Reddito}: varia tra $\$10\text{K}$ e $\$1\text{M}$ (escursione $\$990\,000$).
+    \end{itemize}
+    Senza una preventiva standardizzazione o normalizzazione Min-Max, una minima variazione nel reddito sovrasterebbe interamente le differenze in peso e altezza.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Attributi Nominali: PEBLS e Modified Value Difference Metric (MVDM)}
+\label{subsec:dm-knn-mvdm}
+
+Quando il dataset contiene attributi categorici o simbolici (nominali), la distanza Euclidea non \`e direttamente applicabile. Il sistema \textbf{PEBLS} (\textit{Parallel Exemplar-Based Learning System})~\cite{cost1993} \`e un classificatore nearest-neighbor basato su $k = 1$ progettato specificamente per domini con attributi simbolici (pur operando anche su attributi continui).
+
+Per gli attributi nominali, la distanza tra due valori distinti $V_1$ e $V_2$ dello stesso attributo viene calcolata mediante la \textbf{Modified Value Difference Metric (MVDM)}:
+\begin{equation}
+    d(V_1, V_2) = \sum_{i} \abs{ \frac{n_{1i}}{n_1} - \frac{n_{2i}}{n_2} }
+\end{equation}
+dove $n_1$ e $n_2$ rappresentano il numero totale di record nel training set che possiedono rispettivamente i valori $V_1$ e $V_2$, mentre $n_{1i}$ e $n_{2i}$ indicano quanti di questi appartengono alla classe target $i$. I rapporti $n_{1i}/n_1$ e $n_{2i}/n_2$ corrispondono quindi alle distribuzioni di probabilit\`a condizionata delle classi dato il valore dell'attributo: due valori nominali hanno distanza MVDM nulla se e solo se inducono esattamente la stessa distribuzione sulle classi target.
+
+\begin{example}[Calcolo della distanza MVDM sul dataset fiscale]
+Si applichi la metrica MVDM al dataset di $10$ record riportato nella \autoref{tab:dm-knn-tax-dataset} per calcolare le distanze tra i valori degli attributi nominali \texttt{Marital Status} e \texttt{Refund} rispetto alla classe target \texttt{Cheat} $\in \{\text{Yes}, \text{No}\}$.
+
+\begin{table}[H]
+\centering
+\caption{Dataset fiscale di riferimento ($N = 10$) per il calcolo delle distanze MVDM.}
+\label{tab:dm-knn-tax-dataset}
+\small
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Tid} & \textbf{Refund} & \textbf{Marital Status} & \textbf{Taxable Income} & \textbf{Cheat (Class)} \\
+\midrule
+1  & Yes & Single   & 125K & No \\
+2  & No  & Married  & 100K & No \\
+3  & No  & Single   & 70K  & No \\
+4  & Yes & Married  & 120K & No \\
+5  & No  & Divorced & 95K  & Yes \\
+6  & No  & Married  & 60K  & No \\
+7  & Yes & Divorced & 220K & No \\
+8  & No  & Single   & 85K  & Yes \\
+9  & No  & Married  & 75K  & No \\
+10 & No  & Single   & 90K  & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dalla tabella dei dati si costruiscono le due tabelle di contingenza (\autoref{tab:dm-mvdm-contingency}):
+
+\begin{table}[H]
+\centering
+\caption{Tabelle di contingenza per \texttt{Marital Status} e \texttt{Refund} rispetto alla classe \texttt{Cheat}.}
+\label{tab:dm-mvdm-contingency}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc@{\hspace{1.2cm}}lccc}
+\toprule
+\textbf{Class} & \textbf{Single} & \textbf{Married} & \textbf{Divorced} & \textbf{Class} & \textbf{Yes} & \textbf{No} & \\
+\midrule
+Yes & $2$ & $0$ & $1$ & Yes & $0$ & $3$ & \\
+No  & $2$ & $4$ & $1$ & No  & $3$ & $4$ & \\
+\midrule
+\textbf{Totale ($n_k$)} & $\mathbf{4}$ & $\mathbf{4}$ & $\mathbf{2}$ & \textbf{Totale ($n_k$)} & $\mathbf{3}$ & $\mathbf{7}$ & \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Applicando la definizione MVDM si ottiene:
+\begin{align*}
+    d(\text{Single}, \text{Married}) &= \abs{\frac{2}{4} - \frac{0}{4}} + \abs{\frac{2}{4} - \frac{4}{4}} = 0.5 + 0.5 = 1 \\
+    d(\text{Single}, \text{Divorced}) &= \abs{\frac{2}{4} - \frac{1}{2}} + \abs{\frac{2}{4} - \frac{1}{2}} = 0 + 0 = 0 \\
+    d(\text{Married}, \text{Divorced}) &= \abs{\frac{0}{4} - \frac{1}{2}} + \abs{\frac{4}{4} - \frac{1}{2}} = 0.5 + 0.5 = 1 \\
+    d(\text{Refund}=\text{Yes}, \text{Refund}=\text{No}) &= \abs{\frac{0}{3} - \frac{3}{7}} + \abs{\frac{3}{3} - \frac{4}{7}} = \frac{3}{7} + \frac{3}{7} = \frac{6}{7}
+\end{align*}
+Si osservi che \texttt{Single} e \texttt{Divorced} hanno distanza nulla poich\'e entrambi presentano una ripartizione identica del $50\%$ nella classe \texttt{Yes} e del $50\%$ nella classe \texttt{No}.
+\end{example}
+
+\FloatBarrier
+\subsection{Propriet\`a Strutturali: Lazy Learners vs Eager Learners}
+\label{subsec:dm-knn-lazy-eager}
+
+In sintesi, i classificatori Nearest Neighbor si distinguono dagli apprenditori tradizionali (\textit{eager learners}, quali alberi di decisione o classificatori basati su regole) per quattro aspetti chiave:
+\begin{enumerate}
+    \item \textbf{Assenza di astrazione:} formulano predizioni senza costruire e mantenere un modello compatto dei dati.
+    \item \textbf{Costo in fase di test:} gli \textit{eager learners} investono tempo computazionale nel training per rendere rapida l'inferenza; i \textit{lazy learners} azzerano il costo di training ma pagano $\BigO{N}$ confronti a ogni predizione.
+    \item \textbf{Localit\`a della decisione:} le predizioni dipendono esclusivamente dall'intorno locale del punto di test, rendendo il modello vulnerabile al rumore per valori piccoli di $k$.
+    \item \textbf{Dipendenza dal preprocessing:} funzioni di distanza inappropriate o l'omissione della scalatura degli attributi compromettono severamente l'accuratezza.
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier
+
+% ====================================================================
+\FloatBarrier
+\section{Classificatori Basati su Regole (\textit{Rule-Based Classifiers})}
+\label{sec:dm-rule-based}
+
+\FloatBarrier
+\subsection{Struttura Formale, Copertura e Accuratezza delle Regole}
+\label{subsec:dm-rule-structure}
+
+Un \textbf{classificatore basato su regole} (\textit{rule-based classifier}) classifica i record impiegando una collezione di regole logiche del tipo \textit{``if\dots{}then\dots''}~\cite{tan2018}. Ciascuna regola $r$ \`e formalizzata come:
+\begin{equation}
+    (\text{Condition}) \longrightarrow y
+\end{equation}
+dove $\text{Condition}$ (detta \textbf{antecedente} o precondizione della regola) \`e una congiunzione logica di test sugli attributi del record, mentre $y$ (detto \textbf{conseguente}) rappresenta l'etichetta di classe assegnata quando la condizione \`e verificata. Esempi tipici sono $(\text{Blood Type} = \text{Warm}) \wedge (\text{Lay Eggs} = \text{Yes}) \rightarrow \text{Birds}$ oppure $(\text{Taxable Income} < 50\text{K}) \wedge (\text{Refund} = \text{Yes}) \rightarrow \text{Evade} = \text{No}$.
+
+\begin{definition}[Copertura di un'istanza, Coverage e Accuracy]
+Si dice che una regola $r : A \rightarrow y$ \textbf{copre} (\textit{covers}) un'istanza $\mathbf{x}$ (oppure che $\mathbf{x}$ attiva la regola $r$) se i valori degli attributi di $\mathbf{x}$ soddisfano tutti i test presenti nell'antecedente $A$. Dato un dataset di $N$ record, la qualit\`a quantitativa di $r$ \`e misurata da:
+\begin{equation}
+    \text{Coverage}(r) = \frac{\abs{A}}{N}, \qquad \text{Accuracy}(r) = \frac{\abs{A \cap y}}{\abs{A}}
+\end{equation}
+dove $\abs{A}$ \`e il numero di record che soddisfano l'antecedente $A$ e $\abs{A \cap y}$ \`e il numero di record che soddisfano sia $A$ sia il conseguente $y$.
+\end{definition}
+
+\begin{example}[Valutazione sul dataset fiscale]
+Sul dataset fiscale di \autoref{tab:dm-knn-tax-dataset} ($N = 10$), si consideri la regola $r: (\text{Status} = \text{Single}) \rightarrow \text{No}$. I record con $\text{Status} = \text{Single}$ sono $4$ (`Tid` $1, 3, 8, 10$), di cui solo $2$ (`Tid` $1, 3$) appartengono effettivamente alla classe \texttt{No}. Pertanto:
+\begin{equation*}
+    \text{Coverage}(r) = \frac{4}{10} = 40\%, \qquad \text{Accuracy}(r) = \frac{2}{4} = 50\%.
+\end{equation*}
+\end{example}
+
+Per illustrare il funzionamento complessivo di un insieme di regole, si consideri il dataset zoologico dei $20$ vertebrati (\autoref{tab:dm-vertebrates}) insieme al seguente insieme di cinque regole:
+\begin{itemize}
+    \item $R_1: (\text{Give Birth} = \text{no}) \wedge (\text{Can Fly} = \text{yes}) \rightarrow \text{Birds}$
+    \item $R_2: (\text{Give Birth} = \text{no}) \wedge (\text{Live in Water} = \text{yes}) \rightarrow \text{Fishes}$
+    \item $R_3: (\text{Give Birth} = \text{yes}) \wedge (\text{Blood Type} = \text{warm}) \rightarrow \text{Mammals}$
+    \item $R_4: (\text{Give Birth} = \text{no}) \wedge (\text{Can Fly} = \text{no}) \rightarrow \text{Reptiles}$
+    \item $R_5: (\text{Live in Water} = \text{sometimes}) \rightarrow \text{Amphibians}$
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Dataset zoologico dei $20$ vertebrati.}
+\label{tab:dm-vertebrates}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccccl}
+\toprule
+\textbf{Name} & \textbf{Blood Type} & \textbf{Give Birth} & \textbf{Can Fly} & \textbf{Live in Water} & \textbf{Class} \\
+\midrule
+human         & warm & yes & no  & no        & mammals \\
+python        & cold & no  & no  & no        & reptiles \\
+salmon        & cold & no  & no  & yes       & fishes \\
+whale         & warm & yes & no  & yes       & mammals \\
+frog          & cold & no  & no  & sometimes & amphibians \\
+komodo        & cold & no  & no  & no        & reptiles \\
+bat           & warm & yes & yes & no        & mammals \\
+pigeon        & warm & no  & yes & no        & birds \\
+cat           & warm & yes & no  & no        & mammals \\
+leopard shark & cold & yes & no  & yes       & fishes \\
+turtle        & cold & no  & no  & sometimes & reptiles \\
+penguin       & warm & no  & no  & sometimes & birds \\
+porcupine     & warm & yes & no  & no        & mammals \\
+eel           & cold & no  & no  & yes       & fishes \\
+salamander    & cold & no  & no  & sometimes & amphibians \\
+gila monster  & cold & no  & no  & no        & reptiles \\
+platypus      & warm & no  & no  & no        & mammals \\
+owl           & warm & no  & yes & no        & birds \\
+dolphin       & warm & yes & no  & yes       & mammals \\
+eagle         & warm & no  & yes & no        & birds \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Applicando le regole a nuovi animali di test emergono tre scenari tipici:
+\begin{itemize}
+    \item \texttt{lemur} (\texttt{warm, yes, no, no}): attiva esclusivamente $R_3 \implies$ \texttt{Mammals} (classificazione univoca);
+    \item \texttt{turtle} (\texttt{cold, no, no, sometimes}): soddisfa contemporaneamente sia $R_4$ (\texttt{Reptiles}) sia $R_5$ (\texttt{Amphibians}), generando un \textbf{conflitto tra regole multiple};
+    \item \texttt{dogfish shark} (\texttt{cold, yes, no, yes}): non attiva alcuna regola, rimanendo \textbf{non classificato}.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Mutua Esclusivit\`a, Esaustivit\`a e Strategie di Risoluzione}
+\label{subsec:dm-rule-properties}
+
+Un insieme ideale di regole dovrebbe soddisfare due propriet\`a strutturali:
+\begin{enumerate}
+    \item \textbf{Regole mutualmente esclusive (\textit{Mutually exclusive rules}):} le regole sono indipendenti tra loro in modo che ogni record sia coperto \textbf{al massimo da una regola}.
+    \item \textbf{Regole esaustive (\textit{Exhaustive rules}):} l'insieme contempla ogni possibile combinazione di valori degli attributi in modo che ogni record sia coperto \textbf{da almeno una regola}.
+\end{enumerate}
+
+Poich\'e nei classificatori indotti dai dati tali propriet\`a non valgono automaticamente, si adottano le seguenti soluzioni pratiche:
+\begin{itemize}
+    \item \textbf{Se le regole non sono mutualmente esclusive:} si utilizza un \textbf{insieme ordinato di regole} (\textit{ordered rule set} o \textit{decision list}), stabilendo una gerarchia di priorit\`a, oppure un \textbf{insieme non ordinato} (\textit{unordered rule set}) risolvendo i conflitti tramite schemi di votazione (\textit{voting schemes}) tra tutte le regole attivate.
+    \item \textbf{Se le regole non sono esaustive:} si introduce una \textbf{classe di default} (\textit{default class}) assegnata a tutti i record che non soddisfano alcuna regola esplicita.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Insiemi di Regole Ordinati: Rule-Based vs Class-Based Ordering}
+\label{subsec:dm-rule-ordering}
+
+In un insieme ordinato di regole (\textbf{decision list}), le regole sono disposte secondo un rango di priorit\`a: al record di test viene assegnata la classe della regola con priorit\`a pi\`u alta tra quelle attivate (nell'esempio di \texttt{turtle}, se $R_4$ precede $R_5$ nella lista, prevale $R_4 \implies$ \texttt{Reptiles}), ricorrendo alla classe di default se nessuna regola si attiva.
+
+Esistono due schemi principali di ordinamento, contrapposti alle regole non ordinate:
+\begin{enumerate}
+    \item \textbf{Rule-based ordering scheme:} le singole regole sono ordinate in base alla loro qualit\`a individuale (accuratezza, copertura o dimensione). Poich\'e un record viene classificato dalla prima regola che lo copre ignorando le successive, \textbf{ogni regola in una decision list implica logicamente la negazione di tutte le regole che la precedono}, rendendo le regole pi\`u difficili da interpretare singolarmente.
+    \item \textbf{Class-based ordering scheme:} le regole appartenenti alla \textbf{stessa classe} vengono raggruppate in blocchi contigui; le classi sono ordinate per importanza decrescente (prevalenza o costo di errata classificazione), mentre all'interno di ciascun blocco di classe le regole non sono ordinate tra loro. Questo schema \`e adottato dalla maggior parte dei classificatori affermati, tra cui \textbf{C4.5rules}~\cite{quinlan1993} e \textbf{RIPPER}~\cite{cohen1995}.
+\end{enumerate}
+
+Rispetto alle \textit{decision list}, le \textbf{regole non ordinate} sono meno suscettibili agli errori di una singola regola posta in cima alla lista e hanno un costo di costruzione minore (non richiedono ordinamento), ma risultano pi\`u costose in fase di classificazione poich\'e occorre testare la precondizione di ogni singola regola anzich\'e arrestarsi alla prima regola soddisfatta.
+
+% ====================================================================
+\FloatBarrier
+\section{Apprendimento delle Regole: Metodi Diretti, Indiretti e Confronto Empirico}
+\label{sec:dm-rule-learning}
+
+\FloatBarrier
+\subsection{Metodi Diretti e Algoritmo Sequential Covering}
+\label{subsec:dm-sequential-covering}
+
+Gli algoritmi di induzione delle regole si ripartiscono in \textbf{metodi diretti} --- che estraggono le regole direttamente dai dati di addestramento (come \textbf{RIPPER}, \textbf{CN2} e \textbf{Holte's 1R}) --- e \textbf{metodi indiretti} --- che estraggono le regole da altri modelli precedentemente addestrati, come alberi di decisione o reti neurali (ad esempio \textbf{C4.5rules})~\cite{tan2018}.
+
+Il paradigma fondamentale dei metodi diretti \`e l'algoritmo \textbf{Sequential Covering} (Algoritmo~\ref{alg:dm-seq-covering}), che nei problemi multiclasse estrae le regole \textbf{una classe alla volta}, rimuovendo progressivamente dal dataset i record gi\`a coperti dalle regole apprese (\autoref{fig:dm-seq-covering}).
+
+\begin{algorithm}[H]
+\caption{Algoritmo Sequential Covering}
+\label{alg:dm-seq-covering}
+\KwInput{Insieme di addestramento $\mathcal{D}$; insieme ordinato delle classi $\mathcal{Y}$.}
+\KwOutput{Insieme di regole appreso $\mathcal{R}$.}
+$\mathcal{R} \leftarrow \emptyset$\;
+\ForEach{classe $c \in \mathcal{Y}$ (esclusa la classe di default)}{
+    \While{non \`e soddisfatto il criterio di arresto per $c$}{
+        $r \leftarrow \textsc{Learn-One-Rule}(\mathcal{D}, c)$\;
+        $\mathcal{R} \leftarrow \mathcal{R} \cup \{r\}$\;
+        Rimuovere da $\mathcal{D}$ tutti i record coperti dalla regola $r$\;
+    }
+}
+Aggiungere la regola di default a $\mathcal{R}$\;
+\end{algorithm}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    plus/.style={font=\bfseries\scriptsize, color=crimson},
+    minus/.style={font=\bfseries\scriptsize, color=navy}
+]
+    % (i) Original Data
+    \begin{scope}[shift={(0,0)}]
+        \draw[gray!50] (0,0) rectangle (2.8,2.4);
+        \node[plus] at (0.5,1.9) {$+$}; \node[plus] at (0.8,2.0) {$+$}; \node[plus] at (0.6,1.6) {$+$}; \node[plus] at (0.9,1.7) {$+$};
+        \node[plus] at (2.0,0.6) {$+$}; \node[plus] at (2.3,0.7) {$+$}; \node[plus] at (2.1,0.4) {$+$}; \node[plus] at (2.4,0.4) {$+$};
+        \node[plus] at (0.5,0.5) {$+$}; \node[plus] at (0.8,0.6) {$+$}; \node[plus] at (0.6,0.3) {$+$};
+        \node[minus] at (1.5,1.9) {$-$}; \node[minus] at (2.2,1.8) {$-$}; \node[minus] at (1.4,1.2) {$-$}; \node[minus] at (2.0,1.3) {$-$}; \node[minus] at (1.3,0.5) {$-$};
+        \node[font=\scriptsize\bfseries] at (1.4,-0.35) {(i) Dati originali};
+    \end{scope}
+
+    % (ii) Step 1
+    \begin{scope}[shift={(3.3,0)}]
+        \draw[gray!50] (0,0) rectangle (2.8,2.4);
+        \draw[dashed, darkgreen, line width=0.9pt, rounded corners=2pt] (0.3,1.4) rectangle (1.15,2.2);
+        \node[font=\tiny\bfseries, color=darkgreen] at (0.72,2.32) {$R_1$};
+        \node[plus] at (0.5,1.9) {$+$}; \node[plus] at (0.8,2.0) {$+$}; \node[plus] at (0.6,1.6) {$+$}; \node[plus] at (0.9,1.7) {$+$};
+        \node[plus] at (2.0,0.6) {$+$}; \node[plus] at (2.3,0.7) {$+$}; \node[plus] at (2.1,0.4) {$+$}; \node[plus] at (2.4,0.4) {$+$};
+        \node[plus] at (0.5,0.5) {$+$}; \node[plus] at (0.8,0.6) {$+$}; \node[plus] at (0.6,0.3) {$+$};
+        \node[minus] at (1.5,1.9) {$-$}; \node[minus] at (2.2,1.8) {$-$}; \node[minus] at (1.4,1.2) {$-$}; \node[minus] at (2.0,1.3) {$-$}; \node[minus] at (1.3,0.5) {$-$};
+        \node[font=\scriptsize\bfseries] at (1.4,-0.35) {(ii) Passo 1: $R_1$};
+    \end{scope}
+
+    % (iii) Step 2
+    \begin{scope}[shift={(6.6,0)}]
+        \draw[gray!50] (0,0) rectangle (2.8,2.4);
+        \draw[dashed, gray!60, rounded corners=2pt] (0.3,1.4) rectangle (1.15,2.2);
+        \draw[dashed, darkgreen, line width=0.9pt, rounded corners=2pt] (1.8,0.2) rectangle (2.6,0.95);
+        \node[font=\tiny\bfseries, color=darkgreen] at (2.2,1.08) {$R_2$};
+        \node[plus] at (2.0,0.6) {$+$}; \node[plus] at (2.3,0.7) {$+$}; \node[plus] at (2.1,0.4) {$+$}; \node[plus] at (2.4,0.4) {$+$};
+        \node[plus] at (0.5,0.5) {$+$}; \node[plus] at (0.8,0.6) {$+$}; \node[plus] at (0.6,0.3) {$+$};
+        \node[minus] at (1.5,1.9) {$-$}; \node[minus] at (2.2,1.8) {$-$}; \node[minus] at (1.4,1.2) {$-$}; \node[minus] at (2.0,1.3) {$-$}; \node[minus] at (1.3,0.5) {$-$};
+        \node[font=\scriptsize\bfseries] at (1.4,-0.35) {(iii) Passo 2: $R_2$};
+    \end{scope}
+
+    % (iv) Step 3
+    \begin{scope}[shift={(9.9,0)}]
+        \draw[gray!50] (0,0) rectangle (2.8,2.4);
+        \draw[dashed, gray!60, rounded corners=2pt] (0.3,1.4) rectangle (1.15,2.2);
+        \draw[dashed, gray!60, rounded corners=2pt] (1.8,0.2) rectangle (2.6,0.95);
+        \draw[dashed, darkgreen, line width=0.9pt, rounded corners=2pt] (0.3,0.15) rectangle (1.05,0.85);
+        \node[font=\tiny\bfseries, color=darkgreen] at (0.68,0.98) {$R_3$};
+        \node[plus] at (0.5,0.5) {$+$}; \node[plus] at (0.8,0.6) {$+$}; \node[plus] at (0.6,0.3) {$+$};
+        \node[minus] at (1.5,1.9) {$-$}; \node[minus] at (2.2,1.8) {$-$}; \node[minus] at (1.4,1.2) {$-$}; \node[minus] at (2.0,1.3) {$-$}; \node[minus] at (1.3,0.5) {$-$};
+        \node[font=\scriptsize\bfseries] at (1.4,-0.35) {(iv) Passo 3: $R_3$};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Illustrazione geometrica passo-passo dell'algoritmo Sequential Covering: a ogni iterazione una regola isola un raggruppamento di esempi positivi (`$+$'), che vengono poi rimossi prima dell'iterazione successiva.}
+\label{fig:dm-seq-covering}
+\end{figure}
+
+\FloatBarrier
+\subsection{La Funzione Learn-One-Rule: Strategia Top-Down e Bottom-Up}
+\label{subsec:dm-learn-one-rule}
+
+L'obiettivo della funzione \textsc{Learn-One-Rule} \`e estrarre una singola regola di classificazione che copra molti record positivi (appartenenti alla classe target corrente) e pochissimi o nessun record negativo. Poich\'e la ricerca della regola globalmente ottima \`e computazionalmente proibitiva, si adotta una \textbf{strategia greedy} che raffina progressivamente una regola iniziale lungo una delle due direzioni duali confrontate nella \autoref{tab:dm-rule-growth}.
+
+\begin{table}[H]
+\centering
+\caption{Confronto tra le strategie di crescita delle regole \textit{General-to-Specific} e \textit{Specific-to-General}.}
+\label{tab:dm-rule-growth}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+\textbf{Caratteristica} & \textbf{General-to-Specific (Top-Down)} & \textbf{Specific-to-General (Bottom-Up)} \\
+\midrule
+Regola iniziale     & Regola vuota $\{\}$ (copre l'intero dataset) & Singolo record positivo completamente specificato \\
+Copertura iniziale  & Massima ($100\%$) & Minima ($1$ record) \\
+Accuratezza iniziale & Bassa (probabilit\`a a priori della classe) & Alta ($100\%$) \\
+Singolo passo       & \textbf{Aggiungere una congiunzione} (riduce copertura) & \textbf{Rimuovere una congiunzione} (aumenta copertura) \\
+Criterio di arresto & Nessun negativo coperto o nessun miglioramento & Rimozione ulteriore coprirebbe record negativi \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Metriche di Valutazione per la Crescita delle Regole}
+\label{subsec:dm-rule-metrics}
+
+L'accuratezza semplice non \`e sufficiente a guidare la crescita di una regola, poich\'e non tiene conto della sua copertura. Ad esempio, in un dataset con $60$ record positivi e $100$ negativi, una regola $r_1$ che copre $50$ positivi e $5$ negativi ($\text{Accuracy} = 50/55 = 90.9\%$) \`e nettamente pi\`u affidabile di una regola $r_2$ che copre appena $2$ positivi e $0$ negativi ($\text{Accuracy} = 2/2 = 100\%$). Per superare tale limite si adottano tre famiglie di metriche:
+
+\begin{enumerate}
+    \item \textbf{Metriche basate sulla copertura:} indicando con $n$ i record coperti, con $n_c$ quelli di classe $c$, con $k$ il numero di classi e con $p$ la probabilit\`a a priori della classe $c$:
+    \begin{equation}
+        \text{Laplace} = \frac{n_c + 1}{n + k}, \qquad \text{M-estimate} = \frac{n_c + k p}{n + k}
+    \end{equation}
+    Entrambe penalizzano regole con supporto $n$ molto piccolo smorzando la stima verso $1/k$ (Laplace) oppure verso la probabilit\`a a priori $p$ (M-estimate).
+
+    \item \textbf{FOIL's Information Gain}~\cite{quinlan1990}: data una regola $R_0 : \{\} \Rightarrow c$ (che copre $p_0$ positivi e $n_0$ negativi) e la regola $R_1 : \{A\} \Rightarrow c$ ottenuta aggiungendo il test $A$ ($p_1$ positivi e $n_1$ negativi), il guadagno informativo \`e:
+    \begin{equation}
+        \text{Gain}(R_0, R_1) = p_1 \cdot \left[ \log_2\left(\frac{p_1}{p_1 + n_1}\right) - \log_2\left(\frac{p_0}{p_0 + n_0}\right) \right]
+    \end{equation}
+    La differenza logaritmica misura l'incremento di purezza, mentre il fattore $p_1$ pondera tale guadagno per il supporto positivo residuo.
+
+    \item \textbf{Statistica del rapporto di verosimiglianza (\textit{Likelihood Ratio Statistic}):} misura quanto la distribuzione osservata dalle regole si discosti da un'assegnazione puramente casuale:
+    \begin{equation}
+        R = 2 \sum_{i=1}^{k} f_i \log_2\left(\frac{f_i}{e_i}\right)
+    \end{equation}
+    dove $f_i$ \`e la frequenza osservata della classe $i$ tra i record coperti ed $e_i$ la frequenza attesa sotto l'ipotesi di predizione casuale. Sul dataset da $160$ record ($60$ positivi, $100$ negativi):
+    \begin{itemize}
+        \item Per $r_1$ ($50$ pos., $5$ neg., $n=55$): $e_+ = 55 \cdot \frac{60}{160} = 20.625$, $e_- = 55 \cdot \frac{100}{160} = 34.375$, da cui $R(r_1) = 2\left[50\log_2\!\left(\frac{50}{20.625}\right) + 5\log_2\!\left(\frac{5}{34.375}\right)\right] = 99.9$.
+        \item Per $r_2$ ($2$ pos., $0$ neg., $n=2$): $e_+ = 2 \cdot \frac{60}{160} = 0.75$, $e_- = 2 \cdot \frac{100}{160} = 1.25$, da cui $R(r_2) = 2\left[2\log_2\!\left(\frac{2}{0.75}\right) + 0\right] = 5.66$.
+    \end{itemize}
+    Poich\'e $R(r_1) = 99.9 \gg R(r_2) = 5.66$, il test identifica correttamente $r_1$ come nettamente superiore.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{L'Algoritmo RIPPER e il Principio Minimum Description Length (MDL)}
+\label{subsec:dm-ripper-mdl}
+
+L'algoritmo \textbf{RIPPER}~\cite{cohen1995} \`e uno dei pi\`u noti classificatori diretti basati su regole e si articola in tre fasi operative:
+\begin{enumerate}
+    \item \textbf{Ordinamento delle classi:} nei problemi binari si apprendono le regole per la classe positiva e si assegna l'altra come classe di default. Nei problemi multiclasse le classi vengono ordinate per \textbf{prevalenza crescente}: si apprendono le regole dalla classe meno numerosa fino alla pi\`u numerosa, lasciando quest'ultima come classe di default.
+    \item \textbf{Crescita e potatura immediata (\textit{Incremental Reduced Error Pruning}):} ciascuna regola cresce partendo dalla regola vuota e aggiungendo congiunzioni che massimizzano il \textit{FOIL's information gain} finch\'e non copre alcun esempio negativo. Subito dopo, la regola viene potata su un \textit{validation set} eliminando qualsiasi sequenza finale di condizioni (\textit{suffix}) che massimizzi la metrica:
+    \begin{equation}
+        v = \frac{p - n}{p + n}
+    \end{equation}
+    dove $p$ ed $n$ sono gli esempi positivi e negativi coperti dalla regola nel validation set.
+    \item \textbf{Costruzione dell'insieme di regole e arresto MDL:} tramite \textit{sequential covering}, RIPPER rimuove dal training set sia gli esempi positivi sia quelli negativi coperti dalla regola appresa. A ogni aggiunta si ricalcola la lunghezza di descrizione (\textit{description length}): l'aggiunta si arresta quando la nuova lunghezza supera di almeno $d$ bit la lunghezza minima raggiunta fino a quel momento.
+\end{enumerate}
+
+Secondo il principio \textbf{Minimum Description Length (MDL)}~\cite{rissanen1978}, il costo totale di codifica (in bit) per trasmettere un modello e i relativi errori sui dati \`e dato da:
+\begin{equation}
+    \text{Cost}(\text{Model}, \text{Data}) = \text{Cost}(\text{Data} \mid \text{Model}) + \text{Cost}(\text{Model})
+\end{equation}
+dove $\text{Cost}(\text{Data} \mid \text{Model})$ codifica gli errori di misclassificazione del modello e $\text{Cost}(\text{Model})$ codifica la complessit\`a strutturale del modello stesso. Minimizzare tale somma consente di bilanciare automaticamente accuratezza e semplicit\`a.
+
+\FloatBarrier
+\subsection{Metodi Indiretti: C4.5rules e Alberi di Decisione}
+\label{subsec:dm-c45rules}
+
+Un albero di decisione pu\`o essere convertito direttamente in un insieme di regole trasformando ogni percorso dalla radice a una foglia in una regola congiuntiva (\autoref{fig:dm-tree-to-rules}).
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.1cm and 1.6cm,
+    internal/.style={circle, draw=navy, fill=codebackground, line width=0.9pt, minimum size=7mm, font=\small\bfseries},
+    leaf/.style={rectangle, draw=darkgreen, fill=darkgreen!10, rounded corners=2pt, minimum size=6mm, font=\small\bfseries},
+    edge label/.style={font=\scriptsize, fill=white, inner sep=1pt}
+]
+    % Albero a sinistra
+    \node[internal] (P) at (0,3) {$P$};
+    \node[internal] (Q1) at (-1.5,1.6) {$Q$};
+    \node[internal] (R) at (1.5,1.6) {$R$};
+    \node[leaf] (L1) at (-2.3,0.2) {$-$};
+    \node[leaf] (L2) at (-0.7,0.2) {$+$};
+    \node[leaf] (L3) at (0.7,0.2) {$+$};
+    \node[internal] (Q2) at (2.3,0.2) {$Q$};
+    \node[leaf] (L4) at (1.5,-1.1) {$-$};
+    \node[leaf] (L5) at (3.1,-1.1) {$+$};
+
+    \draw[->] (P) -- node[edge label, left] {No} (Q1);
+    \draw[->] (P) -- node[edge label, right] {Yes} (R);
+    \draw[->] (Q1) -- node[edge label, left] {No} (L1);
+    \draw[->] (Q1) -- node[edge label, right] {Yes} (L2);
+    \draw[->] (R) -- node[edge label, left] {No} (L3);
+    \draw[->] (R) -- node[edge label, right] {Yes} (Q2);
+    \draw[->] (Q2) -- node[edge label, left] {No} (L4);
+    \draw[->] (Q2) -- node[edge label, right] {Yes} (L5);
+
+    % Regole estratte a destra
+    \node[draw=navy!70, fill=codebackground, rounded corners=4pt, align=left, inner sep=8pt, font=\footnotesize, anchor=west] at (4.4,1.0) {
+        \textbf{Rule Set estratto:}\\[4pt]
+        $r_1: (P=\text{No} \wedge Q=\text{No}) \Longrightarrow -$\\
+        $r_2: (P=\text{No} \wedge Q=\text{Yes}) \Longrightarrow +$\\
+        $r_3: (P=\text{Yes} \wedge R=\text{No}) \Longrightarrow +$\\
+        $r_4: (P=\text{Yes} \wedge R=\text{Yes} \wedge Q=\text{No}) \Longrightarrow -$\\
+        $r_5: (P=\text{Yes} \wedge R=\text{Yes} \wedge Q=\text{Yes}) \Longrightarrow +$
+    };
+\end{tikzpicture}%
+}
+\caption{Estrazione di un insieme di regole da un albero di decisione: ciascun percorso radice--foglia genera una regola congiuntiva.}
+\label{fig:dm-tree-to-rules}
+\end{figure}
+
+L'algoritmo \textbf{C4.5rules}~\cite{quinlan1993} segue questa impostazione in quattro passi:
+\begin{enumerate}
+    \item \textbf{Estrazione e semplificazione:} estrae le regole da un albero non potato. Per ogni regola $r: A \rightarrow y$, genera candidate $r': A' \rightarrow y$ rimuovendo una congiunzione da $A$, e sostituisce $r$ con l'alternativa che riduce l'\textbf{errore pessimistico} (\textit{pessimistic error estimate}), eliminando eventuali duplicati.
+    \item \textbf{Stima dell'errore pessimistico:} per un insieme $T$ composto da $k$ regole su un training set di $N_{\text{train}}$ record, la stima \`e:
+    \begin{equation}
+        \text{err}_{\text{gen}}(T) = \text{err}(T) + \Omega \cdot \frac{k}{N_{\text{train}}}
+    \end{equation}
+    dove $\text{err}(T)$ \`e l'errore empirico sul training set e $\Omega$ \`e il fattore di penalit\`a per ogni regola aggiunta.
+    \item \textbf{Scelta della classe di default:} a differenza di altri algoritmi, C4.5rules seleziona come classe di default la classe che contiene il \textbf{maggior numero di tuple di training non coperte da alcuna regola}.
+    \item \textbf{Ordinamento basato sulle classi:} raggruppa le regole per conseguente e ordina i sottoinsiemi di classe in base alla lunghezza di descrizione $L(\text{error}) + g \, L(\text{model})$, dove il parametro $g$ (impostato al valore di default $g = 0.5$) tiene conto della presenza di attributi ridondanti.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Vantaggi, Limiti e Studio Comparativo Empirico}
+\label{subsec:dm-rule-comparison}
+
+I classificatori basati su regole condividono con gli alberi di decisione la stessa espressivit\`a, un'elevata interpretabilit\`a, prestazioni predittive comparabili e una buona gestione degli attributi ridondanti. Tuttavia, presentano una distinzione specifica:
+\begin{itemize}
+    \item \textbf{Punto di forza:} sono particolarmente adatti a gestire \textbf{classi sbilanciate} (\textit{imbalanced classes}) rispetto agli alberi di decisione.
+    \item \textbf{Limite principale:} risultano pi\`u complessi da applicare in presenza di \textbf{valori mancanti} nel test set.
+\end{itemize}
+
+Estendendo il dataset dei $20$ vertebrati (\autoref{tab:dm-vertebrates}) con gli attributi \texttt{Lay Eggs} e \texttt{Have Legs}, il confronto tra \textbf{C4.5 / C4.5rules} e \textbf{RIPPER} produce le regole seguenti:
+\begin{itemize}
+    \item \textbf{C4.5rules:}
+    \begin{enumerate}
+        \item $(\text{Give Birth}=\text{No} \wedge \text{Can Fly}=\text{Yes}) \rightarrow \text{Birds}$
+        \item $(\text{Give Birth}=\text{No} \wedge \text{Live in Water}=\text{Yes}) \rightarrow \text{Fishes}$
+        \item $(\text{Give Birth}=\text{Yes}) \rightarrow \text{Mammals}$
+        \item $(\text{Give Birth}=\text{No} \wedge \text{Can Fly}=\text{No} \wedge \text{Live in Water}=\text{No}) \rightarrow \text{Reptiles}$
+        \item $() \rightarrow \text{Amphibians}$ \quad (\textit{classe di default})
+    \end{enumerate}
+    \item \textbf{RIPPER} (ordinato per prevalenza crescente, lasciando la classe pi\`u numerosa \texttt{Mammals} come default):
+    \begin{enumerate}
+        \item $(\text{Live in Water}=\text{Yes}) \rightarrow \text{Fishes}$
+        \item $(\text{Have Legs}=\text{No}) \rightarrow \text{Reptiles}$
+        \item $(\text{Give Birth}=\text{No} \wedge \text{Can Fly}=\text{No} \wedge \text{Live in Water}=\text{No}) \rightarrow \text{Reptiles}$
+        \item $(\text{Can Fly}=\text{Yes} \wedge \text{Give Birth}=\text{No}) \rightarrow \text{Birds}$
+        \item $() \rightarrow \text{Mammals}$ \quad (\textit{classe di default})
+    \end{enumerate}
+\end{itemize}
+
+Le matrici di confusione risultanti sui $20$ esempi (\autoref{tab:dm-cm-comparison}) evidenziano le differenze operative dei due approcci:
+\begin{itemize}
+    \item \textbf{C4.5 / C4.5rules ($16/20$ corretti, $4$ errori):} \texttt{leopard shark} (pesce viviparo) viene classificato come \texttt{Mammals}; \texttt{turtle} (rettile) e \texttt{penguin} (uccello) con \texttt{Live in Water = sometimes} ricadono in \texttt{Amphibians}; \texttt{platypus} (mammifero oviparo) viene classificato come \texttt{Reptiles}.
+    \item \textbf{RIPPER ($12/20$ corretti, $8$ errori):} nessuna regola viene generata per \texttt{Amphibians}, le cui $2$ istanze ricadono nella classe di default \texttt{Mammals}; viceversa, tutti e $3$ i \texttt{Fishes} sono classificati correttamente grazie alla prima regola su \texttt{Live in Water = Yes}.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Matrici di confusione a confronto sul dataset dei $20$ vertebrati: C4.5 / C4.5rules (a sinistra) e RIPPER (a destra).}
+\label{tab:dm-cm-comparison}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccccc@{\hspace{1.0cm}}lccccc}
+\toprule
+\multicolumn{6}{c}{\textbf{C4.5 e C4.5rules ($16/20$ corretti)}} & \multicolumn{6}{c}{\textbf{RIPPER ($12/20$ corretti)}} \\
+\cmidrule(r){1-6} \cmidrule(l){7-12}
+\textbf{Actual $\backslash$ Pred.} & \textbf{Amph.} & \textbf{Fish.} & \textbf{Bird.} & \textbf{Rept.} & \textbf{Mamm.} & \textbf{Actual $\backslash$ Pred.} & \textbf{Amph.} & \textbf{Fish.} & \textbf{Rept.} & \textbf{Bird.} & \textbf{Mamm.} \\
+\midrule
+\textbf{Amphibians} & $2$ & $0$ & $0$ & $0$ & $0$ & \textbf{Amphibians} & $0$ & $0$ & $0$ & $0$ & $2$ \\
+\textbf{Fishes}     & $0$ & $2$ & $0$ & $0$ & $1$ & \textbf{Fishes}     & $0$ & $3$ & $0$ & $0$ & $0$ \\
+\textbf{Reptiles}   & $1$ & $0$ & $0$ & $3$ & $0$ & \textbf{Reptiles}   & $0$ & $0$ & $3$ & $0$ & $1$ \\
+\textbf{Birds}      & $1$ & $0$ & $3$ & $0$ & $0$ & \textbf{Birds}      & $0$ & $0$ & $1$ & $2$ & $1$ \\
+\textbf{Mammals}    & $0$ & $0$ & $0$ & $1$ & $6$ & \textbf{Mammals}    & $2$ & $0$ & $1$ & $0$ & $4$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

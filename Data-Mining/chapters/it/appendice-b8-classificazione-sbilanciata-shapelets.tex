@@ -1,0 +1,287 @@
+\FloatBarrier
+\section{Laboratorio Python: Classificazione Sbilanciata e Shapelets}
+\label{ch:dm-lab-imbalanced-shapelets}
+
+\subsection{Classificazione Sbilanciata sull'Adult Dataset}
+\label{sec:dm-lab-adult-intro}
+
+La prima parte del laboratorio affronta il problema della \textbf{classificazione binaria in presenza di classi sbilanciate} (\textit{Imbalanced Classification}) sul dataset tabellare \textit{Adult}. Dal punto di vista sperimentale, il protocollo adotta un principio di controllo rigoroso: viene impiegato \textbf{un unico classificatore per tutti gli esperimenti, ossia Random Forest} (\texttt{n\_estimators=200}, \texttt{max\_depth=None}, \texttt{random\_state=42}), valutando ciascuna configurazione sul medesimo \textbf{test set intatto}. Mantenere fisso l'algoritmo predittivo consente di isolare esclusivamente l'effetto della strategia di gestione dello sbilanciamento.
+
+Il percorso sperimentale comprende undici tecniche: \textit{Baseline Random Forest}, \textit{Class weights}, \textit{Random oversampling}, \textit{Random undersampling}, combinazione sequenziale \textit{Random oversampling + random undersampling}, \textit{Condensed Nearest Neighbor (CNN)}~\cite{hart1968}, \textit{Tomek Links}~\cite{tomek1976}, \textit{SMOTE}~\cite{chawla2002}, \textit{SMOTE + Tomek Links}, e i modelli generativi profondi tabellari \textit{CTGAN} e \textit{TVAE}~\cite{xu2019}.
+
+\FloatBarrier
+\subsubsection{Configurazione dell'Ambiente ed Esplorazione del Dataset}
+\label{subsec:dm-lab-adult-eda}
+
+Nella configurazione iniziale vengono importati i moduli Python per il calcolo e la visualizzazione (\texttt{numpy}, \texttt{pandas}, \texttt{matplotlib.pyplot}), i moduli di \texttt{scikit-learn} (\texttt{train\_test\_split}, \texttt{ColumnTransformer}, \texttt{OneHotEncoder}, \texttt{RandomForestClassifier} e le metriche di valutazione) e i ricampionatori di \texttt{imbalanced-learn} (\texttt{RandomOverSampler}, \texttt{SMOTE}, \texttt{RandomUnderSampler}, \texttt{CondensedNearestNeighbour}, \texttt{TomekLinks}, \texttt{SMOTETomek}), fissando poi i parametri globali di riproducibilit\`a:
+
+\begin{lstlisting}[style=pythoncode, caption={Configurazione dei parametri globali di riproducibilit\`a per gli esperimenti.}]
+RANDOM_STATE = 42
+N_TREES = 200
+MAX_DEPTH = None
+SDV_EPOCHS = 100
+data_path = './data_notebook/data/'
+\end{lstlisting}
+
+Il dataset caricato da \texttt{adult.csv} presenta \textbf{$36\,631$ osservazioni} e \textbf{$14$ colonne} (\autoref{tab:dm-lab-adult-schema}). Tutte le $14$ colonne contengono esattamente $36\,631$ valori non nulli (assenza di \texttt{NaN} espliciti, sebbene il simbolo \texttt{?} compaia come categoria esplicita, ad esempio in \texttt{native\_country}).
+
+\begin{table}[H]
+\centering
+\caption{Schema delle $14$ colonne del dataset \textit{Adult} ($36\,631$ record non nulli).}
+\label{tab:dm-lab-adult-schema}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cllll}
+\toprule
+\textbf{Indice} & \textbf{Colonna} & \textbf{Tipo} & \textbf{Natura} & \textbf{Esempio (Riga 0)} \\
+\midrule
+0  & \texttt{age}                   & \texttt{int64}   & Numerica               & \texttt{43} \\
+1  & \texttt{capital\_gain}         & \texttt{float64} & Numerica               & \texttt{0.0} \\
+2  & \texttt{capital\_loss}         & \texttt{float64} & Numerica               & \texttt{0.0} \\
+3  & \texttt{education}             & \texttt{int64}   & Numerica (ordinale)    & \texttt{10} \\
+4  & \texttt{final\_weight}         & \texttt{int64}   & Numerica               & \texttt{34278} \\
+5  & \texttt{hours\_worked\_per\_week} & \texttt{int64} & Numerica              & \texttt{35} \\
+6  & \texttt{marital\_status}       & \texttt{object}  & Categorica             & \texttt{Married-civ-spouse} \\
+7  & \texttt{native\_country}       & \texttt{object}  & Categorica             & \texttt{United-States} \\
+8  & \texttt{occupation}            & \texttt{object}  & Categorica             & \texttt{Sales} \\
+9  & \texttt{race}                  & \texttt{object}  & Categorica             & \texttt{White} \\
+10 & \texttt{relationship}          & \texttt{object}  & Categorica             & \texttt{Husband} \\
+11 & \texttt{is\_male}              & \texttt{bool}    & Booleana / Categorica  & \texttt{True} \\
+12 & \texttt{workclass}             & \texttt{object}  & Categorica             & \texttt{Private} \\
+13 & \texttt{over\_threshold}       & \texttt{int64}   & \textbf{Target binario} & \texttt{0} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+L'analisi della variabile target \texttt{over\_threshold} evidenzia un rapporto di sbilanciamento di circa $3.18 : 1$: la classe maggioritaria \texttt{0} (\texttt{<= threshold}) conta \textbf{$27\,866$} istanze ($76.07\%$), mentre la classe minoritaria \texttt{1} (\texttt{> threshold}) conta \textbf{$8\,765$} istanze ($23.93\%$). In questo scenario l'\textit{accuracy} globale risulta fuorviante, rendendo necessario il monitoraggio di \textit{Precision}, \textit{Recall}, \textit{F1-score} sulla classe \texttt{1} e \textit{Balanced Accuracy}.
+
+\FloatBarrier
+\subsubsection{Partizionamento Stratificato, Codifica One-Hot e Prevenzione del Data Leakage}
+\label{subsec:dm-lab-adult-split}
+
+Prima di qualsiasi trasformazione o ricampionamento, il dataset viene suddiviso mediante campionamento stratificato ($70\%$ training, $30\%$ test):
+
+\begin{lstlisting}[style=pythoncode, caption={Partizionamento stratificato train/test preliminare al ricampionamento.}]
+label = adult.pop("over_threshold")
+
+train_set_raw, test_set_raw, train_label, test_label = train_test_split(
+    adult,
+    label,
+    stratify=label,
+    test_size=0.30,
+    random_state=RANDOM_STATE,
+)
+\end{lstlisting}
+
+Si ottengono cos\`i \textbf{$25\,641$ osservazioni di training} ($19\,506$ di classe \texttt{0} e $6\,135$ di classe \texttt{1}) e \textbf{$10\,990$ osservazioni di test} ($8\,360$ di classe \texttt{0} e $2\,630$ di classe \texttt{1}). Le tabelle grezze \texttt{train\_set\_raw} e \texttt{test\_set\_raw} vengono conservate per i modelli generativi tabellari (CTGAN e TVAE).
+
+Come schematizzato nella \autoref{fig:dm-lab-leakage-pipeline}, tutte le tecniche di \textit{oversampling} e \textit{undersampling} devono essere applicate \textbf{esclusivamente sul training set} dopo lo split: ricampionare l'intero dataset prima della suddivisione introdurrebbe duplicati o campioni sintetici condivisi tra training e test (\textit{data leakage}), falsando le metriche di generalizzazione.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=4pt, line width=0.9pt, align=center, inner sep=5pt, font=\footnotesize},
+    proc/.style={draw=darkgreen, fill=darkgreen!10, rounded corners=4pt, line width=0.9pt, align=center, inner sep=5pt, font=\footnotesize},
+    warn/.style={draw=crimson, fill=crimson!10, rounded corners=4pt, line width=0.9pt, align=center, inner sep=5pt, font=\footnotesize},
+    arrow/.style={->, >=stealth, line width=1pt, color=navy}
+]
+    \node[box] (raw) {\textbf{Dataset Adult}\\($36\,631 \times 14$)};
+    \node[proc, right=0.8cm of raw] (split) {\textbf{Split Stratificato}\\$70\% / 30\%$};
+    \node[box, above right=0.55cm and 1.1cm of split] (tr) {\textbf{Train Set Raw}\\($25\,641$ record)};
+    \node[warn, below right=0.55cm and 1.1cm of split] (te) {\textbf{Test Set Intatto}\\($10\,990$ record)};
+    \node[proc, right=0.8cm of tr] (ohe) {\textbf{OneHotEncoder}\\(\texttt{fit\_transform})\\$\Rightarrow 91$ feature};
+    \node[warn] (te_enc) at (ohe |- te) {\textbf{Test Set Encoded}\\($10\,990 \times 91$)};
+    \node[proc, right=0.8cm of ohe] (res) {\textbf{Resampling /}\\ \textbf{Class Weights}\\(Solo su Train)};
+    \node[box, right=0.8cm of res] (rf) {\textbf{Random Forest}\\(\texttt{200} alberi)};
+
+    \draw[arrow] (raw) -- (split);
+    \draw[arrow] (split) -- (tr);
+    \draw[arrow] (split) -- (te);
+    \draw[arrow] (tr) -- (ohe);
+    \draw[arrow] (ohe) -- (res);
+    \draw[arrow] (res) -- (rf);
+    \draw[arrow, crimson] (te) -- (te_enc);
+    \draw[arrow, dashed, crimson] (ohe.south) -- node[right, font=\scriptsize, pos=0.5] {\texttt{transform}} (te_enc.north);
+    \draw[arrow, crimson] (te_enc.east) -| (rf.south);
+\end{tikzpicture}%
+}
+\caption{Pipeline sperimentale priva di \textit{data leakage}: la codifica One-Hot e il ricampionamento vengono appresi e applicati esclusivamente sul training set, valutando il modello finale sul test set intatto.}
+\label{fig:dm-lab-leakage-pipeline}
+\end{figure}
+
+Poich\'e \texttt{RandomForestClassifier} richiede una matrice numerica, le $7$ colonne categoriche vengono codificate tramite \texttt{OneHotEncoder} (con \texttt{handle\_\allowbreak unknown="ignore"} e \texttt{sparse\_\allowbreak output=False}), addestrato sul solo training set e applicato al test set; le $85$ colonne binarie cos\`i generate vengono concatenate alle $6$ numeriche, portando le dimensioni a \texttt{train\_set} $(25\,641, 91)$ e \texttt{test\_set} $(10\,990, 91)$.
+
+\begin{lstlisting}[style=pythoncode, caption={Codifica One-Hot appresa sul solo training set per evitare data leakage.}]
+from sklearn.preprocessing import OneHotEncoder
+
+encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+train_cat = encoder.fit_transform(train_set_raw[categorical_features])
+test_cat = encoder.transform(test_set_raw[categorical_features])
+
+train_set = np.hstack([train_set_raw[numeric_features].values, train_cat])
+test_set = np.hstack([test_set_raw[numeric_features].values, test_cat])
+\end{lstlisting}
+
+\begin{noteblock}{Nota tecnica su SMOTE e attributi categorici}
+Nel laboratorio, SMOTE viene applicato dopo il \textit{One-Hot Encoding} affinch\'e tutti i metodi condividano lo stesso spazio vettoriale a $91$ dimensioni. Poich\'e SMOTE effettua un'interpolazione lineare continua nello spazio delle feature, l'interpolazione tra vettori one-hot pu\`o produrre valori frazionari intermedi (es.\ $0.4$ o $0.6$) privi di significato categorico discreto; in contesti produttivi con dati misti \`e preferibile utilizzare \texttt{SMOTENC}.
+\end{noteblock}
+
+\FloatBarrier
+\subsubsection{Analisi Comparativa dei Metodi di Gestione dello Sbilanciamento}
+\label{subsec:dm-lab-adult-results}
+
+Una funzione uniforme \texttt{train\_and\_evaluate} addestra la Random Forest sui dati trasformati e valuta le predizioni sul test set intatto ($8\,360$ classe \texttt{0}, $2\,630$ classe \texttt{1}):
+\begin{enumerate}
+    \item \textbf{Baseline:} sui dati originali sbilanciati ($25\,641$ record), l'accuracy globale raggiunge $0.855$ ma la classe \texttt{1} subisce $991$ falsi negativi contro $1\,639$ veri positivi ($\text{Recall} = 0.623$, $\text{Precision} = 0.731$, $\text{F1} = 0.673$, $\text{Balanced Acc.} = 0.776$).
+    \item \textbf{Class Weights (\texttt{class\_weight="balanced"}):} con alberi non potati (\texttt{MAX\_DEPTH=None}), la pesatura inversa alle frequenze non migliora la sensibilit\`a sulla classe \texttt{1} ($\text{Recall} = 0.606$ con $1\,036$ FN, $\text{Precision} = 0.738$ con $566$ FP, $\text{F1} = 0.666$).
+    \item \textbf{Random Oversampling:} porta entrambe le classi a $19\,506$ istanze ($39\,012$ totali) duplicando la classe minoritaria. I veri positivi salgono a $1\,805$ ($\text{Recall} = 0.686$, $+6.3$ punti), a fronte di un aumento dei falsi positivi ($844$, $\text{Precision} = 0.682$), migliorando l'$\text{F1}$ ($0.684$) e la Balanced Accuracy ($0.793$).
+    \item \textbf{Random Undersampling:} riduce la classe maggioritaria a $6\,135$ istanze ($12\,270$ totali). La sensibilit\`a sulla classe \texttt{1} tocca il massimo ($2\,224$ TP, $406$ FN, $\text{Recall} = 0.846$, $\text{Balanced Acc.} = 0.825$), ma la perdita di informazione sulla classe \texttt{0} genera $1\,630$ falsi positivi ($\text{Precision} = 0.577$, Accuracy globale $= 0.815$).
+    \item \textbf{Random Oversampling + Undersampling:} applicando prima \texttt{RandomOverSampler} con \texttt{sampling\_strategy=0.60} ($11\,703$ istanze di classe \texttt{1}) e poi \texttt{RandomUnderSampler} con \texttt{sampling\_strategy=0.70} ($16\,718$ istanze di classe \texttt{0}, totale $28\,421$), si ottiene il miglior equilibrio complessivo: massimo \textbf{F1-score sulla classe \texttt{1} ($0.694$)}, Recall $= 0.705$, Precision $= 0.683$ e Balanced Accuracy $= 0.801$.
+    \item \textbf{Condensed Nearest Neighbor (CNN):} metodo di \textit{informed undersampling} che conserva i punti prossimi ai confini decisionali scartando le istanze ridondanti interne. Eseguito su un sottoinsieme stratificato per contenerne il costo computazionale, seleziona appena \textbf{$2\,528$ istanze} ($1\,332$ classe \texttt{0}, $1\,196$ classe \texttt{1}), raggiungendo comunque $\text{Recall} = 0.826$ e $\text{Balanced Acc.} = 0.819$ ($2\,173$ TP, $457$ FN, $1\,581$ FP).
+\end{enumerate}
+
+\begin{lstlisting}[style=pythoncode, caption={Funzione di valutazione uniforme e applicazione dei ricampionatori imblearn.}]
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, balanced_accuracy_score
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.under_sampling import RandomUnderSampler, CondensedNearestNeighbour, TomekLinks
+from imblearn.combine import SMOTETomek
+
+def train_and_evaluate(name, X_tr, y_tr, class_weight=None):
+    model = RandomForestClassifier(
+        n_estimators=N_TREES, max_depth=MAX_DEPTH,
+        class_weight=class_weight, random_state=RANDOM_STATE, n_jobs=-1
+    )
+    model.fit(X_tr, y_tr)
+    pred = model.predict(test_set)
+    print(f"=== {name} (Bal. Acc: {balanced_accuracy_score(test_label, pred):.3f}) ===")
+    print(classification_report(test_label, pred, digits=3))
+
+# Esempi di applicazione sui soli dati di training
+X_ros, y_ros = RandomOverSampler(sampling_strategy="minority", random_state=42).fit_resample(train_set, train_label)
+X_rus, y_rus = RandomUnderSampler(sampling_strategy="majority", random_state=42).fit_resample(train_set, train_label)
+X_comb, y_comb = RandomOverSampler(sampling_strategy=0.60, random_state=42).fit_resample(train_set, train_label)
+X_comb, y_comb = RandomUnderSampler(sampling_strategy=0.70, random_state=42).fit_resample(X_comb, y_comb)
+X_cnn, y_cnn = CondensedNearestNeighbour(random_state=42, n_jobs=-1).fit_resample(X_sub, y_sub)
+\end{lstlisting}
+
+La \autoref{tab:dm-lab-adult-summary} riassume le prestazioni registrate sul test set intatto nei sei esperimenti eseguiti.
+
+\begin{table}[H]
+\centering
+\caption{Confronto delle prestazioni sul test set intatto ($10\,990$ record) per i metodi eseguiti su \textit{Adult}.}
+\label{tab:dm-lab-adult-summary}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Metodo} & \textbf{Train Size} & \textbf{Cl.\ 0} & \textbf{Cl.\ 1} & \textbf{Prec.\ (1)} & \textbf{Rec.\ (1)} & \textbf{F1 (1)} & \textbf{Bal.\ Acc.} & \textbf{Acc.} \\
+\midrule
+Baseline               & $25\,641$ & $19\,506$ & $6\,135$  & $0.731$ & $0.623$ & $0.673$ & $0.776$ & $0.855$ \\
+Class weights          & $25\,641$ & $19\,506$ & $6\,135$  & $0.738$ & $0.606$ & $0.666$ & $0.769$ & $0.854$ \\
+Random oversampling    & $39\,012$ & $19\,506$ & $19\,506$ & $0.682$ & $0.686$ & $0.684$ & $0.793$ & $0.848$ \\
+Random undersampling   & $12\,270$ & $6\,135$  & $6\,135$  & $0.577$ & $0.846$ & $0.686$ & $0.825$ & $0.815$ \\
+Random over + under    & $28\,421$ & $16\,718$ & $11\,703$ & $0.683$ & $0.705$ & $\mathbf{0.694}$ & $0.801$ & $0.851$ \\
+Condensed NN (CNN)     & $2\,528$  & $1\,332$  & $1\,196$  & $0.579$ & $0.826$ & $0.681$ & $0.819$ & $0.815$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Classificazione di Serie Temporali tramite Shapelets in Python}
+\label{sec:dm-lab-shapelets}
+
+La seconda parte del laboratorio illustra l'estrazione e l'uso degli \textbf{shapelets} --- brevi sottosequenze altamente discriminative --- su un dataset sintetico benchmark \textit{Cylinder-Bell-Funnel} generato tramite \texttt{pyts.datasets}:
+
+\begin{lstlisting}[style=pythoncode, caption={Generazione del dataset sintetico Cylinder-Bell-Funnel.}]
+from pyts.datasets import make_cylinder_bell_funnel
+X, y = make_cylinder_bell_funnel(n_samples=12, random_state=42)
+\end{lstlisting}
+
+La matrice \texttt{X} ha dimensione $(12, 128)$ ($12$ serie temporali di lunghezza $128$) ripartite in $3$ classi (\autoref{fig:dm-lab-cbf}): \textbf{\texttt{cylinder}} (classe \texttt{0}, aumento brusco, plateau piatto e discesa ripida), \textbf{\texttt{bell}} (classe \texttt{1}, rampa crescente graduale seguita da caduta verticale) e \textbf{\texttt{funnel}} (classe \texttt{2}, salita verticale improvvisa seguita da rampa decrescente graduale).
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}
+    % Cylinder
+    \begin{scope}[shift={(0,0)}]
+        \draw[gray!40] (0,0) rectangle (4.0,2.0);
+        \draw[navy, line width=1.2pt] (0.2,0.4) -- (1.1,0.4) -- (1.15,1.6) -- (2.85,1.6) -- (2.9,0.4) -- (3.8,0.4);
+        \node[font=\footnotesize\bfseries, color=navy] at (2.0,-0.3) {Classe 0: \texttt{cylinder}};
+    \end{scope}
+    % Bell
+    \begin{scope}[shift={(4.7,0)}]
+        \draw[gray!40] (0,0) rectangle (4.0,2.0);
+        \draw[darkgreen, line width=1.2pt] (0.2,0.4) -- (1.0,0.4) -- (2.9,1.65) -- (2.95,0.4) -- (3.8,0.4);
+        \node[font=\footnotesize\bfseries, color=darkgreen] at (2.0,-0.3) {Classe 1: \texttt{bell}};
+    \end{scope}
+    % Funnel
+    \begin{scope}[shift={(9.4,0)}]
+        \draw[gray!40] (0,0) rectangle (4.0,2.0);
+        \draw[crimson, line width=1.2pt] (0.2,0.4) -- (1.05,0.4) -- (1.1,1.65) -- (3.0,0.4) -- (3.8,0.4);
+        \node[font=\footnotesize\bfseries, color=crimson] at (2.0,-0.3) {Classe 2: \texttt{funnel}};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Profili caratteristici delle tre classi del dataset sintetico \textit{Cylinder-Bell-Funnel}.}
+\label{fig:dm-lab-cbf}
+\end{figure}
+
+\FloatBarrier
+\subsubsection{Apprendimento di Shapelets tramite Ottimizzazione (\texttt{tslearn})}
+\label{subsec:dm-lab-tslearn}
+
+Il modello \texttt{ShapeletModel} (\texttt{LearningShapelets}) della libreria \texttt{tslearn}~\cite{tavenard2020,grabocka2014} apprende gli shapelets come parametri continui mediante discesa del gradiente stocastico (\texttt{sgd}). L'utility \texttt{grabocka\_params\_to\_\allowbreak shapelet\_size\_dict} determina automaticamente numero e lunghezza degli shapelets:
+
+\begin{lstlisting}[style=pythoncode, caption={Dimensionamento e addestramento di ShapeletModel con tslearn.}]
+shapelet_sizes = grabocka_params_to_shapelet_size_dict(
+    n_ts=X.shape[0], ts_sz=X.shape[1], n_classes=len(set(y)), l=0.1, r=1
+)  # Output: {12: 3} -> 3 shapelets di lunghezza 12
+
+shp_clf = ShapeletModel(
+    n_shapelets_per_size=shapelet_sizes,
+    optimizer="sgd", weight_regularizer=0.01, max_iter=200, verbose=1
+)
+shp_clf.fit(X, y)
+\end{lstlisting}
+
+Con \texttt{l=0.1} ($\lfloor 0.1 \times 128 \rfloor = 12$) e \texttt{r=1}, vengono appresi \textbf{$3$ shapelets di lunghezza $12$}. Lungo le $200$ epoche di addestramento, l'accuratezza sul dataset passa da $0.4167$ (epoca $1$, $\text{loss}=2.0923$) a $0.5000$ (epoca $33$), $0.6667$ (epoca $48$) fino a stabilizzarsi a \textbf{$0.7500$} ($9$ serie su $12$ corrette, $\text{loss}=0.4831$ all'epoca $200$). Il metodo \texttt{shp\_clf.locate(X)} individua per ciascuna serie gli indici iniziali di miglior allineamento locale (sulla prima serie di classe \texttt{cylinder}, i $3$ shapelets si allineano rispettivamente sul fronte di salita $t \approx 30\text{--}41$, sul fronte di discesa $t \approx 85\text{--}96$ e sul tratto pianeggiante finale $t \approx 105\text{--}116$).
+
+\FloatBarrier
+\subsubsection{Estrazione Combinatoria con \texttt{ShapeletTransform} (\texttt{pyts})}
+\label{subsec:dm-lab-pyts}
+
+A differenza dell'approccio per ottimizzazione continua di \texttt{tslearn}, la classe \texttt{ShapeletTransform} di \texttt{pyts} estrae direttamente dal training set le sottosequenze contigue reali pi\`u discriminative, valutando tutte le finestre candidate mediante un criterio statistico (\texttt{mutual\_info} di default oppure \texttt{F-scores}) e rimuovendo i candidati simili (\texttt{remove\_similar=True}):
+
+\begin{lstlisting}[style=pythoncode, caption={Estrazione combinatoria di $5$ shapelets di lunghezza $8$ con pyts.}]
+from pyts.transformation import ShapeletTransform
+st = ShapeletTransform(n_shapelets=5, window_sizes=[8])
+st.fit(X, y)
+\end{lstlisting}
+
+La matrice risultante \texttt{st.shapelets\_} ha dimensione $(5, 8)$ e contiene le $5$ sottosequenze reali estratte (\autoref{tab:dm-lab-pyts-shapelets}), i cui profili locali (picchi iniziali seguiti da discese brusche o valli strette) massimizzano la mutua informazione tra le tre classi.
+
+\begin{table}[H]
+\centering
+\caption{I $5$ shapelets reali di lunghezza $8$ estratti da \texttt{ShapeletTransform} (\texttt{st.shapelets\_}).}
+\label{tab:dm-lab-pyts-shapelets}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Shapelet} & $t_0$ & $t_1$ & $t_2$ & $t_3$ & $t_4$ & $t_5$ & $t_6$ & $t_7$ \\
+\midrule
+\texttt{shapelet 0} & $2.1417$ & $4.6428$ & $1.9941$  & $2.3130$ & $1.2236$ & $2.8489$ & $2.2686$ & $1.3037$ \\
+\texttt{shapelet 1} & $2.0346$ & $5.2699$ & $4.9831$  & $1.9315$ & $2.6775$ & $3.5556$ & $2.7153$ & $0.9885$ \\
+\texttt{shapelet 2} & $2.9865$ & $3.3732$ & $3.5649$  & $1.5156$ & $2.7155$ & $3.3782$ & $1.1127$ & $3.4953$ \\
+\texttt{shapelet 3} & $2.9347$ & $2.6408$ & $-0.7422$ & $2.7349$ & $1.8875$ & $3.2017$ & $2.5623$ & $2.3865$ \\
+\texttt{shapelet 4} & $4.1249$ & $1.9759$ & $1.8979$  & $1.9807$ & $1.9984$ & $3.3886$ & $2.7957$ & $3.1797$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

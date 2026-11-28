@@ -1,0 +1,509 @@
+\FloatBarrier
+\section{Simulazioni di Clustering (K-Means) e Pattern Sequenziali (GSP)}
+\label{sec:dm-app-kmeans-gsp}
+\subsection{Esercizio 1: Simulazione Geometrica e Analitica di K-Means}
+\label{sec:dm-kmeans-exercise-1}
+
+L'algoritmo \textbf{K-Means} (formalizzato nel Capitolo~\ref{chap:dm-kmeans-hierarchical}) mira a ripartire uno spazio vettoriale in $K$ partizioni rigide minimizzando l'errore quadratico totale ($\mathrm{SSE}$). In questa sezione viene condotta una simulazione deterministica passo-passo nello spazio cartesiano continuo $\mathbb{R}^2$.
+
+\FloatBarrier
+\subsubsection{Configurazione Iniziale e Coordinate del Dataset}
+Si consideri un dataset $\mathcal{D}$ composto da 9 punti bidimensionali $P_0, \dots, P_8$:
+\begin{align}
+P_0 &= (3, 1), & P_1 &= (7, 5), & P_2 &= (6, 2) \nonumber \\
+P_3 &= (7, 1), & P_4 &= (9, 7), & P_5 &= (8, 8) \nonumber \\
+P_6 &= (2, 4), & P_7 &= (8, 6), & P_8 &= (4, 4)
+\end{align}
+Si impone $K = 2$ e si selezionano a priori i centroidi iniziali ancorandoli a due punti del dataset:
+\begin{itemize}
+    \item \textbf{Centroide 1 ($C_1^{(0)}$)}: posizionato su $P_2 \implies C_1^{(0)} = (6.00, 2.00)$;
+    \item \textbf{Centroide 2 ($C_0^{(0)}$)}: posizionato su $P_1 \implies C_0^{(0)} = (7.00, 5.00)$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Iterazione 0: Assegnazione alle Regioni di Voronoi}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Determinazione della Retta Separatrice (\textit{Bisecting Line})}:
+    La frontiera di decisione geometrica che separa i punti più vicini a $C_1^{(0)}$ da quelli più vicini a $C_0^{(0)}$ coincide con l'\textbf{asse del segmento} che congiunge i due centroidi.
+    \begin{itemize}
+        \item Vettore congiungente: $\mathbf{v} = C_0^{(0)} - C_1^{(0)} = (7 - 6, \; 5 - 2) = (1, 3)$.
+        \item Punto medio del segmento:
+        \begin{equation}
+        M = \left( \frac{6 + 7}{2}, \; \frac{2 + 5}{2} \right) = (6.50, \; 3.50)
+        \end{equation}
+        \item Equazione cartesiana dell'asse (retta ortogonale a $\mathbf{v}$ passante per $M$):
+        \begin{align}
+        (x - 6.5) + 3(y - 3.5) = 0 &\implies x + 3y - 17 = 0 \nonumber \\
+        &\implies y = -\frac{1}{3}x + \frac{17}{3}
+        \end{align}
+    \end{itemize}
+
+    \item \textbf{Assegnazione dei Punti ai Cluster}:
+    Calcolando la distanza euclidea o valutando il segno della funzione discriminante lineare $f(x, y) = x + 3y - 17$:
+    \begin{itemize}
+        \item \textbf{Cluster 1 (regione di $C_1$)}: punti per cui $f(x, y) < 0 \implies \{P_0, P_2, P_3, P_6, P_8\}$ (5 punti).
+        \item \textbf{Cluster 2 (regione di $C_0$)}: punti per cui $f(x, y) > 0 \implies \{P_1, P_4, P_5, P_7\}$ (4 punti).
+    \end{itemize}
+
+    \item \textbf{Ricalcolo dei Baricentri ($C_1^{(1)}$ e $C_0^{(1)}$)}:
+    \begin{align}
+    C_1^{(1)} &= \left( \frac{3 + 6 + 7 + 2 + 4}{5}, \; \frac{1 + 2 + 1 + 4 + 4}{5} \right) \nonumber \\
+              &= \left( \frac{22}{5}, \; \frac{12}{5} \right) = (4.40, \; 2.40) \\[4pt]
+    C_0^{(1)} &= \left( \frac{7 + 9 + 8 + 8}{4}, \; \frac{5 + 7 + 8 + 6}{4} \right) \nonumber \\
+              &= \left( \frac{32}{4}, \; \frac{26}{4} \right) = (8.00, \; 6.50)
+    \end{align}
+\end{enumerate}
+
+\FloatBarrier
+\subsubsection{Iterazione 1 e Criterio di Arresto per Convergenza}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Nuova Retta Separatrice}:
+    Il vettore che unisce i nuovi centroidi è $\mathbf{v}' = (8.00 - 4.40, \; 6.50 - 2.40) = (3.60, \; 4.10)$.
+    Il nuovo punto medio è $M' = \left(\frac{4.40 + 8.00}{2}, \; \frac{2.40 + 6.50}{2}\right) = (6.20, \; 4.45)$.
+    \item \textbf{Verifica delle Assegnazioni}:
+    Rivalutando le distanze euclidee di tutti i 9 punti rispetto a $C_1^{(1)} = (4.40, 2.40)$ e $C_0^{(1)} = (8.00, 6.50)$, la partizione risulta perfettamente invariata:
+    \begin{itemize}
+        \item Punti associati a $C_1^{(1)}$: $\{P_0, P_2, P_3, P_6, P_8\}$;
+        \item Punti associati a $C_0^{(1)}$: $\{P_1, P_4, P_5, P_7\}$.
+    \end{itemize}
+    \item \textbf{Arresto}: La composizione dei cluster non subisce alcuna alterazione rispetto all'iterazione precedente; l'algoritmo K-Means termina formalmente per convergenza della funzione obiettivo.
+\end{enumerate}
+
+La Figura~\ref{fig:dm-kmeans-exercise-1} visualizza la configurazione geometrica finale dei cluster e la frontiera lineare di separazione.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9]
+    \draw[step=1cm, gray!30, very thin] (0,0) grid (10,9);
+    \draw[thick, ->] (0,0) -- (10.5,0) node[anchor=north] {$X$};
+    \draw[thick, ->] (0,0) -- (0,9.5) node[anchor=east] {$Y$};
+    \foreach \x in {1,...,10} \draw (\x, 1pt) -- (\x, -1pt) node[anchor=north, font=\tiny] {\x};
+    \foreach \y in {1,...,9} \draw (1pt, \y) -- (-1pt, \y) node[anchor=east, font=\tiny] {\y};
+
+    % Points Cluster 1 (Green)
+    \fill[darkgreen] (3,1) circle (3pt) node[below right, font=\scriptsize] {$P_0(3,1)$};
+    \fill[darkgreen] (6,2) circle (3pt) node[below right, font=\scriptsize] {$P_2(6,2)$};
+    \fill[darkgreen] (7,1) circle (3pt) node[below right, font=\scriptsize] {$P_3(7,1)$};
+    \fill[darkgreen] (2,4) circle (3pt) node[above left, font=\scriptsize] {$P_6(2,4)$};
+    \fill[darkgreen] (4,4) circle (3pt) node[above right, font=\scriptsize] {$P_8(4,4)$};
+
+    % Points Cluster 2 (Blue)
+    \fill[navy] (7,5) circle (3pt) node[below right, font=\scriptsize] {$P_1(7,5)$};
+    \fill[navy] (9,7) circle (3pt) node[above right, font=\scriptsize] {$P_4(9,7)$};
+    \fill[navy] (8,8) circle (3pt) node[above right, font=\scriptsize] {$P_5(8,8)$};
+    \fill[navy] (8,6) circle (3pt) node[below right, font=\scriptsize] {$P_7(8,6)$};
+
+    % Centroids Iteration 1
+    \node[draw=darkgreen, fill=darkgreen!20, regular polygon, regular polygon sides=4, thick, inner sep=3pt] at (4.4, 2.4) {};
+    \node[below=3pt, font=\scriptsize\bfseries, color=darkgreen!80!black] at (4.4, 2.4) {$C_1^{(1)}(4.4, 2.4)$};
+
+    \node[draw=navy, fill=navy!20, regular polygon, regular polygon sides=4, thick, inner sep=3pt] at (8.0, 6.5) {};
+    \node[above=3pt, font=\scriptsize\bfseries, color=navy!80!black] at (8.0, 6.5) {$C_0^{(1)}(8.0, 6.5)$};
+
+    % Bisecting line: retta rigorosamente retta passante per M'(6.20, 4.45) con m = -0.878
+    % Estremi calcolati: (2.00, 8.14) e (9.50, 1.55)
+    \draw[crimson, thick, dashed] (2.00, 8.14) -- (9.50, 1.55) node[right, font=\scriptsize\bfseries] {Asse di Separazione};
+\end{tikzpicture}
+\caption{Simulazione di K-Means ($K=2$): partizione finale dei punti nei due cluster e asse di separazione lineare ortogonale al segmento congiungente i centroidi $C_1^{(1)}(4.4, 2.4)$ e $C_0^{(1)}(8.0, 6.5)$.}
+\label{fig:dm-kmeans-exercise-1}
+\end{figure}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Concetto Introduttivo di DBSCAN su Spazio Metrico Continuo}
+\label{sec:dm-dbscan-simulation-intro}
+
+Applicando l'algoritmo basato su densità \textbf{DBSCAN} (approfondito nel Capitolo~\ref{chap:dm-density-dbscan}) sullo stesso dataset, il paradigma di raggruppamento muta radicalmente rispetto a K-Means: non si ricerca un partizionamento convesso basato su prototipi baricentrici, bensì si individuano componenti connesse di densità metrica locale.
+
+Si consideri la parametrizzazione tipica:
+\begin{equation}
+\varepsilon = 1.8, \qquad \text{MinPts} = 3
+\end{equation}
+dove $\text{MinPts} = 3$ include il punto in esame stesso.
+La costante $\varepsilon = 1.8$ definisce il raggio metrico euclideo dell'intorno $\mathcal{N}_\varepsilon(p) = \{q \in \mathcal{D} \mid \mathrm{dist}(p, q) \le \varepsilon\}$:
+\begin{itemize}
+    \item Un punto $p$ è classificato come \textbf{Core Point} se $|\mathcal{N}_\varepsilon(p)| \ge 3$;
+    \item Un punto $p$ è un \textbf{Border Point} se $|\mathcal{N}_\varepsilon(p)| < 3$ ma risiede nell'intorno $\varepsilon$ di almeno un Core Point;
+    \item Un punto $p$ è classificato come \textbf{Noise} (rumore o outlier) se non soddisfa alcuna delle due condizioni precedenti.
+\end{itemize}
+
+A differenza di K-Means, DBSCAN non richiede di specificare il numero $K$ di cluster a priori ed è in grado di escludere naturalmente i punti isolati (come $P_6 = (2,4)$ qualora la densità locale circostante non raggiunga la soglia richiesta).
+
+% ====================================================================
+\FloatBarrier
+\subsection{Esercizio 2: Simulazione di K-Means con Fenomeno di Migrazione dei Punti}
+\label{sec:dm-kmeans-exercise-2}
+
+Si consideri un secondo dataset composto da 10 punti in $\mathbb{R}^2$ per esaminare la dinamica temporale di riassegnazione dei dati al variare delle coordinate dei baricentri:
+\begin{align}
+P_0 &= (3, 3), & P_1 &= (5, 2), & P_2 &= (6, 0), & P_3 &= (7, 4), & P_4 &= (4, 9) \nonumber \\
+P_5 &= (1, 4), & P_6 &= (0, 0), & P_7 &= (6, 8), & P_8 &= (1, 0), & P_9 &= (5, 9)
+\end{align}
+Si impone $K = 2$ e si scelgono come centroidi iniziali:
+\begin{itemize}
+    \item $C_0^{(0)} = P_1 \implies (5.00, \; 2.00)$
+    \item $C_1^{(0)} = P_5 \implies (1.00, \; 4.00)$
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Iterazione 0: Partizione Iniziale}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Asse Separatore e Assegnazione}:
+    Tracciando l'asse passante per il punto medio $M = (3.00, 3.00)$ perpendicolare al vettore $(5 - 1, 2 - 4) = (4, -2)$:
+    \begin{itemize}
+        \item \textbf{Cluster 1 (associato a $C_0$)}: $\{P_0, P_1, P_2, P_3, P_7\}$ (5 punti);
+        \item \textbf{Cluster 2 (associato a $C_1$)}: $\{P_4, P_5, P_6, P_8, P_9\}$ (5 punti).
+    \end{itemize}
+    \item \textbf{Aggiornamento dei Centroidi al Passo 1}:
+    \begin{align}
+    C_0^{(1)} &= \left( \frac{3 + 5 + 6 + 7 + 6}{5}, \; \frac{3 + 2 + 0 + 4 + 8}{5} \right) = (5.40, \; 3.40) \\[4pt]
+    C_1^{(1)} &= \left( \frac{4 + 1 + 0 + 1 + 5}{5}, \; \frac{9 + 4 + 0 + 0 + 9}{5} \right) = (2.20, \; 4.40)
+    \end{align}
+\end{enumerate}
+
+\FloatBarrier
+\subsubsection{Iterazione 1: Fenomeno di Migrazione del Punto $P_0$}
+Al termine del ricalcolo dei centroidi al passo 1, la posizione dei poli attrattori subisce una traslazione. Si rivalutano rigorosamente le distanze euclidee quadrate del punto critico di confine $P_0 = (3, 3)$ rispetto a entrambi i nuovi centroidi:
+\begin{align}
+\mathrm{dist}^2\big(P_0, \; C_0^{(1)}\big) &= (3 - 5.40)^2 + (3 - 3.40)^2 = (-2.40)^2 + (-0.40)^2 = \mathbf{5.92} \\[4pt]
+\mathrm{dist}^2\big(P_0, \; C_1^{(1)}\big) &= (3 - 2.20)^2 + (3 - 4.40)^2 = (0.80)^2 + (-1.40)^2 = \mathbf{2.60}
+\end{align}
+
+Poiché $\mathrm{dist}^2(P_0, C_1^{(1)}) = 2.60 < 5.92 = \mathrm{dist}^2(P_0, C_0^{(1)})$, il punto $P_0$ non appartiene più al bacino di attrazione di $C_0$: si verifica formalmente il fenomeno della \textbf{migrazione del punto $P_0$ dal Cluster 1 al Cluster 2}.
+
+La nuova composizione dei cluster risulta:
+\begin{itemize}
+    \item \textbf{Nuovo Cluster 1}: $\{P_1, P_2, P_3, P_7\}$ (4 punti);
+    \item \textbf{Nuovo Cluster 2}: $\{P_0, P_4, P_5, P_6, P_8, P_9\}$ (6 punti).
+\end{itemize}
+
+Si ricalcolano i nuovi baricentri $C_0^{(2)}$ e $C_1^{(2)}$:
+\begin{align}
+C_0^{(2)} &= \left( \frac{5 + 6 + 7 + 6}{4}, \; \frac{2 + 0 + 4 + 8}{4} \right) = (6.00, \; 3.50) \\[4pt]
+C_1^{(2)} &= \left( \frac{3 + 4 + 1 + 0 + 1 + 5}{6}, \; \frac{3 + 9 + 4 + 0 + 0 + 9}{6} \right) \approx (2.33, \; 4.17)
+\end{align}
+
+\FloatBarrier
+\subsubsection{Iterazione 2 e Convergenza Stabile}
+Calcolando l'asse separatore tra $C_0^{(2)} = (6.00, 3.50)$ e $C_1^{(2)} = (2.33, 4.17)$, si constata che nessun punto modifica la propria appartenenza tra l'iterazione 1 e l'iterazione 2:
+\begin{itemize}
+    \item Cluster 1 stabile: $\{P_1, P_2, P_3, P_7\}$;
+    \item Cluster 2 stabile: $\{P_0, P_4, P_5, P_6, P_8, P_9\}$.
+\end{itemize}
+L'algoritmo termina per convergenza della partizione.
+
+% ====================================================================
+% MODULO III: PATTERN SEQUENZIALI E L'ALGORITMO GSP
+% ====================================================================
+
+\FloatBarrier
+\subsection{Fondamenti sui Vincoli Temporali nelle Sequenze (Min-Gap e Max-Gap)}
+\label{sec:dm-seq-gap-constraints}
+
+Nei problemi di \textbf{Sequential Pattern Mining} (approfonditi nel Capitolo~\ref{chap:dm-sequential-pattern-mining}), una sequenza temporale di input $S$ è modellata come una lista ordinata di insiemi di eventi (itemset), ciascuno associato a un indice temporale discreto (\textit{time-stamp}) $t$~\cite{tan2018, agrawal1995, srikant1996}:
+\begin{equation}
+S = \langle E_{t_0}, E_{t_1}, \dots, E_{t_n} \rangle
+\end{equation}
+
+Una generica sotto-sequenza target $W = \langle e_1, e_2, \dots, e_m \rangle$ compare all'interno di $S$ se e solo se esiste una sequenza strettamente crescente di indici temporali $\langle t_{k_1}, t_{k_2}, \dots, t_{k_m} \rangle$ tali per cui:
+\begin{equation}
+t_{k_1} < t_{k_2} < \dots < t_{k_m} \quad \text{e} \quad e_j \subseteq E_{t_{k_j}} \quad (\forall j \in \{1, \dots, m\})
+\end{equation}
+
+Nelle applicazioni ingegneristiche reali (diagnostica dei guasti, biologia computazionale, percorsi web), identificare eventi arbitrariamente distanti nel tempo produce pattern spuri privi di rilevanza causale. Si introducono pertanto \textbf{vincoli temporali inter-evento} (\textit{gap constraints})~\cite{srikant1996}:
+\begin{definition}[Vincolo di Min-Gap]
+Il vincolo $\text{min-gap} = g_{\min}$ impone che tra due eventi contigui della sottosequenza debba intercorrere una separazione temporale strettamente superiore al valore prefissato:
+\begin{equation}
+t_{k_j} - t_{k_{j-1}} > g_{\min}
+\end{equation}
+Nel caso particolare didattico in cui $\text{min-gap} = 1$, la disuguaglianza $t_{k_j} - t_{k_{j-1}} > 1$ impone $\Delta t \ge 2$, escludendo eventi contigui che accadono a distanza temporale unitaria.
+\end{definition}
+
+\begin{definition}[Vincolo di Max-Gap]
+Il vincolo $\text{max-gap} = g_{\max}$ impone che due eventi consecutivi del pattern debbano realizzarsi entro un intervallo temporale massimo ammissibile:
+\begin{equation}
+t_{k_j} - t_{k_{j-1}} \le g_{\max}
+\end{equation}
+\end{definition}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Esercizio 1: Pattern Sequenziali con Vincolo Min-Gap}
+\label{sec:dm-seq-min-gap-exercise}
+
+Si consideri la sequenza temporale di riferimento:
+\begin{align}
+S = \big\langle &\{A\}_{t=0}, \; \{B, F\}_{t=1}, \; \{E\}_{t=2}, \; \{A, B\}_{t=3}, \nonumber \\
+&\{A, C, D\}_{t=4}, \; \{F\}_{t=5}, \; \{B, E\}_{t=6}, \; \{C, D\}_{t=7} \big\rangle
+\end{align}
+Si determinano le occorrenze valide per diverse sotto-sequenze confrontando lo scenario senza vincoli con lo scenario soggetto al vincolo $\text{min-gap} = 1$ ($\Delta t > 1$).
+
+\FloatBarrier
+\subsection[Sotto-sequenza $\langle \{B\}, \{E\} \rangle$]{Sotto-sequenza \texorpdfstring{$\langle \{B\}, \{E\} \rangle$}{<\{B\}, \{E\}>}}
+\begin{itemize}
+    \item Distribuzione temporale degli item: $B$ appare a $t \in \{1, 3, 6\}$; $E$ appare a $t \in \{2, 6\}$.
+    \item \textbf{Occorrenze prive di vincoli ($t_B < t_E$)}:
+    \begin{align}
+    t_B = 1 &\implies t_E = 2 \implies \langle 1, 2 \rangle \nonumber \\
+    t_B = 1 &\implies t_E = 6 \implies \langle 1, 6 \rangle \nonumber \\
+    t_B = 3 &\implies t_E = 6 \implies \langle 3, 6 \rangle
+    \end{align}
+    Occorrenze non vincolate: $\langle 1, 2 \rangle, \; \langle 1, 6 \rangle, \; \langle 3, 6 \rangle$.
+    \item \textbf{Verifica del vincolo $\text{min-gap} = 1$ ($t_E - t_B > 1$)}:
+    \begin{itemize}
+        \item Per $\langle 1, 2 \rangle$: $2 - 1 = 1 \ngtr 1 \implies$ \textbf{violato};
+        \item Per $\langle 1, 6 \rangle$: $6 - 1 = 5 > 1 \implies$ \textbf{valido};
+        \item Per $\langle 3, 6 \rangle$: $6 - 3 = 3 > 1 \implies$ \textbf{valido}.
+    \end{itemize}
+    Occorrenze valide con $\text{min-gap} = 1$: $\mathbf{\langle 1, 6 \rangle, \; \langle 3, 6 \rangle}$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_1 = \langle \{A\}, \{B\}, \{E\} \rangle$}{w1}}
+\begin{itemize}
+    \item Item $A$ appare a $t \in \{0, 3, 4\}$.
+    \item Da $t_A = 0$, combinandosi con le occorrenze ordinate valide di $\langle \{B\}, \{E\} \rangle$, si ricavano le terne:
+    \begin{equation}
+    \langle 0, 1, 2 \rangle, \quad \langle 0, 1, 6 \rangle, \quad \langle 0, 3, 6 \rangle
+    \end{equation}
+    Per $t_A = 3$ e $t_A = 4$ non esistono coppie $\langle B, E \rangle$ successive.
+    \item \textbf{Verifica $\text{min-gap} = 1$}:
+    \begin{itemize}
+        \item In $\langle 0, 1, 2 \rangle$: $1 - 0 = 1 \ngtr 1$ e $2 - 1 = 1 \ngtr 1 \implies$ violato.
+        \item In $\langle 0, 1, 6 \rangle$: $1 - 0 = 1 \ngtr 1 \implies$ violato.
+        \item In $\langle 0, 3, 6 \rangle$: $3 - 0 = 3 > 1$ e $6 - 3 = 3 > 1 \implies$ \textbf{valido}.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 3, 6 \rangle}$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_2 = \langle \{B\}, \{D\} \rangle$}{w2}}
+\begin{itemize}
+    \item $B$ a $t \in \{1, 3, 6\}$; $D$ a $t \in \{4, 7\}$.
+    \item Senza vincoli: $\langle 1, 4 \rangle, \langle 1, 7 \rangle, \langle 3, 4 \rangle, \langle 3, 7 \rangle, \langle 6, 7 \rangle$.
+    \item Con $\text{min-gap} = 1$:
+    \begin{itemize}
+        \item $\langle 1, 4 \rangle$: $4 - 1 = 3 > 1 \implies$ valido;
+        \item $\langle 1, 7 \rangle$: $7 - 1 = 6 > 1 \implies$ valido;
+        \item $\langle 3, 4 \rangle$: $4 - 3 = 1 \ngtr 1 \implies$ violato;
+        \item $\langle 3, 7 \rangle$: $7 - 3 = 4 > 1 \implies$ valido;
+        \item $\langle 6, 7 \rangle$: $7 - 6 = 1 \ngtr 1 \implies$ violato.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 1, 4 \rangle, \; \langle 1, 7 \rangle, \; \langle 3, 7 \rangle}$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_3 = \langle \{F\}, \{E\}, \{C, D\} \rangle$}{w3}}
+\begin{itemize}
+    \item $F$ a $t \in \{1, 5\}$; $E$ a $t \in \{2, 6\}$; $\{C, D\}$ a $t \in \{4, 7\}$.
+    \item Senza vincoli: $\langle 1, 2, 4 \rangle, \langle 1, 2, 7 \rangle, \langle 1, 6, 7 \rangle, \langle 5, 6, 7 \rangle$.
+    \item Con $\text{min-gap} = 1$:
+    Ciascuna delle 4 tuple candidate presenta almeno una transizione temporale unitaria ($\Delta t = 1$):
+    $\langle 1, 2, 4 \rangle$ e $\langle 1, 2, 7 \rangle$ violano il vincolo su $t_E - t_F = 1$; $\langle 1, 6, 7 \rangle$ viola il vincolo su $t_{CD} - t_E = 1$; $\langle 5, 6, 7 \rangle$ viola entrambi.
+    \item Esito finale: \textbf{nessuna occorrenza valida (\texttt{none})}.
+\end{itemize}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Esercizio 2: Pattern Sequenziali con Vincolo Max-Gap}
+\label{sec:dm-seq-max-gap-exercise}
+
+Si consideri la seconda sequenza temporale di input:
+\begin{align}
+S = \big\langle &\{B, F\}_{t=0}, \; \{A\}_{t=1}, \; \{A, B\}_{t=2}, \; \{C, D, F\}_{t=3}, \nonumber \\
+&\{E\}_{t=4}, \; \{B, E\}_{t=5}, \; \{C, D\}_{t=6} \big\rangle
+\end{align}
+Si valutano le occorrenze imponendo il vincolo $\text{max-gap} = 4$ ($\Delta t \le 4$).
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_1 = \langle \{B\}, \{E\} \rangle$}{w1}}
+\begin{itemize}
+    \item $B$ a $t \in \{0, 2, 5\}$; $E$ a $t \in \{4, 5\}$. La condizione $t_B < t_E$ esclude la co-occorrenza $t=5$.
+    \item Senza vincoli: $\langle 0, 4 \rangle, \langle 0, 5 \rangle, \langle 2, 4 \rangle, \langle 2, 5 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($t_E - t_B \le 4$):
+    \begin{itemize}
+        \item $\langle 0, 4 \rangle$: $4 - 0 = 4 \le 4 \implies$ valido;
+        \item $\langle 0, 5 \rangle$: $5 - 0 = 5 > 4 \implies$ \textbf{violato};
+        \item $\langle 2, 4 \rangle$: $4 - 2 = 2 \le 4 \implies$ valido;
+        \item $\langle 2, 5 \rangle$: $5 - 2 = 3 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 4 \rangle, \; \langle 2, 4 \rangle, \; \langle 2, 5 \rangle}$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_2 = \langle \{B\}, \{D\} \rangle$}{w2}}
+\begin{itemize}
+    \item $B$ a $t \in \{0, 2, 5\}$; $D$ a $t \in \{3, 6\}$.
+    \item Senza vincoli: $\langle 0, 3 \rangle, \langle 0, 6 \rangle, \langle 2, 3 \rangle, \langle 2, 6 \rangle, \langle 5, 6 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($t_D - t_B \le 4$):
+    \begin{itemize}
+        \item $\langle 0, 3 \rangle$: $3 - 0 = 3 \le 4 \implies$ valido;
+        \item $\langle 0, 6 \rangle$: $6 - 0 = 6 > 4 \implies$ \textbf{violato};
+        \item $\langle 2, 3 \rangle$: $3 - 2 = 1 \le 4 \implies$ valido;
+        \item $\langle 2, 6 \rangle$: $6 - 2 = 4 \le 4 \implies$ valido;
+        \item $\langle 5, 6 \rangle$: $6 - 5 = 1 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 3 \rangle, \; \langle 2, 3 \rangle, \; \langle 2, 6 \rangle, \; \langle 5, 6 \rangle}$.
+\end{itemize}
+
+\FloatBarrier
+\subsubsection{Sotto-sequenza \texorpdfstring{$w_3 = \langle \{F\}, \{B\}, \{C, D\} \rangle$}{w3}}
+\begin{itemize}
+    \item $F$ a $t \in \{0, 3\}$; $B$ a $t \in \{0, 2, 5\}$; $\{C, D\}$ a $t \in \{3, 6\}$.
+    \item Condizione d'ordine temporale stretto: $t_F < t_B < t_{CD}$.
+    \item Occorrenze senza vincoli: $\langle 0, 2, 3 \rangle, \langle 0, 2, 6 \rangle, \langle 0, 5, 6 \rangle, \langle 3, 5, 6 \rangle$.
+    \item Con $\text{max-gap} = 4$ ($(t_B - t_F \le 4) \land (t_{CD} - t_B \le 4)$):
+    \begin{itemize}
+        \item $\langle 0, 2, 3 \rangle$: $2 - 0 = 2 \le 4$ e $3 - 2 = 1 \le 4 \implies$ valido;
+        \item $\langle 0, 2, 6 \rangle$: $2 - 0 = 2 \le 4$ e $6 - 2 = 4 \le 4 \implies$ valido;
+        \item $\langle 0, 5 \rangle$: $5 - 0 = 5 > 4 \implies$ \textbf{violato};
+        \item $\langle 3, 5, 6 \rangle$: $5 - 3 = 2 \le 4$ e $6 - 5 = 1 \le 4 \implies$ valido.
+    \end{itemize}
+    Esito finale: $\mathbf{\langle 0, 2, 3 \rangle, \; \langle 0, 2, 6 \rangle, \; \langle 3, 5, 6 \rangle}$.
+\end{itemize}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Algoritmo GSP: Simulazione del Livello \texorpdfstring{$k=1$}{k=1} su Dataset}
+\label{sec:dm-gsp-simulation-l1}
+
+L'algoritmo \textbf{GSP} (\textit{Generalized Sequential Pattern}), introdotto da Ramakrishnan Srikant e Rakesh Agrawal nel 1996~\cite{srikant1996}, traspone la logica generativa \textit{candidate-generation-and-test} di Apriori ai database di sequenze temporali.
+
+Si consideri il dataset transazionale composto da $|\mathcal{D}| = 4$ sequenze:
+\begin{align}
+s_1&: \langle \{A\} \to \{B, C\} \to \{C\} \to \{D\} \rangle \nonumber \\
+s_2&: \langle \{A, C\} \to \{B\} \to \{C\} \to \{C\} \rangle \nonumber \\
+s_3&: \langle \{D\} \to \{C\} \to \{B\} \to \{C, D\} \rangle \nonumber \\
+s_4&: \langle \{A, B\} \to \{D\} \to \{C\} \to \{C, D\} \to \{E\} \rangle
+\end{align}
+Imponendo una soglia di supporto relativo $\text{minsup} = 60\%$, il conteggio assoluto minimo di sequenze richiedente supporto risulta:
+\begin{equation}
+\sigma_{\min} = \lceil |\mathcal{D}| \times \text{minsup} \rceil = \lceil 4 \times 0.60 \rceil = \lceil 2.4 \rceil = \mathbf{3 \text{ sequenze}}
+\end{equation}
+
+\FloatBarrier
+\subsubsection{Calcolo dei 1-Pattern Frequenti ($L_1$)}
+Si valuta la frequenza di presenza di ciascun item distinto nelle 4 sequenze:
+\begin{itemize}
+    \item \textbf{Item $A$}: compare in $s_1, s_2, s_4 \implies \sigma(A) = 3 / 4 = 75\% \ge 60\%$ (\textbf{Frequente}: $\langle \{A\} \rangle$);
+    \item \textbf{Item $B$}: compare in $s_1, s_2, s_3, s_4 \implies \sigma(B) = 4 / 4 = 100\% \ge 60\%$ (\textbf{Frequente}: $\langle \{B\} \rangle$);
+    \item \textbf{Item $C$}: compare in $s_1, s_2, s_3, s_4 \implies \sigma(C) = 4 / 4 = 100\% \ge 60\%$ (\textbf{Frequente}: $\langle \{C\} \rangle$);
+    \item \textbf{Item $D$}: compare in $s_1, s_3, s_4 \implies \sigma(D) = 3 / 4 = 75\% \ge 60\%$ (\textbf{Frequente}: $\langle \{D\} \rangle$);
+    \item \textbf{Item $E$}: compare unicamente in $s_4 \implies \sigma(E) = 1 / 4 = 25\% < 60\%$ (\textbf{Infrequente} $\implies$ eliminato).
+\end{itemize}
+
+L'insieme risultante delle 1-sequenze frequenti è:
+\begin{equation}
+L_1 = \big\{ \langle \{A\} \rangle, \; \langle \{B\} \rangle, \; \langle \{C\} \rangle, \; \langle \{D\} \rangle \big\}
+\end{equation}
+
+% ====================================================================
+\FloatBarrier
+\subsection{Algoritmo GSP: Fase di Pruning dei Candidati (\texorpdfstring{$C_4$}{C4})}
+\label{sec:dm-gsp-pruning-exercise}
+
+In un'esecuzione avanzata dell'algoritmo GSP, al termine dell'elaborazione di livello $k=3$ è stato identificato l'insieme di \textbf{3-sequenze frequenti ($L_3$)} composto da 12 elementi:
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item $\langle \{A, B\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A, B\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C, D\} \rangle$
+    \item $\langle \{B\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{C, D\} \rangle$
+    \item $\langle \{B\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{D\} \to \{C\} \to \{C\} \rangle$
+    \item $\langle \{A\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{D\} \to \{C\} \to \{D\} \rangle$
+\end{enumerate}
+
+Durante la successiva iterazione per $k=4$, la procedura di generazione produce (tra gli altri) 5 candidati di lunghezza 4 appartenenti a $C_4$:
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+    \item $\langle \{A, B\} \to \{C, D\} \rangle$
+    \item $\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$
+    \item $\langle \{A, B\} \to \{D\} \to \{C\} \rangle$
+    \item $\langle \{A, B\} \to \{C\} \to \{D\} \rangle$
+\end{enumerate}
+
+\FloatBarrier
+\subsubsection{Principio di Anti-Monotonicità del Pruning in GSP}
+\begin{theorem}[Proprietà di Potatura in GSP]
+\label{thm:dm-gsp-pruning}
+Una $k$-sequenza candidata $s \in C_k$ può essere frequente se e solo se \textbf{tutte le sue $k$ sotto-sequenze di lunghezza $k-1$} (ottenute rimuovendo esattamente un'occorrenza di item alla volta) appartengono all'insieme dei pattern frequenti del livello precedente $L_{k-1}$. Se anche una sola sotto-sequenza di lunghezza $k-1$ risulta assente da $L_{k-1}$, il candidato viene immediatamente eliminato (\textbf{potato a priori}), senza richiedere alcuna scansione del database.
+\end{theorem}
+
+\FloatBarrier
+\subsubsection{Analisi Rigorosa delle Sotto-sequenze per Ciascun Candidato}
+
+\paragraph{Candidato C1: \texorpdfstring{$\langle \{A, B\} \to \{C, D\} \rangle$}{C1}}
+Le sue 4 sotto-sequenze di lunghezza 3 si ottengono rimuovendo un item alla volta:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{C, D\} \rangle \implies$ presente in $L_3$ (regola 7).
+    \item Rimozione di $B$: $\langle \{A\} \to \{C, D\} \rangle \implies$ presente in $L_3$ (regola 5).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\paragraph{Candidato C2: \texorpdfstring{$\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$}{C2}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione del primo evento $\{A\}$: $\langle \{D\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 12).
+    \item Rimozione del secondo evento $\{D\}$: $\langle \{A\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 11).
+    \item Rimozione del terzo evento $\{C\}$: $\mathbf{\langle \{A\} \to \{D\} \to \{D\} \rangle} \implies$ \textbf{NON PRESENTE in $L_3$}.
+    \item Rimozione del quarto evento $\{D\}$: $\langle \{A\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 2).
+\end{enumerate}
+\textbf{Decisione}: Poiché la sotto-sequenza $\langle \{A\} \to \{D\} \to \{D\} \rangle \notin L_3$, il candidato viene \textbf{POTATO (PRUNED)}.
+
+\paragraph{Candidato C3: \texorpdfstring{$\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$}{C3}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione del primo evento $\{B\}$: $\langle \{D\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 12).
+    \item Rimozione del secondo evento $\{D\}$: $\langle \{B\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 6).
+    \item Rimozione del terzo evento $\{C\}$: $\mathbf{\langle \{B\} \to \{D\} \to \{D\} \rangle} \implies$ \textbf{NON PRESENTE in $L_3$}.
+    \item Rimozione del quarto evento $\{D\}$: $\langle \{B\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 8).
+\end{enumerate}
+\textbf{Decisione}: Poiché la sotto-sequenza $\langle \{B\} \to \{D\} \to \{D\} \rangle \notin L_3$, il candidato viene \textbf{POTATO (PRUNED)}.
+
+\paragraph{Candidato C4: \texorpdfstring{$\langle \{A, B\} \to \{D\} \to \{C\} \rangle$}{C4}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 8).
+    \item Rimozione di $B$: $\langle \{A\} \to \{D\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 2).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\paragraph{Candidato C5: \texorpdfstring{$\langle \{A, B\} \to \{C\} \to \{D\} \rangle$}{C5}}
+Sotto-sequenze di lunghezza 3:
+\begin{enumerate}
+    \item Rimozione di $A$: $\langle \{B\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 6).
+    \item Rimozione di $B$: $\langle \{A\} \to \{C\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 11).
+    \item Rimozione di $C$: $\langle \{A, B\} \to \{D\} \rangle \implies$ presente in $L_3$ (regola 3).
+    \item Rimozione di $D$: $\langle \{A, B\} \to \{C\} \rangle \implies$ presente in $L_3$ (regola 1).
+\end{enumerate}
+\textbf{Decisione}: Tutte le sotto-sequenze appartengono ad $L_3 \implies$ \textbf{NON POTATO (Mantenuto)}.
+
+\FloatBarrier
+\subsubsection{Tabella Sinottica Conclusiva del Pruning GSP}
+La Tabella~\ref{tab:dm-gsp-pruning-summary} sintetizza i riscontri di potatura per tutti i candidati esaminati.
+
+\begin{table}[H]
+\centering
+\caption{Quadro sinottico della fase di potatura dei candidati ($C_4$) nell'algoritmo GSP.}
+\label{tab:dm-gsp-pruning-summary}
+\begin{tabularx}{\textwidth}{c l Y c}
+\toprule
+\textbf{ID} & \textbf{Sequenza Candidata ($C_4$)} & \textbf{Sotto-sequenze Assenti da $L_3$} & \textbf{Esito di Potatura} \\
+\midrule
+C1 & $\langle \{A, B\} \to \{C, D\} \rangle$                & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+C2 & $\langle \{A\} \to \{D\} \to \{C\} \to \{D\} \rangle$  & $\langle \{A\} \to \{D\} \to \{D\} \rangle$ & \textbf{POTATO} \\
+C3 & $\langle \{B\} \to \{D\} \to \{C\} \to \{D\} \rangle$  & $\langle \{B\} \to \{D\} \to \{D\} \rangle$ & \textbf{POTATO} \\
+C4 & $\langle \{A, B\} \to \{D\} \to \{C\} \rangle$         & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+C5 & $\langle \{A, B\} \to \{C\} \to \{D\} \rangle$         & Nessuna (tutte presenti) & \textbf{Mantenuto} \\
+\bottomrule
+\end{tabularx}
+\end{table}

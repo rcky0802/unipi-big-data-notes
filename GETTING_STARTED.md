@@ -53,9 +53,7 @@ unipi-big-data-notes/
 ├── tasks.vs.json               # Task unificati per Visual Studio
 ├── scripts/                    # Script PowerShell e CMD unificati
 │   ├── build.ps1               # Motore di Smart Build differenziale
-│   ├── clean.ps1               # Pulizia dei file ausiliari LaTeX
-│   ├── start-jupyter.ps1       # Avvio rapido Jupyter Lab in Docker
-│   └── start-jupyter.cmd       # Launcher con doppio clic per Windows
+│   └── clean.ps1               # Pulizia dei file ausiliari LaTeX
 └── README.md                   # Hub principale con link ai PDF
 ```
 
@@ -72,7 +70,6 @@ Premi **`Ctrl + Shift + B`** per accedere al menu dei task:
 - **Forza Compilazione Totale (Force All)**: ricompila tutti i documenti da zero.
 - **Aggiorna Figure Data-Mining (Python)**: rigenera i grafici vettoriali dai dati reali.
 - **Pulisci File Temporanei LaTeX (Clean All)**: elimina i file ausiliari (`.aux`, `.log`, `.toc`, ecc.).
-- **Avvia Jupyter Lab (Docker)**: avvia il server Jupyter e apre il browser.
 
 ### Metodo B: Da Visual Studio ("Apri cartella")
 Clic destro sulla cartella o dal menu Compila:
@@ -115,10 +112,6 @@ Oppure tramite PowerShell (Windows):
 
 # Pulizia dei file temporanei
 .\scripts\clean.ps1
-
-# Avvio rapido Jupyter Lab
-.\scripts\start-jupyter.ps1
-# oppure doppio clic su .\scripts\start-jupyter.cmd
 ```
 
 ### Metodo D: Tramite Docker Compose Diretto (qualsiasi OS / shell Linux)

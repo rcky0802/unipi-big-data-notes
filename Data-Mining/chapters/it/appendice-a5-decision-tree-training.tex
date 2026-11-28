@@ -1,0 +1,152 @@
+\FloatBarrier
+\section{Simulazione dell'Addestramento di un Albero di Decisione}
+\label{sec:dm-dt-training-sim}
+
+In questa sezione si svolge passo per passo la simulazione completa dell'induzione top-down di un albero di decisione su un dataset di $12$ record relativo all'abbandono dei clienti (\textit{Churn prediction}), riportato nella \autoref{tab:dm-dt-sim-dataset} insieme alle predizioni finali dell'albero indotto.
+
+\begin{table}[H]
+\centering
+\caption{Dataset di addestramento (\textit{Churn prediction}, $N = 12$) e predizioni finali dell'albero.}
+\label{tab:dm-dt-sim-dataset}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{cccccccc}
+\toprule
+\textbf{ID} & \textbf{STATE} & \textbf{CONTRACT} & \textbf{SEX} & \textbf{CALLS} & \textbf{CHURN (Actual)} & \textbf{PRED} & \textbf{Esito} \\
+\midrule
+1  & IT & C & F & $> 10$   & Y & Y & TP \\
+2  & GE & T & M & $\le 10$ & N & N & TN \\
+3  & IT & T & M & $> 10$   & Y & Y & TP \\
+4  & GE & Y & F & $\le 10$ & N & Y & FP \\
+5  & GE & T & F & $> 10$   & N & N & TN \\
+6  & GE & C & M & $> 10$   & Y & Y & TP \\
+7  & GE & C & M & $\le 10$ & Y & Y & TP \\
+8  & GE & Y & F & $\le 10$ & Y & Y & TP \\
+9  & GE & Y & M & $> 10$   & N & N & TN \\
+10 & GE & T & F & $\le 10$ & N & N & TN \\
+11 & GE & Y & F & $> 10$   & Y & Y & TP \\
+12 & IT & C & F & $> 10$   & N & Y & FP \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\FloatBarrier
+\subsection{Criterio di Impurezza e Selezione dello Split alla Radice}
+\label{subsec:dm-dt-sim-root}
+
+Per valutare la qualit\`a di ciascun nodo e di ogni possibile partizione si adotta il \textbf{Misclassification Error ($ME$)}:
+\begin{equation}
+    ME = 1 - \max_{i} p(c_i), \qquad E(\text{split}) = \sum_{j} \frac{N_j}{N} ME(v_j)
+\end{equation}
+dove $p(c_i)$ \`e la frazione di record appartenenti alla classe $c_i$ nel nodo considerato. Al nodo radice (\texttt{ROOT}), su $12$ record si contano $6$ istanze \texttt{Y} e $6$ istanze \texttt{N}, quindi $ME(\text{ROOT}) = 1 - \frac{6}{12} = \frac{6}{12} = 0.5$.
+
+Si calcola l'errore di misclassificazione pesato $E$ per tutti e quattro gli attributi candidati:
+\begin{enumerate}
+    \item \textbf{\texttt{STATE} (\texttt{IT} vs.\ \texttt{GE}):} \texttt{IT} (ID $1,3,12$: $2$Y, $1$N $\Rightarrow ME = \frac{1}{3}$); \texttt{GE} ($9$ record: $4$Y, $5$N $\Rightarrow ME = \frac{4}{9}$).
+    \begin{equation*}
+        E(\text{STATE}) = \frac{1}{3} \cdot \frac{3}{12} + \frac{4}{9} \cdot \frac{9}{12} = \frac{1}{12} + \frac{4}{12} = \frac{5}{12}
+    \end{equation*}
+    \item \textbf{\texttt{CONTRACT} (split a 3 vie e raggruppamenti binari):}
+    \begin{itemize}
+        \item \textit{Split a 3 vie (\texttt{C}, \texttt{T}, \texttt{Y}):} \texttt{C} (ID $1,6,7,12$: $3$Y, $1$N $\Rightarrow ME = \frac{1}{4}$); \texttt{T} (ID $2,3,5,10$: $1$Y, $3$N $\Rightarrow ME = \frac{1}{4}$); \texttt{Y} (ID $4,8,9,11$: $2$Y, $2$N $\Rightarrow ME = \frac{2}{4}$).
+        \begin{equation*}
+            E(\text{CONTRACT}_{\text{3-way}}) = \frac{1}{4}\cdot\frac{4}{12} + \frac{1}{4}\cdot\frac{4}{12} + \frac{2}{4}\cdot\frac{4}{12} = \frac{4}{12}
+        \end{equation*}
+        \item \textit{Split binari:} $\{\text{C},\text{T}\}$ vs.\ $\{\text{Y}\}$ produce $E = \frac{4}{8}\cdot\frac{8}{12} + \frac{2}{4}\cdot\frac{4}{12} = \frac{6}{12}$; $\{\text{C}\}$ vs.\ $\{\text{T},\text{Y}\}$ produce $E = \frac{1}{4}\cdot\frac{4}{12} + \frac{3}{8}\cdot\frac{8}{12} = \frac{4}{12}$; $\{\text{C},\text{Y}\}$ vs.\ $\{\text{T}\}$ produce $E = \frac{3}{8}\cdot\frac{8}{12} + \frac{1}{4}\cdot\frac{4}{12} = \frac{4}{12}$.
+    \end{itemize}
+    \item \textbf{\texttt{SEX} (\texttt{F} vs.\ \texttt{M}):} \texttt{F} ($7$ record: $3$Y, $4$N $\Rightarrow ME = \frac{3}{7}$); \texttt{M} ($5$ record: $3$Y, $2$N $\Rightarrow ME = \frac{2}{5}$).
+    \begin{equation*}
+        E(\text{SEX}) = \frac{3}{7} \cdot \frac{7}{12} + \frac{2}{5} \cdot \frac{5}{12} = \frac{5}{12}
+    \end{equation*}
+    \item \textbf{\texttt{CALLS} ($\le 10$ vs.\ $> 10$):} $\le 10$ ($5$ record: $2$Y, $3$N $\Rightarrow ME = \frac{2}{5}$); $> 10$ ($7$ record: $4$Y, $3$N $\Rightarrow ME = \frac{3}{7}$).
+    \begin{equation*}
+        E(\text{CALLS}) = \frac{2}{5} \cdot \frac{5}{12} + \frac{3}{7} \cdot \frac{7}{12} = \frac{5}{12}
+    \end{equation*}
+\end{enumerate}
+
+Poich\'e \textbf{\texttt{CONTRACT}} (3-way) ottiene l'errore minimo $E = \frac{4}{12}$ (guadagno $\Delta ME = \frac{6}{12} - \frac{4}{12} = \frac{2}{12}$), viene selezionato come \textbf{nodo radice}.
+
+\FloatBarrier
+\subsection{Espansione Ricorsiva dei Rami e Albero Finale}
+\label{subsec:dm-dt-sim-expansion}
+
+Si procede ricorsivamente sui tre rami generati da \texttt{CONTRACT}:
+\begin{enumerate}
+    \item \textbf{Ramo \texttt{CONTRACT = C}} (ID $1,6,7,12$: $3$Y, $1$N $\Rightarrow ME = \frac{1}{4}$):
+    \begin{itemize}
+        \item \texttt{STATE}: \texttt{IT} ($1$Y, $1$N $\Rightarrow ME = \frac{1}{2}$), \texttt{GE} ($2$Y, $0$N $\Rightarrow ME = 0$) $\implies E = \frac{1}{2}\cdot\frac{2}{4} + 0 = \frac{1}{4}$.
+        \item \texttt{SEX}: \texttt{F} ($1$Y, $1$N $\Rightarrow ME = \frac{1}{2}$), \texttt{M} ($2$Y, $0$N $\Rightarrow ME = 0$) $\implies E = \frac{1}{4}$.
+        \item \texttt{CALLS}: $\le 10$ ($1$Y, $0$N $\Rightarrow ME = 0$), $> 10$ ($2$Y, $1$N $\Rightarrow ME = \frac{1}{3}$) $\implies E = \frac{1}{3}\cdot\frac{3}{4} = \frac{1}{4}$.
+    \end{itemize}
+    Nessun attributo riduce l'errore al di sotto di $\frac{1}{4}$: si arresta la crescita e il nodo diventa una \textbf{foglia \texttt{Y}} ($3$Y, $1$N).
+
+    \item \textbf{Ramo \texttt{CONTRACT = T}} (ID $2,3,5,10$: $1$Y, $3$N $\Rightarrow ME = \frac{1}{4}$):
+    \begin{itemize}
+        \item \texttt{STATE}: \texttt{IT} (ID $3$: $1$Y, $0$N $\Rightarrow ME = 0$); \texttt{GE} (ID $2,5,10$: $0$Y, $3$N $\Rightarrow ME = 0$) $\implies E(\text{STATE}) = 0$.
+    \end{itemize}
+    Avendo raggiunto $E = 0$, si seleziona \textbf{\texttt{STATE}}, generando due foglie pure: \texttt{IT $\rightarrow$ Y} e \texttt{GE $\rightarrow$ N}.
+
+    \item \textbf{Ramo \texttt{CONTRACT = Y}} (ID $4,8,9,11$: $2$Y, $2$N $\Rightarrow ME = \frac{2}{4}$):
+    \begin{itemize}
+        \item \texttt{STATE}: \texttt{IT} ($0$ record), \texttt{GE} ($2$Y, $2$N) $\implies E = \frac{2}{4}$ (nessun miglioramento).
+        \item \texttt{SEX}: \texttt{F} (ID $4,8,11$: $2$Y, $1$N $\Rightarrow ME = \frac{1}{3}$); \texttt{M} (ID $9$: $0$Y, $1$N $\Rightarrow ME = 0$) $\implies E = \frac{1}{3}\cdot\frac{3}{4} + 0 = \frac{1}{4}$.
+        \item \texttt{CALLS}: $\le 10$ ($1$Y, $1$N $\Rightarrow ME = \frac{1}{2}$), $> 10$ ($1$Y, $1$N $\Rightarrow ME = \frac{1}{2}$) $\implies E = \frac{2}{4}$ (nessun miglioramento).
+    \end{itemize}
+    Si seleziona \textbf{\texttt{SEX}}: il ramo \texttt{SEX = M} \`e puro e diventa \textbf{foglia \texttt{N}} ($0$Y, $1$N). Sul ramo \texttt{SEX = F} ($2$Y, $1$N $\Rightarrow ME = \frac{1}{3}$) si testano \texttt{STATE} ($E = \frac{1}{3}$) e \texttt{CALLS} ($\le 10$: $1$Y,$1$N $\Rightarrow ME = \frac{1}{2}$; $>10$: $1$Y,$0$N $\Rightarrow ME = 0 \implies E = \frac{1}{2}\cdot\frac{2}{3} = \frac{1}{3}$). Non essendoci miglioramento, \texttt{SEX = F} diventa \textbf{foglia \texttt{Y}} ($2$Y, $1$N).
+\end{enumerate}
+
+La \autoref{fig:dm-dt-sim-tree} mostra l'albero finale indotto e la \autoref{tab:dm-dt-sim-cm} ne riporta la matrice di confusione sul training set.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    internal/.style={rectangle, draw=navy, fill=codebackground, rounded corners=3pt, line width=0.9pt, minimum width=2.0cm, minimum height=0.65cm, font=\small\bfseries},
+    leafy/.style={rectangle, rounded corners=8pt, draw=darkgreen, fill=darkgreen!10, line width=0.9pt, align=center, font=\footnotesize\bfseries, inner sep=4pt, minimum width=1.8cm},
+    leafn/.style={rectangle, rounded corners=8pt, draw=crimson, fill=crimson!10, line width=0.9pt, align=center, font=\footnotesize\bfseries, inner sep=4pt, minimum width=1.8cm},
+    edge/.style={->, >=stealth, line width=0.9pt, color=navy},
+    lbl/.style={font=\scriptsize\bfseries, fill=white, inner sep=2pt}
+]
+    \node[internal] (root) at (-0.2,3.8) {CONTRACT};
+    \node[leafy] (c) at (-6.0,1.9) {Y\\(Y:3, N:1)};
+    \node[internal] (t) at (-1.4,1.9) {STATE};
+    \node[internal] (y) at (5.8,1.9) {SEX};
+
+    \node[leafy] (t1) at (-3.2,0) {Y\\(Y:1, N:0)};
+    \node[leafn] (t2) at (0.4,0) {N\\(Y:0, N:3)};
+
+    \node[leafy] (y1) at (4.0,0) {Y\\(Y:2, N:1)};
+    \node[leafn] (y2) at (7.6,0) {N\\(Y:0, N:1)};
+
+    \draw[edge] (root) -- node[lbl, pos=0.5] {$=$ C} (c);
+    \draw[edge] (root) -- node[lbl, pos=0.5] {$=$ T} (t);
+    \draw[edge] (root) -- node[lbl, pos=0.5] {$=$ Y} (y);
+
+    \draw[edge] (t) -- node[lbl, pos=0.5] {$=$ IT} (t1);
+    \draw[edge] (t) -- node[lbl, pos=0.5] {$=$ GE} (t2);
+
+    \draw[edge] (y) -- node[lbl, pos=0.5] {$=$ F} (y1);
+    \draw[edge] (y) -- node[lbl, pos=0.5] {$=$ M} (y2);
+\end{tikzpicture}%
+}
+\caption{Albero di decisione finale indotto nella simulazione su \textit{Churn prediction}.}
+\label{fig:dm-dt-sim-tree}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Matrice di confusione sul training set ($N = 12$): $TP = 6$, $TN = 4$, $FP = 2$, $FN = 0$.}
+\label{tab:dm-dt-sim-cm}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Actual $\backslash$ Predicted} & \textbf{\texttt{Y} (Predicted)} & \textbf{\texttt{N} (Predicted)} \\
+\midrule
+\textbf{\texttt{Y} (Actual)} & $6$ (\texttt{TP}) & $0$ (\texttt{FN}) \\
+\textbf{\texttt{N} (Actual)} & $2$ (\texttt{FP}) & $4$ (\texttt{TN}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tutti i $6$ record positivi (\texttt{CHURN = Y}) sono classificati correttamente ($\text{TP} = 6$, $\text{FN} = 0$). Dei $6$ record negativi (\texttt{CHURN = N}), $4$ sono classificati correttamente ($\text{TN} = 4$), mentre $2$ risultano falsi positivi ($\text{FP} = 2$: il record $4$ su \texttt{CONTRACT=Y, SEX=F} e il record $12$ su \texttt{CONTRACT=C}). L'errore complessivo sul training set \`e $\frac{2}{12}$ (pari alla somma degli errori residui delle cinque foglie $\frac{1+0+0+1+0}{12}$) e l'accuratezza \`e $\frac{10}{12} \approx 83.3\%$.

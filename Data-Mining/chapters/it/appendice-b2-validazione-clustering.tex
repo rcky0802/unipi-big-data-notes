@@ -1,0 +1,129 @@
+\FloatBarrier
+\section{Laboratorio Python: Metriche di Validazione e Selezione di \texorpdfstring{$K$}{K}}
+\label{sec:dm-python-lab}
+
+In questa sezione finale vengono presentate le metodologie operative di laboratorio~\cite{tan2018}, evidenziando l'impiego di \texttt{scikit-learn}, \texttt{scipy} e \texttt{pandas} per la preparazione dei dati, l'addestramento dei principali algoritmi di clustering (\textit{K-Means}, \textit{DBSCAN} e \textit{Hierarchical Clustering}), la quantificazione delle metriche interne ed esterne e la stima del numero ottimale di cluster.
+
+\FloatBarrier
+\subsection{Preparazione dei Dati e Addestramento dei Modelli di Clustering}
+Per eseguire la validazione su un dataset tabellare (ad esempio \texttt{correct\_tips.csv}), si selezionano le feature numeriche (\texttt{total\_bill}, \texttt{tip}, \texttt{size}, \texttt{age}), si applica la normalizzazione Min-Max e si addestrano i modelli di clustering:
+
+\begin{lstlisting}[style=code, language=Python, caption={Normalizzazione Min-Max e addestramento di K-Means, DBSCAN e Clustering Gerarchico.}]
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, dendrogram
+
+df = pd.read_csv('correct_tips.csv', index_col=0)
+num_col = ['total_bill', 'tip', 'size', 'age']
+df_cat = df.drop(columns=num_col)
+
+scaler = MinMaxScaler()
+X = scaler.fit_transform(df[num_col])
+
+# K-Means (K = 3)
+kmeans = KMeans(n_clusters=3, n_init=10, max_iter=100, random_state=42)
+kmeans.fit(X)
+
+# DBSCAN (eps=0.35, min_samples=8)
+dbscan = DBSCAN(eps=0.35, min_samples=8)
+dbscan.fit(X)
+
+# Clustering Gerarchico Agglomerativo (Ward) e dendrogramma SciPy
+Z = linkage(pdist(X, metric='euclidean'), method='ward')
+agg_cluster = AgglomerativeClustering(n_clusters=3, linkage='ward')
+agg_cluster.fit(X)
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Implementazione Metriche Interne in Scikit-Learn}
+Dopo aver addestrato un modello $K$-Means sulla matrice normalizzata $X$, le metriche di compattezza ($\mathrm{SSE}$), separazione (Davies-Bouldin) e concordanza (Silhouette) vengono estratte in modo conciso:
+
+\begin{lstlisting}[style=code, language=Python, caption={Calcolo congiunto di $\mathrm{SSE}$, Davies-Bouldin e Silhouette Score in Python.}]
+from sklearn.cluster import KMeans
+from sklearn import metrics
+from sklearn.metrics import silhouette_score
+
+# Addestramento di K-Means con K fissato
+kmeans = KMeans(n_clusters=4, n_init=10, max_iter=300, random_state=42)
+kmeans.fit(X)
+
+# 1. Coesione intra-cluster: Inerzia (SSE / WSS)
+# Attributo built-in che calcola la somma delle distanze quadratiche dai centroidi
+sse = kmeans.inertia_
+print(f'SSE (Inertia / WSS): {sse:.3f}')
+
+# 2. Separazione inter-cluster: Davies-Bouldin Score
+# Valuta il rapporto di similarita peggiore; ottimale vicino a 0
+db_score = metrics.davies_bouldin_score(X, kmeans.labels_)
+print(f'Davies-Bouldin Score: {db_score:.3f}')
+
+# 3. Silhouette Score globale: media armonica tra coesione e separazione
+# Spettro [-1, 1]; ottimale vicino a +1
+sil_score = silhouette_score(X, kmeans.labels_)
+print(f'Silhouette Score: {sil_score:.3f}')
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Stima del Parametro \texorpdfstring{$K$}{K} Ottimale: Il Metodo del Gomito (Elbow/Knee)}
+Come formalizzato nel Capitolo~\ref{chap:dm-kmeans-hierarchical} (\autoref{sec:dm-kmeans-elbow-method}), l'identificazione euristica di $K^*$ si basa sull'individuazione del punto di flesso (\textit{knee point}) in cui il guadagno marginale di coesione interna subisce una marcata decelerazione.
+
+Il listato~\ref{lst:dm-elbow-method} illustra la scansione programmatica dell'intervallo $K \in [2, 40]$ e il tracciamento della curva per individuare visivamente la transizione a gomito:
+
+\begin{lstlisting}[style=code, language=Python, label={lst:dm-elbow-method}, caption={Scansione sistematica e tracciamento della curva del gomito per la selezione di $K^*$.}]
+import matplotlib.pyplot as plt
+
+sse_list = []
+max_k = 40
+
+# Iterazione sull'intervallo di complessita
+for k in range(2, max_k + 1):
+    km = KMeans(n_clusters=k, n_init=10, max_iter=100, random_state=42)
+    km.fit(X)
+    sse_list.append(km.inertia_)
+
+# Identificazione del punto critico di ginocchio
+k_star = 10
+sse_star = sse_list[k_star - 2]  # Allineamento indice base-zero
+
+# Visualizzazione grafica della curva del gomito
+plt.figure(figsize=(9, 5))
+plt.plot(range(2, max_k + 1), sse_list, marker='o', color='navy', lw=2)
+plt.ylabel('SSE (Inertia)', fontsize=14)
+plt.xlabel('Numero di Cluster (K)', fontsize=14)
+plt.title('Metodo del Gomito per la Stima di K*', fontsize=16)
+
+# Linee tratteggiate di ancoraggio sul punto ottimale
+plt.vlines(x=k_star, ymin=0, ymax=sse_star, colors='crimson', linestyles='dashed', lw=1.5)
+plt.hlines(y=sse_star, xmin=0, xmax=k_star, colors='crimson', linestyles='dashed', lw=1.5)
+plt.scatter(k_star, sse_star, color='crimson', s=90, zorder=5, label=f'Ginocchio K*={k_star}')
+
+plt.legend(fontsize=12)
+plt.grid(True, linestyle=':', alpha=0.6)
+plt.show()
+\end{lstlisting}
+
+\FloatBarrier
+\subsection{Validazione Esterna tramite Tabulazioni Incrociate (Crosstab)}
+Per esaminare se i cluster numerici scoperti corrispondano a comportamenti differenziati rispetto a variabili categoriche esterne non utilizzate nel clustering (come il giorno della settimana \texttt{day} o la fascia oraria \texttt{time} nel dataset delle mance \texttt{tips}), si impiega la funzione \texttt{pd.crosstab}:
+
+\begin{lstlisting}[style=code, language=Python, caption={Analisi di contingenza empirica e profilazione esterna dei cluster in Pandas.}]
+import pandas as pd
+
+# Creazione della matrice di contingenza tra etichette di cluster e variabile esterna
+cross_df = pd.crosstab(kmeans.labels_, df_cat['day'])
+print("Matrice di Contingenza Cluster vs Giorno:")
+print(cross_df)
+
+# Visualizzazione della distribuzione per cluster
+cross_df.plot(kind='bar', stacked=False, figsize=(10, 5), colormap='viridis')
+plt.title('Distribuzione della variabile esterna "day" per cluster')
+plt.xlabel('Cluster ID')
+plt.ylabel('Conteggio Istanza')
+plt.grid(axis='y', linestyle=':', alpha=0.7)
+plt.show()
+\end{lstlisting}
+
+La matrice di contingenza consente all'analista di calcolare immediatamente la purezza e l'entropia condizionata del partizionamento rispetto alle etichette categoriche, completando in tal modo il ciclo di valutazione quantitativa della validità.

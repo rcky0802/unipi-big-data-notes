@@ -34,7 +34,7 @@ WORKDIR /workspace
 COPY .latexmkrc /etc/LatexMk
 
 # Copia i requisiti Python e installa le dipendenze scientifiche
-COPY Data-Mining/notebooks/requirements.txt /tmp/requirements.txt
+COPY Data-Mining/scripts/requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
 # Entrypoint default: shell interattiva bash

@@ -1,0 +1,223 @@
+\chapter{Classificazione di Serie Temporali tramite Shapelets}
+\label{ch:dm-shapelets-dt-sim}
+
+\section{Classificazione di Serie Temporali Basata su Shapelets}
+\label{sec:dm-shapelets-intro}
+
+La \textbf{classificazione di serie temporali} (\textit{Time Series Classification}, TSC) estende il paradigma dell'apprendimento supervisionato al dominio dei dati sequenziali ordinati nel tempo~\cite{ye2009,tan2018}.
+
+\begin{definition}[Problema di Classificazione di Serie Temporali]
+Sia dato un insieme $X = \{X_1, X_2, \dots, X_n\}$ composto da $n$ serie temporali, dove ciascuna serie $X_i = \langle X_{i,t_1}, X_{i,t_2}, \dots, X_{i,t_m} \rangle \in \R^m$ \`e una sequenza ordinata di $m$ valori numerici associata a un'etichetta di classe $C_j \in \mathcal{Y}$. Assumendo che tutte le serie del dataset abbiano la medesima lunghezza $m$, l'obiettivo consiste nell'individuare una funzione di classificazione $f : \R^m \rightarrow \mathcal{Y}$ capace di predire la classe di nuove serie temporali.
+\end{definition}
+
+Il quesito concettuale cardine che motiva l'introduzione degli \textit{shapelets} riguarda la natura della discriminazione: \textbf{l'appartenenza a una classe dipende necessariamente dal comportamento globale dell'intera serie temporale, oppure \`e sufficiente individuare un breve segmento locale fortemente discriminante?}
+
+\FloatBarrier
+\subsection{Motivazione Applicativa e Definizione di Shapelet}
+\label{subsec:dm-shapelets-motivation}
+
+Un caso di studio emblematico \`e il riconoscimento di due specie botaniche morfologicamente molto simili a partire dai contorni fogliari: \textit{Urtica dioica} (ortica comune) e \textit{Verbena urticifolia} (falsa ortica)~\cite{ye2009}. I campioni reali mostrano un'elevata variabilit\`a intra-classe (differenze di dimensione, orientamento, lunghezza del picciolo o danneggiamenti dovuti a fori di insetti) affiancata da una notevole somiglianza globale inter-classe. Convertendo il contorno perimetrale bidimensionale di ciascuna foglia in una serie temporale monodimensionale, si osserva che l'informazione discriminante non risiede nell'intero profilo, bens\`i in un breve segmento localizzato in corrispondenza dell'attaccatura tra il picciolo e la base della lamina fogliare: in \textit{Verbena urticifolia} il profilo presenta una spalla convessa arrotondata prima della discesa verso il picciolo, mentre in \textit{Urtica dioica} manifesta una concavit\`a netta e spigolosa.
+
+\begin{definition}[Time Series Shapelet]
+Gli \textbf{shapelets} sono sottosequenze contigue di serie temporali che risultano \textbf{massimamente rappresentative di una classe} (\textit{maximally representative of a class})~\cite{ye2009}.
+\end{definition}
+
+L'impiego degli \textit{shapelets} offre due vantaggi strutturali rispetto ai classificatori basati su feature globali:
+\begin{enumerate}
+    \item \textbf{Interpretabilit\`a:} forniscono risultati direttamente interpretabili dagli esperti di dominio, mostrando visivamente quale pattern locale caratterizzi ciascuna classe.
+    \item \textbf{Accuratezza e robustezza superiore:} operando come \textbf{feature locali}, risultano immuni a rumore, occlusioni o distorsioni presenti nel resto della serie temporale, laddove i classificatori globali subiscono un degrado significativo.
+\end{enumerate}
+
+La pipeline operativa della classificazione basata su \textit{shapelets} si articola in due fasi (\autoref{fig:dm-shapelet-pipeline}):
+\begin{enumerate}
+    \item \textbf{Trasformazione nello spazio delle distanze:} ciascuna serie temporale viene rappresentata mediante un vettore di distanze calcolate rispetto agli \textit{shapelets} estratti nel dizionario.
+    \item \textbf{Classificazione supervisionata:} i vettori di distanze fungono da feature di ingresso per un classificatore tradizionale (tipicamente un albero di decisione). Nel caso delle specie fogliari, un singolo nodo decisionale verifica se la serie di query $Q$ possiede una sottosequenza a distanza $\le 5.1$ dallo shapelet estratto: in caso affermativo assegna la classe \textit{Verbena urticifolia}, altrimenti \textit{Urtica dioica}.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=navy, fill=codebackground, rounded corners=4pt, line width=0.9pt, align=center, inner sep=6pt, font=\footnotesize},
+    proc/.style={draw=darkgreen, fill=darkgreen!10, rounded corners=4pt, line width=0.9pt, align=center, inner sep=6pt, font=\footnotesize},
+    leaf/.style={draw=crimson, fill=crimson!10, rounded corners=3pt, line width=0.9pt, align=center, inner sep=5pt, font=\footnotesize},
+    arrow/.style={->, >=stealth, line width=1pt, color=navy}
+]
+    \node[box] (ts) {\textbf{Serie Temporale $Q$}\\(Contorno foglia 1D)};
+    \node[proc, right=1.0cm of ts] (dict) {\textbf{Shapelet Dictionary}\\Calcolo $\text{SubsequenceDist}(Q, S)$\\$\Rightarrow$ Vettore distanze};
+    \node[box, right=1.0cm of dict] (node) {\textbf{Nodo Decisionale}\\$\text{dist}(Q, S) \le 5.1$?};
+    \node[leaf, draw=darkgreen, fill=darkgreen!10, above right=0.45cm and 2.0cm of node] (l0) {\textbf{Classe 0}\\\textit{Verbena urticifolia}};
+    \node[leaf, below right=0.45cm and 2.0cm of node] (l1) {\textbf{Classe 1}\\\textit{Urtica dioica}};
+
+    \draw[arrow] (ts) -- (dict);
+    \draw[arrow] (dict) -- (node);
+    \draw[arrow] (node.east) -- node[above, font=\scriptsize, sloped, pos=0.5] {S\`i ($\le 5.1$)} (l0.west);
+    \draw[arrow] (node.east) -- node[below, font=\scriptsize, sloped, pos=0.5] {No ($> 5.1$)} (l1.west);
+\end{tikzpicture}%
+}
+\caption{Pipeline della classificazione basata su shapelets: trasformazione delle serie temporali in vettori di distanza rispetto al dizionario e classificazione tramite albero di decisione.}
+\label{fig:dm-shapelet-pipeline}
+\end{figure}
+
+\FloatBarrier
+\subsection{Ricerca Brute-Force degli Shapelets e Valutazione dei Candidati}
+\label{subsec:dm-shapelets-bf}
+
+Per individuare automaticamente lo \textit{shapelet} ottimale in un dataset $\mathcal{D}$, date le lunghezze ammesse $\text{MAXLEN}$ e $\text{MINLEN}$, l'algoritmo esaustivo \textsc{FindingShapeletBF} (Algoritmo~\ref{alg:dm-finding-shapelet-bf}) genera tutte le sottosequenze contigue tramite \textsc{GenerateCandidates} (Algoritmo~\ref{alg:dm-gen-candidates}) e valuta il guadagno informativo di ciascun candidato mediante \textsc{CheckCandidate} (Algoritmo~\ref{alg:dm-check-candidate}).
+
+\begin{algorithm}[H]
+\caption{\textsc{FindingShapeletBF}: Ricerca esaustiva dello shapelet ottimale}
+\label{alg:dm-finding-shapelet-bf}
+\KwInput{Dataset $\mathcal{D}$; lunghezze $\text{MAXLEN}$, $\text{MINLEN}$.}
+\KwOutput{Migliore sottosequenza $\text{bsf\_shapelet}$.}
+$\text{candidates} \leftarrow \textsc{GenerateCandidates}(\mathcal{D}, \text{MAXLEN}, \text{MINLEN})$\;
+$\text{bsf\_gain} \leftarrow 0$\;
+\ForEach{$S \in \text{candidates}$}{
+    $\text{gain} \leftarrow \textsc{CheckCandidate}(\mathcal{D}, S)$\;
+    \If{$\text{gain} > \text{bsf\_gain}$}{
+        $\text{bsf\_gain} \leftarrow \text{gain}$\;
+        $\text{bsf\_shapelet} \leftarrow S$\;
+    }
+}
+\Return $\text{bsf\_shapelet}$\;
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{GenerateCandidates}: Estrazione delle sottosequenze candidate}
+\label{alg:dm-gen-candidates}
+\KwInput{Dataset $\mathcal{D}$; lunghezze $\text{MAXLEN}$, $\text{MINLEN}$.}
+\KwOutput{Insieme $\text{pool}$ di tutte le sottosequenze candidate.}
+$\text{pool} \leftarrow \emptyset$\;
+$l \leftarrow \text{MAXLEN}$\;
+\While{$l \ge \text{MINLEN}$}{
+    \ForEach{$T \in \mathcal{D}$}{
+        $\text{pool} \leftarrow \text{pool} \cup S_T^l$ \tcp*{Sottosequenze contigue di lunghezza $l$ in $T$}
+    }
+    $l \leftarrow l - 1$\;
+}
+\Return $\text{pool}$\;
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{CheckCandidate}: Valutazione di un candidato tramite istogramma delle distanze}
+\label{alg:dm-check-candidate}
+\KwInput{Dataset $\mathcal{D}$; candidato $S$.}
+\KwOutput{Massimo Information Gain ottenibile da $S$.}
+$\text{objects\_histogram} \leftarrow \emptyset$\;
+\ForEach{$T \in \mathcal{D}$}{
+    $\text{dist} \leftarrow \textsc{SubsequenceDist}(T, S)$\;
+    Inserire $T$ in $\text{objects\_histogram}$ con chiave $\text{dist}$\;
+}
+\Return $\textsc{CalculateInformationGain}(\text{objects\_histogram})$\;
+\end{algorithm}
+
+Poich\'e una serie temporale $T$ di lunghezza $m$ \`e generalmente molto pi\`u lunga di un candidato $S$ di lunghezza $\abs{S} < m$, la distanza da sottosequenza $\textsc{SubsequenceDist}(T, S)$ \`e definita come la \textbf{distanza minima} tra $S$ e tutte le possibili sottosequenze contigue $S' \in S_T^{\abs{S}}$ estratte da $T$ (\autoref{fig:dm-shapelet-matching}, a sinistra):
+\begin{equation}
+    \textsc{SubsequenceDist}(T, S) = \min_{S' \in S_T^{\abs{S}}} \text{Dist}(S, S')
+\end{equation}
+dove $\text{Dist}(S, S') \ge 0$ \`e tipicamente la distanza Euclidea normalizzata tra sequenze di uguale lunghezza. Intuitivamente, $\textsc{SubsequenceDist}(T, S)$ misura la distanza nella \textbf{posizione di miglior corrispondenza} (\textit{best matching location}) di $S$ dentro $T$.
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}
+    % Sinistra: Best Matching Location
+    \begin{scope}[shift={(0,0)}]
+        \draw[gray!40, thin] (0,0) rectangle (6.2,3.4);
+        \draw[navy, line width=1.1pt] plot[smooth] coordinates {(0.3,1.8) (0.8,2.1) (1.3,1.7) (1.8,2.4) (2.3,2.9) (2.8,2.1) (3.3,1.6) (3.8,2.2) (4.3,2.6) (4.8,1.9) (5.3,2.0) (5.8,1.7)};
+        \node[font=\scriptsize\bfseries, color=navy] at (0.6,2.9) {$T$};
+        % Sottosequenza S allineata
+        \draw[dashed, gray] (1.8,0.3) -- (1.8,3.2);
+        \draw[dashed, gray] (3.8,0.3) -- (3.8,3.2);
+        \draw[crimson, line width=1.3pt] plot[smooth] coordinates {(1.8,0.8) (2.3,1.5) (2.8,0.7) (3.3,0.4) (3.8,0.9)};
+        \node[font=\scriptsize\bfseries, color=crimson] at (1.3,0.9) {$S$};
+        \node[font=\scriptsize\bfseries, color=darkgreen] at (2.8,3.05) {Best matching location};
+        \node[font=\footnotesize\bfseries] at (3.1,-0.35) {(a) Allineamento ottimo $\textsc{SubsequenceDist}(T,S)$};
+    \end{scope}
+
+    % Destra: Distance Early Abandon
+    \begin{scope}[shift={(7.0,0)}]
+        \draw[gray!40, thin] (0,0) rectangle (6.2,3.4);
+        \draw[navy, line width=1.1pt] plot[smooth] coordinates {(0.3,2.2) (0.8,2.5) (1.3,2.0) (1.8,1.5) (2.3,1.8) (2.8,2.7) (3.3,2.4) (3.8,1.9) (4.3,2.1) (4.8,2.5) (5.3,2.3) (5.8,2.0)};
+        \draw[crimson, line width=1.3pt] plot[smooth] coordinates {(2.3,0.8) (2.8,1.5) (3.3,1.2) (3.8,0.6) (4.3,1.0)};
+        % Linee verticali di confronto parziale (5 punti)
+        \foreach \x/\ya/\yb in {2.3/1.8/0.8, 2.6/2.3/1.2, 2.9/2.6/1.4, 3.2/2.5/1.2, 3.5/2.1/0.8} {
+            \draw[gray, thin] (\x,\ya) -- (\x,\yb);
+        }
+        \draw[crimson, thick, dashed] (3.5,0.4) -- (3.5,2.9);
+        \node[font=\scriptsize\bfseries, color=crimson, anchor=west] at (3.6,1.3) {Stop! $\text{Dist} > \text{bsf}$};
+        \node[font=\scriptsize, color=navy, anchor=west] at (0.3,0.5) {$\text{bsf} = 0.4$};
+        \node[font=\footnotesize\bfseries] at (3.1,-0.35) {(b) \textit{Distance Early Abandon}};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{(a) Ricerca della posizione di miglior corrispondenza di $S$ in $T$. (b) \textit{Distance Early Abandon}: il calcolo della distanza viene interrotto non appena la somma parziale supera la soglia \textit{best-so-far} ($\text{bsf}$).}
+\label{fig:dm-shapelet-matching}
+\end{figure}
+
+\FloatBarrier
+\subsection{Entropia, Information Gain e Tecniche di Accelerazione}
+\label{subsec:dm-shapelets-ig-speedup}
+
+Ordinate tutte le serie $T \in \mathcal{D}$ su un asse monodimensionale in base alla distanza $\textsc{SubsequenceDist}(T, S)$, si determina la soglia ottimale $\text{split\_dist}$ (\autoref{fig:dm-shapelet-split-pruning}, a sinistra) che partiziona $\mathcal{D}$ in $D_1 = \{T \in \mathcal{D} : \text{dist} < \text{split\_dist}\}$ e $D_2 = \mathcal{D} \setminus D_1$ massimizzando l'\textbf{Information Gain}. Per un dataset binario con classi $A$ e $B$ (proporzioni $p(A)$ e $p(B)$), l'entropia prima dello split, l'entropia residua pesata e il guadagno informativo valgono:
+\begin{align}
+    I(\mathcal{D}) &= -p(A)\log p(A) - p(B)\log p(B) \\
+    \hat{I}(\mathcal{D}) &= \frac{\abs{D_1}}{\abs{\mathcal{D}}} I(D_1) + \frac{\abs{D_2}}{\abs{\mathcal{D}}} I(D_2) \\
+    \text{Gain}(\text{sp}) &= I(\mathcal{D}) - \hat{I}(\mathcal{D}) = I(\mathcal{D}) - \left[ f(D_1) I(D_1) + f(D_2) I(D_2) \right]
+\end{align}
+
+\begin{figure}[H]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}
+    % Sinistra: Split Point sull'asse delle distanze
+    \begin{scope}[shift={(0,0)}]
+        \draw[->, thick] (0,0.6) -- (6.2,0.6) node[right, font=\scriptsize] {Distanza};
+        \draw[dashed, crimson, line width=1.1pt] (3.1,0.1) -- (3.1,2.1);
+        \node[font=\scriptsize\bfseries, color=crimson] at (3.1,2.35) {Split Point ($5.1$)};
+        % Punti classe A (blu) e classe B (rosso)
+        \foreach \x in {0.5, 0.9, 1.4, 2.0, 2.5} {
+            \fill[navy] (\x, 0.9) circle (4pt);
+        }
+        \fill[navy] (3.6, 0.9) circle (4pt);
+        \foreach \x in {4.1, 4.6, 5.1, 5.6} {
+            \fill[crimson] (\x-0.12, 0.78) rectangle (\x+0.12, 1.02);
+        }
+        \node[font=\scriptsize, color=navy] at (1.5,1.5) {$D_1$ (dist $< 5.1$)};
+        \node[font=\scriptsize, color=crimson] at (4.7,1.5) {$D_2$ (dist $\ge 5.1$)};
+        \node[font=\footnotesize\bfseries] at (3.1,-0.35) {(a) Partizionamento su asse delle distanze};
+    \end{scope}
+
+    % Destra: Admissible Entropy Pruning
+    \begin{scope}[shift={(7.2,0)}]
+        \draw[->, thick] (0,0.6) -- (6.2,0.6) node[right, font=\scriptsize] {Distanza};
+        % Punti già calcolati mescolati al centro
+        \fill[navy] (2.2, 0.9) circle (4pt);
+        \fill[crimson] (2.6, 0.78) rectangle (2.84, 1.02);
+        \fill[navy] (3.1, 0.9) circle (4pt);
+        \fill[crimson] (3.5, 0.78) rectangle (3.74, 1.02);
+        \fill[navy] (4.0, 0.9) circle (4pt);
+        % Scenario ottimistico agli estremi
+        \foreach \y in {0.9, 1.3, 1.7} { \draw[navy, thick, fill=navy!20] (0.4,\y) circle (4pt); }
+        \foreach \y in {0.9, 1.3} { \draw[crimson, thick, fill=crimson!20] (5.5,\y-0.12) rectangle (5.74,\y+0.12); }
+        \node[font=\scriptsize, color=darkgreen, align=center] at (3.1,2.1) {Upper bound ottimistico: $I = 0.29 < \text{bsf\_gain}\,(0.42)$ $\Rightarrow$ \textbf{Prune!}};
+        \node[font=\footnotesize\bfseries] at (3.1,-0.35) {(b) \textit{Admissible Entropy Pruning}};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{(a) Ricerca dello \textit{Split Point} ottimale sull'asse delle distanze. (b) \textit{Admissible Entropy Pruning}: posizionamento ottimistico dei campioni residui agli estremi per potare candidati non promettenti.}
+\label{fig:dm-shapelet-split-pruning}
+\end{figure}
+
+Il costo computazionale della ricerca brute-force \`e proibitivo, poich\'e il numero totale di sottosequenze candidate generate \`e:
+\begin{equation}
+    \sum_{l=\text{MINLEN}}^{\text{MAXLEN}} \sum_{T_i \in \mathcal{D}} \left(\abs{T_i} - l + 1\right)
+\end{equation}
+Con appena $200$ istanze di lunghezza $275$ ($\text{MINLEN} = 3$, $\text{MAXLEN} = 275$), si ottengono $200 \times \frac{273 \times 274}{2} = 200 \times 37\,401 = 7\,480\,200$ candidati shapelet. Per abbattere i tempi di esecuzione mantenendo l'esattezza del risultato (\textit{pruning ammissibile}), si impiegano due tecniche~\cite{ye2009}:
+\begin{enumerate}
+    \item \textbf{Distance Early Abandon} (\autoref{fig:dm-shapelet-matching}, b): mantiene la distanza minima completa trovata finora (\texttt{best-so-far}, \texttt{bsf}); durante il calcolo incrementale della distanza Euclidea su un nuovo allineamento, non appena la somma parziale supera \texttt{bsf}, il calcolo viene abbandonato immediatamente.
+    \item \textbf{Admissible Entropy Pruning} (\autoref{fig:dm-shapelet-split-pruning}, b): dopo aver valutato un sottoinsieme di campioni di training, costruisce uno \textbf{scenario ottimistico} collocando tutti i campioni residui di una classe a distanza $0$ (estremo sinistro) e quelli dell'altra classe alla distanza massima (estremo destro). Se l'\textit{upper bound} dell'Information Gain cos\`i calcolato \`e strettamente inferiore a \texttt{bsf\_gain} (es.\ $0.29 < 0.42$), il candidato corrente viene scartato immediatamente senza calcolare le distanze residue.
+\end{enumerate}
+
+% ====================================================================
+\FloatBarrier

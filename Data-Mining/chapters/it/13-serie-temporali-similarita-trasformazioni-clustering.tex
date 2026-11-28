@@ -1,0 +1,339 @@
+\chapter{Serie Temporali: Similarit\`a, Distanze, Trasformazioni e Clustering}
+\label{chap:dm-time-series}
+
+\FloatBarrier
+\section{Introduzione e Fondamenti delle Serie Temporali}
+\label{sec:ts-intro-foundations}
+
+L'analisi delle serie temporali (\textit{Time Series Analysis}) costituisce uno dei domini cardine del Data Mining avanzato, trovando applicazione trasversale nella sensoristica industriale, nell'econometria, nella biologia computazionale, nella medicina e nelle scienze ambientali~\cite{tan2018, hyndman2018}. A differenza dei dataset tabulari convenzionali, in cui le istanze sono ipotizzate mutuamente indipendenti e identicamente distribuite (i.i.d.), le serie temporali manifestano una marcata \textbf{dipendenza seriale}: l'ordine temporale delle osservazioni \`e vincolante e non invertibile, mentre l'elevata frequenza di campionamento genera flussi densi ad alta dimensionalit\`a.
+
+\FloatBarrier
+\subsection{Definizione Formale di Serie Temporale}
+\label{subsec:ts-formal-definition}
+
+\begin{definition}[Serie Temporale]
+\label{def:time-series}
+Sia dato un intervallo temporale continuo discretizzato ad istanti regolari $t_i = t_0 + i \cdot \Delta t$, con $i \in \{1, \dots, n\}$ e tempo di campionamento $\Delta t \in \R^+$. Una \textbf{serie temporale} $X$ di lunghezza $n$ \`e una sequenza ordinata di $n$ osservazioni numeriche scalari a valori reali:
+\begin{equation}
+\label{eq:ts-vector-def}
+X = \langle x_1, x_2, \dots, x_n \rangle \quad \text{con } x_i \in \R
+\end{equation}
+in cui la coordinata $x_i$ esprime la magnitudo quantitativa della grandezza monitorata al passo discretizzato $t_i$.
+\end{definition}
+
+In ambito applicativo, le sequenze possono derivare dal campionamento ad alta risoluzione di oscillazioni finanziarie, segnali fisiologici o parametri ambientali. Si consideri la sequenza campionata a frequenza costante riportata in \autoref{tab:ts-sample-stream}.
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c c c c c c c c}
+\toprule
+\textbf{Passo} & \textbf{Valore} & \textbf{Passo} & \textbf{Valore} & \textbf{Passo} & \textbf{Valore} & \textbf{Passo} & \textbf{Valore} \\
+\midrule
+$t_1$  & $25.1750$ & $t_7$  & $25.3500$ & $t_{13}$ & $25.2000$ & $t_{19}$ & $24.6250$ \\
+$t_2$  & $25.2250$ & $t_8$  & $25.3500$ & $t_{14}$ & $25.1750$ & $t_{20}$ & $24.6250$ \\
+$t_3$  & $25.2500$ & $t_9$  & $25.4000$ & $t_{15}$ & $24.6250$ & $t_{21}$ & $24.6750$ \\
+$t_4$  & $25.2500$ & $t_{10}$ & $25.4000$ & $t_{16}$ & $24.6750$ & $t_{22}$ & $24.7500$ \\
+$t_5$  & $25.2750$ & $t_{11}$ & $25.3250$ & $t_{17}$ & $24.6750$ & -- & -- \\
+$t_6$  & $25.3250$ & $t_{12}$ & $25.2250$ & $t_{18}$ & $24.6250$ & -- & -- \\
+\bottomrule
+\end{tabular}
+\caption{Esempio di sequenza numerica campionata a frequenza costante $\Delta t$.}
+\label{tab:ts-sample-stream}
+\end{table}
+
+\FloatBarrier
+\subsection{Ubiquit\`a e Conversione di Domini non Temporali}
+\label{subsec:ts-ubiquity-conversion}
+
+Le serie temporali emergono in modo spontaneo in molteplici discipline empiriche:
+\begin{itemize}
+    \item \textbf{Fisiologia e Medicina}: monitoraggio continuo della pressione sanguigna (\textit{blood pressure}), tracciati elettroencefalografici (EEG) ed elettrocardiografici (ECG).
+    \item \textbf{Scienze Sociali e Politiche}: andamento temporale degli indici di gradimento (\textit{popularity rating}) e sentiment di figure istituzionali o prodotti di mercato.
+    \item \textbf{Meteorologia}: serie storiche di precipitazioni piovose (es. piovosit\`a annuale registrata a Pisa) e parametri termici/barometrici.
+    \item \textbf{Economia e Finanza}: quotazioni azionarie, tassi interbancari di cambio e flussi di volume transazionale.
+\end{itemize}
+
+In aggiunta ai fenomeni intrinsecamente temporali, domini applicativi disomogenei e privi di una coordinata temporale nativa possono essere mappati nello spazio delle serie temporali:
+\begin{enumerate}
+    \item \textbf{Dati Testuali (\textit{Text Data})}: calcolo progressivo della frequenza cumulativa o localizzata di termini-chiave lungo la successione sequenziale di capitoli, tomi o sezioni di un'opera. Ad esempio, confrontando l'occorrenza del termine ``God'' nella versione inglese della Bibbia con l'omologo termine ``Dios'' nell'edizione spagnola lungo la successione dei libri canonici (da \textit{Genesis} ad \textit{Apocalypse}), si ottengono due traiettorie armoniche che condividono picchi e valli sincroni, attestando la fedelt\`a strutturale tra le due traduzioni.
+    \item \textbf{Profili di Immagini (\textit{Image Contours})}: trasformazione del perimetro bidimensionale di una sagoma mediante \textbf{scansione radiale} (\textit{Radial Scanning}). Tracciando il raggio vettore dal baricentro geometrico dell'oggetto verso i punti di contorno a passi angolari uniformi $\theta \in [0, 2\pi)$, si produce una serie temporale $r(\theta)$ in cui le ascisse denotano l'angolo e le ordinate quantificano la distanza euclidea radiale.
+    \item \textbf{Dati Video (\textit{Video Tracking})}: monitoraggio delle coordinate cartesiane spaziali $(x(t), y(t))$ del centroide di un corpo in movimento lungo la sequenza dei fotogrammi (\textit{frame}).
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Complessit\`a e Sfide Computazionali}
+\label{subsec:ts-computational-challenges}
+
+Il mining su serie temporali comporta sfide metodologiche assenti nei modelli classici di apprendimento:
+\begin{itemize}
+    \item \textbf{Volumetria Massiva (\textit{Large Data Volume})}: le sonde ad alta frequenza generano sequenze nell'ordine di milioni di campioni, saturando la memoria principale e richiedendo strategie di compressione o approssimazione \textit{data-aware}.
+    \item \textbf{Complessit\`a della Similarit\`a (\textit{Non-Trivial Similarity})}: le metriche rigide basate su confronti punto-a-punto falliscono sistematicamente in presenza di deformazioni locali di velocit\`a, sfasamenti di fase o derive sistematiche.
+    \item \textbf{Disomogeneit\`a nei Campionamenti e Formati}: sensori eterogenei operano a frequenze di campionamento differenti ($\Delta t_1 \neq \Delta t_2$), determinando lunghezze disuguali $n \neq m$ per il medesimo intervallo temporale osservato.
+    \item \textbf{Presenza di Rumore e Dati Mancanti}: imperfezioni strumentali, disturbi stocastici ad alta frequenza e interruzioni di segnale (\textit{missing data}) richiedono pre-elaborazioni di filtraggio ed imputazione.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Compiti Analitici nel Time Series Mining}
+\label{subsec:ts-analytical-tasks}
+
+Le tipiche mansioni di data mining si declinano sulle serie temporali come segue:
+\begin{itemize}
+    \item \textbf{Decomposizione di Trend e Stagionalit\`a}: isolamento analitico delle componenti macroscopiche e cicliche.
+    \item \textbf{Clustering}: raggruppamento non supervisionato di un insieme di sequenze in partizioni morfologicamente omogenee.
+    \item \textbf{Motif Discovery}: estrazione automatica di sotto-sequenze brevi primitive che si manifestano con frequenza statisticamente sovra-rappresentata.
+    \item \textbf{Rule Discovery}: derivazione di regole predittive causa-effetto ($A \Rightarrow B$) governate da metriche di supporto e confidenza.
+    \item \textbf{Previsione (\textit{Forecasting})}: stima dei valori futuri $x_{n+1}, x_{n+2}, \dots$ a partire dalla finestra storica osservata $\langle x_1, \dots, x_n \rangle$~\cite{hyndman2018}.
+    \item \textbf{Classificazione Supervisionata}: assegnazione di una sequenza ignota a classi predefinite (ad esempio, distinguere un tracciato ECG fisiologico normale da uno ischemico caratterizzato dal sotto-slivellamento del tratto $S$-$T$).
+\end{itemize}
+
+\FloatBarrier
+\subsection{Decomposizione Classica delle Componenti}
+\label{subsec:ts-decomposition}
+
+In accordo con la teoria classica dei processi stocastici~\cite{shumway2017, hyndman2018}, una serie temporale $X$ si decompone canonicamente in componenti sistematiche e stocastiche:
+\begin{equation}
+\label{eq:ts-additive-decomposition}
+x_t = L_t + T_t + S_t + \varepsilon_t
+\end{equation}
+oppure in forma moltiplicativa $x_t = L_t \cdot T_t \cdot S_t \cdot \varepsilon_t$. Le singole componenti sono definite da:
+\begin{enumerate}
+    \item \textbf{Livello (\textit{Level}, $L_t$)}: valore base o livello medio della grandezza osservata.
+    \item \textbf{Trend ($T_t$)}: traiettoria di fondo a lungo termine, caratterizzata da un incremento o decremento monotono persistente nel tempo.
+    \item \textbf{Stagionalit\`a ($S_t$)}: oscillazione periodica sistematica che si ripete a intervalli temporali definiti e prevedibili (legata a cicli solari, settimanali o stagionali).
+    \item \textbf{Rumore o Residuo Irregolare ($\varepsilon_t$)}: disturbo aleatorio casuale ad alta frequenza, privo di correlazione temporale strutturata (rumore bianco), non predicibile e non spiegato dalle componenti precedenti.
+\end{enumerate}
+
+% ====================================================================
+% SEZIONE 14.2: METRICHE DI SIMILARITÀ E TRASFORMAZIONI
+% ====================================================================
+\FloatBarrier
+\section{Metriche di Similarit\`a e Trasformazioni di Segnale}
+\label{sec:ts-similarity-metrics-transformations}
+
+La stima rigorosa della similarit\`a tra coppie di sequenze governa l'accuratezza di qualsiasi algoritmo di classificazione (es. $1$-NN), indicizzazione o clustering. 
+
+\FloatBarrier
+\subsection{Tassonomia della Similarit\`a}
+\label{subsec:ts-similarity-taxonomy}
+
+Si distinguono due paradigmi fondamentali di similarit\`a:
+\begin{itemize}
+    \item \textbf{Similarit\`a Basata sulla Forma (\textit{Shape-Based Similarity})}: confronta la sovrapponibilit\`a geometrica puntuale o locale delle traiettorie. Risulta altamente efficace per sequenze brevi o motivi transitori, ma decade drasticamente su sequenze lunghe.
+    \item \textbf{Similarit\`a Basata sulla Struttura (\textit{Structure-Based Similarity})}: ignora la corrispondenza temporale locale e valuta propriet\`a statistiche, spettrali o stocastiche globali del processo generatore (media, varianza, frequenze dominanti, modelli autoregressivi). Risulta indispensabile su serie estese ove intervengono sfasamenti multipli e perdita di fase.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Distanza Euclidea e Rigidit\`a Temporale}
+\label{subsec:ts-euclidean-distance}
+
+Data una coppia di serie temporali $Q = \langle q_1, \dots, q_n \rangle$ e $C = \langle c_1, \dots, c_n \rangle$ aventi la medesima lunghezza $n$, la \textbf{Distanza Euclidea} ($L_2$ norm) \`e definita come:
+\begin{equation}
+\label{eq:ts-euclidean-distance}
+D(Q, C) = \sqrt{\sum_{i=1}^{n} (q_i - c_i)^2}
+\end{equation}
+
+Sotto il profilo topologico, la distanza Euclidea presuppone un allineamento rigorosamente \textbf{uno-a-uno} e sincrono lungo l'asse dei tempi: ciascun punto $q_i$ \`e confrontato esclusivamente con il corrispondente punto $c_i$ registrato all'istante $t_i$.
+
+\begin{example}[Calcolo della Distanza Euclidea]
+\label{ex:euclidean-calculation}
+Si considerino le due serie temporali $T_1$ e $T_2$ di lunghezza $n=4$:
+\begin{equation*}
+T_1 = \langle 56, 176, 110, 95 \rangle, \quad T_2 = \langle 36, 126, 180, 80 \rangle
+\end{equation*}
+I singoli contributi quadratici punto-a-punto risultano:
+\begin{align*}
+(56 - 36)^2 &= 20^2 = 400 \\
+(176 - 126)^2 &= 50^2 = 2500 \\
+(110 - 180)^2 &= (-70)^2 = 4900 \\
+(95 - 80)^2 &= 15^2 = 225
+\end{align*}
+La sommatoria degli scarti quadratici vale:
+\begin{equation*}
+\sum_{i=1}^{4} (q_i - c_i)^2 = 400 + 2500 + 4900 + 225 = 8025
+\end{equation*}
+da cui si ottiene la distanza Euclidea:
+\begin{equation*}
+D(T_1, T_2) = \sqrt{8025} \approx 89.582
+\end{equation*}
+\end{example}
+
+\FloatBarrier
+\subsection{Distorsioni Superficiali e Trasformazioni di Normalizzazione}
+\label{subsec:ts-distortions-normalizations}
+
+La distanza Euclidea grezza \`e estremamente fragile rispetto a distorsioni superficiali nei dati, che possono far apparire distanti sequenze aventi morfologia identica. Per garantire un confronto imparziale, \`e necessario applicare opportune trasformazioni preliminari:
+
+\subsubsection{1. Traslazione di Livello (\textit{Offset Translation})}
+Due serie possono condividere profilo e fluttuazioni ma presentare una linea di base verticale disallineata a causa di una costante additiva: $c_i \approx q_i + \Delta y$. Per eliminare l'offset, si centra ciascuna sequenza rispetto alla propria media campionaria:
+\begin{equation}
+\label{eq:ts-offset-removal}
+q_i \leftarrow q_i - \mu_Q, \quad c_i \leftarrow c_i - \mu_C \quad \text{con } \mu_X = \frac{1}{n}\sum_{k=1}^n x_k
+\end{equation}
+
+\subsubsection{2. Disomogeneit\`a di Ampiezza (\textit{Amplitude Scaling})}
+Differenze nel guadagno dei sensori amplificano l'escursione verticale dei dati pur preservandone la dinamica. L'effetto combinato di offset ed escursione di ampiezza viene neutralizzato mediante la \textbf{standardizzazione Z-score}:
+\begin{equation}
+\label{eq:ts-zscore}
+q_i \leftarrow \frac{q_i - \mu_Q}{\sigma_Q}, \quad c_i \leftarrow \frac{c_i - \mu_C}{\sigma_C}
+\end{equation}
+dove la deviazione standard campionaria \`e data da $\sigma_X = \sqrt{\frac{1}{n}\sum_{k=1}^n (x_k - \mu_X)^2}$. La trasformazione forza entrambe le sequenze ad avere media nulla ($\mu=0$) e varianza unitaria ($\sigma^2=1$).
+
+\subsubsection{3. Trend Lineare di Fondo (\textit{Linear Detrending})}
+Una deriva lineare (\textit{drift}) progressiva aumenta artificiosamente la distanza euclidea con l'avanzare del tempo. Si stima la retta di regressione di minimi quadrati $\hat{x}_i = \alpha + \beta \cdot i$ e si calcolano i residui detrendizzati:
+\begin{equation}
+\label{eq:ts-detrend}
+x_i^{\text{detrended}} = x_i - (\alpha + \beta \cdot i)
+\end{equation}
+
+\subsubsection{4. Smussamento del Rumore (\textit{Noise Smoothing / Moving Average})}
+I disturbi casuali ad alta frequenza vengono attenuati mediante filtri a \textbf{media mobile centrata} (\textit{Moving Average}, MA) di ampiezza $w$:
+\begin{equation}
+\label{eq:ts-moving-average}
+\bar{x}_i = \frac{1}{w} \sum_{j = i - \lfloor w/2 \rfloor}^{i + \lfloor w/2 \rfloor} x_j
+\end{equation}
+Per una finestra dispari a 3 punti ($w=3$), la formula operativa si esplicita come $\bar{x}_i = \frac{1}{3}(x_{i-1} + x_i + x_{i+1})$.
+
+\begin{example}[Calcolo della Media Mobile Centrata con $w=3$]
+\label{ex:moving-average-calc}
+Data la sequenza $X = \langle 20, 24, 22, 26, 25 \rangle$, i valori filtrati risultano:
+\begin{itemize}
+    \item Per $i=1$: non calcolabile (manca il valore sinistro $x_0$).
+    \item Per $i=2$: $\bar{x}_2 = \frac{20 + 24 + 22}{3} = \frac{66}{3} = 22.0$.
+    \item Per $i=3$: $\bar{x}_3 = \frac{24 + 22 + 26}{3} = \frac{72}{3} = 24.0$.
+    \item Per $i=4$: $\bar{x}_4 = \frac{22 + 26 + 25}{3} = \frac{73}{3} \approx 24.333 \implies 24.3$.
+    \item Per $i=5$: non calcolabile (manca il valore destro $x_6$).
+\end{itemize}
+\end{example}
+
+% ====================================================================
+% SEZIONE 14.3: DYNAMIC TIME WARPING
+% ====================================================================
+\FloatBarrier
+\section{Dynamic Time Warping (DTW)}
+\label{sec:ts-dynamic-time-warping}
+
+Sebbene le normalizzazioni rimuovano le distorsioni sull'asse verticale delle ampiezze, esse non possono correggere le distorsioni sull'asse orizzontale dei tempi dovute ad accelerazioni o decelerazioni locali del segnale. Il \textbf{Dynamic Time Warping (DTW)}, introdotto formalmente nel riconoscimento vocale da Sakoe e Chiba~\cite{sakoe1978}, risolve questa limitazione consentendo allineamenti elastici e non lineari di tipo \textit{uno-a-molti} e \textit{molti-a-uno}.
+
+\FloatBarrier
+\subsection{Matrice di Costo Locale e Vincoli del Warping Path}
+\label{subsec:ts-dtw-path-constraints}
+
+Siano date due serie temporali $Q = \langle q_1, \dots, q_n \rangle$ e $C = \langle c_1, \dots, c_m \rangle$ di lunghezze arbitrarie $n$ ed $m$. Si costruisce una matrice di distanze locali $D \in \R^{n \times m}$, in cui ciascuna cella racchiude il costo puntuale:
+\begin{equation}
+\label{eq:ts-local-cost}
+D(i,j) = d(q_i, c_j) = |q_i - c_j| \quad (\text{oppure } (q_i - c_j)^2)
+\end{equation}
+
+Un \textbf{percorso di warping} (\textit{warping path}) $W$ \`e una successione contigua di $K$ coordinate di celle:
+\begin{equation}
+\label{eq:ts-warping-path-def}
+W = \langle w_1, w_2, \dots, w_K \rangle \quad \text{con } w_k = (i, j)_k, \; \max(n, m) \le K < n + m
+\end{equation}
+soggetta ai seguenti tre vincoli geometrici formali:
+\begin{enumerate}
+    \item \textbf{Condizione al Contorno (\textit{Boundary Condition})}:
+    \begin{equation}
+    w_1 = (1, 1) \quad \text{e} \quad w_K = (n, m)
+    \end{equation}
+    Il cammino deve iniziare nell'angolo inferiore sinistro e terminare nell'angolo superiore destro della griglia.
+    \item \textbf{Continuit\`a e Monotonicit\`a (\textit{Step Pattern})}:
+    Data la cella $w_k = (i, j)$, la cella successiva $w_{k+1} = (i', j')$ deve soddisfare:
+    \begin{equation}
+    i \le i' \le i + 1 \quad \text{e} \quad j \le j' \le j + 1
+    \end{equation}
+    con $(i', j') \neq (i, j)$. I passi elementari ammissibili si riducono a tre movimenti:
+    \begin{itemize}
+        \item $(i+1, j+1)$: \textbf{avanzamento diagonale}; entrambe le sequenze progrediscono di un passo temporale sincrono (analogo alla metrica euclidea).
+        \item $(i, j+1)$: \textbf{avanzamento orizzontale}; $Q$ resta fissa mentre $C$ avanza, espandendo la coordinata $q_i$ su pi\`u punti di $C$.
+        \item $(i+1, j)$: \textbf{avanzamento verticale}; $C$ resta fissa mentre $Q$ avanza, espandendo la coordinata $c_j$ su pi\`u punti di $Q$.
+    \end{itemize}
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Programmazione Dinamica ed Equazione di Bellman}
+\label{subsec:ts-dtw-dynamic-programming}
+
+Il costo cumulativo totale associato a un cammino di warping $W$ \`e la sommatoria dei costi locali attraversati:
+\begin{equation}
+c_W(Q, C) = \sum_{k=1}^K d(w_k) = \sum_{k=1}^K D(i_k, j_k)
+\end{equation}
+La distanza DTW corrisponde al costo del cammino ottimo che minimizza tale sommatoria:
+\begin{equation}
+\label{eq:ts-dtw-optimum}
+\text{DTW}(Q, C) = \min_{W} \left\{ c_W(Q, C) \right\}
+\end{equation}
+
+In virt\`u del principio di ottimalit\`a di Bellman, il problema gode della propriet\`a di sottostruttura ottima ed \`e risolvibile in tempo polinomiale mediante la \textbf{programmazione dinamica}. Definendo con $\gamma(i, j)$ il costo cumulativo del percorso ottimo dalla cella iniziale $(1,1)$ alla generica cella $(i,j)$, si ottiene la relazione di ricorrenza:
+\begin{equation}
+\label{eq:ts-dtw-bellman}
+\gamma(i, j) = D(i, j) + \min \begin{cases}
+\gamma(i-1, j-1) & \text{(passo diagonale)} \\
+\gamma(i-1, j)   & \text{(passo verticale)} \\
+\gamma(i, j-1)   & \text{(passo orizzontale)}
+\end{cases}
+\end{equation}
+
+\subsubsection{Algoritmo Operativo DTW}
+L'algoritmo si struttura in tre passi:
+\begin{enumerate}
+    \item \textbf{Inizializzazione delle Condizioni al Bordo}:
+    \begin{align}
+    \gamma(1, 1) &= D(1, 1) \\
+    \gamma(i, 1) &= D(i, 1) + \gamma(i-1, 1) \quad \text{per } i = 2, \dots, n \\
+    \gamma(1, j) &= D(1, j) + \gamma(1, j-1) \quad \text{per } j = 2, \dots, m
+    \end{align}
+    \item \textbf{Riempimento della Matrice $\gamma$}:
+    Si calcolano le celle interne riga per riga (o colonna per colonna) applicando la \autoref{eq:ts-dtw-bellman}. Al termine, il valore $\text{DTW}(Q, C) = \gamma(n, m)$ rappresenta la distanza minima.
+    \item \textbf{Backtracking del Cammino Ottimo}:
+    Partendo dalla cella $(n, m)$, si risale a ritroso selezionando ad ogni passo il predecessore adiacente avente il minimo valore di costo cumulato, terminando in $(1, 1)$.
+\end{enumerate}
+
+\FloatBarrier
+\subsection{Esempio Numerico Completo di Allineamento DTW}
+\label{subsec:ts-dtw-example-walkthrough}
+
+Si consideri l'allineamento tra le due sequenze di lunghezza $n=m=5$:
+\begin{equation*}
+c = \langle 3, 7, 4, 3, 4 \rangle, \quad q = \langle 5, 7, 6, 4, 2 \rangle
+\end{equation*}
+adottando la distanza assoluta puntuale $d(q_i, c_j) = |q_i - c_j|$ con indici indicizzati a base 0 ($i, j \in \{0, \dots, 4\}$). Disponendo $c$ lungo le colonne (asse $x$, $j=0 \dots 4$) e $q$ lungo le righe dal basso verso l'alto (asse $y$, $i=0 \dots 4$), la matrice dei costi locali $D$ e la risultante matrice cumulativa $\gamma$ sono tabulate in \autoref{tab:dtw-matrices-example}.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c | c c c c c | c c c c c}
+\toprule
+& \multicolumn{5}{c|}{\textbf{Matrice Costi Locali $D(i,j)$}} & \multicolumn{5}{c}{\textbf{Matrice Cumulativa $\gamma(i,j)$}} \\
+\midrule
+$q_4=2$ & 1 & 5 & 2 & 1 & 2 & 11 & 11 & 5 & \textbf{4} & \textbf{6} \\
+$q_3=4$ & 1 & 3 & 0 & 1 & 0 & 10 & 6 & \textbf{3} & \textbf{4} & 4 \\
+$q_2=6$ & 3 & 1 & 2 & 3 & 2 & 9 & 3 & \textbf{4} & 7 & 9 \\
+$q_1=7$ & 4 & 0 & 3 & 4 & 3 & 6 & \textbf{2} & 5 & 9 & 10 \\
+$q_0=5$ & 2 & 2 & 1 & 2 & 1 & \textbf{2} & 4 & 5 & 7 & 8 \\
+\midrule
+& $c_0=3$ & $c_1=7$ & $c_2=4$ & $c_3=3$ & $c_4=4$ & $c_0=3$ & $c_1=7$ & $c_2=4$ & $c_3=3$ & $c_4=4$ \\
+\bottomrule
+\end{tabular}
+\caption{Matrice dei costi locali $D$ e matrice dei costi cumulativi $\gamma$ con evidenziato in grassetto l'optimal warping path.}
+\label{tab:dtw-matrices-example}
+\end{table}
+
+Il costo totale finale vale $\gamma(4,4) = 6$. Eseguendo il backtracking a ritroso:
+\begin{equation}
+(4,4) \to (4,3) \to (3,2) \to (2,1) \to (1,1) \to (0,0)
+\end{equation}
+Il cammino ottimale $W^*$ somma i seguenti costi locali:
+\begin{align*}
+\text{Costo} &= D(0,0) + D(1,1) + D(2,1) + D(3,2) + D(4,3) + D(4,4) \\
+&= 2 + 0 + 1 + 0 + 1 + 2 = 6
+\end{align*}
+La transizione verticale da $(1,1)$ a $(2,1)$ evidenzia un warping temporale in cui il valore $c_1=7$ si allinea sia con $q_1=7$ sia con $q_2=6$.
+
+% ====================================================================
+% SEZIONE 14.4: ESERCIZIO GUIDATO
+% ====================================================================
+\FloatBarrier

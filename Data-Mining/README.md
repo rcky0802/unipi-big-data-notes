@@ -34,30 +34,9 @@ latexmk -c
 
 ## Struttura della Cartella e Indice dei Capitoli
 
-- **Capitolo 1:** Introduzione al Data Mining e il Processo KDD (`01`)
-- **Capitolo 2:** Data Understanding I: Tipologie di Dati, Attributi e Statistica Descrittiva (`02`)
-- **Capitolo 3:** Data Understanding II: Analisi Multivariata, Correlazione e Rilevamento Outliers (`03`)
-- **Capitolo 4:** Data Preparation & Cleaning: Riduzione, Discretizzazione e Trasformazione (`04`)
-- **Capitolo 5:** Laboratorio Python: Data Understanding e Data Preparation (`05`)
-- **Capitolo 6:** Misure di Prossimità, Teoria dell'Informazione e Cluster Analysis (`06`)
-- **Capitolo 7:** Cluster Analysis: Algoritmi K-Means e Clustering Gerarchico (`07`)
-- **Capitolo 8:** Cluster Analysis: Clustering Basato su Densità (DBSCAN) (`08`)
-- **Capitolo 9:** Varianti di K-Means, Criterio BIC, Modelli Mistura ed EM (`09`)
-- **Capitolo 10:** Validazione del Clustering: Misure, Teoria e Metodologie (`10`)
-- **Capitolo 11:** Analisi delle Associazioni: Concetti di Base e Algoritmi (`11`)
-- **Capitolo 12:** Sequential Pattern Mining: Modelli, Definizioni ed Esercizi (`12`)
-- **Capitolo 13:** Mining di Regole di Associazione (FP-Growth), Simulazioni di Clustering e Pattern Sequenziali (GSP) (`13`)
-- **Capitolo 14:** Serie Temporali: Similarità, Distanze, Trasformazioni e Clustering (`14`)
-- **Capitolo 15:** Serie Temporali: Motif Discovery e Matrix Profile (`15`)
-- **Capitolo 16:** Laboratorio Python: Analisi, Trasformazioni e Mining di Serie Temporali (`16`)
-- **Capitolo 17:** Laboratorio Python: Pattern Mining, Regole di Associazione e Social Network Analysis (`17`)
-- **Capitolo 18:** Laboratorio Python: Clustering per Dati Eterogenei e Multi-View (`18`)
-- **Capitolo 19:** Laboratorio Python: Topic Modeling con BERTopic (`19`)
-- **Capitolo 20:** Classificazione: Concetti di Base e Alberi di Decisione (`20`)
-- **Capitolo 21:** Alberi di Decisione Avanzati: Complessità, Valori Mancanti, Overfitting e Potatura (`21`)
-- **Capitolo 22:** Valutazione dei Modelli di Classificazione (Model Evaluation) (`22`)
-- **Capitolo 23:** Metodi Ensemble, Reti Neurali Artificiali e Backpropagation (`23`)
-- **Capitolo 24:** Laboratorio di Machine Learning: Codifica, Alberi di Decisione, Dati Sbilanciati e Generazione Sintetica (`24`)
+- **Corpo Principale (`01`–`36`, moduli teorici):** Introduzione al KDD, Data Understanding, Data Preparation, Prossimità e Clustering, Analisi delle Associazioni e Pattern Sequenziali, Serie Temporali, Classificazione, Ensemble, $K$-NN, Regole, Shapelets, Coordinated Behavior, Responsible Data Analytics, Explainable AI, Federated Learning.
+- **Appendice A (`appendice-a-esercizi.tex`):** Esercizi svolti e simulazioni algoritmiche (Sequential Pattern Mining, K-Means, GSP, DTW, $K$-NN, Decision Tree Training, CNN/Tomek Links, Network Science, Clustering Eterogeneo e Multi-Vista).
+- **Appendice B (`appendice-b-codici-python.tex`):** Laboratori e codici Python (Data Understanding/Preparation, Validazione Clustering, Time Series, Pattern Mining/SNA, Clustering Eterogeneo, Topic Modeling BERTopic, Machine Learning/Dati Sbilanciati, Shapelets, XAI & Privacy).
 
 ```text
 Data-Mining/
@@ -67,20 +46,19 @@ Data-Mining/
 ├── config/
 │   └── preamble_it.tex     # Preambolo e configurazione pacchetti
 ├── datasets/               # Dataset di esempio per le esercitazioni
-├── notebooks/              # Jupyter notebook interattivi e script figure
-│   ├── README.md           # Guida all'ambiente dei notebook
+├── scripts/                # Script Python e dataset per la generazione delle figure
 │   ├── requirements.txt    # Dipendenze Python
-│   ├── generate_dispensa_figures.py # Script generazione figure
-│   └── *.ipynb             # Notebook interattivi
+│   ├── datasets/           # Dataset usati dagli script (es. iris.csv)
+│   └── generate_dispensa_figures.py # Script generazione figure
 ├── main_it.tex             # Entry point principale per la compilazione
 ├── main.tex                # Entry point per editor VS Code
 ├── references.bib          # Bibliografia
 └── README.md               # Scheda descrittiva del corso
 ```
 
-## Ambiente Python & Jupyter Notebooks
+## Ambiente Python & Generazione Figure
 
-All'interno della cartella [notebooks/](notebooks/README.md) è disponibile l'ambiente dedicato contenente i Jupyter notebook per il data understanding, l'analisi esplorativa (EDA), la preparazione dati e gli algoritmi di clustering, oltre agli script di generazione per le figure vettoriali incluse nella dispensa.
+All'interno della cartella `scripts/` è disponibile lo script Python dedicato alla generazione delle figure vettoriali statiche incluse nella dispensa (`Data-Mining/assets/figures/it/`). La generazione va eseguita esplicitamente con `python3 Data-Mining/scripts/generate_dispensa_figures.py` oppure tramite `docker compose run --rm figures`.
 
 ## Linee Guida per i Capitoli e le Figure
 
